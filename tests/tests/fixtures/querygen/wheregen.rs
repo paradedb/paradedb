@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 
 use proptest::prelude::*;
@@ -24,9 +25,11 @@ use crate::fixtures::querygen::Column;
 #[derive(Clone, Debug)]
 pub enum Expr {
     Atom {
+        table: String,
         name: String,
         value: String,
         is_indexed: bool,
+        is_nullable: bool,
     },
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
@@ -34,24 +37,52 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn to_sql(&self, indexed_op: &str) -> String {
+    pub fn to_sql(&self, indexed_op: &str, null_extended_tables: Option<&HashSet<&str>>) -> String {
         match self {
             Expr::Atom {
+                table,
                 name,
                 value,
                 is_indexed,
+                is_nullable,
             } => {
                 let op = if *is_indexed { indexed_op } else { " = " };
-                format!("{name} {op} {value}")
+
+                // We test for expected behaviour where `@@@` operation returns
+                // only TRUE/FALSE instead of following three-valued logic
+                //
+                // However, for null extended rows in table joins, behaviour is same as normal Postgres,
+                // NULL is returned if primary key is NULL
+                if *is_indexed && *is_nullable && indexed_op == " = " {
+                    if null_extended_tables
+                        .is_some_and(|nullable_tables| nullable_tables.contains(table.as_str()))
+                    {
+                        format!(
+                            "CASE WHEN {table}.id IS NOT NULL THEN COALESCE({name} = {value}, false) ELSE {name} = {value} END"
+                        )
+                    } else {
+                        format!("{name} IS NOT DISTINCT FROM {value}")
+                    }
+                } else {
+                    format!("{name} {op} {value}")
+                }
             }
             Expr::Not(e) => {
-                format!("NOT ({})", e.to_sql(indexed_op))
+                format!("NOT ({})", e.to_sql(indexed_op, null_extended_tables))
             }
             Expr::And(l, r) => {
-                format!("({}) AND ({})", l.to_sql(indexed_op), r.to_sql(indexed_op))
+                format!(
+                    "({}) AND ({})",
+                    l.to_sql(indexed_op, null_extended_tables),
+                    r.to_sql(indexed_op, null_extended_tables)
+                )
             }
             Expr::Or(l, r) => {
-                format!("({}) OR ({})", l.to_sql(indexed_op), r.to_sql(indexed_op))
+                format!(
+                    "({}) OR ({})",
+                    l.to_sql(indexed_op, null_extended_tables),
+                    r.to_sql(indexed_op, null_extended_tables)
+                )
             }
         }
     }
@@ -65,7 +96,14 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
     let columns = columns
         .iter()
         .filter(|c| c.is_whereable)
-        .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
+        .map(|c| {
+            (
+                c.name.to_owned(),
+                c.sample_value.to_owned(),
+                c.is_indexed,
+                c.is_nullable,
+            )
+        })
         .collect::<Vec<_>>();
 
     // leaves: the atomic predicate. select a table, and a column.
@@ -73,10 +111,12 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         proptest::sample::select::<Expr>(
             columns
                 .iter()
-                .map(|(col, val, is_indexed)| Expr::Atom {
+                .map(|(col, val, is_indexed, is_nullable)| Expr::Atom {
+                    table: table.clone(),
                     name: format!("{table}.{col}"),
                     value: val.clone(),
                     is_indexed: *is_indexed,
+                    is_nullable: *is_nullable,
                 })
                 .collect::<Vec<_>>(),
         )

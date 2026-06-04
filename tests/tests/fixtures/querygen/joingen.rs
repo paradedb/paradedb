@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::{self, Debug, Display, Formatter};
 
 use proptest::prelude::*;
@@ -67,6 +67,33 @@ impl JoinExpr {
             v.push(s.table.as_str());
         }
         v
+    }
+
+    /// Keep track of which tables are null extended due to outer joins.
+    pub fn null_extended_tables(&self) -> HashSet<&str> {
+        let mut joined_tables = HashSet::new();
+        let mut null_extended_tables = HashSet::new();
+
+        joined_tables.insert(self.initial_table.as_str());
+
+        for step in &self.steps {
+            match step.join_type {
+                JoinType::Inner | JoinType::Cross => {}
+                JoinType::Left => {
+                    null_extended_tables.insert(step.table.as_str());
+                }
+                JoinType::Right => {
+                    null_extended_tables.extend(joined_tables.iter().copied());
+                }
+                JoinType::Full => {
+                    null_extended_tables.extend(joined_tables.iter().copied());
+                    null_extended_tables.insert(step.table.as_str());
+                }
+            }
+            joined_tables.insert(step.table.as_str());
+        }
+
+        null_extended_tables
     }
 
     /// Render as a SQL fragment, e.g.

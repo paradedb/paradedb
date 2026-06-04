@@ -56,6 +56,7 @@ pub struct Column {
     pub is_groupable: bool,
     pub is_whereable: bool,
     pub is_indexed: bool,
+    pub is_nullable: bool,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
     /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
@@ -77,6 +78,7 @@ impl Column {
             is_groupable: true,
             is_whereable: true,
             is_indexed: true,
+            is_nullable: false,
             bm25_options: None,
             random_generator_sql: "NULL",
             index_expression: None,
@@ -100,6 +102,11 @@ impl Column {
 
     pub const fn indexed(mut self, is_indexed: bool) -> Self {
         self.is_indexed = is_indexed;
+        self
+    }
+
+    pub const fn nullable(mut self, is_nullable: bool) -> Self {
+        self.is_nullable = is_nullable;
         self
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780595219028,
+  "lastUpdate": 1780595252573,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22822,6 +22822,108 @@ window.BENCHMARK_DATA = {
             "value": 163.21484375,
             "unit": "median mem",
             "extra": "avg mem: 181.47348214404224, max mem: 221.63671875, count: 56506"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "180c2cf155ddc27911b2493c418a7a0561ad1f42",
+          "message": "feat: Store the `pg_search` version used to create the index in the MetaPage data (#5119)\n\n## What\nStores the version of pg_search used to create the index in the MetaPage\ndata\n\n## Why\nHaving access to this enables us to make decisions that we otherwise\nlack the information for. The motivating example for this is deciding\nhow to encode timestamps in JSON fields and queries against them.\nBecause the schema just indicates it's a json field, and because json\ncan potentially store different types of data under the same key, it's\ncurrently impossible to know if I want to store/read a timestamp as a\ntantivy DateTime or an i64. If I can know what version the index was\ncreated with, I can know if this index was created before or after the\nchange to use i64 was introduced and act accordingly.\n\n## How\nExtend the MetaPageData with major, minor, and patch version info. At\ncompile time, populate the fields in the `init` function with the values\nfrom Cargo.\n\nThis change is backwards-compatible. It appends to `MetaPageData`, so\nthose bytes will be zeroes in old indexes.\n`MetaPage::created_by_version` checks for all zeroes and returns `None`\nin that case.\n\n## Tests\n- Unit tests added for:\n- show that `Version` is lexicographically orderable by its components.\n- Show that `created_by_version_major`, etc. are populated with the\ncurrent version specified by Cargo.\n- All existing tests pass",
+          "timestamp": "2026-06-04T11:02:10-06:00",
+          "tree_id": "a54059e66ae24abd084a8bec491154b77d3f8078",
+          "url": "https://github.com/paradedb/paradedb/commit/180c2cf155ddc27911b2493c418a7a0561ad1f42"
+        },
+        "date": 1780595220928,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07694910424902945, max background_merging: 2.0, count: 56154"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8364549139718855, max cpu: 9.638554, count: 56154"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.256999654410194, max mem: 26.328125, count: 56154"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.94315375184915, max cpu: 9.667674, count: 56154"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 169.33304047240625, max mem: 170.8828125, count: 56154"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51444,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51301.03965879545, max block_count: 51444.0, count: 56154"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.98602058624497, max segment_count: 56.0, count: 56154"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.620206797373995, max cpu: 27.934044, count: 56154"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 146.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 130.56259766668447, max mem: 159.4609375, count: 56154"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8145514369116835, max cpu: 27.692308, count: 56154"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 191.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 186.9294184992387, max mem: 192.03515625, count: 56154"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.623885822493598, max cpu: 33.366436, count: 56154"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.94266339552837, max mem: 222.015625, count: 56154"
           }
         ]
       }

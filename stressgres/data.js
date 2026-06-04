@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780600819406,
+  "lastUpdate": 1780601508472,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18722,6 +18722,54 @@ window.BENCHMARK_DATA = {
             "value": 5.165222204394181,
             "unit": "median tps",
             "extra": "avg tps: 5.217503968866871, max tps: 7.735192970671234, count: 56159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a",
+          "message": "feat: Support all postgres datetimes (3/4) - Remove date-awareness (#5234)\n\n## What\nWith #5233 in place, we no longer need to do any of remaining\n`is_datetime` checks. All fields that might be datetimes are in\n`PdbOwnedValue::Date` by that point.\n\n## Why\nIt's simpler!\n\n## How\nDelete, delete, delete\n\n## Tests\nAll existing unit, integration, and regression tests pass.",
+          "timestamp": "2026-06-04T12:47:20-06:00",
+          "tree_id": "5e132590dc60db210f2d4bec10ee88b0016fb500",
+          "url": "https://github.com/paradedb/paradedb/commit/4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a"
+        },
+        "date": 1780601476867,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1117.0264964547484,
+            "unit": "median tps",
+            "extra": "avg tps: 1108.0608093422268, max tps: 1187.622630251787, count: 56148"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1256.3375674516747,
+            "unit": "median tps",
+            "extra": "avg tps: 1227.8663997247183, max tps: 1281.6646657267459, count: 56148"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1793.7211320348592,
+            "unit": "median tps",
+            "extra": "avg tps: 1748.1739442584542, max tps: 1946.7766233155999, count: 56148"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.3827622396201145,
+            "unit": "median tps",
+            "extra": "avg tps: 5.425889451831068, max tps: 6.599726714116405, count: 56148"
           }
         ]
       }

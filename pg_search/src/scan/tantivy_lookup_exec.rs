@@ -34,7 +34,9 @@ use tantivy::{DocId, SegmentOrdinal};
 ///
 /// The `display_name` is preserved purely for `EXPLAIN` rendering and debugging; it should
 /// never be used for matching columns in the physical plan.
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct PhysicalDeferredField {
     /// The positional index of the column in the physical Arrow schema
     pub col_idx: usize,
@@ -135,6 +137,35 @@ impl TantivyLookupExec {
 
     pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
         self.ffhelpers.get(&indexrelid)
+    }
+
+    /// Serialize for coordinator dispatch. The `ffhelpers` are live and don't travel; the worker
+    /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
+    /// derived from `deferred_fields`, so it's recomputed on decode.
+    pub(crate) fn encode_for_dispatch(&self) -> datafusion::common::Result<Vec<u8>> {
+        serde_json::to_vec(&self.deferred_fields).map_err(|e| {
+            datafusion::common::DataFusionError::Internal(format!(
+                "TantivyLookupExec dispatch: serialize: {e}"
+            ))
+        })
+    }
+
+    pub(crate) fn decode_for_dispatch(
+        buf: &[u8],
+        input: Arc<dyn ExecutionPlan>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
+        let deferred_fields: Vec<PhysicalDeferredField> =
+            serde_json::from_slice(buf).map_err(|e| {
+                datafusion::common::DataFusionError::Internal(format!(
+                    "TantivyLookupExec dispatch: deserialize: {e}"
+                ))
+            })?;
+        Ok(Arc::new(TantivyLookupExec::new(
+            input,
+            deferred_fields,
+            ffhelpers,
+        )?))
     }
 }
 

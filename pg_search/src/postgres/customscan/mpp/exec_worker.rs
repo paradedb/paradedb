@@ -235,7 +235,6 @@ pub(crate) fn run_mpp_worker(
         parallel_state,
         &non_partitioning_segments,
         &index_segment_ids,
-        runtime,
     ) {
         Ok(v) => v,
         Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),

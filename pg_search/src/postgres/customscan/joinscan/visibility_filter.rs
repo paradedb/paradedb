@@ -770,6 +770,35 @@ impl VisibilityFilterExec {
     pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
         &self.plan_pos_oids
     }
+
+    /// Serialize for coordinator dispatch. The `ctid_resolvers` are live `FFHelper`s wired by an
+    /// optimizer rule, so they don't travel; the receiving worker re-wires them from the scans in
+    /// its decoded subtree.
+    pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
+        let payload: (&[(usize, pg_sys::Oid)], &[String]) =
+            (&self.plan_pos_oids, &self.table_names);
+        serde_json::to_vec(&payload).map_err(|e| {
+            DataFusionError::Internal(format!("VisibilityFilterExec dispatch: serialize: {e}"))
+        })
+    }
+
+    /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from the
+    /// scans the worker decoded below this node.
+    pub(crate) fn decode_for_dispatch(
+        buf: &[u8],
+        input: Arc<dyn ExecutionPlan>,
+        ctid_resolvers: Vec<(usize, Arc<FFHelper>)>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let (plan_pos_oids, table_names): (Vec<(usize, pg_sys::Oid)>, Vec<String>) =
+            serde_json::from_slice(buf).map_err(|e| {
+                DataFusionError::Internal(format!("VisibilityFilterExec dispatch: deserialize: {e}"))
+            })?;
+        let exec = VisibilityFilterExec::new(input, plan_pos_oids, table_names)?;
+        for (plan_pos, ffhelper) in ctid_resolvers {
+            exec.set_ctid_resolver(plan_pos, ffhelper);
+        }
+        Ok(Arc::new(exec))
+    }
 }
 
 impl DisplayAs for VisibilityFilterExec {

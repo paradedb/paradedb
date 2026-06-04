@@ -26,6 +26,7 @@
 
 use std::sync::Arc;
 
+use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::functions_aggregate as dfa;
@@ -38,16 +39,23 @@ use datafusion_proto::physical_plan::{
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use tantivy::index::SegmentId;
 
-use crate::api::HashSet;
+use crate::api::{HashMap, HashSet};
+use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
 use crate::scan::execution_plan::PgSearchScanPlan;
+use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
+use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
-/// Byte tag for `PgSearchScanPlan` in the extension payload. Kept even though the composed
-/// codec already records which codec decoded a node, so a future second custom exec
-/// (`FilterPassthroughExec`, `VisibilityFilterExec`, ...) can share this codec by tag.
+/// Byte tags identifying each custom exec in the extension payload. The composed codec already
+/// records which codec decoded a node; the tag picks the exec within this codec.
 const TAG_PG_SEARCH_SCAN: u8 = 2;
+const TAG_VISIBILITY_FILTER: u8 = 4;
+const TAG_TANTIVY_LOOKUP: u8 = 5;
+const TAG_SEGMENTED_TOPK: u8 = 6;
 
 /// [`PhysicalExtensionCodec`] for the `pg_search` custom execs, carrying the runtime context a
 /// worker needs to rebuild them. Encode is context-free (the leader serializes the recipe);
@@ -74,8 +82,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     fn try_decode(
         &self,
         buf: &[u8],
-        _inputs: &[Arc<dyn ExecutionPlan>],
-        _ctx: &TaskContext,
+        inputs: &[Arc<dyn ExecutionPlan>],
+        ctx: &TaskContext,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let Some((&tag, payload)) = buf.split_first() else {
             return Err(DataFusionError::Internal(
@@ -88,6 +96,28 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 self.parallel_state,
                 &self.non_partitioning_segment_ids,
             ),
+            // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
+            // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
+            // are already rebuilt; pull their helpers out of the decoded subtree.
+            TAG_VISIBILITY_FILTER => {
+                let input = single_input(inputs)?;
+                let resolvers = collect_ctid_resolvers(&input);
+                VisibilityFilterExec::decode_for_dispatch(payload, input, resolvers)
+            }
+            TAG_TANTIVY_LOOKUP => {
+                let input = single_input(inputs)?;
+                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                TantivyLookupExec::decode_for_dispatch(payload, input, ffhelpers)
+            }
+            TAG_SEGMENTED_TOPK => {
+                let input = single_input(inputs)?;
+                let ffhelper = first_scan_ffhelper(&input).ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec dispatch: no scan ffhelper in subtree".into(),
+                    )
+                })?;
+                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelper, ctx)
+            }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
             ))),
@@ -98,6 +128,21 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if let Some(scan) = node.as_any().downcast_ref::<PgSearchScanPlan>() {
             buf.push(TAG_PG_SEARCH_SCAN);
             buf.extend_from_slice(&scan.encode_for_dispatch()?);
+            return Ok(());
+        }
+        if let Some(vis) = node.as_any().downcast_ref::<VisibilityFilterExec>() {
+            buf.push(TAG_VISIBILITY_FILTER);
+            buf.extend_from_slice(&vis.encode_for_dispatch()?);
+            return Ok(());
+        }
+        if let Some(lookup) = node.as_any().downcast_ref::<TantivyLookupExec>() {
+            buf.push(TAG_TANTIVY_LOOKUP);
+            buf.extend_from_slice(&lookup.encode_for_dispatch()?);
+            return Ok(());
+        }
+        if let Some(topk) = node.as_any().downcast_ref::<SegmentedTopKExec>() {
+            buf.push(TAG_SEGMENTED_TOPK);
+            buf.extend_from_slice(&topk.encode_for_dispatch()?);
             return Ok(());
         }
         Err(DataFusionError::NotImplemented(format!(
@@ -189,6 +234,71 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 }
 
+/// Per-scan runtime handles pulled from a decoded subtree, used to re-wire the deferred execs.
+struct ScanRuntime {
+    indexrelid: u32,
+    ffhelper: Option<Arc<FFHelper>>,
+    ctid_plan_position: Option<usize>,
+}
+
+/// Walk a decoded subtree collecting each `PgSearchScanPlan`'s runtime handles. Stops naturally at
+/// network boundaries (a Remote stage has no children).
+fn collect_scan_runtime(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<ScanRuntime>) {
+    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+        out.push(ScanRuntime {
+            indexrelid: scan.indexrelid,
+            ffhelper: scan.ffhelper(),
+            ctid_plan_position: scan.deferred_ctid_plan_position(),
+        });
+    }
+    for child in plan.children() {
+        collect_scan_runtime(child, out);
+    }
+}
+
+fn single_input(inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Arc<dyn ExecutionPlan>> {
+    match inputs {
+        [one] => Ok(Arc::clone(one)),
+        _ => Err(DataFusionError::Internal(format!(
+            "PgSearchPhysicalExtensionCodec: expected one input, got {}",
+            inputs.len()
+        ))),
+    }
+}
+
+/// `(plan_position, ffhelper)` for each scan that resolves deferred ctids, for the visibility exec.
+fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, Arc<FFHelper>)> {
+    let mut scans = Vec::new();
+    collect_scan_runtime(input, &mut scans);
+    scans
+        .into_iter()
+        .filter_map(|s| match (s.ctid_plan_position, s.ffhelper) {
+            (Some(pos), Some(ff)) => Some((pos, ff)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `indexrelid -> ffhelper` for the tantivy lookup exec.
+fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u32, Arc<FFHelper>> {
+    let mut scans = Vec::new();
+    collect_scan_runtime(input, &mut scans);
+    let mut map = HashMap::default();
+    for s in scans {
+        if let Some(ff) = s.ffhelper {
+            map.insert(s.indexrelid, ff);
+        }
+    }
+    map
+}
+
+/// The first scan ffhelper below this node, for the segmented top-k exec (single source).
+fn first_scan_ffhelper(input: &Arc<dyn ExecutionPlan>) -> Option<Arc<FFHelper>> {
+    let mut scans = Vec::new();
+    collect_scan_runtime(input, &mut scans);
+    scans.into_iter().find_map(|s| s.ffhelper)
+}
+
 /// Compose the fork's [`DistributedCodec`] (handles `Network*Exec` / `StageExec`) with the
 /// `pg_search` codec. Encode and decode MUST build the same list in the same order: the composed
 /// codec records each node's codec index on the wire.
@@ -199,6 +309,17 @@ fn combined_codec(user: PgSearchPhysicalExtensionCodec) -> ComposedPhysicalExten
 /// Serialize one stage's physical subplan for dispatch. Context-free: only the recipe travels,
 /// the receiving worker injects its own runtime state on decode.
 pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> {
+    // FilterPassthroughExec only matters during filter-pushdown optimization; once the plan is
+    // finalized it delegates to its inner node, so strip it and ship the inner directly.
+    let plan = plan
+        .transform_down(|node| {
+            if let Some(fp) = node.as_any().downcast_ref::<FilterPassthroughExec>() {
+                Ok(Transformed::yes(Arc::clone(fp.inner())))
+            } else {
+                Ok(Transformed::no(node))
+            }
+        })?
+        .data;
     let codec = combined_codec(PgSearchPhysicalExtensionCodec::default());
     let proto = PhysicalPlanNode::try_from_physical_plan(plan, &codec)?;
     Ok(prost::Message::encode_to_vec(&proto))

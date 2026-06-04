@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 
 use proptest::prelude::*;
@@ -37,7 +36,7 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn to_sql(&self, indexed_op: &str, null_extended_tables: Option<&HashSet<&str>>) -> String {
+    pub fn to_sql(&self, indexed_op: &str) -> String {
         match self {
             Expr::Atom {
                 table,
@@ -48,41 +47,25 @@ impl Expr {
             } => {
                 let op = if *is_indexed { indexed_op } else { " = " };
 
-                // We test for expected behaviour where `@@@` operation returns
-                // only TRUE/FALSE instead of following three-valued logic
-                //
-                // However, for null extended rows in table joins, `@@@` operator can return
-                // NULL if primary key (id) is NULL
+                // Match `@@@` behaviour for nullable indexed columns:
+                // - real rows with NULL values are non-matches (FALSE)
+                // - null-extended rows in outer joins preserve SQL NULL semantics
                 if *is_indexed && *is_nullable && indexed_op == " = " {
-                    if null_extended_tables
-                        .is_some_and(|nullable_tables| nullable_tables.contains(table.as_str()))
-                    {
-                        format!(
-                            "CASE WHEN {table}.id IS NOT NULL THEN COALESCE({name} = {value}, false) ELSE {name} = {value} END"
-                        )
-                    } else {
-                        format!("{name} IS NOT DISTINCT FROM {value}")
-                    }
+                    format!(
+                        "CASE WHEN {table}.id IS NOT NULL THEN COALESCE({name} = {value}, false) ELSE {name} = {value} END"
+                    )
                 } else {
                     format!("{name} {op} {value}")
                 }
             }
             Expr::Not(e) => {
-                format!("NOT ({})", e.to_sql(indexed_op, null_extended_tables))
+                format!("NOT ({})", e.to_sql(indexed_op))
             }
             Expr::And(l, r) => {
-                format!(
-                    "({}) AND ({})",
-                    l.to_sql(indexed_op, null_extended_tables),
-                    r.to_sql(indexed_op, null_extended_tables)
-                )
+                format!("({}) AND ({})", l.to_sql(indexed_op), r.to_sql(indexed_op))
             }
             Expr::Or(l, r) => {
-                format!(
-                    "({}) OR ({})",
-                    l.to_sql(indexed_op, null_extended_tables),
-                    r.to_sql(indexed_op, null_extended_tables)
-                )
+                format!("({}) OR ({})", l.to_sql(indexed_op), r.to_sql(indexed_op))
             }
         }
     }

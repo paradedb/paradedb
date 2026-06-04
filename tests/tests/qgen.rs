@@ -177,7 +177,7 @@ impl GeneratedSubquery {
                     WHERE {inner_table_name}.{column} = {outer_table_name}.{column} \
                     AND {} {}\
                 )",
-                self.inner_where_expr.to_sql(op, None),
+                self.inner_where_expr.to_sql(op),
                 self.paging_exprs,
                 column = self.column,
             ),
@@ -185,7 +185,7 @@ impl GeneratedSubquery {
                 "{outer_table_name}.{column} IN (\
                     SELECT {column} FROM {inner_table_name} WHERE {} {}\
                 )",
-                self.inner_where_expr.to_sql(op, None),
+                self.inner_where_expr.to_sql(op),
                 self.paging_exprs,
                 column = self.column,
             ),
@@ -233,13 +233,11 @@ async fn generated_joins_small(database: Db) {
         gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
-        let null_extended_tables = join.null_extended_tables();
-
         let from = format!("SELECT COUNT(*) {join_clause} ");
 
         compare(
-            &format!("{from} WHERE {}", where_expr.to_sql(" = ", Some(&null_extended_tables))),
-            &format!("{from} WHERE {}", where_expr.to_sql("@@@", None)),
+            &format!("{from} WHERE {}", where_expr.to_sql(" = ")),
+            &format!("{from} WHERE {}", where_expr.to_sql("@@@")),
             &gucs,
             &mut pool.pull(),
             &setup_sql,
@@ -299,8 +297,8 @@ async fn generated_joins_large_limit(database: Db) {
         let from = format!("SELECT {target_list} {join_clause} ");
 
         compare(
-            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ", None)),
-            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@", None)),
+            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
+            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
             &gucs,
             &mut pool.pull(),
             &setup_sql,
@@ -335,8 +333,8 @@ async fn generated_single_relation(database: Db) {
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
     )| {
         compare(
-            &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ", None)),
-            &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@", None)),
+            &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
+            &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
             &gucs,
             &mut pool.pull(),
             &setup_sql,
@@ -419,15 +417,15 @@ async fn generated_group_by_aggregates(database: Db) {
         // Create combined WHERE clause for PostgreSQL using = operator
         let pg_where_clause = format!(
             "({}) AND ({})",
-            text_where_expr.to_sql(" = ", None),
-            numeric_where_expr.to_sql(" < ", None)
+            text_where_expr.to_sql(" = "),
+            numeric_where_expr.to_sql(" < ")
         );
 
         // Create combined WHERE clause for BM25 using appropriate operators
         let bm25_where_clause = format!(
             "({}) AND ({})",
-            text_where_expr.to_sql("@@@", None),
-            numeric_where_expr.to_sql(" < ", None)
+            text_where_expr.to_sql("@@@"),
+            numeric_where_expr.to_sql(" < ")
         );
 
         let pg_query = format!(
@@ -499,8 +497,8 @@ async fn generated_paging_small(database: Db) {
         gucs in any::<PgGucs>(),
     )| {
         compare(
-            &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ", None)),
-            &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@", None)),
+            &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
+            &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
             &gucs,
             &mut pool.pull(),
             &setup_sql,
@@ -598,13 +596,13 @@ async fn generated_subquery(database: Db) {
             "SELECT COUNT(*) FROM {outer_table_name} \
             WHERE {} AND {}",
             subquery.to_sql(" = ", outer_table_name, inner_table_name),
-            outer_where_expr.to_sql(" = ", None),
+            outer_where_expr.to_sql(" = "),
         );
         let bm25 = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
             WHERE {} AND {}",
             subquery.to_sql("@@@", outer_table_name, inner_table_name),
-            outer_where_expr.to_sql("@@@", None),
+            outer_where_expr.to_sql("@@@"),
         );
 
         compare(
@@ -735,13 +733,13 @@ async fn generated_joinscan(database: Db) {
         let from = format!("SELECT {distinct_kw}{target_cols} {join_clause}");
 
         // Build WHERE clause parts for BM25 query
-        let mut bm25_where_parts = vec![outer_bm25.to_sql("@@@", None)];
-        let mut pg_where_parts = vec![outer_bm25.to_sql(" = ", None)];
+        let mut bm25_where_parts = vec![outer_bm25.to_sql("@@@")];
+        let mut pg_where_parts = vec![outer_bm25.to_sql(" = ")];
 
         // Optionally add inner table BM25 predicate
         if include_inner_bm25 && num_tables >= 2 {
-            bm25_where_parts.push(inner_bm25.to_sql("@@@", None));
-            pg_where_parts.push(inner_bm25.to_sql(" = ", None));
+            bm25_where_parts.push(inner_bm25.to_sql("@@@"));
+            pg_where_parts.push(inner_bm25.to_sql(" = "));
         }
 
         // Optionally add HeapCondition (same for both queries since it's a regular comparison)
@@ -913,8 +911,8 @@ async fn generated_aggregate_join(database: Db) {
         let group_by_clause = group_by_expr.to_sql();
 
         // Build WHERE clauses
-        let bm25_where = outer_bm25.to_sql("@@@", None);
-        let pg_where = outer_bm25.to_sql(" = ", None);
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
 
         // PostgreSQL native query
         let pg_query = format!(
@@ -1025,8 +1023,8 @@ async fn generated_aggregate_join_distinct(database: Db) {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
-        let bm25_where = outer_bm25.to_sql("@@@", None);
-        let pg_where = outer_bm25.to_sql(" = ", None);
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
 
         let pg_query = format!(
             "SELECT {select_list} {join_clause} WHERE {pg_where} {group_by_clause}"
@@ -1130,15 +1128,15 @@ async fn generated_group_by_stddev(database: Db) {
         // Create combined WHERE clause for PostgreSQL using = operator
         let pg_where_clause = format!(
             "({}) AND ({})",
-            text_where_expr.to_sql(" = ", None),
-            numeric_where_expr.to_sql(" < ", None)
+            text_where_expr.to_sql(" = "),
+            numeric_where_expr.to_sql(" < ")
         );
 
         // Create combined WHERE clause for BM25 using appropriate operators
         let bm25_where_clause = format!(
             "({}) AND ({})",
-            text_where_expr.to_sql("@@@", None),
-            numeric_where_expr.to_sql(" < ", None)
+            text_where_expr.to_sql("@@@"),
+            numeric_where_expr.to_sql(" < ")
         );
 
         let pg_query = format!(
@@ -1259,8 +1257,8 @@ async fn generated_join_aggregates(database: Db) {
         let group_by_clause = group_by_expr.to_sql();
 
         // Build WHERE clauses
-        let bm25_where = outer_bm25.to_sql("@@@", None);
-        let pg_where = outer_bm25.to_sql(" = ", None);
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
 
         // PostgreSQL native query
         let pg_query = format!(

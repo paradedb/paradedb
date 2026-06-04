@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780597046076,
+  "lastUpdate": 1780597080113,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10670,6 +10670,138 @@ window.BENCHMARK_DATA = {
             "value": 57.1484375,
             "unit": "median mem",
             "extra": "avg mem: 55.75163111036691, max mem: 69.578125, count: 55055"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fdc6d2d43cf464b18d10f347f69790709b9ab96b",
+          "message": "feat: Support all postgres datetimes (2/4) - Centralize all date handling via a new version of OwnedValue (#5233)\n\n## What\nThis is a step towards handling all postgres datetimes. This PR\nintroduces two new types, `PostgresDateTime` and `PdbOwnedValue`, which\nare analogues of Tantivy's `DateTime` and `OwnedValue` respectively. It\nreplaces all use of `OwnedValue` with `PdbOwnedValue`. This PR looks\nmassive, but 75% of it is effectively `sed/OwnedValue/PdbOwnedValue`.\n\n## Why\n`PdbOwnedValue::Date` wraps a `PostgresDateTime`. `PostgresDateTime` can\nhold all valid postgres timestamps. By changing our internal type for\ndatetimes to one that can represent all postgres-supported datetimes\ninstead of just tantivy-supported datetimes, we can by and large keep\nour internal logic as-is. This will be very convenient for the final PR\nof this series, as it allows us to keep the \"is this a datetime\"\nquestion at the construction and deconstruction of `PdbOwnedValue`s,\nminus a few json-related caveats. If we were to instead just store\ndatetimes as `OwnedValue::I64` going forward, we then have _a lot_ more\nplaces to put decisions (Is this an i64 a number or a datetime? Do I\nneed to handle it differently?) and would have to maintain two versions\nof any datetime handling code, one for the `tantivy::DateTime` legacy\nversion and one for the `i64` new version. Not to mention the footguns\nof passing around unlabeled i64 timestamps.\n\n## How\n- `PostgresDateTime` holds a postgres `Timestamp`, which itself is just\nan i64 representing microseconds from the pg epoch. It comes with a\nbunch of conversion functions.\n- (nearly mechanically) Replace all uses of `OwnedValue` with\n`PdbOwnedValue` and make accompanying minor modifications as necessary\n- Simplify `RangeToTantivyValue` to 1) Use `PdbOwnedValue`, and 2)\nConstruct the final value directly instead of relying on round-tripping\nthrough JSON.\n- `PdbOwnedValue` serialization is basically `OwnedValue`'s\nserialization, with a couple caveats:\n- `PdbOwnedValue::Date` get's tagged with `date`. We serialize the\ndatetime as an rfc3339-compliant string, so we need an easy way to\nidentify datetimes later. This replaces the current date-tagging\nbehavior of `DateAwareOwnedValue`.\n- During deserialization, we will try to parse `PdbOwnedValue::Str` as\nrfc3999-compliant datetime strings. This mirrors what tantivy does for\njson values, and allows us to no longer require an \"is_datetime\" flag.\nAll locations that require \"looser than rfc3339\" parsing remain as\nstrings, and get parsed using looser variants later when we can pair the\nstring value with the target typoid.\n- Generally cleanup all datetime parsing by routing through\n`PostgresDateTime`\n\n## Tests\n- All existing unit, integration, and regression tests pass untouched.",
+          "timestamp": "2026-06-04T11:56:48-06:00",
+          "tree_id": "c9dedd0f2ca4ed967ca67614883fd76927754b05",
+          "url": "https://github.com/paradedb/paradedb/commit/fdc6d2d43cf464b18d10f347f69790709b9ab96b"
+        },
+        "date": 1780597048146,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.442352516188036, max cpu: 27.118645, count: 54894"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 65.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.053780852074, max mem: 75.96875, count: 54894"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.72791699677985, max cpu: 23.244553, count: 54894"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 63.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.68122775542409, max mem: 74.62109375, count: 54894"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.556356377944604, max cpu: 9.411765, count: 54894"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.96151567395799, max mem: 38.078125, count: 54894"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.74017665964113, max cpu: 9.467456, count: 54894"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 62.375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.88052862391609, max mem: 73.3125, count: 54894"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.593867838467026, max cpu: 9.384164, count: 109788"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 61.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.66963499397703, max mem: 72.9765625, count: 109788"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1756,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1750.4051444602323, max block_count: 3055.0, count: 54894"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.211225270521368, max segment_count: 27.0, count: 54894"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.786521373534971, max cpu: 19.37046, count: 54894"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 63.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.6464624577595, max mem: 74.546875, count: 54894"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.473353135210119, max cpu: 9.239654, count: 54894"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.80092869325427, max mem: 64.2421875, count: 54894"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.504622323722161, max cpu: 4.7856426, count: 54894"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.55804524970853, max mem: 68.9296875, count: 54894"
           }
         ]
       }

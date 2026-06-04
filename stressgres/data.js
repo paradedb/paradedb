@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780607485210,
+  "lastUpdate": 1780608136090,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37534,6 +37534,54 @@ window.BENCHMARK_DATA = {
             "value": 267.6893657253034,
             "unit": "median tps",
             "extra": "avg tps: 263.9621358026989, max tps: 518.0561838238127, count: 107654"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86792b28af291493e57c1db571117108e8d5496b",
+          "message": "feat: tuples done progress monitoring (#4973)\n\n# Ticket(s) Closed\n\n- Closes #3826 \n\n## What\n\nAdds `tuples_done` progress reporting to the\n`pg_stat_progress_create_index` view during BM25 index creation.\n\n## Why\n\nPreviously, when creating a BM25 index, the `tuples_done` column in\n`pg_stat_progress_create_index` was always empty. This made it\nimpossible for users to estimate how long a `CREATE INDEX` would take on\nlarge tables. With this change, users can monitor index creation\nprogress using standard PostgreSQL tooling.\n\n## How\n\n- Added `ntuples_done` to the `WorkerCoordination` shared memory struct\nso all workers can contribute to a global tuple count.\n- Each worker maintains a local count and flushes it to the shared\ncounter in batches (currently every 5 tuples, happy to change this if\nneeded or removing batching altogether) to reduce spinlock contention.\n- When the leader participates in the build, it reports progress\ndirectly from `build_callback`.\n- When the leader does **not** participate, it reports progress via an\noptional callback on `ParallelProcessMessageQueue` that fires while\npolling for worker messages.\n- Added a `CoordinationPtr` newtype to safely pass the shared memory\npointer into the callback closure.\n- `tuples_total` is also now set before the build starts using the heap\ntuple estimate.\n- The `is_leader` check is computed once at worker initialization and\ncached in `WorkerBuildState` to avoid acquiring the spinlock on every\ntuple.\n- The `ParallelProcessMessageQueue` in `builder.rs` now supports an\noptional `still_processing_callback` that is invoked when no messages\nare available from workers. Existing consumers via `into_iter()` are\nunaffected.\n\n## Tests\nManually verified across both `parallel_leader_participation = true` and\n`parallel_leader_participation = false` modes by monitoring\n`pg_stat_progress_create_index` from a second session during index\ncreation on a 100k row table.\n<img width=\"557\" height=\"277\" alt=\"Screenshot 2026-05-03 at 7 50 26 PM\"\nsrc=\"https://github.com/user-attachments/assets/7cddebe7-80f6-478c-9051-6da8e436a72f\"\n/>",
+          "timestamp": "2026-06-04T13:14:05-07:00",
+          "tree_id": "7e000daaf23bcbb6ffd5f4a1d896349ff3b7c156",
+          "url": "https://github.com/paradedb/paradedb/commit/86792b28af291493e57c1db571117108e8d5496b"
+        },
+        "date": 1780608103690,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 564.0962303962277,
+            "unit": "median tps",
+            "extra": "avg tps: 567.2875032499486, max tps: 690.6194571074212, count: 53871"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 617.5672624285497,
+            "unit": "median tps",
+            "extra": "avg tps: 620.1917577017812, max tps: 763.8397156246564, count: 53871"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.67672649152027,
+            "unit": "median tps",
+            "extra": "avg tps: 91.82186036164435, max tps: 101.03586421050775, count: 53871"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 272.3032890726084,
+            "unit": "median tps",
+            "extra": "avg tps: 265.18902261709667, max tps: 519.6558809752133, count: 107742"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780696991207,
+  "lastUpdate": 1780697064803,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25972,6 +25972,108 @@ window.BENCHMARK_DATA = {
             "value": 163.2734375,
             "unit": "median mem",
             "extra": "avg mem: 181.7138456177817, max mem: 221.671875, count: 56367"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "v.malov@atomicmail.io",
+            "name": "Victor Malov",
+            "username": "likern"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a059e3bab7135eab376717e2d8eb50d52147cbd4",
+          "message": "feat(ltree): Add BM25 index usage for ltree <@ operator (#4999)\n\n# Ticket Closed\n\n- Partially #4906\n\n## What\n\nAdds BM25 index pushdown support for native PostgreSQL `ltree` hierarchy\noperators:\n\n- `ltree <@ ltree`\n\nThis allows read queries that use common `ltree <@ ltree` operator to\nuse ParadeDB's BM25 index directly, instead of falling back to a\nPostgreSQL heap-side filter / native scan path.\n\nThe supported indexed cases are:\n\n```sql\nWHERE category <@ 'Top.Science'::ltree\n```\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-05T17:18:42-04:00",
+          "tree_id": "295f85df48fad97be90a958f8ca074b5980316a8",
+          "url": "https://github.com/paradedb/paradedb/commit/a059e3bab7135eab376717e2d8eb50d52147cbd4"
+        },
+        "date": 1780696993238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07549038682632613, max background_merging: 2.0, count: 56537"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.697179906625742, max cpu: 9.495549, count: 56537"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.512505776084687, max mem: 25.52734375, count: 56537"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.012582983137154, max cpu: 32.43243, count: 56537"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 191.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.1682212809753, max mem: 191.78515625, count: 56537"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51263,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51135.343438809985, max block_count: 51263.0, count: 56537"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.38344800749952, max segment_count: 56.0, count: 56537"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6362775292131735, max cpu: 28.374382, count: 56537"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 148.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.21688458719512, max mem: 162.48046875, count: 56537"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.817392049881079, max cpu: 23.346306, count: 56537"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 184.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.20564264054954, max mem: 186.265625, count: 56537"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.814584933977677, max cpu: 33.7011, count: 56537"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.7737863451147, max mem: 221.578125, count: 56537"
           }
         ]
       }

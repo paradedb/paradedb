@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780697747832,
+  "lastUpdate": 1780698396903,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38194,6 +38194,54 @@ window.BENCHMARK_DATA = {
             "value": 272.3032890726084,
             "unit": "median tps",
             "extra": "avg tps: 265.18902261709667, max tps: 519.6558809752133, count: 107742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "v.malov@atomicmail.io",
+            "name": "Victor Malov",
+            "username": "likern"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a059e3bab7135eab376717e2d8eb50d52147cbd4",
+          "message": "feat(ltree): Add BM25 index usage for ltree <@ operator (#4999)\n\n# Ticket Closed\n\n- Partially #4906\n\n## What\n\nAdds BM25 index pushdown support for native PostgreSQL `ltree` hierarchy\noperators:\n\n- `ltree <@ ltree`\n\nThis allows read queries that use common `ltree <@ ltree` operator to\nuse ParadeDB's BM25 index directly, instead of falling back to a\nPostgreSQL heap-side filter / native scan path.\n\nThe supported indexed cases are:\n\n```sql\nWHERE category <@ 'Top.Science'::ltree\n```\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-05T17:18:42-04:00",
+          "tree_id": "295f85df48fad97be90a958f8ca074b5980316a8",
+          "url": "https://github.com/paradedb/paradedb/commit/a059e3bab7135eab376717e2d8eb50d52147cbd4"
+        },
+        "date": 1780698365320,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 582.2268080856882,
+            "unit": "median tps",
+            "extra": "avg tps: 586.8998142958859, max tps: 742.7897930454792, count: 53832"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 611.9991741234937,
+            "unit": "median tps",
+            "extra": "avg tps: 618.8572212634894, max tps: 769.156480547925, count: 53832"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 92.26235668577316,
+            "unit": "median tps",
+            "extra": "avg tps: 92.3236294737186, max tps: 93.1133632372607, count: 53832"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 272.69026257000485,
+            "unit": "median tps",
+            "extra": "avg tps: 268.31516508164077, max tps: 558.6684349433935, count: 107664"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780697064803,
+  "lastUpdate": 1780697711696,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29148,6 +29148,60 @@ window.BENCHMARK_DATA = {
             "value": 15.725852538440954,
             "unit": "median tps",
             "extra": "avg tps: 15.59162000068558, max tps: 19.60557657883316, count: 55572"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "v.malov@atomicmail.io",
+            "name": "Victor Malov",
+            "username": "likern"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a059e3bab7135eab376717e2d8eb50d52147cbd4",
+          "message": "feat(ltree): Add BM25 index usage for ltree <@ operator (#4999)\n\n# Ticket Closed\n\n- Partially #4906\n\n## What\n\nAdds BM25 index pushdown support for native PostgreSQL `ltree` hierarchy\noperators:\n\n- `ltree <@ ltree`\n\nThis allows read queries that use common `ltree <@ ltree` operator to\nuse ParadeDB's BM25 index directly, instead of falling back to a\nPostgreSQL heap-side filter / native scan path.\n\nThe supported indexed cases are:\n\n```sql\nWHERE category <@ 'Top.Science'::ltree\n```\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-05T17:18:42-04:00",
+          "tree_id": "295f85df48fad97be90a958f8ca074b5980316a8",
+          "url": "https://github.com/paradedb/paradedb/commit/a059e3bab7135eab376717e2d8eb50d52147cbd4"
+        },
+        "date": 1780697679816,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.79072013352886,
+            "unit": "median tps",
+            "extra": "avg tps: 29.457477415713708, max tps: 30.38134010906239, count: 55565"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.30384235505548,
+            "unit": "median tps",
+            "extra": "avg tps: 275.70140269817523, max tps: 3094.9377475678866, count: 55565"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 556.0141540073795,
+            "unit": "median tps",
+            "extra": "avg tps: 539.3474904012861, max tps: 600.9972118860418, count: 55565"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 157.68965524725974,
+            "unit": "median tps",
+            "extra": "avg tps: 172.63477703013427, max tps: 965.5086888555489, count: 111130"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.597233534130856,
+            "unit": "median tps",
+            "extra": "avg tps: 15.362738290714299, max tps: 21.477290975648252, count: 55565"
           }
         ]
       }

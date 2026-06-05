@@ -89,7 +89,14 @@ container_cpu_count() {
   awk -v cpus="$cpus" -v visible_cpus="$(nproc)" 'BEGIN {cpus = cpus > visible_cpus ? visible_cpus : cpus; print (cpus < 1 ? 1 : cpus)}'
 }
 
+PDB_TUNE=${PDB_TUNE:-true}
+
 tune() {
+  if [[ "$PDB_TUNE" == "false" ]]; then
+    echo "Auto-tuning is disabled, skipping."
+    return 0
+  fi
+
   TOTAL_RAM_MB=$(container_memory_mb)
   CPU_COUNT=$(container_cpu_count)
 

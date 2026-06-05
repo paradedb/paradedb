@@ -51,7 +51,7 @@ container_memory_mb() {
   elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
     # cgroup v1: very large values are used as an effectively-unlimited sentinel.
     bytes=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
-    [ "$bytes" -ge 68719476736 ] && bytes="" # Here we assume if the value is larger than 64TB it isn't a real memory limit
+    [ "$bytes" -ge 10000000000000000 ] && bytes=""
   fi
 
   # If cgroups are unavailable or unlimited, fall back to host-visible memory.
@@ -84,8 +84,9 @@ container_cpu_count() {
     cpus=$(nproc)
   fi
 
-  # Make sure CPU count is at least 1
-  awk "BEGIN {print ($cpus < 1 ? 1 : $cpus)}"
+  # Choose the minimum of the CPU count detected between the cgroup and nproc in case the cgroup quota is higher than the cpuset
+  # Set 1 CPU as the minimum.
+  awk -v cpus="$cpus" -v visible_cpus="$(nproc)" 'BEGIN {cpus = cpus > visible_cpus ? visible_cpus : cpus; print (cpus < 1 ? 1 : cpus)}'
 }
 
 tune() {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780696265902,
+  "lastUpdate": 1780696299619,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17322,6 +17322,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.02141196623027, max segment_count: 132.0, count: 57211"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "v.malov@atomicmail.io",
+            "name": "Victor Malov",
+            "username": "likern"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a059e3bab7135eab376717e2d8eb50d52147cbd4",
+          "message": "feat(ltree): Add BM25 index usage for ltree <@ operator (#4999)\n\n# Ticket Closed\n\n- Partially #4906\n\n## What\n\nAdds BM25 index pushdown support for native PostgreSQL `ltree` hierarchy\noperators:\n\n- `ltree <@ ltree`\n\nThis allows read queries that use common `ltree <@ ltree` operator to\nuse ParadeDB's BM25 index directly, instead of falling back to a\nPostgreSQL heap-side filter / native scan path.\n\nThe supported indexed cases are:\n\n```sql\nWHERE category <@ 'Top.Science'::ltree\n```\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-05T17:18:42-04:00",
+          "tree_id": "295f85df48fad97be90a958f8ca074b5980316a8",
+          "url": "https://github.com/paradedb/paradedb/commit/a059e3bab7135eab376717e2d8eb50d52147cbd4"
+        },
+        "date": 1780696267748,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.095119822490332, max cpu: 42.899704, count: 57755"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.36086898591032, max mem: 237.03515625, count: 57755"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.5584500815733, max cpu: 33.267326, count: 57755"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 176.98726097848672, max mem: 177.75, count: 57755"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34426,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33634.84254177128, max block_count: 36070.0, count: 57755"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.51268288459873, max segment_count: 130.0, count: 57755"
           }
         ]
       }

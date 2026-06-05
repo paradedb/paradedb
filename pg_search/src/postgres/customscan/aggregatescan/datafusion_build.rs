@@ -404,12 +404,11 @@ unsafe fn build_scan_node(
         )
     })?;
 
-    // Suppressed under MPP: a pre-sorted scan lowers to a throttled scan (runtime-variable
-    // partition count) that can't be coordinator-dispatched; without the hint the scan stays
-    // single-partition lazy and DataFusion handles ordering, which dispatches.
-    let sort_order = if crate::gucs::is_columnar_sort_enabled()
-        && !crate::postgres::customscan::mpp::glue::mpp_is_active()
-    {
+    // Under MPP a pre-sorted scan lowers to a multi-partition scan that coordinator dispatch
+    // can't encode (it only ships a single-partition lazy leaf), so the leader's
+    // `build_dispatch_blob` fails and the query falls back to serial. Results stay correct; the
+    // trade-off is losing MPP for sorted-source queries.
+    let sort_order = if crate::gucs::is_columnar_sort_enabled() {
         bm25_index.options().sort_by().into_iter().next()
     } else {
         None

@@ -39,6 +39,8 @@ pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
 
+use crate::postgres::catalog::is_ltree_oid;
+
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
@@ -1733,6 +1735,8 @@ unsafe fn fill_slot_from_row(
     let mut aggregates = row.aggregates.clone().into_iter();
     let mut natts_processed = 0;
 
+    let grouping_columns = aggregate_clause.grouping_columns();
+
     // Fill in values according to the target list
     for (i, entry) in aggregate_clause.entries().enumerate() {
         let attr = tupdesc.get(i).expect("missing attribute");
@@ -1743,7 +1747,11 @@ unsafe fn fill_slot_from_row(
                 if row.is_empty() {
                     None
                 } else {
-                    group_key_to_datum(row.group_keys[*gc_idx].clone(), expected_typoid)
+                    group_key_to_datum(
+                        row.group_keys[*gc_idx].clone(),
+                        expected_typoid,
+                        grouping_columns[*gc_idx].original_type_oid,
+                    )
                 }
             }
             TargetListEntry::Aggregate(agg_type) => {
@@ -1787,6 +1795,44 @@ unsafe fn fill_slot_from_row(
     (*slot).tts_nvalid = natts as i16;
 }
 
+/// Decodes internal binary fast-field representations for known-safe type casts.
+///
+/// Because `AggregateScan` maps grouping columns directly to `INDEX_VAR`s pointing at
+/// the final scan slot, Postgres expects the slot to contain the Datum of the
+/// *cast* type (e.g., `TEXTOID`), not the base column type. `try_into_datum` will
+/// use this cast type to decode the `TantivyValue`.
+///
+/// For types that use an internal binary encoding in Tantivy (like `ltree` using `\0`
+/// separators), casting directly to `TEXTOID` would expose the binary encoding.
+/// This function intercepts known-safe conversions and decodes the internal
+/// representation back into a standard `TantivyValue` string before it is cast.
+///
+/// This approach is only valid when the grouping and comparison semantics of the
+/// binary-encoded fast field value are strictly equivalent to the semantics of
+/// the projected value.
+fn decode_safe_cast(
+    mut key: TantivyValue,
+    original_typoid: pg_sys::Oid,
+    expected_typoid: pg_sys::Oid,
+) -> TantivyValue {
+    if original_typoid == expected_typoid {
+        return key;
+    }
+
+    match (original_typoid, expected_typoid) {
+        (orig, pg_sys::TEXTOID) if is_ltree_oid(orig) => {
+            if let PdbOwnedValue::Str(ref s) = key.0 {
+                key = TantivyValue(PdbOwnedValue::Str(
+                    crate::postgres::catalog::facet_encoded_str_to_ltree_text(s),
+                ));
+            }
+            key
+        }
+        // Add other safe `original_typoid` -> `expected_typoid` conversions here
+        _ => key,
+    }
+}
+
 /// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels
 /// (used for I64/U64/F64/Bool when the aggregator omits a row) and the
 /// datetime decoding path (Tantivy returns ISO-8601 strings; we parse them
@@ -1797,6 +1843,7 @@ unsafe fn fill_slot_from_row(
 unsafe fn group_key_to_datum(
     key: TantivyValue,
     expected_typoid: pg_sys::Oid,
+    original_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
     // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
@@ -1812,6 +1859,8 @@ unsafe fn group_key_to_datum(
     if is_null_sentinel {
         return None;
     }
+
+    let key = decode_safe_cast(key, original_typoid, expected_typoid);
 
     if !is_datetime_type(expected_typoid) {
         return key

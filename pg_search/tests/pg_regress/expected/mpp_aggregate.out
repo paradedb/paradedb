@@ -154,32 +154,35 @@ SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
-   Backend: DataFusion
-   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
-   Aggregates: COUNT(*)
-   DataFusion Physical Plan: 
-     : ┌───── DistributedExec ── Tasks: t0:[p0]
-     : │ AggregateExec: mode=Final, gby=[], aggr=[agg_0]
-     : │   CoalescePartitionsExec
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
-     : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
-     :   │ AggregateExec: mode=Partial, gby=[], aggr=[agg_0]
-     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
-     :   │     CoalescePartitionsExec
-     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-     :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-     :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── Tasks: t0:[p0..p2]
-     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-     :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-     :     └──────────────────────────────────────────────────
-(23 rows)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather
+   Output: (count(*))
+   Workers Planned: 3
+   ->  Parallel Custom Scan (ParadeDB Aggregate Scan)
+         Output: (count(*))
+         Backend: DataFusion
+         Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec ── Tasks: t0:[p0]
+           : │ AggregateExec: mode=Final, gby=[], aggr=[agg_0]
+           : │   CoalescePartitionsExec
+           : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
+           :   │ AggregateExec: mode=Partial, gby=[], aggr=[agg_0]
+           :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+           :   │     CoalescePartitionsExec
+           :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+           :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+(26 rows)
 
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -202,12 +205,12 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
-   ->  Gather Merge
+   ->  Sort
          Output: f.title, (count(*)), (sum(p.size_bytes))
-         Workers Planned: 3
-         ->  Sort
+         Sort Key: f.title
+         ->  Gather
                Output: f.title, (count(*)), (sum(p.size_bytes))
-               Sort Key: f.title
+               Workers Planned: 3
                ->  Parallel Custom Scan (ParadeDB Aggregate Scan)
                      Output: f.title, (count(*)), (sum(p.size_bytes))
                      Backend: DataFusion

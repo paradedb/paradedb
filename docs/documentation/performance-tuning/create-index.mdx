@@ -16,9 +16,11 @@ SET max_parallel_maintenance_workers = 8;
 
 In order for `max_parallel_maintenance_workers` to take effect, it must be less than or equal to both `max_parallel_workers` and `max_worker_processes`.
 
+A good rule of thumb for `max_parallel_maintenance_workers` is `CPUs / 2 (minimum 2, maximum 8)`.
+
 ### Configure Indexing Memory
 
-The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can slow down parallel index builds. We recommend at least `64MB` per
+The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can slow down parallel index builds. A good starting value is `RAM / 16` and at least `64MB` per
 [parallel indexing worker](#raise-parallel-indexing-workers).
 
 ```sql

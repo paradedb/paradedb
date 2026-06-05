@@ -17,15 +17,23 @@ parallel queries. Finally, `max_parallel_workers_per_gather` limits how many wor
 
 ```init postgresql.conf
 max_worker_processes = 72
-max_parallel_workers = 64;
-max_parallel_workers_per_gather = 4;
+max_parallel_workers = 64
+max_parallel_workers_per_gather = 4
 ```
 
 In the above example, the maximum number of workers that a single query can receive is set to `4`. The `max_parallel_workers` pool
 is set to `64`, which means that `16` queries can execute simultaneously with `4` workers each. Finally, `max_worker_processes` is
 set to `72` to give headroom for other workers like autovacuum and replication.
 
-In practice, we recommend experimenting with different settings, as the best configuration depends on the underlying hardware,
+This is a good starting point:
+
+```
+max_parallel_workers = 5 * CPUs
+max_worker_processes = max_parallel_workers + 8
+max_parallel_workers_per_gather = CPUs / 2
+```
+
+We recommend experimenting with different settings, as the best configuration depends on the underlying hardware,
 query patterns, and volume of data.
 
 <Note>
@@ -37,8 +45,7 @@ query patterns, and volume of data.
 
 ## Raise Shared Buffers
 
-`shared_buffers` controls how much memory is available to the Postgres buffer cache. We recommend allocating no more than 40% of total memory
-to `shared_buffers`.
+`shared_buffers` controls how much memory is available to the Postgres buffer cache. We recommend starting with 25% of total memory for `shared_buffers` and no more than 40% of total memory.
 
 ```bash postgresql.conf
 shared_buffers = 8GB

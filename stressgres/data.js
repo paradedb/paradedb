@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780696299619,
+  "lastUpdate": 1780696991207,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20114,6 +20114,54 @@ window.BENCHMARK_DATA = {
             "value": 5.379931684774545,
             "unit": "median tps",
             "extra": "avg tps: 5.394639801730169, max tps: 6.32415198639685, count: 56367"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "v.malov@atomicmail.io",
+            "name": "Victor Malov",
+            "username": "likern"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a059e3bab7135eab376717e2d8eb50d52147cbd4",
+          "message": "feat(ltree): Add BM25 index usage for ltree <@ operator (#4999)\n\n# Ticket Closed\n\n- Partially #4906\n\n## What\n\nAdds BM25 index pushdown support for native PostgreSQL `ltree` hierarchy\noperators:\n\n- `ltree <@ ltree`\n\nThis allows read queries that use common `ltree <@ ltree` operator to\nuse ParadeDB's BM25 index directly, instead of falling back to a\nPostgreSQL heap-side filter / native scan path.\n\nThe supported indexed cases are:\n\n```sql\nWHERE category <@ 'Top.Science'::ltree\n```\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-05T17:18:42-04:00",
+          "tree_id": "295f85df48fad97be90a958f8ca074b5980316a8",
+          "url": "https://github.com/paradedb/paradedb/commit/a059e3bab7135eab376717e2d8eb50d52147cbd4"
+        },
+        "date": 1780696958675,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1062.3652854576355,
+            "unit": "median tps",
+            "extra": "avg tps: 1059.6866716605314, max tps: 1139.4209043493972, count: 56537"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1178.587875399015,
+            "unit": "median tps",
+            "extra": "avg tps: 1147.3951251205194, max tps: 1193.4835419662566, count: 56537"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1806.0509260886272,
+            "unit": "median tps",
+            "extra": "avg tps: 1756.7008248801653, max tps: 1996.6716487931, count: 56537"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.305335793623302,
+            "unit": "median tps",
+            "extra": "avg tps: 5.3283413722778805, max tps: 7.13316546379503, count: 56537"
           }
         ]
       }

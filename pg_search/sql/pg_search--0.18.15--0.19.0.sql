@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.19.0'" to load this file. \quit
+
 -- pg_search/src/postgres/storage/metadata.rs:404
 -- pg_search::postgres::storage::metadata::bgmerger_state
 CREATE  FUNCTION "bgmerger_state"(

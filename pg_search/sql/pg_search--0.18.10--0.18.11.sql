@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.18.11'" to load this file. \quit
+
 DROP FUNCTION IF EXISTS snippet(field anyelement, start_tag text, end_tag text, max_num_chars pg_catalog.int4);
 CREATE OR REPLACE FUNCTION snippet(field anyelement, start_tag text DEFAULT '<b>', end_tag text DEFAULT '</b>', max_num_chars pg_catalog.int4 DEFAULT '150', "limit" pg_catalog.int4 DEFAULT NULL, "offset" pg_catalog.int4 DEFAULT NULL) RETURNS text AS 'MODULE_PATHNAME', 'snippet_from_relation_wrapper' LANGUAGE c PARALLEL SAFE STABLE;
 DROP FUNCTION IF EXISTS snippet_positions(field anyelement);

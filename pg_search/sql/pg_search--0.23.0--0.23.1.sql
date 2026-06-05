@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.23.1'" to load this file. \quit
+
 -----------------------------------------------------------------------
 -- Begin replicating migrations that accidentally got put in 0.22.5--0.22.6
 ----------------------------------------------------------------------

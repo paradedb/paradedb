@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.17.0'" to load this file. \quit
+
 CREATE  FUNCTION "fsm_info"(
     "index" regclass /* pgrx::rel::PgRelation */
 ) RETURNS TABLE (

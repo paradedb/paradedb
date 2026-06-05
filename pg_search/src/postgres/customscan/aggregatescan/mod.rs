@@ -1110,7 +1110,14 @@ impl AggregateScan {
         let Some(heap_rte) = heap_rte else {
             return Vec::new();
         };
-        let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
+
+        // If it's not a plain relation (e.g. it's a partitioned table), we can't do Tantivy agg directly.
+        // Parent partitioned tables are not yet supported for aggregate pushdown.
+        let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
+            return Vec::new();
+        };
+
+        let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
             if has_paradedb_agg {
                 Self::add_planner_warning(
                     "Aggregate Scan not used: table must have a BM25 index",

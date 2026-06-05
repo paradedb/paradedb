@@ -41,51 +41,55 @@ for DB in template1 paradedb "$POSTGRES_DB"; do
   psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;"
 done
 
-echo "Tuning postgresql.conf based on available container resources..."
-if [ -f /sys/fs/cgroup/memory.max ] && [ "$(cat /sys/fs/cgroup/memory.max)" != "max" ]; then
-  TOTAL_RAM_MB=$(awk "BEGIN {print int($(cat /sys/fs/cgroup/memory.max) / 1024 / 1024)}")
-elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
-  CGROUP_V1_LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
-  # cgroup v1 reports ~2^63 when no limit is set -- fall through to /proc/meminfo
-  if [ "$CGROUP_V1_LIMIT" -lt 68719476736 ]; then # < 64TB = real limit
-    TOTAL_RAM_MB=$(awk "BEGIN {print int($CGROUP_V1_LIMIT / 1024 / 1024)}")
-  else
-    TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{print int($2 / 1024)}')
+container_memory_mb() {
+  local bytes=""
+
+  if [ -r /sys/fs/cgroup/memory.max ]; then
+    # cgroup v2: "max" means the container has no explicit memory limit.
+    bytes=$(cat /sys/fs/cgroup/memory.max)
+    [ "$bytes" = "max" ] && bytes=""
+  elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+    # cgroup v1: very large values are used as an effectively-unlimited sentinel.
+    bytes=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+    [ "$bytes" -ge 68719476736 ] && bytes="" # Here we assume if the value is larger than 64TB it isn't a real memory limit
   fi
-else
-  # Fallback to host /proc/meminfo if cgroups are not available
-  # TODO: this awk command fails
-  TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{print int($2 / 1024)}')
-fi
 
-if [ -z "$TOTAL_RAM_MB" ]; then
-  echo "ParadeDB auto-tune: WARNING: Could not detect system RAM. Exiting."
-  exit 0
-fi
+  # If cgroups are unavailable or unlimited, fall back to host-visible memory.
+  if [ -z "$bytes" ]; then
+    awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo
+  else
+    awk "BEGIN {print int($bytes / 1024 / 1024)}"
+  fi
+}
 
-if [ "$TOTAL_RAM_MB" -lt 512 ]; then
-  echo "ParadeDB auto-tune: System RAM (${TOTAL_RAM_MB}MB) below 512MB minimum. Exiting."
-  exit 0
-fi
+container_cpu_count() {
+  local quota="" period="" cpus=""
 
-if [ -f /sys/fs/cgroup/cpu.max ] && [ "$(awk '{print $1}' /sys/fs/cgroup/cpu.max)" != "max" ]; then
-  # cgroup v2
-  CPU_QUOTA=$(awk '{print $1}' /sys/fs/cgroup/cpu.max)
-  CPU_PERIOD=$(awk '{print $2}' /sys/fs/cgroup/cpu.max)
-  CPU_COUNT=$(awk "BEGIN {printf \"%.0f\", $CPU_QUOTA / $CPU_PERIOD}")
-elif [ -f /sys/fs/cgroup/cpu/cpu.cfs_quota_us ] && [ "$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)" != "-1" ]; then
-  # cgroup v1
-  CPU_QUOTA=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
-  CPU_PERIOD=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
-  CPU_COUNT=$(awk "BEGIN {printf \"%.0f\", $CPU_QUOTA / $CPU_PERIOD}")
-else
-  CPU_COUNT=$(nproc)
-fi
+  if [ -r /sys/fs/cgroup/cpu.max ]; then
+    # cgroup v2: "max" means there is no quota, only the scheduler default.
+    read -r quota period < /sys/fs/cgroup/cpu.max
+    [ "$quota" = "max" ] && quota=""
+  elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
+    # cgroup v1: a negative quota means the CPU quota is unlimited.
+    quota=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+    period=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+    [ "$quota" -lt 0 ] && quota=""
+  fi
 
-# Ensure CPU_COUNT is at least 1
-if [ "$CPU_COUNT" -lt 1 ]; then
-  CPU_COUNT=1
-fi
+  if [ -n "$quota" ]; then
+    # quota / period gives the number of CPUs allowed by the cgroup.
+    cpus=$(awk "BEGIN {print $quota / $period}")
+  else
+    # If there is no CPU quota, use the CPU count visible to the process.
+    cpus=$(nproc)
+  fi
+
+  # Make sure CPU count is at least 1
+  awk "BEGIN {print ($cpus < 1 ? 1 : $cpus)}"
+}
+
+TOTAL_RAM_MB=$(container_memory_mb)
+CPU_COUNT=$(container_cpu_count)
 
 SHARED_BUFFERS_MB=$(awk "BEGIN {s=int($TOTAL_RAM_MB * 0.25); print (s > 16384 ? 16384 : s)}")
 MAX_CONNECTIONS=100 # This is the postgres default

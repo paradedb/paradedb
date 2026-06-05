@@ -738,8 +738,11 @@ impl BM25IndexOptionsData {
     pub fn sort_by(&self) -> Vec<SortByField> {
         let sort_by_str = self.get_str(self.sort_by_offset, "".to_string());
         if sort_by_str.is_empty() {
-            // Default: no segment sorting
-            return vec![];
+            // Default: sort by ctid ASC
+            return vec![SortByField::new(
+                crate::api::FieldName::from("ctid".to_string()),
+                SortByDirection::Asc,
+            )];
         }
         parse_sort_by_string(&sort_by_str)
     }

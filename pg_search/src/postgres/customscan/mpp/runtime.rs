@@ -40,7 +40,7 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
 use datafusion_distributed::{
-    ChannelKey, CooperativeScheduler, RemoteStage, WorkerConnection, WorkerDispatch,
+    CooperativeScheduler, RemoteStage, WorkerConnection, WorkerDispatch,
     WorkerDispatchRequest, WorkerResolver, WorkerSink, WorkerTransport,
 };
 use futures::stream::BoxStream;
@@ -273,8 +273,7 @@ struct ShmMqWorkerConnection {
 }
 
 impl WorkerConnection for ShmMqWorkerConnection {
-    fn execute(&self, key: ChannelKey) -> Result<BoxStream<'static, Result<RecordBatch>>> {
-        let partition = key.partition;
+    fn execute(&self, partition: usize) -> Result<BoxStream<'static, Result<RecordBatch>>> {
         let partition_u32 = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: partition={partition} > u32::MAX"

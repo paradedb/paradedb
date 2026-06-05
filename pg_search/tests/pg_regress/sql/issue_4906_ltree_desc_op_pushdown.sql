@@ -12,6 +12,15 @@
 --     Top.ScienceX            does NOT match
 --     Top.Science_Biology     does NOT match
 --     Topical.Science         does NOT match
+--
+-- Note on how `<@` is admitted into the scan:
+--   `<@` is a plain PostgreSQL operator. ParadeDB can lower it into a BM25 facet
+--   subtree query, but on its own it does NOT justify a Custom Scan (it sets
+--   uses_tantivy_to_query, not uses_our_operator). To exercise the pushdown we
+--   pair it with `id @@@ pdb.all()` -- one of our operators -- which forces the
+--   Custom Scan. `pdb.all()` matches every row, so it never changes the result
+--   set; it only gives the planner a reason to choose our scan, after which the
+--   `<@` predicate rides along as a pushed-down facet query.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE EXTENSION IF NOT EXISTS ltree;
@@ -54,9 +63,9 @@ WITH (key_field = 'id');
 
 ANALYZE issue_4906_ltree;
 
--- Force the planner to choose Custom Scan if ParadeDB creates a valid CustomPath.
--- Keep enable_custom_scan_without_operator OFF to prove that `<@` itself was
--- pushed down as an indexed predicate, not admitted by the broad fallback GUC.
+-- Force the planner to choose Custom Scan when we ask for it via `pdb.all()`.
+-- enable_custom_scan_without_operator stays OFF throughout, so the only thing
+-- that admits the scan is our `@@@`/`pdb.all()` operator -- never `<@` by itself.
 SET enable_seqscan = off;
 SET paradedb.enable_custom_scan = on;
 SET paradedb.enable_custom_scan_without_operator = off;
@@ -87,9 +96,8 @@ END;
 $$;
 
 -- 1. Core planner assertion:
---    `category <@ 'Top.Science'::ltree` must use ParadeDB Custom Scan even
---    though the SQL contains no @@@ operator and
---    enable_custom_scan_without_operator is OFF.
+--    With `id @@@ pdb.all()` forcing the Custom Scan, `category <@ 'Top.Science'`
+--    is pushed down into the BM25 index as a facet subtree query.
 SELECT
     plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS uses_paradedb_custom_scan,
     plan LIKE '%Index: issue_4906_ltree_idx%' AS uses_bm25_index,
@@ -101,19 +109,39 @@ FROM (
         $$SELECT id, category
           FROM issue_4906_ltree
          WHERE category <@ 'Top.Science'::ltree
+           AND id @@@ pdb.all()
+         ORDER BY id$$
+    ) AS plan
+) s;
+
+-- 1b. New contract: a bare `<@` (no @@@ / pdb.all, and
+--     enable_custom_scan_without_operator OFF) must NOT justify a Custom Scan on
+--     its own. `<@` is a native PostgreSQL operator, so the planner is free to
+--     execute it without us; to force pushdown, use `pdb.all()` (as above) or
+--     enable paradedb.enable_custom_scan_without_operator.
+SELECT
+    plan NOT LIKE '%Custom Scan (ParadeDB Base Scan)%' AS bare_ltree_does_not_force_custom_scan
+FROM (
+    SELECT pg_temp.issue_4906_explain_text(
+        $$SELECT id, category
+          FROM issue_4906_ltree
+         WHERE category <@ 'Top.Science'::ltree
          ORDER BY id$$
     ) AS plan
 ) s;
 
 -- 2. The same predicate on a non-indexed ltree column must NOT be pushed into
---    ParadeDB Custom Scan. This catches accidental pushdown of the wrong field.
+--    ParadeDB Custom Scan, even when `pdb.all()` forces the scan. This catches
+--    accidental pushdown of the wrong field: `unindexed_category` is not in the
+--    BM25 index, so it stays a heap filter rather than a facet query.
 SELECT
-    plan NOT LIKE '%Custom Scan (ParadeDB Base Scan)%' AS nonindexed_ltree_column_not_pushed_down
+    plan NOT LIKE '%"field":"unindexed_category"%' AS nonindexed_ltree_column_not_pushed_down
 FROM (
     SELECT pg_temp.issue_4906_explain_text(
         $$SELECT id, unindexed_category
           FROM issue_4906_ltree
          WHERE unindexed_category <@ 'Top.Science'::ltree
+           AND id @@@ pdb.all()
          ORDER BY id$$
     ) AS plan
 ) s;
@@ -123,7 +151,8 @@ FROM (
 --    traps are excluded; NULL is excluded.
 SELECT array_agg(id ORDER BY id) AS descendant_ids_top_science
 FROM issue_4906_ltree
-WHERE category <@ 'Top.Science'::ltree;
+WHERE category <@ 'Top.Science'::ltree
+  AND id @@@ pdb.all();
 
 -- 4. Compare pushed `<@` against PostgreSQL's no-index test analogue `^<@`.
 --    The result must be byte-for-byte the same as native no-index ltree semantics.
@@ -132,6 +161,7 @@ SELECT
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
         WHERE category <@ 'Top.Science'::ltree
+          AND id @@@ pdb.all()
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
@@ -146,6 +176,7 @@ SELECT
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
         WHERE category <@ 'Top.Science'::ltree
+          AND id @@@ pdb.all()
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
@@ -157,13 +188,15 @@ SELECT
 --    because AstronomyStars is a sibling label, not a descendant label.
 SELECT array_agg(id ORDER BY id) AS descendant_ids_top_science_astronomy
 FROM issue_4906_ltree
-WHERE category <@ 'Top.Science.Astronomy'::ltree;
+WHERE category <@ 'Top.Science.Astronomy'::ltree
+  AND id @@@ pdb.all();
 
 SELECT
     (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
         WHERE category <@ 'Top.Science.Astronomy'::ltree
+          AND id @@@ pdb.all()
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
@@ -175,6 +208,7 @@ SELECT
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
         WHERE category <@ 'Top.Science.Astronomy'::ltree
+          AND id @@@ pdb.all()
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
@@ -186,27 +220,31 @@ SELECT
 SELECT array_agg(id ORDER BY id) AS equality_is_included
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
-  AND category = 'Top.Science'::ltree;
+  AND category = 'Top.Science'::ltree
+  AND id @@@ pdb.all();
 
 -- 8. Explicit string-prefix traps:
 --    These must all be excluded for ancestor Top.Science.
 SELECT count(*) AS string_prefix_trap_count
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
-  AND id IN (7, 8, 9, 10, 11, 12, 13);
+  AND id IN (7, 8, 9, 10, 11, 12, 13)
+  AND id @@@ pdb.all();
 
 -- 9. Top-level ancestor:
 --    Descendants of Top include Top itself and everything whose first label is
 --    exactly Top. It must not include Other.Top.Science, top.Science, or NULL.
 SELECT array_agg(id ORDER BY id) AS descendant_ids_top
 FROM issue_4906_ltree
-WHERE category <@ 'Top'::ltree;
+WHERE category <@ 'Top'::ltree
+  AND id @@@ pdb.all();
 
 SELECT
     (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
         WHERE category <@ 'Top'::ltree
+          AND id @@@ pdb.all()
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
@@ -217,7 +255,8 @@ SELECT
 --     or root facet.
 SELECT coalesce(array_agg(id ORDER BY id), ARRAY[]::bigint[]) AS no_match_ids
 FROM issue_4906_ltree
-WHERE category <@ 'Top.Science.Astronomy.Deep'::ltree;
+WHERE category <@ 'Top.Science.Astronomy.Deep'::ltree
+  AND id @@@ pdb.all();
 
 -- 11. Combined predicate:
 --     Make sure the ltree pushdown composes with an additional heap-side qual.
@@ -230,7 +269,8 @@ SET paradedb.enable_filter_pushdown = on;
 SELECT array_agg(id ORDER BY id) AS combined_predicate_ids
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
-  AND (id + 0) >= 15;
+  AND (id + 0) >= 15
+  AND id @@@ pdb.all();
 
 
 -- 12. Plan for the combined predicate should still use ParadeDB Custom Scan
@@ -256,7 +296,8 @@ FROM (
         $$SELECT id, category
           FROM issue_4906_ltree
          WHERE category <@ 'Top.Science'::ltree
-           AND (id + 0) >= 15$$
+           AND (id + 0) >= 15
+           AND id @@@ pdb.all()$$
     ) AS plan
 ) s;
 
@@ -310,8 +351,8 @@ SET paradedb.enable_custom_scan_without_operator = off;
 SET paradedb.enable_filter_pushdown = on;
 
 -- 13a. Query implies the partial-index predicate and should use the partial
---      BM25 index. The original SQL contains no @@@ operator, so this also
---      verifies that `uses_index_pushdown` is enough to allow BaseScan.
+--      BM25 index. `id @@@ pdb.all()` forces the Custom Scan; the `<@` predicate
+--      is then pushed down as a facet query.
 SELECT
     plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_index_uses_paradedb_custom_scan,
     plan LIKE '%Index: issue_4906_ltree_partial_idx%' AS partial_index_uses_expected_bm25_index,
@@ -323,7 +364,8 @@ FROM (
         $$SELECT id, category
             FROM issue_4906_ltree_partial
            WHERE is_indexed
-             AND category <@ 'Top.Science'::ltree$$
+             AND category <@ 'Top.Science'::ltree
+             AND id @@@ pdb.all()$$
     ) AS plan
 ) s;
 
@@ -333,7 +375,8 @@ FROM (
 SELECT array_agg(id ORDER BY id) AS partial_index_descendant_ids
 FROM issue_4906_ltree_partial
 WHERE is_indexed
-  AND category <@ 'Top.Science'::ltree;
+  AND category <@ 'Top.Science'::ltree
+  AND id @@@ pdb.all();
 
 -- 13c. Compare against native no-index ltree semantics plus the same partial
 --      predicate. This guards against accidentally turning `<@` into string
@@ -344,6 +387,7 @@ SELECT
         FROM issue_4906_ltree_partial
         WHERE is_indexed
           AND category <@ 'Top.Science'::ltree
+          AND id @@@ pdb.all()
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree_partial
@@ -351,16 +395,17 @@ SELECT
           AND category ^<@ 'Top.Science'::ltree
     ) AS partial_index_matches_ltree_noindex_semantics;
 
--- 13d. The query does NOT imply the partial-index predicate. It must not use
---      the partial BM25 index, even though the ltree predicate itself is
---      pushdown-capable.
+-- 13d. The query does NOT imply the partial-index predicate. Even with
+--      `pdb.all()` asking for our scan, the partial BM25 index cannot be used
+--      (the query doesn't guarantee is_indexed), so no ParadeDB Custom Scan.
 SELECT
     plan NOT LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_index_not_used_without_predicate
 FROM (
     SELECT pg_temp.issue_4906_explain_text(
         $$SELECT id, category
             FROM issue_4906_ltree_partial
-           WHERE category <@ 'Top.Science'::ltree$$
+           WHERE category <@ 'Top.Science'::ltree
+             AND id @@@ pdb.all()$$
     ) AS plan
 ) s;
 
@@ -372,23 +417,18 @@ FROM (
         $$SELECT id, category
             FROM issue_4906_ltree_partial
            WHERE NOT is_indexed
-             AND category <@ 'Top.Science'::ltree$$
+             AND category <@ 'Top.Science'::ltree
+             AND id @@@ pdb.all()$$
     ) AS plan
 ) s;
 
 -- 14. Partial qual extraction fallback with SubPlan + ltree `<@`.
 --
---     This test covers the code path:
---
---       if quals.is_none() {
---           extract each RestrictInfo individually;
---           skip only SubPlan clauses;
---           accept partial_quals if uses_our_operator OR uses_index_pushdown;
---       }
---
---     The query contains no @@@ operator. The only index-backed predicate is
---     `category <@ 'Top.Science'::ltree`, so this specifically verifies the
---     `partial_state.uses_index_pushdown` branch.
+--     This test covers the code path where the top-level qual can't be extracted
+--     as a whole (because of the SubPlan), so each RestrictInfo is extracted
+--     individually, SubPlan clauses are skipped, and the remaining quals are
+--     accepted because `id @@@ pdb.all()` sets uses_our_operator. The `<@`
+--     predicate is then pushed down alongside it as a facet query.
 DROP TABLE IF EXISTS issue_4906_ltree_subplan_flags CASCADE;
 
 CREATE TABLE issue_4906_ltree_subplan_flags (
@@ -425,6 +465,7 @@ SELECT array_agg(p.id ORDER BY p.id) AS partial_qual_subplan_ids
 FROM issue_4906_ltree_partial p
 WHERE p.is_indexed
   AND p.category <@ 'Top.Science'::ltree
+  AND p.id @@@ pdb.all()
   AND COALESCE(
         (
             SELECT f.keep
@@ -436,8 +477,8 @@ WHERE p.is_indexed
 
 -- 14b. Plan assertion:
 --      the SubPlan should not prevent ParadeDB from using the extracted ltree
---      pushdown qual. The ltree predicate is accepted via uses_index_pushdown,
---      not via uses_our_operator.
+--      pushdown qual. The scan is admitted by `id @@@ pdb.all()`
+--      (uses_our_operator), and `<@` is pushed down as a facet query.
 SELECT
     plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_qual_subplan_uses_paradedb_custom_scan,
     plan LIKE '%Tantivy Query:%parse_with_field%' AS partial_qual_subplan_uses_parse_with_field,
@@ -449,6 +490,7 @@ FROM (
             FROM issue_4906_ltree_partial p
            WHERE p.is_indexed
              AND p.category <@ 'Top.Science'::ltree
+             AND p.id @@@ pdb.all()
              AND COALESCE(
                    (
                        SELECT f.keep

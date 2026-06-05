@@ -1275,17 +1275,13 @@ unsafe fn try_pushdown(
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
         state.uses_tantivy_to_query = true;
 
-        // Some pushdowns aren't written with `@@@` in SQL but are still backed by a
-        // real indexed query. For example:
-        //
-        //   path <@ 'Top.Science'::ltree
-        //
-        // is a plain PostgreSQL operator that we lower into a Tantivy facet subtree
-        // query. Like `@@@`, it is one of "our operators": it justifies the Custom
-        // Scan on its own, so flag it as such rather than as a heap filter.
-        if matches!(&pushdown_result, Some(Qual::PushdownLtreeDescendant { .. })) {
-            state.uses_our_operator = true;
-        }
+        // Note: plain PostgreSQL operators we can lower into a Tantivy query (e.g.
+        // `path <@ 'Top.Science'::ltree`, lowered to a facet subtree query) set
+        // `uses_tantivy_to_query`, but NOT `uses_our_operator`. They are not
+        // operators that only we can execute, so they should not force the Custom
+        // Scan on their own -- that's left to the planner's cost decision. To force
+        // pushdown of such an operator, use `pdb.all()` or enable
+        // `paradedb.enable_custom_scan_without_operator`.
 
         pushdown_result
     }

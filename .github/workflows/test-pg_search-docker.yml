@@ -196,6 +196,155 @@ jobs:
         if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
+      - name: Test Postgres Auto-tuning
+        if: steps.release_gate.outputs.skip != 'true'
+        run: |
+          assert_not_tuned() {
+            local name="$1"
+            local log_message="$2"
+            local tuning_block
+
+            docker logs "$name" 2>&1 | grep -F "$log_message"
+            tuning_block="$(docker exec "$name" bash -c 'awk "/# Begin ParadeDB tuning recommendations/ {show=1} show {print} /# End ParadeDB tuning recommendations/ {show=0}" "$PGDATA/postgresql.conf"')"
+            echo "$tuning_block"
+
+            if [ -n "$tuning_block" ]; then
+              echo "Error: ${name} unexpectedly appended auto-tuning settings"
+              exit 1
+            fi
+          }
+
+          assert_tuned() {
+            local name="$1"
+            local actual_file
+            local expected_file
+
+            expected_file="$(mktemp)"
+            actual_file="$(mktemp)"
+            cat > "$expected_file"
+            docker exec "$name" bash -c 'awk "/# Begin ParadeDB tuning recommendations/ {show=1} show {print} /# End ParadeDB tuning recommendations/ {show=0}" "$PGDATA/postgresql.conf"' > "$actual_file"
+            cat "$actual_file"
+
+            if [ ! -s "$actual_file" ]; then
+              echo "Error: ${name} did not append auto-tuning settings"
+              exit 1
+            fi
+
+            git diff --no-index -- "$expected_file" "$actual_file"
+          }
+
+          docker run -d \
+            --name paradedb-autotune-disabled \
+            --cpus 2 \
+            --memory 1g \
+            -e POSTGRES_USER=myuser \
+            -e POSTGRES_PASSWORD=mypassword \
+            -e POSTGRES_DB=mydatabase \
+            -e PDB_TUNE=false \
+            paradedb/paradedb:latest
+          sleep 8
+          assert_not_tuned paradedb-autotune-disabled "Auto-tuning is disabled, skipping."
+          docker rm -f paradedb-autotune-disabled
+
+          docker run -d \
+            --name paradedb-autotune-low-memory \
+            --cpus 2 \
+            --memory 511m \
+            -e POSTGRES_USER=myuser \
+            -e POSTGRES_PASSWORD=mypassword \
+            -e POSTGRES_DB=mydatabase \
+            paradedb/paradedb:latest
+          sleep 8
+          assert_not_tuned paradedb-autotune-low-memory "Available memory is less than 512mb, skipping auto tuning."
+          docker rm -f paradedb-autotune-low-memory
+
+          docker run -d \
+            --name paradedb-autotune-default-resources \
+            -e POSTGRES_USER=myuser \
+            -e POSTGRES_PASSWORD=mypassword \
+            -e POSTGRES_DB=mydatabase \
+            paradedb/paradedb:latest
+          sleep 8
+          tuning_block="$(docker exec paradedb-autotune-default-resources bash -c 'awk "/# Begin ParadeDB tuning recommendations/ {show=1} show {print} /# End ParadeDB tuning recommendations/ {show=0}" "$PGDATA/postgresql.conf"')"
+          echo "$tuning_block"
+          if [ -z "$tuning_block" ]; then
+            echo "Error: paradedb-autotune-default-resources did not append auto-tuning settings"
+            exit 1
+          fi
+          docker rm -f paradedb-autotune-default-resources
+
+          docker run -d \
+            --name paradedb-autotune-fractional-cpu \
+            --cpus 2.7 \
+            --memory 2g \
+            -e POSTGRES_USER=myuser \
+            -e POSTGRES_PASSWORD=mypassword \
+            -e POSTGRES_DB=mydatabase \
+            paradedb/paradedb:latest
+          sleep 8
+          assert_tuned paradedb-autotune-fractional-cpu <<'EOF'
+          # Begin ParadeDB tuning recommendations
+          # Parameters based on auto-detected 2.7 CPUs and 2048MB RAM
+          shared_buffers = '512MB' # 25% of RAM, capped at 16GB
+          effective_cache_size = '1536MB' # 75% of RAM
+          maintenance_work_mem = '128MB' # RAM / 16, capped at 2GB
+          work_mem = '15MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+          max_parallel_workers = '13' # CPUs * 5
+          max_worker_processes = '21' # max_parallel_workers + 8
+          max_parallel_workers_per_gather = '1' # CPUs / 2, at least 1
+          max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
+          # End ParadeDB tuning recommendations
+          EOF
+          docker rm -f paradedb-autotune-fractional-cpu
+
+          docker run -d \
+            --name paradedb-autotune-1cpu-1gb \
+            --cpus 1 \
+            --memory 1g \
+            -e POSTGRES_USER=myuser \
+            -e POSTGRES_PASSWORD=mypassword \
+            -e POSTGRES_DB=mydatabase \
+            paradedb/paradedb:latest
+          sleep 8
+          assert_tuned paradedb-autotune-1cpu-1gb <<'EOF'
+          # Begin ParadeDB tuning recommendations
+          # Parameters based on auto-detected 1 CPUs and 1024MB RAM
+          shared_buffers = '256MB' # 25% of RAM, capped at 16GB
+          effective_cache_size = '768MB' # 75% of RAM
+          maintenance_work_mem = '64MB' # RAM / 16, capped at 2GB
+          work_mem = '15MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+          max_parallel_workers = '5' # CPUs * 5
+          max_worker_processes = '13' # max_parallel_workers + 8
+          max_parallel_workers_per_gather = '1' # CPUs / 2, at least 1
+          max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
+          # End ParadeDB tuning recommendations
+          EOF
+          docker rm -f paradedb-autotune-1cpu-1gb
+
+          docker run -d \
+            --name paradedb-autotune-4cpu-8gb \
+            --cpus 4 \
+            --memory 8g \
+            -e POSTGRES_USER=myuser \
+            -e POSTGRES_PASSWORD=mypassword \
+            -e POSTGRES_DB=mydatabase \
+            paradedb/paradedb:latest
+          sleep 8
+          assert_tuned paradedb-autotune-4cpu-8gb <<'EOF'
+          # Begin ParadeDB tuning recommendations
+          # Parameters based on auto-detected 4 CPUs and 8192MB RAM
+          shared_buffers = '2048MB' # 25% of RAM, capped at 16GB
+          effective_cache_size = '6144MB' # 75% of RAM
+          maintenance_work_mem = '512MB' # RAM / 16, capped at 2GB
+          work_mem = '20MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+          max_parallel_workers = '20' # CPUs * 5
+          max_worker_processes = '28' # max_parallel_workers + 8
+          max_parallel_workers_per_gather = '2' # CPUs / 2, at least 1
+          max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
+          # End ParadeDB tuning recommendations
+          EOF
+          docker rm -f paradedb-autotune-4cpu-8gb
+
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History
         if: steps.release_gate.outputs.skip != 'true'

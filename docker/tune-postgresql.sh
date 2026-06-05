@@ -2,55 +2,10 @@
 
 set -Eeuo pipefail
 
-PGDATA=${PGDATA:-/var/lib/postgresql/data}
-
-# NOTE: This script writes directly to postgresql.auto.conf, which is the same file
-# used by PostgreSQL's 'ALTER SYSTEM' command. Manual 'ALTER SYSTEM' changes to
-# tuned parameters will be preserved on container restart unless overridden by PG_TUNE_*
-# environment variables. To permanently pin a specific value, users must use PG_TUNE_*
-# environment variables.
-CONF_FILE="$PGDATA/postgresql.auto.conf"
+CONF_FILE="$PGDATA/postgresql.conf"
 
 # Ensure the file is always owned by postgres on exit, even if the script fails midway.
 trap 'chown postgres:postgres "$CONF_FILE" 2>/dev/null || true' EXIT
-
-tune_param() {
-  local param=$1
-  local value=$2
-  local env_override=$3
-
-  if [ ! -f "$CONF_FILE" ]; then
-    touch "$CONF_FILE"
-  fi
-
-  # 1. Highest Priority: Docker Environment Variable Override (Always Overwrites)
-  if [ -n "$env_override" ]; then
-    if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
-      sed -i "s|^\s*$param\s*=.*|$param = '$env_override'|" "$CONF_FILE"
-    else
-      echo "$param = '$env_override'" >> "$CONF_FILE"
-    fi
-    echo "ParadeDB auto-tune: $param = $env_override (via env var)"
-
-    # 2. Force Recalculate: If PG_TUNE_FORCE is true, overwrite existing settings with new math
-  elif [ "${PG_TUNE_FORCE:-false}" = "true" ]; then
-    if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
-      sed -i "s|^\s*$param\s*=.*|$param = '$value'|" "$CONF_FILE"
-    else
-      echo "$param = '$value'" >> "$CONF_FILE"
-    fi
-    echo "ParadeDB auto-tune: $param = $value (forced recalculation)"
-
-    # 3. Standard Behavior: Only tune if parameter is MISSING (Respects ALTER SYSTEM)
-  elif ! grep -qE "^\s*$param\s*=" "$CONF_FILE" 2>/dev/null; then
-    echo "$param = '$value'" >> "$CONF_FILE"
-    echo "ParadeDB auto-tune: $param = $value (auto-tuned)"
-
-    # 4. Parameter exists and not forcing: Skip
-  else
-    echo "ParadeDB auto-tune: $param is already set, skipping (use PG_TUNE_FORCE=true to overwrite)"
-  fi
-}
 
 if [ "${PG_TUNE_ENABLED:-true}" = "false" ]; then
   echo "ParadeDB auto-tune: Disabled via PG_TUNE_ENABLED"
@@ -116,12 +71,11 @@ if [ "$CPU_COUNT" -lt 1 ]; then
 fi
 
 # shared_buffers: 25% of RAM, capped at 16GB (16384MB) to prevent diminishing returns
-SB_MB=$(awk "BEGIN {s=int($TOTAL_RAM_MB * 0.25); print (s > 16384 ? 16384 : s)}")
-ECS_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")
-MWM_MB=$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")
+SHARED_BUFFERS_MB=$(awk "BEGIN {s=int($TOTAL_RAM_MB * 0.25); print (s > 16384 ? 16384 : s)}")
+EFFECTIVE_CACHE_SIZE_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")
+MAINTENANCE_WORK_MEM_MB=$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")
 MAX_CONN=${PG_TUNE_MAX_CONNECTIONS:-100}
-WM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SB_MB) / ($MAX_CONN * 3)); print (w < 4 ? 4 : w)}")
-WAL_MB=$(awk "BEGIN {w=int($SB_MB / 32); print (w > 64 ? 64 : w)}")
+WORK_MEM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SHARED_BUFFERS_MB) / ($MAX_CONN * 3)); print (w < 4 ? 4 : w)}")
 
 # Global worker pools: 5x CPU count, capped at 128 to prevent excessive shared memory usage. +8 for background tasks.
 PARALLEL_WORKERS=$(awk "BEGIN {w=int($CPU_COUNT * 5); print (w > 128 ? 128 : w)}")
@@ -134,22 +88,16 @@ PMW=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p > 8 ? 8 : (p < 2 ? 2 : p))}")
 
 echo "ParadeDB auto-tune: Applying settings for $TOTAL_RAM_MB MB RAM and $CPU_COUNT CPUs"
 
-tune_param "shared_buffers" "${SB_MB}MB" "${PG_TUNE_SHARED_BUFFERS:-}"
-tune_param "effective_cache_size" "${ECS_MB}MB" "${PG_TUNE_EFFECTIVE_CACHE_SIZE:-}"
-tune_param "maintenance_work_mem" "${MWM_MB}MB" "${PG_TUNE_MAINTENANCE_WORK_MEM:-}"
-tune_param "work_mem" "${WM_MB}MB" "${PG_TUNE_WORK_MEM:-}"
-tune_param "wal_buffers" "${WAL_MB}MB" "${PG_TUNE_WAL_BUFFERS:-}"
-
-# Global worker pools
-tune_param "max_parallel_workers" "$PARALLEL_WORKERS" "${PG_TUNE_MAX_PARALLEL_WORKERS:-}"
-tune_param "max_worker_processes" "$WORKER_PROCESSES" "${PG_TUNE_MAX_WORKER_PROCESSES:-}"
-
-# Per-query and maintenance workers
-tune_param "max_parallel_workers_per_gather" "$PARALLEL_GATHER" "${PG_TUNE_MAX_PARALLEL_WORKERS_PER_GATHER:-}"
-tune_param "max_parallel_maintenance_workers" "$PMW" "${PG_TUNE_MAX_PARALLEL_MAINTENANCE_WORKERS:-}"
-
-# SSD assumptions: random_page_cost=1.1 and effective_io_concurrency=200 are optimized for solid-state drives.
-tune_param "random_page_cost" "1.1" "${PG_TUNE_RANDOM_PAGE_COST:-}"
-tune_param "effective_io_concurrency" "200" "${PG_TUNE_EFFECTIVE_IO_CONCURRENCY:-}"
-
-echo "ParadeDB auto-tune: Configuration written to $CONF_FILE"
+echo "ParadeDB auto-tune: Writing configuration to $CONF_FILE"
+tee -a "$CONF_FILE" <<EOF
+# Begin ParadeDB tuning recommendations
+shared_buffers = '${SHARED_BUFFERS_MB}MB'
+effective_cache_size = '${EFFECTIVE_CACHE_SIZE_MB}MB'
+maintenance_work_mem = '${MAINTENANCE_WORK_MEM_MB}MB'
+work_mem = '${WORK_MEM_MB}MB'
+max_parallel_workers = '$PARALLEL_WORKERS'
+max_worker_processes = '$WORKER_PROCESSES'
+max_parallel_workers_per_gather = '$PARALLEL_GATHER'
+max_parallel_maintenance_workers = '$PMW'
+# End ParadeDB tuning recommendations
+EOF

@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.22.0'" to load this file. \quit
+
 DROP CAST IF EXISTS (uuid AS pdb.alias);
 
 /* </end connected objects> */

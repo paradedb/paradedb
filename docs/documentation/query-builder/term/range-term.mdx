@@ -58,6 +58,13 @@ MockItem.search(:weight_range)
         .select(:id, :weight_range)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.RangeTerm(item.WeightRange, 1))
+    .Select(item => new { item.Id, item.WeightRange })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Range Intersects
@@ -116,6 +123,17 @@ with Session(engine) as session:
 MockItem.search(:weight_range)
         .range_term("(10, 12]", relation: "Intersects", range_type: "int4range")
         .select(:id, :weight_range)
+```
+
+```cs EF Core
+var range = new NpgsqlRange<int>(10, false, 12, true);
+
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.RangeTerm(item.WeightRange, range, RangeTermRelation.Intersects)
+    )
+    .Select(item => new { item.Id, item.WeightRange })
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -177,6 +195,17 @@ MockItem.search(:weight_range)
         .select(:id, :weight_range)
 ```
 
+```cs EF Core
+var range = new NpgsqlRange<int>(3, false, 9, true);
+
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.RangeTerm(item.WeightRange, range, RangeTermRelation.Contains)
+    )
+    .Select(item => new { item.Id, item.WeightRange })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Range Within
@@ -234,6 +263,17 @@ with Session(engine) as session:
 MockItem.search(:weight_range)
         .range_term("(2, 11]", relation: "Within", range_type: "int4range")
         .select(:id, :weight_range)
+```
+
+```cs EF Core
+var range = new NpgsqlRange<int>(2, false, 11, true);
+
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.RangeTerm(item.WeightRange, range, RangeTermRelation.Within)
+    )
+    .Select(item => new { item.Id, item.WeightRange })
+    .ToListAsync();
 ```
 
 </CodeGroup>

@@ -55,6 +55,15 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.date_histogram(:created_at, fixed_interval: "30d"))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item =>
+        EF.Functions.Agg(new { date_histogram = new { field = "created_at", fixed_interval = "30d" } })
+    )
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

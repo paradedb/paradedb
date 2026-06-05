@@ -631,15 +631,15 @@ WHERE id @@@ paradedb.range(
     field => 'created_at',
     range => tsrange('2023-01-01', '2023-12-31')
 );
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"date":"2023-01-01T00:00:00Z"}},"upper_bound":{"excluded":{"date":"2023-12-31T00:00:00Z"}}},"estimated_docs":41}},"estimated_docs":41}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"$__pdb_date__":"2023-01-01T00:00:00Z"}},"upper_bound":{"excluded":{"$__pdb_date__":"2023-12-31T00:00:00Z"}}},"estimated_docs":41}},"estimated_docs":41}
 (7 rows)
 
 -- Test 5.22: TermSet with paradedb.term_set function

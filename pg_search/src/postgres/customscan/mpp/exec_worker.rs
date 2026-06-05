@@ -24,9 +24,12 @@
 //! `SessionContext` (different `SessionContextProfile`) and where the inputs come from in
 //! per-scan state.
 //!
-//! This module isolates the shape-agnostic logic. Per-scan wrappers (`AggregateScan::exec_mpp_worker`,
-//! `JoinScan::exec_mpp_worker`) extract their inputs into [`MppWorkerInputs`], build their seed
-//! `SessionContext`, and call [`run_mpp_worker`].
+//! This module isolates the shape-agnostic logic. Per-scan
+//! [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls (in
+//! `aggregatescan::mpp` and `joinscan::mpp`) extract their inputs into [`MppWorkerInputs`],
+//! build their seed `SessionContext`, and are driven by
+//! [`crate::postgres::customscan::mpp::host::exec_mpp_worker`], which calls
+//! [`run_mpp_worker`].
 
 use std::sync::Arc;
 
@@ -35,16 +38,16 @@ use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
-    DistributedExec, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
+    DistributedConfig, DistributedExec, DistributedExt, DistributedTaskContext,
+    SessionStateBuilderExt,
 };
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
-};
+use crate::postgres::customscan::mpp::glue::producer_worker_count;
+use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
@@ -53,10 +56,11 @@ use crate::postgres::customscan::mpp::worker_fragments::{
 };
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, PgSearchPhysicalCodecStub};
+use crate::scan::codec::deserialize_logical_plan_with_runtime;
 
-/// Bundle of inputs the worker dispatcher needs. Per-scan `exec_mpp_worker` wrappers populate
-/// this from their typed state and hand it to [`run_mpp_worker`].
+/// Bundle of inputs the worker dispatcher needs. Per-scan
+/// [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls populate this from their
+/// typed state and hand it to [`run_mpp_worker`].
 pub(crate) struct MppWorkerInputs {
     /// The leader's `ParallelScanState`, used to claim the partitioning source's segment slice.
     pub parallel_state: Option<*mut ParallelScanState>,
@@ -85,49 +89,91 @@ pub(crate) struct MppWorkerInputs {
 /// The function copies its config and layers the distributed-planner knobs on top.
 pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
-    mesh: Arc<MppMesh>,
+    mesh: Option<Arc<MppMesh>>,
 ) -> SessionContext {
-    // Workers are procs 1..n_procs; leader is proc 0. The producer count is `n_procs - 1`.
-    let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
-    // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
-    //   1. target_partitions(N) — without this, EnforceDistribution skips every
-    //      RepartitionExec, so the annotator never sees a Shuffle.
-    //   2. distributed_task_estimator(N) — without this, leaves default to Maximum(1) and
+    // Workers are procs 1..n_procs; leader is proc 0. Producer count = n_procs - 1.
+    // `mpp_is_active()` already guarantees n_procs >= 3 (callers gate first).
+    //
+    // `mesh = None` is the EXPLAIN-time path: the planner only needs `n_workers` for stage
+    // sizing and target_partitions. EXPLAIN never opens a `WorkerConnection`, so we skip
+    // the transport install and the fork's default sits unused. Both branches resolve to
+    // `mpp_worker_count() - 1` at call time, so EXPLAIN reflects the GUC at the time it
+    // ran; a later `SET paradedb.mpp_worker_count` shifts the next execute path.
+    let n_workers = match mesh.as_ref() {
+        Some(m) => m.n_workers() as usize,
+        None => producer_worker_count() as usize,
+    };
+    // Four knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
+    //   1. target_partitions(N): without it, EnforceDistribution skips every
+    //      RepartitionExec so the annotator never sees a Shuffle.
+    //   2. distributed_task_estimator(N): without it, leaves default to Maximum(1) and
     //      `_distribute_plan` elides every shuffle.
-    //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins otherwise cap their
-    //      stage's task_count to Maximum(1) and propagate that cap upward, eliding shuffles
-    //      above the join.
-    //   4. distributed_user_codec — the DF-D fork's prepare_plan unconditionally encodes
-    //      worker subplans for gRPC shipment; without a codec for our custom physical execs,
-    //      encoding errors before execution. In our model the encoded bytes are never observed
-    //      (workers re-plan from the logical plan in DSM), so the codec is a stub.
+    //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
+    //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
+    //   4. distributed_in_process_mode(true): skips the gRPC plan-send / metrics /
+    //      work-unit-feed tasks. Workers re-plan from the logical plan in DSM.
     let cfg = seed
         .copied_config()
         .with_target_partitions(n_workers.max(2));
 
-    // Start from the seed's existing state so the customscan's query planner (`PgSearchQueryPlanner`),
-    // optimizer rules, and registered extensions all carry over. JoinScan relies on this for
-    // `VisibilityFilterNode` -> `VisibilityFilterExec` translation; AggregateScan's plan happens
-    // not to use any custom logical nodes but inheriting the planner is still the correct
-    // default. We then override `with_config` (bumps `target_partitions`) and layer the
-    // distributed-planner knobs on top.
-    let state_builder = SessionStateBuilder::new_from_existing(seed.state())
+    // Start from the seed's existing state so the customscan's query planner
+    // (`PgSearchQueryPlanner`), optimizer rules, and registered extensions all carry over.
+    // JoinScan needs this for `VisibilityFilterNode` -> `VisibilityFilterExec` translation;
+    // AggregateScan's plan doesn't use custom logical nodes but inheriting the planner is
+    // still the right default. We then override `with_config` (bumps target_partitions)
+    // and layer the distributed-planner knobs on top.
+    //
+    // Both seeds ship without a `DistributedConfig` extension. The bootstrap below would
+    // clobber one if a future change started adding `with_distributed_*` calls on the
+    // seed, so guard explicitly. Debug-only; release builds silently let the bootstrap
+    // win, which would surface as missing `in_process_mode` / `broadcast_joins` knobs at
+    // execute time and trip the regress suite.
+    debug_assert!(
+        seed.state()
+            .config()
+            .options()
+            .extensions
+            .get::<DistributedConfig>()
+            .is_none(),
+        "build_mpp_session_context: seed already carries a DistributedConfig; the bootstrap \
+         below would overwrite it"
+    );
+    let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
-        .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
-        .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
+        // Explicit `DistributedConfig` bootstrap so the downstream `with_distributed_*`
+        // setters have something to mutate. `with_distributed_worker_transport` used to
+        // bootstrap this implicitly when it was first in the chain; with the transport
+        // now optional (EXPLAIN passes mesh = None) we install the extension explicitly
+        // so order doesn't matter.
+        .with_distributed_option_extension(DistributedConfig::default())
+        // No `with_distributed_worker_resolver(...)`: under `in_process_mode = true`, the
+        // fork gates the resolver lookup and substitutes a single placeholder URL. Our
+        // "workers" are PG parallel workers in the same backend tree, not URL-addressed
+        // nodes, so we have nothing meaningful to resolve.
         .with_distributed_in_process_mode(true)
-        .expect("with_distributed_in_process_mode")
-        // Estimator chain order matters. The DF-D fork tries each estimator in registration
-        // order until one returns Some. The build-side one-task estimator has to come first.
-        // Otherwise the default `Desired(n_workers)` leaf estimator wins, the all-gather
-        // memory leaf gets task_count = n_workers, `_distribute_plan` builds
-        // `NetworkBroadcastExec` with `input_task_count = n_workers`, and the consumer's
-        // `select_all` over-counts by n_workers. See task_estimator.rs.
+        .expect("with_distributed_in_process_mode");
+    // Install the shm_mq transport only when running for actual execution (mesh = Some).
+    // EXPLAIN passes mesh = None and the fork's default (FlightWorkerTransport) sits
+    // unused. The planner never calls WorkerConnection::open() outside streaming, so the
+    // default is fine for read-only plan introspection.
+    if let Some(mesh) = mesh {
+        state_builder =
+            state_builder.with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh));
+    }
+    let state_builder = state_builder
+        // Broadcast-subtree cap. Chain order matters: this has to come before the leaf
+        // estimator, otherwise the leaf's `Desired(n_workers)` wins, every producer task
+        // re-emits the full build side, and the consumer's `select_all` over-counts.
         .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        .with_distributed_user_codec(PgSearchPhysicalCodecStub)
+        // No `with_distributed_user_codec(...)`: under `in_process_mode = true`, the fork
+        // skips constructing `CoordinatorToWorkerTaskSpawner`, so its eager codec encode
+        // never runs. Workers re-plan from the logical plan we ship via DSM and never
+        // decode a physical subplan over the wire. If `in_process_mode = false` ever gets
+        // exercised, restore a codec here for our custom execs or `try_encode` will reject
+        // the first one it meets.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }
@@ -155,7 +201,6 @@ pub(crate) fn run_mpp_worker(
     } = inputs;
 
     let this_proc = worker_mesh.this_proc;
-    let total_procs = worker_mesh.n_procs;
 
     // Build per-source canonical segment ID sets. For the partitioning source, pull the full
     // list out of the populated ParallelScanState (workers will then claim individual segments
@@ -188,7 +233,7 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
     };
 
-    let session = build_mpp_session_context(seed_ctx, Arc::clone(&worker_mesh));
+    let session = build_mpp_session_context(seed_ctx, Some(Arc::clone(&worker_mesh)));
 
     let physical_plan =
         runtime.block_on(async { session.state().create_physical_plan(&logical).await });
@@ -197,10 +242,12 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
     };
 
-    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under the
-    // `proc_for_task` round-robin policy. The dispatcher spawns one async task per fragment;
-    // together they form the worker's complete contribution to the distributed plan.
-    let n_workers = total_procs.saturating_sub(1).max(1);
+    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under
+    // the `proc_for_task` round-robin policy. The dispatcher spawns one async task per
+    // fragment; together they form the worker's complete contribution to the distributed
+    // plan. `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate
+    // before reaching this), so `n_workers() = n_procs - 1` is safe.
+    let n_workers = worker_mesh.n_workers();
     let fragments = find_worker_assignments(&physical_plan, this_proc, n_workers);
     if fragments.is_empty() {
         pgrx::warning!(
@@ -357,7 +404,7 @@ pub(crate) fn run_mpp_worker(
         // Drop the original outbound_senders so the only remaining Arcs to each shm_mq queue /
         // in-proc channel are the per-partition clones owned by the spawned fragments. Without
         // this, the originals would outlive the futures, the consumer-side drains would never
-        // observe `Detached`, and `stream_partition`'s pull loop would spin forever.
+        // observe `Detached`, and `execute`'s pull loop would spin forever.
         drop(outbound_senders);
         crate::mpp_log!(
             "mpp worker dispatch this_proc={this_proc} starting join_all on {} fragments",

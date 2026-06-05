@@ -72,12 +72,14 @@ ParadeDB integrates with the tools you already use, with more on the way.
 - [Django](https://github.com/paradedb/django-paradedb)
 - [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb)
 - [Rails](https://github.com/paradedb/rails-paradedb)
+- [EF Core](https://github.com/paradedb/efcore-paradedb)
 - More coming (Prisma, and others)
 
 ### AI Agents
 
 - [Agent Skills](https://github.com/paradedb/agent-skills)
 - [MCP Integration](https://docs.paradedb.com/documentation/getting-started/ai-agents)
+- [Cursor Plugin](https://cursor.com/marketplace/parade-db)
 
 ### PaaS & Cloud Platforms
 

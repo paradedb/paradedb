@@ -34,6 +34,13 @@ use pgrx::{extension_sql, pg_cast, pg_extern};
 /// ```
 ///
 /// It's up to individual operators to decide if/how they support [`ConstType`]
+///
+/// Invariant: `pdb.fuzzy` and `pdb.slop` are both IMPLICITLY castable to *both*
+/// `pdb.boost` and `pdb.const`. That is only unambiguous because no operator or
+/// function accepts both a [`BoostType`](crate::api::operator::boost::BoostType)
+/// and a `ConstType` overload at the same call site. If one ever does, those
+/// fuzzy/slop -> {boost, const} casts would resolve ambiguously and one of each
+/// pair must drop to `AS ASSIGNMENT` (see the boost/fuzzy cast in `fuzzy.rs`).
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct ConstType(pdb::Query);

@@ -160,6 +160,7 @@ use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -180,9 +181,8 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
-    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
-    write_custom_scan_header, CustomScanMppHeader,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
+    read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -1061,7 +1061,10 @@ impl JoinScan {
     /// Build the leader's distributed session context for this JoinScan query. Thin wrapper
     /// over the shared [`crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`]
     /// that seeds with `create_datafusion_session_context(SessionContextProfile::Join)`.
-    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
+    fn build_mpp_session_context(
+        mesh: Option<Arc<MppMesh>>,
+    ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_datafusion_session_context(SessionContextProfile::Join),
             mesh,
@@ -1356,13 +1359,12 @@ impl CustomScan for JoinScan {
             }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
-            // matching EXPLAIN ANALYZE. When MPP is active, use a drain-less stub mesh so the
-            // distributed planner runs and the displayed plan shows `DistributedExec` + stages.
-            // `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN, so the stub is safe.
+            // matching EXPLAIN ANALYZE. When MPP is active, pass `mesh = None`; the shared
+            // session-context builder derives `n_workers` from `producer_worker_count()` and
+            // skips the shm_mq transport install (EXPLAIN doesn't execute).
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let ctx = if mpp_is_active() {
-                let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
-                Self::build_mpp_session_context(stub_mesh)
+                Self::build_mpp_session_context(None)
             } else {
                 create_datafusion_session_context(SessionContextProfile::Join)
             };
@@ -1437,7 +1439,7 @@ impl CustomScan for JoinScan {
         // MPP worker dispatch: producer-side fragments emit nothing back to PG. Route to the
         // MPP exec helper and return null_mut() to signal end-of-stream.
         if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
-            return JoinScan::exec_mpp_worker(state);
+            return crate::postgres::customscan::mpp::host::exec_mpp_worker(state);
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1492,13 +1494,13 @@ impl CustomScan for JoinScan {
                             if launched < expected {
                                 pgrx::error!(
                                     "mpp join: PG launched {launched} of {expected} requested \
-                                     parallel workers; missing slots would hang the query. Retry, \
-                                     or raise `max_parallel_workers` / \
-                                     `max_parallel_workers_per_gather` so PG can launch the full set."
+                                     parallel workers because the machine is saturated; missing slots \
+                                     would hang the query. Please retry. Long-term fix tracked in \
+                                     https://github.com/paradedb/paradedb/issues/5061."
                                 );
                             }
                         }
-                        Self::build_mpp_session_context(Arc::clone(&leader.mesh))
+                        Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                     }
                     _ => create_datafusion_session_context(SessionContextProfile::Join),
                 };
@@ -2021,8 +2023,19 @@ impl JoinScan {
             let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
             let mut remaining: Vec<*mut pg_sys::RestrictInfo> =
                 Vec::with_capacity(join_conditions.other_conditions.len());
+            let search_op = crate::api::operator::anyelement_query_input_opoid();
             for ri in join_conditions.other_conditions {
                 let clause = (*ri).clause;
+                // Skip `@@@` (and any of our search ops, all of which the
+                // simplifier has rewritten to `@@@` by now): the
+                // Semi/Anti absorption path lowers via
+                // `PredicateTranslator::can_translate`, which only
+                // recognizes non-search predicates. Search clauses pass
+                // through to `extract_join_level_conditions`, where
+                // `transform_to_search_expr` handles them.
+                if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+                    continue;
+                }
                 if clause.is_null()
                     || !all_vars_are_fast_fields_recursive(clause.cast(), &current_sources)
                     || !PredicateTranslator::can_translate(&current_sources, clause.cast())
@@ -2086,6 +2099,7 @@ impl JoinScan {
             equi_keys: join_conditions.equi_keys,
             filter: initial_filter,
             subplan_id: None,
+            absorbed_search_clauses: Vec::new(),
         }));
 
         let unsupported = plan.unsupported_join_types();

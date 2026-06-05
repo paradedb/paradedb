@@ -19,6 +19,7 @@
 #[pgrx::pg_schema]
 mod pdb {
     use crate::api::HashMap;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
     use crate::query::SearchQueryInput;
     use pgrx::{default, pg_extern, AnyElement, PgOid};
@@ -41,8 +42,8 @@ mod pdb {
         boost_factor: default!(Option<f32>, "NULL"),
         stopwords: default!(Option<Vec<String>>, "NULL"),
     ) -> SearchQueryInput {
-        let document: HashMap<String, tantivy::schema::OwnedValue> =
-            json5::from_str(&document).expect("could not parse document_fields");
+        let document: HashMap<String, PdbOwnedValue> =
+            serde_json::from_str(&document).expect("could not parse document_fields");
 
         SearchQueryInput::MoreLikeThis {
             min_doc_frequency: min_doc_frequency.map(|n| n as u64),

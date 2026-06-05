@@ -48,15 +48,16 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.head_ref }}
+          # Check out the PR head's repo and ref so this works for fork PRs too;
+          # the branch only exists on the fork, not on the base repo. For
+          # same-repo PRs and workflow_dispatch this resolves to the base repo,
+          # which keeps the auto-push-a-fix path (below) targeting origin.
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
           token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
-
-      # This Action uses GitHub Actions' built-in cache to speed up Nix-related CI workflows
-      - name: Use Magic Nix Cache Action
-        uses: DeterminateSystems/magic-nix-cache-action@main
 
       # Build only cargo deps to surface cargoHash mismatches quickly, without
       # compiling pg_search for every Postgres variant. If the hash is stale,

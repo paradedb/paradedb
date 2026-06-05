@@ -24,10 +24,13 @@ pub mod pagegen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
+use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 
 use futures::executor::block_on;
 use proptest::prelude::*;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use sqlx::{Connection, PgConnection};
 
 use crate::fixtures::db::Query;
@@ -147,10 +150,17 @@ pub fn generated_queries_setup(
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 
-    let seed_sql = format!("SET seed TO {};\n", rand::rng().random_range(-1.0..=1.0));
+    let qgen_seed = qgen_seed().unwrap_or_else(|| rand::rng().random::<u64>());
+    let mut rng = StdRng::seed_from_u64(qgen_seed);
+    let pg_seed: f64 = rng.random_range(-1.0..=1.0);
+    let bulk_inserts = pick_bulk_inserts(&mut rng);
+
+    let seed_sql = format!("SET seed TO {pg_seed};\n");
     seed_sql.as_str().execute(conn);
 
     let mut setup_sql = seed_sql;
+    setup_sql.push_str(&format!("-- PARADEDB_QGEN_SEED: {qgen_seed}\n"));
+    setup_sql.push_str(&format!("-- qgen bulk inserts: {bulk_inserts}\n"));
 
     let column_definitions = columns_def
         .iter()
@@ -269,6 +279,22 @@ pub fn generated_queries_setup(
             .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
             .unwrap_or_default();
 
+        // Total commits per table = the sample-row `INSERT` + `bulk_inserts`
+        // bulk chunks. Pin `target_segment_count` to that so the layered merge
+        // policy short-circuits (it returns empty layer sizes when
+        // `current_segments <= target`) and the chunks survive as distinct
+        // segments instead of being merged back into one.
+        let target_segments = bulk_inserts.get() + 1;
+        let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
+
+        let bulk_insert_sql = build_bulk_inserts(
+            tname,
+            *row_count,
+            &insert_columns,
+            &random_generators,
+            bulk_inserts,
+        );
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
@@ -279,12 +305,12 @@ CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
     numeric_fields = '{{ {numeric_fields} }}',
-    json_fields = '{{ {json_fields} }}'{sort_by_clause}
+    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
-INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {row_count});
+{bulk_insert_sql}
 
 {b_tree_indexes}
 
@@ -369,6 +395,7 @@ pub struct PgGucs {
     pub columnar_exec: bool,
     /// Enable sorted execution for ColumnarExecState.
     pub columnar_sort: bool,
+    pub enable_mpp: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -382,6 +409,79 @@ fn force_parallel() -> bool {
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false)
     })
+}
+
+/// Chunk count used when `PARADEDB_QGEN_SEGMENTATION=multi`. Picked to be
+/// larger than the typical Postgres parallel-worker count so the per-worker
+/// segment-claim logic actually has work to split.
+const MULTI_SEGMENT_CHUNKS: NonZeroUsize = NonZeroUsize::new(8).unwrap();
+
+/// The "single" mode count: one combined bulk `INSERT` per table (plus the
+/// always-present sample-row INSERT). A named constant so `pick_bulk_inserts`
+/// returns a `NonZeroUsize` in either arm without repeating the literal.
+const SINGLE_BULK_INSERT: NonZeroUsize = NonZeroUsize::new(1).unwrap();
+
+/// Reads `PARADEDB_QGEN_SEED`, the optional u64 that pins both the Postgres
+/// `SET seed` value and the bulk-insert chunk-count roll. Unset means
+/// `generated_queries_setup` picks one fresh per call. Either way the seed
+/// used lands in the reproduction script, so a failing run can be replayed
+/// with `PARADEDB_QGEN_SEED=<n> PROPTEST_RNG_SEED=<m> cargo test ...`.
+fn qgen_seed() -> Option<u64> {
+    std::env::var("PARADEDB_QGEN_SEED").ok().map(|s| {
+        s.parse::<u64>()
+            .unwrap_or_else(|_| panic!("PARADEDB_QGEN_SEED must parse as u64; got '{s}'"))
+    })
+}
+
+/// Picks how many separate bulk `INSERT` statements the setup will emit per
+/// table. Each chunk = one Tantivy writer commit = one segment, so the index
+/// ends with `bulk_inserts + 1` segments (the +1 is the sample-row INSERT).
+///
+/// Honors `PARADEDB_QGEN_SEGMENTATION=single|multi|random` first, then falls
+/// back to a coin flip on the supplied RNG. One call per
+/// `generated_queries_setup`; every table built in the same call gets the
+/// same count, different `#[test]` functions roll independently.
+fn pick_bulk_inserts(rng: &mut impl Rng) -> NonZeroUsize {
+    let mode = std::env::var("PARADEDB_QGEN_SEGMENTATION")
+        .ok()
+        .unwrap_or_default();
+    match mode.to_ascii_lowercase().as_str() {
+        "single" => SINGLE_BULK_INSERT,
+        "multi" => MULTI_SEGMENT_CHUNKS,
+        "" | "random" => {
+            if rng.random_bool(0.5) {
+                MULTI_SEGMENT_CHUNKS
+            } else {
+                SINGLE_BULK_INSERT
+            }
+        }
+        other => panic!(
+            "PARADEDB_QGEN_SEGMENTATION must be 'single', 'multi', or 'random'; got '{other}'"
+        ),
+    }
+}
+
+/// Emit the bulk-INSERT block for one table. `row_count` rows are split into
+/// `bulk_inserts` separate `INSERT ... generate_series` statements,
+/// distributed as evenly as possible.
+fn build_bulk_inserts(
+    tname: &str,
+    row_count: usize,
+    insert_columns: &str,
+    random_generators: &str,
+    bulk_inserts: NonZeroUsize,
+) -> String {
+    let k = bulk_inserts.get();
+    (0..k)
+        .map(|i| (row_count + i) / k)
+        .filter(|chunk| *chunk > 0)
+        .map(|chunk| {
+            format!(
+                "INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {chunk});",
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Server-side `statement_timeout` (ms) emitted by `PgGucs::set`, so a hung query
@@ -402,9 +502,9 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 11]>()
+        any::<[bool; 12]>()
             .prop_map(|b| {
-                let mut g = PgGucs {
+                let mut g = Self {
                     aggregate_custom_scan: b[0],
                     custom_scan: b[1],
                     custom_scan_without_operator: b[2],
@@ -413,9 +513,10 @@ impl Arbitrary for PgGucs {
                     seqscan: b[5],
                     indexscan: b[6],
                     parallel_workers: b[7],
-                    columnar_exec: b[8],
-                    columnar_sort: b[9],
-                    parallel_leader_participation: b[10],
+                    parallel_leader_participation: b[8],
+                    columnar_exec: b[9],
+                    columnar_sort: b[10],
+                    enable_mpp: b[11],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -426,8 +527,9 @@ impl Arbitrary for PgGucs {
     }
 }
 
-impl Default for PgGucs {
-    fn default() -> Self {
+impl PgGucs {
+    /// Creates an instance of PgGucs with all pg_search scans disabled.
+    pub fn pg_search_disabled() -> Self {
         Self {
             aggregate_custom_scan: false,
             custom_scan: false,
@@ -439,12 +541,11 @@ impl Default for PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
-            columnar_sort: true,
+            columnar_sort: false,
+            enable_mpp: false,
         }
     }
-}
 
-impl PgGucs {
     pub fn set(&self) -> String {
         let PgGucs {
             aggregate_custom_scan,
@@ -458,6 +559,7 @@ impl PgGucs {
             parallel_leader_participation,
             columnar_exec,
             columnar_sort,
+            enable_mpp,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -503,6 +605,16 @@ impl PgGucs {
             "SET paradedb.enable_columnar_sort TO {columnar_sort};"
         )
         .unwrap();
+        writeln!(gucs, "SET paradedb.enable_mpp TO {enable_mpp};").unwrap();
+        // Pin `min_rows_per_worker` low when we want MPP to actually fire on
+        // the 10-1000-row fixtures. The production default of 300K never trips
+        // here. Cases that aren't exercising MPP keep the production default
+        // so they don't fan out over tiny tables for unrelated reasons.
+        if *enable_mpp {
+            writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
+        } else {
+            writeln!(gucs, "RESET paradedb.min_rows_per_worker;").unwrap();
+        }
         writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
         if force_parallel() {
             writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
@@ -565,7 +677,7 @@ where
     // the postgres query is always run with the paradedb custom scan turned off
     // this ensures we get the actual, known-to-be-correct result from Postgres'
     // plan, and not from ours where we did some kind of pushdown
-    PgGucs::default().set().execute(conn);
+    PgGucs::pg_search_disabled().set().execute(conn);
 
     conn.deallocate_all()?;
 
@@ -615,6 +727,19 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
+    let qgen_seed = setup_sql
+        .lines()
+        .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
+        .unwrap_or_else(|| {
+            panic!(
+                "qgen seed marker missing from setup_sql; \
+                 `generated_queries_setup` must emit `-- PARADEDB_QGEN_SEED: <n>`"
+            )
+        });
+    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
+        .ok()
+        .unwrap_or_else(|| "<from proptest output above>".to_string());
+
     let repro_script = format!(
         r#"
 -- ==== {failure_type} REPRODUCTION SCRIPT ====
@@ -640,12 +765,18 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 --
 -- ==== END REPRODUCTION SCRIPT ====
 
+Replay this proptest case end-to-end:
+  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
+    cargo test --package tests --test qgen <test_fn_name>
+
 Original error:
 {error_msg}
 "#,
         failure_type = failure_type,
+        qgen_seed = qgen_seed,
+        proptest_seed = proptest_seed,
         setup_sql = setup_sql,
-        default_gucs = PgGucs::default().set(),
+        default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),
         pg_query = pg_query,
         bm25_query = bm25_query,

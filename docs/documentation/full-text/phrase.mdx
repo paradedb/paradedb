@@ -67,6 +67,13 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Phrase(item.Description, "running shoes"))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 This query returns:
@@ -162,6 +169,13 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Phrase(item.Description, Pdb.Slop("shoes running", 2)))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Using a Custom Tokenizer
@@ -221,6 +235,18 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Phrase(
+            item.Description,
+            EF.Functions.Tokenize("running shoes", Tokenizer.Whitespace())
+        )
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -276,6 +302,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Phrase(item.Description, new[] { "running", "shoes" })
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 Adding slop is supported:
@@ -326,6 +361,15 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase(%w[shoes running], slop: 2)
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Phrase(item.Description, Pdb.Slop(new[] { "shoes", "running" }, 2))
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>

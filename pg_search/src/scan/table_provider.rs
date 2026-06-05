@@ -131,6 +131,13 @@ pub struct PgSearchTableProvider {
     /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
+
+    /// Source position in the MPP unified-sources array. When set, the codec's
+    /// `parallel_state` routes per-source claims via
+    /// `checkout_segment_for_source(source_idx)`, so `NetworkShuffleExec` doesn't
+    /// receive N copies. `None` for serial, the partitioning source, and non-MPP
+    /// parallel hash join.
+    mpp_source_idx: Option<usize>,
 }
 
 mod atomic_bool_serde {
@@ -171,6 +178,7 @@ impl PgSearchTableProvider {
             canonical_segment_ids: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
+            mpp_source_idx: None,
         }
     }
 
@@ -185,7 +193,10 @@ impl PgSearchTableProvider {
     }
 
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
-        assert!(self.is_parallel);
+        // Non-partitioning MPP sources need `parallel_state` for
+        // `checkout_segment_for_source`, but `is_parallel` stays false so the
+        // logical-plan rules (partitioning-source-only segment ordering) keep working.
+        assert!(self.is_parallel || self.mpp_source_idx.is_some());
         self.parallel_state = parallel_state;
     }
 
@@ -213,6 +224,16 @@ impl PgSearchTableProvider {
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
         self.planstate = planstate;
     }
+
+    /// See [`PgSearchTableProvider::mpp_source_idx`] for what this gates.
+    pub(crate) fn set_mpp_source_idx(&mut self, idx: usize) {
+        self.mpp_source_idx = Some(idx);
+    }
+
+    pub(crate) fn mpp_source_idx(&self) -> Option<usize> {
+        self.mpp_source_idx
+    }
+
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
@@ -617,6 +638,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         planner_estimated_rows: u64,
+        mpp_source_idx: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -624,12 +646,14 @@ impl PgSearchTableProvider {
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
         };
+        let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
+            parallel_state,
+            source_idx: mpp_source_idx,
+            planner_estimated_rows,
+            scanner_config,
+        };
         let state = ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
-                parallel_state,
-                planner_estimated_rows,
-                scanner_config,
-            },
+            recipe,
             ffhelper: ffhelper.clone(),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: reader.clone(),
@@ -759,22 +783,35 @@ impl PgSearchTableProvider {
             query.solve_postgres_expressions(expr_context);
         }
 
-        // Determine MVCC strategy based on whether we are running in parallel mode.
+        // MVCC dispatch by (`mpp_source_idx`, `parallel_state`, `canonical_segment_ids`):
         //
-        // For the partitioning source (`parallel_state` is Some):
-        //   - Leader: Snapshot (claims segments dynamically; its own snapshot is the source
-        //             of truth for which segments exist).
-        //   - Workers: ParallelWorker(partitioning_segment_ids) – frozen set from leader.
+        // MPP non-partitioning (`mpp_source_idx` Some, `parallel_state` Some): every
+        // worker opens the leader's frozen segment set from `ParallelScanState`, then
+        // claims a slice via `checkout_segment_for_source`.
         //
-        // For non-partitioning / replicated sources (`canonical_segment_ids` is Some):
-        //   - Both leader and workers use ParallelWorker(canonical_ids) so that every
-        //     participant opens exactly the same frozen segment set, preventing DocAddress
-        //     mismatches when late materialization stores (segment_ord, doc_id) pairs.
+        // Non-MPP parallel hash join (`canonical_segment_ids` Some): every worker opens
+        // the leader-snapshotted set, matching PG's worker scheduling.
         //
-        // Serial scans (both fields None): Snapshot.
-        let mvcc_style = if let Some(ids) = canonical_segment_ids {
-            // Non-partitioning source in a parallel join scan: use the frozen segment list
-            // that the leader snapshotted and wrote to shared memory.
+        // Partitioning source (`parallel_state` Some): leader uses Snapshot, workers use
+        // `ParallelWorker(partitioning_segment_ids)`.
+        //
+        // Serial (all None): Snapshot.
+        let mvcc_style = if let Some(source_idx) = self.mpp_source_idx {
+            if let Some(parallel_state) = parallel_state {
+                unsafe {
+                    let ids = (*parallel_state).segment_ids_for_source(source_idx);
+                    MvccSatisfies::ParallelWorker(ids)
+                }
+            } else if let Some(ids) = canonical_segment_ids.clone() {
+                // Codec injected canonical IDs without `parallel_state`. Fallback to the
+                // frozen set the leader recorded.
+                MvccSatisfies::ParallelWorker(ids)
+            } else {
+                MvccSatisfies::Snapshot
+            }
+        } else if let Some(ids) = canonical_segment_ids {
+            // Non-MPP parallel join scan: open the leader's frozen segment list from
+            // shared memory.
             MvccSatisfies::ParallelWorker(ids)
         } else if let Some(parallel_state) = parallel_state {
             unsafe {
@@ -851,6 +888,7 @@ impl PgSearchTableProvider {
                 projected_schema,
                 query,
                 total_estimated_rows,
+                self.mpp_source_idx,
             )
         }
     }

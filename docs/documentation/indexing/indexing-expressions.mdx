@@ -98,6 +98,15 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(
+        "description || ' ' || category",
+        Tokenizer.Simple(new() { ["alias"] = "description_concat" })
+    );
+```
+
 </CodeGroup>
 
 To index a text/JSON expression:
@@ -198,6 +207,13 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField("rating + 1", new FieldAlias("rating"));
 ```
 
 </CodeGroup>

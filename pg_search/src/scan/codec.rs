@@ -23,9 +23,7 @@ use datafusion::common::{DFSchemaRef, DataFusionError, Result, TableReference};
 use datafusion::execution::TaskContext;
 use datafusion::functions_aggregate as dfa;
 use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
-use datafusion_proto::physical_plan::PhysicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
 use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 use tantivy::index::SegmentId;
@@ -221,7 +219,9 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        if provider.is_parallel() {
+        // Non-partitioning MPP sources also call `checkout_segment_for_source` against
+        // `parallel_state`, so inject the pointer for them too.
+        if provider.is_parallel() || provider.mpp_source_idx().is_some() {
             provider.set_parallel_state(self.parallel_state);
         }
         if let Some(np_idx) = provider.non_partitioning_index() {
@@ -376,53 +376,4 @@ pub fn deserialize_logical_plan_with_runtime(
         index_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
-}
-
-/// Stub `PhysicalExtensionCodec` registered with the fork's distributed planner
-/// (via `with_distributed_user_codec`). The fork's `DistributedExec::prepare_plan`
-/// always tries to serialize the worker subplan to ship over gRPC, even when the
-/// `WorkerTransport` is in-process (our `ShmMqWorkerTransport`). Without a codec
-/// for our custom physical execs, encoding fails before any execution starts.
-///
-/// In our model, workers re-plan from the **logical** plan we ship via DSM (see
-/// `exec_mpp_worker`); they never deserialize the encoded physical plan, and the
-/// gRPC plan-send to the fake `http://mpp.local/` URL fails silently in the
-/// fork's `JoinSet` without affecting correctness. So this codec only needs
-/// `try_encode` to succeed for the leader's physical plan walker — the encoded
-/// bytes are inert. `try_decode` is unreachable in our setup.
-#[derive(Debug)]
-pub struct PgSearchPhysicalCodecStub;
-
-impl PhysicalExtensionCodec for PgSearchPhysicalCodecStub {
-    fn try_decode(
-        &self,
-        _buf: &[u8],
-        _inputs: &[Arc<dyn ExecutionPlan>],
-        _ctx: &TaskContext,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        Err(DataFusionError::Internal(
-            "PgSearchPhysicalCodecStub::try_decode invoked; \
-             workers re-plan from the logical plan in DSM and should never \
-             deserialize a physical subplan over the wire"
-                .into(),
-        ))
-    }
-
-    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, _buf: &mut Vec<u8>) -> Result<()> {
-        // Recognize every custom physical exec we might emit. Encode to empty
-        // bytes; the encoded plan is shipped to a stub URL that no real worker
-        // listens on, so the bytes themselves are never observed.
-        match node.name() {
-            "PgSearchScan"
-            | "VisibilityFilterExec"
-            | "VisibilityFilter"
-            | "VisibilityFilterInjection"
-            | "SegmentedTopKExec"
-            | "TantivyLookupExec"
-            | "FilterPassthroughExec" => Ok(()),
-            other => Err(DataFusionError::Internal(format!(
-                "PgSearchPhysicalCodecStub::try_encode: unrecognized custom exec {other}"
-            ))),
-        }
-    }
 }

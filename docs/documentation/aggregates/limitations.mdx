@@ -76,6 +76,18 @@ MockItem.where(rating: 5).count
 MockItem.search(:id).match_all.where(rating: 5).count
 ```
 
+```cs EF Core
+// Not pushed down - no ParadeDB operator
+await dbContext
+    .MockItems.Where(item => item.Rating == 5)
+    .CountAsync();
+
+// Pushed down - ParadeDB operator triggers aggregate pushdown
+await dbContext
+    .MockItems.Where(item => item.Rating == 5 && EF.Functions.All(item.Id))
+    .CountAsync();
+```
+
 </CodeGroup>
 
 If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/documentation/query-builder/compound/all) to the query's

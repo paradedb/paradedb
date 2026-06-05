@@ -82,6 +82,22 @@ result = MockItem.facets_agg(
 )
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Select(item => new
+    {
+        ElectronicsCount = EF.Functions.AggFilter(
+            new { value_count = new { field = "id" } },
+            EF.Functions.Term(item.Category, "electronics")
+        ),
+        FootwearCount = EF.Functions.AggFilter(
+            new { value_count = new { field = "id" } },
+            EF.Functions.Term(item.Category, "footwear")
+        )
+    })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <Note>

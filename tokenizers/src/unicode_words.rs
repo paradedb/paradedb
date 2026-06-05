@@ -58,8 +58,7 @@ impl TokenStream for UnicodeWordsTokenStream<'_> {
         loop {
             if let Some(next) = self.iter.next() {
                 let is_word = next.unicode_words().next().is_some();
-                let keep = is_word
-                    || (!self.remove_emojis && emoji::lookup_by_glyph::lookup(next).is_some());
+                let keep = is_word || (!self.remove_emojis && emojis::get(next).is_some());
 
                 if !keep {
                     continue;

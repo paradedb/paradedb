@@ -49,6 +49,7 @@ use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
 
+const TUPLES_DONE_BATCH_SIZE: usize = 5;
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
@@ -73,6 +74,7 @@ struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
     nlaunched: usize,
+    ntuples_done: usize,
 }
 
 impl ParallelStateType for WorkerCoordination {}
@@ -92,6 +94,14 @@ impl WorkerCoordination {
     fn nlaunched(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nlaunched
+    }
+    fn add_tuples_done(&mut self, count: usize) {
+        let _lock = self.mutex.acquire();
+        self.ntuples_done += count;
+    }
+    fn tuples_done(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.ntuples_done
     }
 }
 
@@ -222,7 +232,7 @@ impl ParallelWorker for BuildWorker<'_> {
         // communicate to the group that we've started
         self.coordination.inc_nstarted();
 
-        let (reltuples, nmerges) = self.do_build(worker_number)?;
+        let (reltuples, nmerges) = self.do_build(worker_number, false)?;
         Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
     }
 }
@@ -243,7 +253,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
+    fn do_build(&mut self, worker_number: i32, is_leader: bool) -> anyhow::Result<(f64, usize)> {
         unsafe {
             let index_info = self.indexrel.index_info();
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -265,8 +275,9 @@ impl<'a> BuildWorker<'a> {
                 self.config.current_xid,
                 self.config.next_xid,
                 worker_segment_target.max(1),
-                nlaunched,
+                self.coordination,
                 worker_number,
+                is_leader,
             )?;
 
             set_ps_display_suffix(INDEXING.as_ptr());
@@ -291,7 +302,7 @@ impl<'a> BuildWorker<'a> {
 }
 
 /// Internal state used by each parallel build worker
-struct WorkerBuildState {
+struct WorkerBuildState<'a> {
     writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     per_row_context: PgMemoryContexts,
@@ -310,16 +321,16 @@ struct WorkerBuildState {
     // 3. how many merges has this worker done so far? (incrementing counter)
     nmerges: usize,
     //
-    // 4. how many workers are there in total? (including the leader)
-    nlaunched: usize,
+    // 4. how many workers are there in total? (including the leader) - utilizing the `nlaunched` field in WorkerCoordination
+    coordination: &'a mut WorkerCoordination, // passing in `WorkerCoordination` to have a shared view of `ntuples_done`, used for reporting `tuples_done` in progress monitoring view
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
-
-    cnt: usize,
+    local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
+    is_leader: bool,
 }
 
-impl WorkerBuildState {
+impl<'a> WorkerBuildState<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         heaprel: &PgSearchRelation,
@@ -328,15 +339,16 @@ impl WorkerBuildState {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
         worker_segment_target: usize,
-        nlaunched: usize,
+        coordination: &'a mut WorkerCoordination,
         worker_number: i32,
+        is_leader: bool,
     ) -> anyhow::Result<Self> {
         // if we're making more than one segment, do an early cutoff based on doc count in case
         // the memory budget is so high that all the docs fit into one segment
         let max_docs_per_segment = if worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
-                    / nlaunched as u32
+                    / coordination.nlaunched as u32
                     / worker_segment_target as u32,
             )
         } else {
@@ -358,11 +370,12 @@ impl WorkerBuildState {
             current_xid,
             next_xid,
             worker_segment_target,
-            nlaunched,
+            coordination,
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
-            cnt: 0,
+            local_tuple_done_count: 0,
+            is_leader,
         })
     }
 
@@ -472,9 +485,9 @@ impl WorkerBuildState {
     fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
         *self.estimated_nsegments.get_or_init(|| {
             let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
-            let reltuples_per_worker = reltuples / self.nlaunched as f64;
+            let reltuples_per_worker = reltuples / self.coordination.nlaunched as f64;
             let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
-            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.nlaunched);
+            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nlaunched);
             nsegments
         })
     }
@@ -532,7 +545,20 @@ unsafe extern "C-unwind" fn build_callback(
     });
     build_state.per_row_context.reset();
 
-    build_state.cnt += 1;
+    build_state.local_tuple_done_count += 1;
+
+    if build_state.local_tuple_done_count % TUPLES_DONE_BATCH_SIZE == 0 {
+        build_state
+            .coordination
+            .add_tuples_done(TUPLES_DONE_BATCH_SIZE);
+
+        if build_state.is_leader {
+            pg_sys::pgstat_progress_update_param(
+                pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+                build_state.coordination.tuples_done() as i64,
+            );
+        }
+    }
 
     if let Some(segment_meta) = segment_meta {
         build_state.unmerged_metas.push(segment_meta);
@@ -588,6 +614,14 @@ pub(super) fn build_index(
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
+    // This is updating `tuples_total` in the `pg_stat_progress_create_index` view - `tuples_done` is incremented in `build_callback`
+    unsafe {
+        pg_sys::pgstat_progress_update_param(
+            pg_sys::PROGRESS_CREATEIDX_TUPLES_TOTAL as i32,
+            plan::estimate_heap_reltuples(&heaprel) as i64,
+        );
+    }
+
     let total_tuples = if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,
@@ -605,7 +639,8 @@ pub(super) fn build_index(
 
         // account for the leader in the coordination
         let mut nlaunched_plus_leader = nlaunched;
-        if unsafe { pg_sys::parallel_leader_participation } {
+        let leader_participating = unsafe { pg_sys::parallel_leader_participation };
+        if leader_participating {
             nlaunched_plus_leader += 1;
         }
 
@@ -613,23 +648,22 @@ pub(super) fn build_index(
         coordination.set_nlaunched(nlaunched_plus_leader);
         pgrx::debug1!("build_index: has {nlaunched_plus_leader} workers (including leader)");
 
-        let (mut total_tuples, mut total_merges) =
-            if unsafe { pg_sys::parallel_leader_participation } {
-                // if the leader is to participate too, it's nice for it to wait until all the other workers
-                // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
-                // of the workers, which doesn't allow for "evenly" distributing the work
-                while coordination.nstarted() != nlaunched {
-                    check_for_interrupts!();
-                    std::thread::yield_now();
-                }
+        let (mut total_tuples, mut total_merges) = if leader_participating {
+            // if the leader is to participate too, it's nice for it to wait until all the other workers
+            // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
+            // of the workers, which doesn't allow for "evenly" distributing the work
+            while coordination.nstarted() != nlaunched {
+                check_for_interrupts!();
+                std::thread::yield_now();
+            }
 
-                // directly instantiate a worker for the leader and have it do its build
-                let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-                worker.do_build(nlaunched_plus_leader as i32)?
-            } else {
-                pgrx::debug1!("build_index: leader is not participating");
-                (0.0, 0)
-            };
+            // directly instantiate a worker for the leader and have it do its build
+            let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
+            worker.do_build(nlaunched_plus_leader as i32, true)?
+        } else {
+            pgrx::debug1!("build_index: leader is not participating");
+            (0.0, 0)
+        };
 
         // wait for the workers to finish by collecting all their response messages
         for (_, message) in process {
@@ -665,7 +699,7 @@ pub(super) fn build_index(
             &mut coordination,
         );
 
-        let (total_tuples, total_merges) = worker.do_build(1)?;
+        let (total_tuples, total_merges) = worker.do_build(1, true)?;
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
         total_tuples
     };

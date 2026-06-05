@@ -11,10 +11,11 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.95-slim
+FROM rust:1.96-slim-trixie
 
-# Install build and runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install build and runtime dependencies. Upgrade existing OS packages first so
+# we pick up the latest Debian security fixes regardless of the base layer's age.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libpq-dev \

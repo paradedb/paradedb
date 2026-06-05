@@ -238,6 +238,11 @@ fn fuzzy_to_boost(input: FuzzyType, typmod: i32, is_explicit: bool) -> BoostType
 }
 
 #[pg_extern(immutable, parallel_safe)]
+fn boost_to_fuzzy(input: BoostType, typmod: i32, is_explicit: bool) -> FuzzyType {
+    query_to_fuzzy(input.into(), typmod, is_explicit)
+}
+
+#[pg_extern(immutable, parallel_safe)]
 fn fuzzy_to_const(input: FuzzyType, typmod: i32, is_explicit: bool) -> ConstType {
     query_to_const(input.0, typmod, is_explicit)
 }
@@ -266,6 +271,11 @@ extension_sql!(
         CREATE CAST (text[] AS pdb.fuzzy) WITH FUNCTION text_array_to_fuzzy(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.boost) WITH FUNCTION fuzzy_to_boost(pdb.fuzzy, integer, boolean) AS IMPLICIT;
+        -- ASSIGNMENT (not IMPLICIT) on purpose: fuzzy -> boost is already IMPLICIT, and a
+        -- second IMPLICIT cast in the reverse direction would make the implicit-cast graph
+        -- cyclic, risking ambiguous operator/function resolution. Explicit `::pdb.fuzzy`
+        -- casts (the array::boost::fuzzy chain in #5079) work fine in assignment context.
+        CREATE CAST (pdb.boost AS pdb.fuzzy) WITH FUNCTION boost_to_fuzzy(pdb.boost, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.const) WITH FUNCTION fuzzy_to_const(pdb.fuzzy, integer, boolean) AS IMPLICIT;
         CREATE CAST (pdb.fuzzy AS pdb.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pdb.fuzzy, integer, boolean) AS IMPLICIT;
     "#,
@@ -273,6 +283,7 @@ extension_sql!(
     requires = [
         query_to_fuzzy,
         fuzzy_to_boost,
+        boost_to_fuzzy,
         fuzzy_to_const,
         fuzzy_to_fuzzy,
         text_array_to_fuzzy,

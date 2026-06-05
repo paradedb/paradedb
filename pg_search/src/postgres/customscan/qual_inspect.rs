@@ -579,20 +579,24 @@ impl PlannerContext {
 
 #[derive(Default)]
 pub struct QualExtractState {
+    /// Set whenever a predicate is evaluated via Tantivy in any form — an indexed
+    /// pushdown, a search operator, or a heap-filtered expression that still rides
+    /// along on the Tantivy scan. It is a diagnostic/logic marker and, on its own,
+    /// does NOT justify choosing the Custom Scan.
     pub uses_tantivy_to_query: bool,
-    pub uses_our_operator: bool,
-    pub uses_heap_expr: bool,
 
-    /// True when a plain PostgreSQL ltree descendant predicate was converted
-    /// into a ParadeDB/Tantivy facet query.
-    ///
-    /// Example:
-    ///   path <@ 'Top.Science'::ltree
-    ///
-    /// This is intentionally narrower than "any index pushdown": it should not
-    /// enable operatorless Custom Scan for unrelated predicates like
-    /// `file_size > 500`.
-    pub uses_ltree_descendant_pushdown: bool,
+    /// Set when the query contains a predicate that genuinely belongs to the
+    /// index: a search operator (`@@@`, `pdb.score()`, `pdb.snippet()`) or a plain
+    /// PostgreSQL operator we lower into a real indexed query (e.g. `ltree <@ ltree`
+    /// becoming a Tantivy facet subtree query). This is what enables the Custom
+    /// Scan and bypasses the heap-only rejection; it must not be set for predicates
+    /// that can only be evaluated as a heap filter (like `file_size > 500`).
+    pub uses_our_operator: bool,
+
+    /// Set when a predicate against this relation could not be pushed down to the
+    /// index and must be evaluated as a PostgreSQL-side heap filter. Gated by the
+    /// `enable_filter_pushdown` GUC and only worthwhile alongside `uses_our_operator`.
+    pub uses_heap_expr: bool,
 }
 
 /// Check if a clause contains node types that extract_quals cannot handle
@@ -1271,15 +1275,16 @@ unsafe fn try_pushdown(
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
         state.uses_tantivy_to_query = true;
 
-        // This was not necessarily written with @@@ in SQL. For example:
+        // Some pushdowns aren't written with `@@@` in SQL but are still backed by a
+        // real indexed query. For example:
         //
         //   path <@ 'Top.Science'::ltree
         //
-        // is a plain PostgreSQL operator, but if it reaches this branch as
-        // PushdownLtreeDescendant, it is backed by a real Tantivy facet query and
-        // should be enough to allow BaseScan.
+        // is a plain PostgreSQL operator that we lower into a Tantivy facet subtree
+        // query. Like `@@@`, it is one of "our operators": it justifies the Custom
+        // Scan on its own, so flag it as such rather than as a heap filter.
         if matches!(&pushdown_result, Some(Qual::PushdownLtreeDescendant { .. })) {
-            state.uses_ltree_descendant_pushdown = true;
+            state.uses_our_operator = true;
         }
 
         pushdown_result

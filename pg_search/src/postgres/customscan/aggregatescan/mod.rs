@@ -253,6 +253,16 @@ impl CustomScan for AggregateScan {
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
+                // For JOIN + DISTINCT, defer to JoinScan which owns that
+                // combined plan shape. Only step in when JoinScan is
+                // disabled, so AggregateScan can still pushdown via
+                // DataFusion. AggregateScan otherwise handles JOIN +
+                // GROUP BY here.
+                if builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+                    && gucs::enable_join_custom_scan()
+                {
+                    return Vec::new();
+                }
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
                     return Vec::new();
                 }

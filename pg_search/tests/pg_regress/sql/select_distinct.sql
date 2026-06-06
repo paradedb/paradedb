@@ -174,6 +174,17 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard'
 ORDER BY category, name;
 
+-- With paradedb.check_aggregate_scan = false the decline warning must be
+-- suppressed; the query still runs correctly via native PG.
+SET paradedb.check_aggregate_scan = false;
+
+SELECT DISTINCT ON (category) category, name
+FROM dist_products
+WHERE name @@@ 'laptop OR keyboard'
+ORDER BY category, name;
+
+RESET paradedb.check_aggregate_scan;
+
 -- =============================================================================
 -- TEST 7: DISTINCT with empty result set
 -- WHERE clause matches nothing; DISTINCT must return zero rows.

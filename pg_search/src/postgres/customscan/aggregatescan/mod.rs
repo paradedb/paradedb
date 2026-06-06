@@ -129,9 +129,7 @@ enum AggregateDeclineReason {
     NotAllBm25,
     NonEquiJoinQuals,
     CrossJoin,
-    /// DISTINCT ON is not a plain deduplication and cannot be modelled as an
-    /// aggregate. Carries the table alias for a meaningful warning.
-    DistinctOn(String),
+    DistinctOn,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
     /// produces a contextual string.
@@ -139,33 +137,53 @@ enum AggregateDeclineReason {
 }
 
 impl AggregateDeclineReason {
-    fn emit(&self) {
-        let join_alias = "join".to_string();
+    fn emit(&self, alias: String) {
         match self {
             AggregateDeclineReason::NotAllBm25 => AggregateScan::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
-                join_alias,
+                alias,
             ),
             AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                join_alias,
+                alias,
             ),
             AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
-                join_alias,
+                alias,
             ),
-            AggregateDeclineReason::DistinctOn(alias) => AggregateScan::add_planner_warning(
+            AggregateDeclineReason::DistinctOn => AggregateScan::add_planner_warning(
                 "Aggregate Scan not used: DISTINCT ON is not supported \
                  (see https://github.com/paradedb/paradedb/issues/new/choose). \
                  To disable this warning: SET paradedb.check_aggregate_scan = false",
-                alias.clone(),
+                alias,
             ),
             AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
                 format!("Aggregate Scan (DataFusion) not used: {}", msg),
-                join_alias,
+                alias,
             ),
         }
     }
+}
+
+/// Resolve the table alias used in planner-warning messages emitted by a
+/// declined `DataFusion` aggregate path. Single-table cases report the actual
+/// relation alias; multi-table joins keep the generic "join" shorthand.
+unsafe fn resolve_decline_alias(args: &CreateUpperPathsHookArgs) -> String {
+    let input_rel = args.input_rel();
+    if input_rel.reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        return "join".to_string();
+    }
+    let Some(rti) = range_table::bms_exactly_one_member(input_rel.relids) else {
+        return "join".to_string();
+    };
+    let Some(rte) = range_table::get_rte(
+        args.root().simple_rel_array_size as usize,
+        args.root().simple_rte_array,
+        rti,
+    ) else {
+        return "unknown".to_string();
+    };
+    rte_alias_or_unknown(rte)
 }
 
 impl CustomScan for AggregateScan {
@@ -1203,11 +1221,12 @@ impl AggregateScan {
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
     ) -> Vec<pg_sys::CustomPath> {
+        let alias = unsafe { resolve_decline_alias(builder.args()) };
         match Self::try_build_datafusion_aggregate_path(builder) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                reason.emit();
+                reason.emit(alias);
                 Vec::new()
             }
         }
@@ -1290,11 +1309,7 @@ impl AggregateScan {
             !parse.is_null() && (*parse).hasDistinctOn
         };
         if has_distinct_on {
-            let alias = sources
-                .first()
-                .and_then(|s| s.alias.clone())
-                .unwrap_or_else(|| "unknown".to_string());
-            return Err(warn(AggregateDeclineReason::DistinctOn(alias)));
+            return Err(warn(AggregateDeclineReason::DistinctOn));
         }
 
         // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).

@@ -226,7 +226,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=2) (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=2) (table: dist_products)
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -244,7 +244,7 @@ SELECT DISTINCT name
 FROM dist_products
 WHERE name @@@ 'laptop'
 ORDER BY name;
-WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=2) (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=2) (table: dist_products)
      name      
 ---------------
  Gaming Laptop
@@ -611,6 +611,123 @@ FROM (
 
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE IF EXISTS dist_highcard CASCADE;
+-- =============================================================================
+-- TEST 13: DISTINCT on an expression — declines gracefully to native PG
+-- =============================================================================
+DROP TABLE IF EXISTS dist_expr CASCADE;
+CREATE TABLE dist_expr (
+    id       SERIAL PRIMARY KEY,
+    name     TEXT,
+    category TEXT,
+    brand    TEXT
+);
+INSERT INTO dist_expr (name, category, brand) VALUES
+    ('Laptop Pro',     'Electronics', 'BrandA'),
+    ('Gaming Laptop',  'electronics', 'BrandB'),
+    ('Office Laptop',  'Electronics', 'BrandA'),
+    ('Wireless Mouse', 'accessories', 'BrandC'),
+    ('USB Hub',        'Accessories', 'BrandC');
+CREATE INDEX dist_expr_idx ON dist_expr
+USING bm25 (id, name, category, brand)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}, "category": {"fast": true}, "brand": {"fast": true}}'
+);
+ANALYZE dist_expr;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT upper(category)
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref) (table: dist_expr)
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: (upper(category))
+         ->  Custom Scan (ParadeDB Base Scan) on dist_expr
+               Table: dist_expr
+               Index: dist_expr_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR mouse OR hub","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- Expected: 2 rows — 'ACCESSORIES', 'ELECTRONICS'.
+SELECT DISTINCT upper(category)
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref) (table: dist_expr)
+    upper    
+-------------
+ ACCESSORIES
+ ELECTRONICS
+(2 rows)
+
+-- Correctness: compare with native PG.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT upper(category)
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+    upper    
+-------------
+ ACCESSORIES
+ ELECTRONICS
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Concatenation: 4 distinct rows from mixed-case category combined with brand.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category || '-' || brand
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref) (table: dist_expr)
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: (((category || '-'::text) || brand))
+         ->  Custom Scan (ParadeDB Base Scan) on dist_expr
+               Table: dist_expr
+               Index: dist_expr_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR mouse OR hub","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- Expected: 4 rows — 'Accessories-BrandC', 'Electronics-BrandA',
+-- 'accessories-BrandC', 'electronics-BrandB'.
+SELECT DISTINCT category || '-' || brand
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref) (table: dist_expr)
+      ?column?      
+--------------------
+ Accessories-BrandC
+ Electronics-BrandA
+ accessories-BrandC
+ electronics-BrandB
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT category || '-' || brand
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+      ?column?      
+--------------------
+ Accessories-BrandC
+ Electronics-BrandA
+ accessories-BrandC
+ electronics-BrandB
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS dist_expr CASCADE;
 -- =============================================================================
 -- Cleanup
 -- =============================================================================

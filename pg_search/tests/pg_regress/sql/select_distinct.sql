@@ -414,6 +414,82 @@ RESET paradedb.max_term_agg_buckets;
 DROP TABLE IF EXISTS dist_highcard CASCADE;
 
 -- =============================================================================
+-- TEST 13: DISTINCT on an expression — declines gracefully to native PG
+-- =============================================================================
+
+DROP TABLE IF EXISTS dist_expr CASCADE;
+
+CREATE TABLE dist_expr (
+    id       SERIAL PRIMARY KEY,
+    name     TEXT,
+    category TEXT,
+    brand    TEXT
+);
+
+INSERT INTO dist_expr (name, category, brand) VALUES
+    ('Laptop Pro',     'Electronics', 'BrandA'),
+    ('Gaming Laptop',  'electronics', 'BrandB'),
+    ('Office Laptop',  'Electronics', 'BrandA'),
+    ('Wireless Mouse', 'accessories', 'BrandC'),
+    ('USB Hub',        'Accessories', 'BrandC');
+
+CREATE INDEX dist_expr_idx ON dist_expr
+USING bm25 (id, name, category, brand)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}, "category": {"fast": true}, "brand": {"fast": true}}'
+);
+
+ANALYZE dist_expr;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT upper(category)
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+
+-- Expected: 2 rows — 'ACCESSORIES', 'ELECTRONICS'.
+SELECT DISTINCT upper(category)
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+
+-- Correctness: compare with native PG.
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT DISTINCT upper(category)
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Concatenation: 4 distinct rows from mixed-case category combined with brand.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category || '-' || brand
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+
+-- Expected: 4 rows — 'Accessories-BrandC', 'Electronics-BrandA',
+-- 'accessories-BrandC', 'electronics-BrandB'.
+SELECT DISTINCT category || '-' || brand
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT DISTINCT category || '-' || brand
+FROM dist_expr
+WHERE name @@@ 'laptop OR mouse OR hub'
+ORDER BY 1;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE IF EXISTS dist_expr CASCADE;
+
+-- =============================================================================
 -- Cleanup
 -- =============================================================================
 

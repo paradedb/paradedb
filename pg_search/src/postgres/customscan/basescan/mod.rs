@@ -33,7 +33,7 @@ use crate::api::{Cardinality, HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{LimitBoundedTopKInfo, SearchIndexReader, MAX_TOPK_FEATURES};
+use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -143,13 +143,21 @@ impl WorkerDecision {
 ///
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
 /// This is a planner-only helper and must not be called from execution.
-unsafe fn limit_bounded_topk_info_for_method(
+/// Returns `Some(can_prune)` when this method is an ordered TopK whose worker
+/// count should be chosen by the query-expense cost model (rather than the
+/// general worker-selection heuristic).
+///
+/// `can_prune` is true when the ORDER BY is exactly `score DESC` — the one case
+/// where Block-WAND can make a single posting list sublinear. The per-query-type
+/// expense model (`SearchQueryInput::expense`) then decides whether that pruning
+/// actually applies for the given query shape, so this is derived purely from
+/// the method + ORDER BY with no reader opened (PR #5150 review: derivable from
+/// ORDER BY + SearchQueryInput).
+unsafe fn topk_can_prune_for_method(
     method: &ExecMethodType,
     root: *mut pg_sys::PlannerInfo,
-    bm25_index: &PgSearchRelation,
-    query: &SearchQueryInput,
     quals: &Qual,
-) -> Option<LimitBoundedTopKInfo> {
+) -> Option<bool> {
     let ExecMethodType::TopK {
         orderby_info: Some(orderby_info),
         window_aggregates,
@@ -173,33 +181,20 @@ unsafe fn limit_bounded_topk_info_for_method(
         return None;
     }
 
-    if !SearchIndexReader::orderby_uses_score_desc_topk_collector(orderby_info) {
+    // Runtime-dependent quals can't be costed at plan time; use the general path.
+    if quals.contains_exprs() || quals.contains_external_var() {
         return None;
     }
 
-    // Do not build expensive or runtime-dependent queries just to cost this
-    // path. Unknown capability uses the general worker-selection path.
-    if query.is_expensive_to_estimate() || quals.contains_exprs() || quals.contains_external_var() {
-        return None;
-    }
-
-    // Planning-time capability checks use LargestSegment, the same visibility
-    // mode used by selectivity estimation. Resolving through a reader keeps the
-    // gate aligned with the actual Tantivy query shape instead of approximating
-    // it from the raw SearchQueryInput.
-    SearchIndexReader::open(
-        bm25_index,
-        query.clone(),
-        true,
-        MvccSatisfies::LargestSegment,
-    )
-    .ok()
-    .and_then(|reader| reader.limit_bounded_topk_info(orderby_info))
+    Some(SearchIndexReader::orderby_uses_score_desc_topk_collector(
+        orderby_info,
+    ))
 }
 
 struct LimitBoundedTopKCostParams<'a> {
     method: &'a ExecMethodType,
-    info: LimitBoundedTopKInfo,
+    can_prune: bool,
+    query: &'a SearchQueryInput,
     row_estimate: RowEstimate,
     segment_count: usize,
     per_tuple_cost: f64,
@@ -218,7 +213,8 @@ struct LimitBoundedTopKCostParams<'a> {
 unsafe fn cost_limit_bounded_topk_path(params: LimitBoundedTopKCostParams<'_>) -> PathCostBasis {
     let LimitBoundedTopKCostParams {
         method,
-        info,
+        can_prune,
+        query,
         row_estimate,
         segment_count,
         per_tuple_cost,
@@ -236,7 +232,7 @@ unsafe fn cost_limit_bounded_topk_path(params: LimitBoundedTopKCostParams<'_>) -
     // final merge trims them to the query LIMIT. Bound candidate work by the
     // match estimate when stats are available.
     let ExecMethodType::TopK { limit_offset, .. } = method else {
-        unreachable!("limit_bounded_topk_info guards this branch");
+        unreachable!("topk_can_prune_for_method guards this branch");
     };
     let limit_est = limit_offset.planning_estimate().ceil().max(1.0);
     let segment_count_f = segment_count.max(1) as f64;
@@ -260,25 +256,23 @@ unsafe fn cost_limit_bounded_topk_path(params: LimitBoundedTopKCostParams<'_>) -
     // only fires for `Columnar`.
     let segment_cost = segment_count_f * per_segment_cost_guc;
     let score_cost = local_candidates * per_tuple_cost;
-    let term_count = info.term_count.get() as f64;
     let estimated_match_rows = match row_estimate {
         RowEstimate::Known(rows) => rows as f64,
-        // Without table stats, keep term-union traversal bounded by the same
-        // local TopK cap as the rest of this branch. ANALYZE provides the match
-        // estimate needed for match-sensitive traversal costing.
+        // Without table stats, bound per-match traversal by the same local TopK
+        // cap as the rest of this branch. ANALYZE provides the match estimate
+        // needed for match-sensitive traversal costing.
         RowEstimate::Unknown => local_candidates,
     };
-    // Boolean term-union Block-WAND still walks pivot/block state across
-    // matching postings before deciding which docs beat the current TopK
-    // threshold. That work is segment-local and worker-divisible, but not
-    // LIMIT-bound like heap insertion.
-    let term_union_traversal_cost = if info.term_count.get() > 1 {
-        estimated_match_rows * comparison_cost * term_count.log2()
-    } else {
-        0.0
-    };
-    let parallelizable_cost =
-        segment_cost + score_cost + local_topk_heap_cost + term_union_traversal_cost;
+    // Generalized per-match traversal cost (PR #5150 review: switch on query
+    // expense, not score-DESC in particular). `expense().per_match` ranks query
+    // shapes by scoring work — 0 for a single Block-WAND-pruned term under
+    // score-DESC, log2(terms) for a term union, ~2 for regex/fuzzy, ~16 for
+    // phrase — and subsumes the old hardcoded term-union traversal term. The
+    // scorer walks every matching posting regardless of the LIMIT, so this
+    // scales with the full match estimate (worker-divisible, not LIMIT-bound).
+    let per_match = query.expense(can_prune).per_match;
+    let traversal_cost = estimated_match_rows * comparison_cost * per_match;
+    let parallelizable_cost = segment_cost + score_cost + local_topk_heap_cost + traversal_cost;
 
     // Segment-local TopK fruits from multiple segments must be merged into one
     // ordered result stream. Keep this outside the parallel divisor so large
@@ -1213,13 +1207,8 @@ impl CustomScan for BaseScan {
                 let is_sorted = method.declares_sorted_output();
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
 
-                let limit_bounded_topk_info = limit_bounded_topk_info_for_method(
-                    &method,
-                    builder.args().root,
-                    &bm25_index,
-                    &query,
-                    &quals,
-                );
+                let topk_can_prune =
+                    topk_can_prune_for_method(&method, builder.args().root, &quals);
                 let mut path_builder = CustomPathBuilder::<Self>::new(
                     builder.args().root,
                     builder.args().rel,
@@ -1240,13 +1229,15 @@ impl CustomScan for BaseScan {
                     path_builder = path_builder.set_parallel_safe(true);
                 }
 
-                // Decide worker count and path cost. Bounded TopK gets an
-                // explicit serial-vs-parallel comparison; everything else uses
-                // the established worker-selection heuristic.
-                let cost_basis = if let Some(limit_bounded_topk_info) = limit_bounded_topk_info {
+                // Decide worker count and path cost. Ordered TopK gets an
+                // explicit serial-vs-parallel comparison driven by the
+                // query-expense cost model; everything else (columnar, normal,
+                // unordered) uses the established worker-selection heuristic.
+                let cost_basis = if let Some(can_prune) = topk_can_prune {
                     cost_limit_bounded_topk_path(LimitBoundedTopKCostParams {
                         method: &method,
-                        info: limit_bounded_topk_info,
+                        can_prune,
+                        query: &query,
                         row_estimate,
                         segment_count,
                         per_tuple_cost,

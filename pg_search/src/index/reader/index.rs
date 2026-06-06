@@ -17,7 +17,6 @@
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -46,9 +45,7 @@ use tantivy::collector::sort_key::{
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{
-    BooleanQuery, EnableScoring, Occur, QueryClone, QueryParser, TermQuery, Weight,
-};
+use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
@@ -58,11 +55,6 @@ use tantivy::{
 /// The maximum number of sort-features/`OrderByInfo`s supported for
 /// `SearchIndexReader::search_top_k_in_segments`.
 pub const MAX_TOPK_FEATURES: usize = 5;
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct LimitBoundedTopKInfo {
-    pub(crate) term_count: NonZeroUsize,
-}
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -745,20 +737,6 @@ impl SearchIndexReader {
                 .collect(),
             None,
         )
-    }
-
-    /// Returns planner-visible details when `search_top_k_in_segments` will
-    /// use the score-only DESC collector and this reader's already-built
-    /// Tantivy query can use Tantivy's Block-WAND `for_each_pruning` override.
-    pub(crate) fn limit_bounded_topk_info(
-        &self,
-        orderby_info: &[OrderByInfo],
-    ) -> Option<LimitBoundedTopKInfo> {
-        if Self::orderby_uses_score_desc_topk_collector(orderby_info) {
-            query_block_wand_score_pruning_info(self.query())
-        } else {
-            None
-        }
     }
 
     /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
@@ -1451,47 +1429,6 @@ impl SearchIndexReader {
 
 /// Shape-only inspection — never reads segment contents. The planning-time
 /// gate relies on this to use a one-segment (`LargestSegment`) reader.
-fn query_block_wand_score_pruning_info(query: &dyn Query) -> Option<LimitBoundedTopKInfo> {
-    let query = unbox_query(query);
-
-    // Conservative mirror of Tantivy's Block-WAND overrides: TermWeight uses
-    // block_wand_single_scorer, and BooleanWeight uses block_wand for pure
-    // SHOULD term unions. MUST conjunctions flow through intersection scorers,
-    // not the Block-WAND union scorer, so they use the general worker-selection
-    // path.
-    if query.is::<TermQuery>() {
-        return Some(LimitBoundedTopKInfo {
-            term_count: NonZeroUsize::new(1).expect("1 is non-zero"),
-        });
-    }
-
-    let boolean_query = query.downcast_ref::<BooleanQuery>()?;
-    let clauses = boolean_query.clauses();
-    if boolean_query.get_minimum_number_should_match() != 1 || clauses.is_empty() {
-        return None;
-    }
-
-    clauses
-        .iter()
-        .all(|(occur, subquery)| {
-            matches!(occur, Occur::Should) && unbox_query(subquery.as_ref()).is::<TermQuery>()
-        })
-        .then(|| LimitBoundedTopKInfo {
-            term_count: NonZeroUsize::new(clauses.len()).expect("empty BooleanQuery was rejected"),
-        })
-}
-
-fn unbox_query(mut query: &dyn Query) -> &dyn Query {
-    for _ in 0..8 {
-        let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() else {
-            return query;
-        };
-        query = boxed.as_ref();
-    }
-
-    query
-}
-
 impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {

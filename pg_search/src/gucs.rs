@@ -118,20 +118,6 @@ static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(
 /// won't use parallel, and larger tables scale workers appropriately.
 static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
-/// Per-segment fixed cost added to TopK work cost.
-/// Models the cost of opening a segment and entering it into the global TopK
-/// competition.
-/// For score-DESC TopK with Block-WAND pruning, row work is capped by local
-/// TopK collection rather than the full match set. This fixed cost is added
-/// per searched segment alongside the LIMIT-sensitive row-work estimate.
-///
-/// The parallel path divides `segment_count * per_segment_cost` by the
-/// parallel divisor; the serial path pays the full segment-walk cost.
-///
-/// See: https://github.com/paradedb/paradedb/issues/4664
-static PER_SEGMENT_COST: GucSetting<f64> = GucSetting::<f64>::new(10.0);
-const MAX_PER_SEGMENT_COST: f64 = 1.0e9;
-
 /// Override the scanner batch size when dynamic filters are pushed down.
 /// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
 /// size is capped to this value during filter pushdown so that Top K can tighten
@@ -479,21 +465,6 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_float_guc(
-        c"paradedb.per_segment_cost",
-        c"Per-segment fixed cost added to TopK work cost",
-        c"Models the cost of opening and walking one segment for TopK queries. The serial \
-          path pays segment_count * per_segment_cost; the parallel path divides this by \
-          the selected worker divisor. This lets the bounded TopK cost model account for \
-          segment participation without globally inflating unrelated scans. \
-          Default 10.0; calibrated empirically. See paradedb/paradedb#4664.",
-        &PER_SEGMENT_COST,
-        0.0,
-        MAX_PER_SEGMENT_COST,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     GucRegistry::define_bool_guc(
         c"paradedb.enable_segmented_topk",
         c"Enable SegmentedTopK optimization for Top K queries on deferred columns",
@@ -813,10 +784,6 @@ pub fn enable_heuristic_selectivity() -> bool {
 
 pub fn min_rows_per_worker() -> i32 {
     MIN_ROWS_PER_WORKER.get()
-}
-
-pub fn per_segment_cost() -> f64 {
-    PER_SEGMENT_COST.get()
 }
 
 pub fn add_doc_count_to_aggs() -> bool {

@@ -191,99 +191,31 @@ unsafe fn topk_can_prune_for_method(
     ))
 }
 
-struct LimitBoundedTopKCostParams<'a> {
-    method: &'a ExecMethodType,
-    can_prune: bool,
-    query: &'a SearchQueryInput,
-    row_estimate: RowEstimate,
-    segment_count: usize,
-    per_tuple_cost: f64,
-    base_result_rows: f64,
-    startup_cost: f64,
-    consider_parallel: bool,
-    quals: &'a Qual,
-    root: *mut pg_sys::PlannerInfo,
-    parallel_leader_participates: bool,
-}
-
+/// Worker decision for an ordered TopK, driven entirely by the query-expense
+/// estimate (PR #5150 review: "make it much simpler", "switch on whether the
+/// query is more or less expensive").
+///
+/// Estimated scoring work is `matches * per_match`, where `per_match` comes from
+/// [`SearchQueryInput::expense`]: ~0 for a Block-WAND-pruned single term under
+/// score-DESC, `log2(terms)` for a term union, ~2 for regex/fuzzy, ~16 for
+/// phrase. We parallelize only when splitting that work across workers beats the
+/// fixed cost of starting them (PostgreSQL's `parallel_setup_cost`). This
+/// replaces the per-segment cost model and its `paradedb.per_segment_cost` GUC.
+///
 /// # Safety
 ///
-/// `params.root` must point to a valid `PlannerInfo` for the duration of this
-/// call. This is a planner-only helper and reads PostgreSQL planner cost GUCs.
-unsafe fn cost_limit_bounded_topk_path(params: LimitBoundedTopKCostParams<'_>) -> PathCostBasis {
-    let LimitBoundedTopKCostParams {
-        method,
-        can_prune,
-        query,
-        row_estimate,
-        segment_count,
-        per_tuple_cost,
-        base_result_rows,
-        startup_cost,
-        consider_parallel,
-        quals,
-        root,
-        parallel_leader_participates,
-    } = params;
-
-    let per_segment_cost_guc = crate::gucs::per_segment_cost();
-
-    // Local TopK can admit up to K candidates per searched segment before the
-    // final merge trims them to the query LIMIT. Bound candidate work by the
-    // match estimate when stats are available.
-    let ExecMethodType::TopK { limit_offset, .. } = method else {
-        unreachable!("topk_can_prune_for_method guards this branch");
-    };
-    let limit_est = limit_offset.planning_estimate().ceil().max(1.0);
-    let segment_count_f = segment_count.max(1) as f64;
-    let local_candidate_cap = limit_est * segment_count_f;
-    let local_candidates = match row_estimate {
-        RowEstimate::Known(rows) => (rows as f64).min(local_candidate_cap).max(1.0),
-        RowEstimate::Unknown => local_candidate_cap.max(1.0),
-    };
-
-    // Bounded TopK heap maintenance follows the same shape as PostgreSQL's
-    // bounded sort costing: candidate comparisons grow with log2(K), and each
-    // comparison is charged as two operator evaluations.
-    let comparison_cost = 2.0 * pg_sys::cpu_operator_cost;
-    let local_topk_heap_cost = local_candidates * comparison_cost * (2.0 * limit_est).log2();
-
-    // The per-segment fixed cost captures the "open and search this segment for
-    // local TopK work" overhead that Block-WAND can't shrink.
-    //
-    // Note: the columnar-sorted-merge multiplier is intentionally not applied
-    // here. This branch is only for `TopK`, and `supports_sorted_index_merge`
-    // only fires for `Columnar`.
-    let segment_cost = segment_count_f * per_segment_cost_guc;
-    let score_cost = local_candidates * per_tuple_cost;
-    let estimated_match_rows = match row_estimate {
-        RowEstimate::Known(rows) => rows as f64,
-        // Without table stats, bound per-match traversal by the same local TopK
-        // cap as the rest of this branch. ANALYZE provides the match estimate
-        // needed for match-sensitive traversal costing.
-        RowEstimate::Unknown => local_candidates,
-    };
-    // Generalized per-match traversal cost (PR #5150 review: switch on query
-    // expense, not score-DESC in particular). `expense().per_match` ranks query
-    // shapes by scoring work — 0 for a single Block-WAND-pruned term under
-    // score-DESC, log2(terms) for a term union, ~2 for regex/fuzzy, ~16 for
-    // phrase — and subsumes the old hardcoded term-union traversal term. The
-    // scorer walks every matching posting regardless of the LIMIT, so this
-    // scales with the full match estimate (worker-divisible, not LIMIT-bound).
-    let per_match = query.expense(can_prune).per_match;
-    let traversal_cost = estimated_match_rows * comparison_cost * per_match;
-    let parallelizable_cost = segment_cost + score_cost + local_topk_heap_cost + traversal_cost;
-
-    // Segment-local TopK fruits from multiple segments must be merged into one
-    // ordered result stream. Keep this outside the parallel divisor so large
-    // LIMITs do not look fully worker-divisible.
-    let merge_cost = if segment_count > 1 {
-        let merge_streams = segment_count as f64;
-        local_candidates * (comparison_cost * merge_streams.log2() + pg_sys::cpu_operator_cost)
-    } else {
-        0.0
-    };
-
+/// `root` must point to a valid `PlannerInfo` for the duration of this call.
+unsafe fn decide_topk_workers(
+    can_prune: bool,
+    query: &SearchQueryInput,
+    row_estimate: RowEstimate,
+    segment_count: usize,
+    base_result_rows: f64,
+    consider_parallel: bool,
+    quals: &Qual,
+    root: *mut pg_sys::PlannerInfo,
+    parallel_leader_participates: bool,
+) -> WorkerDecision {
     let max_workers = if consider_parallel {
         max_useful_workers(
             segment_count,
@@ -293,37 +225,30 @@ unsafe fn cost_limit_bounded_topk_path(params: LimitBoundedTopKCostParams<'_>) -
     } else {
         0
     };
-
-    // Pick parallel only if its cost (including an estimate of PG's Gather wrap
-    // overhead) is strictly cheaper than serial.
     let candidate = WorkerDecision::from_worker_count(max_workers);
-    let worker_decision = match candidate {
-        WorkerDecision::Serial => WorkerDecision::Serial,
-        WorkerDecision::Parallel { .. } => {
-            let divisor = candidate.divisor(parallel_leader_participates);
-            let serial_total = startup_cost + parallelizable_cost + merge_cost;
-            // Approximate PostgreSQL's cost_gather_merge: dominant terms are
-            // setup and tuple IPC. Unlike cost_gather_merge's literal rel->rows
-            // accounting, use the LIMIT-clamped rows that this TopK path expects
-            // to send through Gather Merge.
-            const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
-            let gather_overhead = pg_sys::parallel_setup_cost
-                + pg_sys::parallel_tuple_cost * base_result_rows * GATHER_MERGE_IPC_FACTOR;
-            let parallel_total =
-                startup_cost + parallelizable_cost / divisor + merge_cost + gather_overhead;
-            if parallel_total < serial_total {
-                candidate
-            } else {
-                WorkerDecision::Serial
-            }
-        }
+    let WorkerDecision::Parallel { .. } = candidate else {
+        return WorkerDecision::Serial;
     };
 
-    PathCostBasis {
-        worker_decision,
-        parallelizable_cost,
-        non_parallelizable_cost: merge_cost,
-        total_cost_multiplier: 1.0,
+    // An unanalyzed table has no trustworthy match count, so stay serial rather
+    // than guess (matches the pre-existing unanalyzed-TopK behavior).
+    let matches = match row_estimate {
+        RowEstimate::Known(rows) => rows as f64,
+        RowEstimate::Unknown => return WorkerDecision::Serial,
+    };
+
+    let comparison_cost = 2.0 * pg_sys::cpu_operator_cost;
+    let work = matches * query.expense(can_prune).per_match * comparison_cost;
+
+    // Parallelize only when dividing the work beats PostgreSQL's Gather overhead.
+    let divisor = candidate.divisor(parallel_leader_participates);
+    const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
+    let gather_overhead = pg_sys::parallel_setup_cost
+        + pg_sys::parallel_tuple_cost * base_result_rows * GATHER_MERGE_IPC_FACTOR;
+    if work / divisor + gather_overhead < work {
+        candidate
+    } else {
+        WorkerDecision::Serial
     }
 }
 
@@ -1233,36 +1158,42 @@ impl CustomScan for BaseScan {
                 // explicit serial-vs-parallel comparison driven by the
                 // query-expense cost model; everything else (columnar, normal,
                 // unordered) uses the established worker-selection heuristic.
-                let cost_basis = if let Some(can_prune) = topk_can_prune {
-                    cost_limit_bounded_topk_path(LimitBoundedTopKCostParams {
-                        method: &method,
+                // The path cost comes from the general estimator for every
+                // method. For ordered TopK we then override only the worker
+                // decision with the compact query-expense threshold: parallelize
+                // only when estimated scoring work (matches x per-match expense)
+                // outweighs the fixed cost of starting workers. A Block-WAND-
+                // pruned single term has ~0 work -> serial; heavy unions,
+                // non-prunable, and high-match shapes exceed the threshold ->
+                // parallel. This replaces the per-segment cost model (PR #5150
+                // review: "make it much simpler") while keeping per-query-type
+                // cost awareness.
+                let mut cost_basis = cost_general_path(GeneralPathCostParams {
+                    method: &method,
+                    is_sorted,
+                    float_limit,
+                    row_estimate,
+                    segment_count,
+                    per_tuple_cost,
+                    base_result_rows,
+                    consider_parallel: consider_parallel_local,
+                    quals: &quals,
+                    root: builder.args().root,
+                    is_join_context,
+                });
+                if let Some(can_prune) = topk_can_prune {
+                    cost_basis.worker_decision = decide_topk_workers(
                         can_prune,
-                        query: &query,
+                        &query,
                         row_estimate,
                         segment_count,
-                        per_tuple_cost,
                         base_result_rows,
-                        startup_cost,
-                        consider_parallel: consider_parallel_local,
-                        quals: &quals,
-                        root: builder.args().root,
+                        consider_parallel_local,
+                        &quals,
+                        builder.args().root,
                         parallel_leader_participates,
-                    })
-                } else {
-                    cost_general_path(GeneralPathCostParams {
-                        method: &method,
-                        is_sorted,
-                        float_limit,
-                        row_estimate,
-                        segment_count,
-                        per_tuple_cost,
-                        base_result_rows,
-                        consider_parallel: consider_parallel_local,
-                        quals: &quals,
-                        root: builder.args().root,
-                        is_join_context,
-                    })
-                };
+                    );
+                }
 
                 let scan_work_divisor = cost_basis
                     .worker_decision

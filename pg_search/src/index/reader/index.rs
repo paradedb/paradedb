@@ -276,25 +276,54 @@ pub struct TopKAuxiliaryCollector {
 /// Returns `Some(Type)` if the segment exposes a fast-field column for `path`, or `None`
 /// if the segment has no fast-field column for that path
 ///
-/// The probe order is fixed so that segments which store the same
-/// underlying Tantivy column type always resolve to the same `Type`.
-fn probe_segment_leaf_type(reader: &SegmentReader, path: &str) -> Option<tantivy::schema::Type> {
+/// If a single segment exposes more than one fast-field type for the same path
+/// (heterogeneous JSON values, e.g. some docs have `{"k": 1}` and others
+/// `{"k": "n/a"}`), the leaf type is ambiguous and we return `None` so the
+/// planner falls back to PG's sort.
+fn probe_segment_leaf_type(
+    reader: &SegmentReader,
+    path: &str,
+) -> Option<Result<tantivy::schema::Type, ()>> {
+    use tantivy::schema::Type;
     let ffr = reader.fast_fields();
+
+    let mut found = None;
+
     if ffr.i64(path).is_ok() {
-        Some(tantivy::schema::Type::I64)
-    } else if ffr.u64(path).is_ok() {
-        Some(tantivy::schema::Type::U64)
-    } else if ffr.f64(path).is_ok() {
-        Some(tantivy::schema::Type::F64)
-    } else if ffr.bool(path).is_ok() {
-        Some(tantivy::schema::Type::Bool)
-    } else if ffr.date(path).is_ok() {
-        Some(tantivy::schema::Type::Date)
-    } else if matches!(ffr.str(path), Ok(Some(_))) {
-        Some(tantivy::schema::Type::Str)
-    } else {
-        None
+        found = Some(Type::I64);
     }
+    if ffr.u64(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::U64);
+    }
+    if ffr.f64(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::F64);
+    }
+    if ffr.bool(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::Bool);
+    }
+    if ffr.date(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::Date);
+    }
+    if matches!(ffr.str(path), Ok(Some(_))) {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::Str);
+    }
+
+    found.map(Ok)
 }
 
 pub struct SearchIndexReader {
@@ -491,15 +520,13 @@ impl SearchIndexReader {
     /// `path` resolves to the same leaf type. Returns `None` if no segment has a fast-field
     /// column for `path`, or if segments disagree on the leaf type
     pub fn probe_json_leaf_type(&self, path: &str) -> Option<tantivy::schema::Type> {
-        let mut resolved: Option<tantivy::schema::Type> = None;
-        for reader in self.searcher.segment_readers().iter() {
-            let Some(segment_type) = probe_segment_leaf_type(reader, path) else {
-                continue;
-            };
-            match resolved {
-                None => resolved = Some(segment_type),
-                Some(prev) if prev != segment_type => return None,
-                _ => {}
+        let mut resolved = None;
+        for reader in self.searcher.segment_readers() {
+            if let Some(res) = probe_segment_leaf_type(reader, path) {
+                let segment_type = res.ok()?;
+                if *resolved.get_or_insert(segment_type) != segment_type {
+                    return None;
+                }
             }
         }
         resolved

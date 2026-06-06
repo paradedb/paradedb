@@ -46,22 +46,25 @@ WHERE id @@@ paradedb.all()
 ORDER BY price DESC
 LIMIT 5;
 
--- Explicit ::int cast on the same key matches the I64 fast field type, so pushdown
--- is allowed and the result is in numeric order.
+-- Explicit ::bigint cast on the same key matches the I64 fast field type exactly,
+-- so pushdown is allowed and the result is in numeric order. (::int / ::smallint
+-- would be rejected because their domains are narrower than I64; with LIMIT that
+-- would silently swallow cast errors for values outside the top K -- see
+-- topn-json-orderby-edges.sql.)
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT description, (metadata->>'price')::int AS price FROM mock_items_jsonsort
+SELECT description, (metadata->>'price')::bigint AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY price DESC
 LIMIT 5;
 
-SELECT description, (metadata->>'price')::int AS price FROM mock_items_jsonsort
+SELECT description, (metadata->>'price')::bigint AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY price DESC
 LIMIT 5;
 
--- Explicit ::numeric cast maps to F64 expected type, but the stored fast field is
--- I64 (integer JSON values). The probe disagrees, so pushdown is rejected and PG
--- performs the sort itself.
+-- Explicit ::numeric cast: NUMERIC has arbitrary precision and different NaN /
+-- precision semantics from Tantivy's F64, so the type map refuses to consider
+-- it pushable at all. PG performs the sort itself.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT description, (metadata->>'price')::numeric AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
@@ -83,6 +86,18 @@ LIMIT 5;
 SELECT description, (metadata->>'in_stock')::boolean AS in_stock FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY in_stock DESC, id ASC
+LIMIT 5;
+
+-- Timestamp cast matches the Date fast field type.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, (metadata->>'released')::timestamp AS released FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY released ASC, id ASC
+LIMIT 5;
+
+SELECT description, (metadata->>'released')::timestamp AS released FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY released ASC, id ASC
 LIMIT 5;
 
 DROP TABLE mock_items_jsonsort;

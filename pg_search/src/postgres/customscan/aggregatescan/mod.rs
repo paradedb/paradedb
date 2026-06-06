@@ -48,12 +48,12 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
 use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
-use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
+use datafusion_distributed::embedded::{region_total, MppMesh};
+
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
-use crate::postgres::customscan::mpp::runtime::MppMesh;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -821,9 +821,9 @@ impl ParallelQueryCapable for AggregateScan {
         // Attach to the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let region_total = unsafe { (*mpp_coordinate.cast::<MppDsmHeader>()).region_total };
+        let region_bytes = unsafe { region_total(mpp_coordinate) };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        let worker = match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
+        let worker = match unsafe { worker_setup(mpp_coordinate, region_bytes, worker_number) } {
             Ok(w) => w,
             Err(e) => {
                 // No disabled marker, so the leader initialized the region and will wait for

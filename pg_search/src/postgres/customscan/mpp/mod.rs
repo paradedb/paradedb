@@ -26,16 +26,11 @@
 //! consumer-side backpressure from producer-side backpressure.
 
 pub mod dispatch;
-pub mod dsm;
-pub mod dsm_mpsc_ring;
 pub mod exec_worker;
 pub mod glue;
 pub mod host;
-pub mod mesh;
-pub mod runtime;
+pub mod pg_seams;
 pub mod task_estimator;
-pub mod transport;
-pub mod worker;
 pub mod worker_fragments;
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.

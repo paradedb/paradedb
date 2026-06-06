@@ -33,9 +33,10 @@ use datafusion::execution::TaskContext;
 use datafusion::prelude::SessionContext;
 use tantivy::index::SegmentId;
 
+use datafusion_distributed::embedded::{proc_for_task, MppMesh};
+
 use crate::api::HashSet;
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
-use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh};
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_dispatched_stages, FragmentAssignment, FragmentRouting,
 };

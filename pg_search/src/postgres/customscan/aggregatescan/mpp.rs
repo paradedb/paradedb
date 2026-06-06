@@ -27,9 +27,10 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregat
 use crate::postgres::customscan::aggregatescan::scan_state::MppExecState;
 use crate::postgres::customscan::aggregatescan::AggregateScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
+use datafusion_distributed::embedded::MppSender;
+
 use crate::postgres::customscan::mpp::exec_worker::MppWorkerInputs;
 use crate::postgres::customscan::mpp::host::MppWorkerHost;
-use crate::postgres::customscan::mpp::transport::MppSender;
 
 impl MppWorkerHost for CustomScanStateWrapper<AggregateScan> {
     fn already_drained(&self) -> bool {

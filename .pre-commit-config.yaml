@@ -75,6 +75,8 @@ repos:
     rev: v4.0.4
     hooks:
       - id: pylint
+        args:
+          - "--disable=R0911" # disables the "too many returns" lint
 
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3

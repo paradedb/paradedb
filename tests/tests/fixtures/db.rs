@@ -149,8 +149,6 @@ where
                         return result;
                     } else if attempt < retries - 1 {
                         block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
-                    } else {
-                        return vec![];
                     }
                 }
                 Err(_) if attempt < retries - 1 => {

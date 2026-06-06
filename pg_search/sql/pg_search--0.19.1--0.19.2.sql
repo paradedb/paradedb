@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.19.2'" to load this file. \quit
+
 CREATE  FUNCTION "combined_layer_sizes"(
 	"index" regclass /* pgrx::rel::PgRelation */
 ) RETURNS NUMERIC[] /* alloc::vec::Vec<pgrx::datum::numeric::AnyNumeric> */

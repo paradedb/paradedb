@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.21.3'" to load this file. \quit
+
 DROP TYPE IF EXISTS pdb.icu CASCADE;
 CREATE TYPE pdb.icu;
 CREATE OR REPLACE FUNCTION pdb.icu_in(cstring) RETURNS pdb.icu AS 'textin' LANGUAGE internal IMMUTABLE STRICT;

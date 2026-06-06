@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::query::{value_to_json_term, DateAwareOwnedValue};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use serde::de::Error as SerdeError;
@@ -24,7 +25,7 @@ use serde_json::Value;
 use std::ops::Bound;
 use tantivy::{
     query::{RangeQuery, RegexQuery, TermQuery},
-    schema::{Field, OwnedValue},
+    schema::Field,
     Term,
 };
 
@@ -42,7 +43,6 @@ const RECORD: IndexRecordOption = IndexRecordOption::WithFreqsAndPositions;
 #[derive(Clone, Debug)]
 pub struct RangeField {
     field: Field,
-    is_datetime: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -54,8 +54,8 @@ pub enum Comparison {
 }
 
 impl RangeField {
-    pub fn new(field: Field, is_datetime: bool) -> Self {
-        Self { field, is_datetime }
+    pub fn new(field: Field) -> Self {
+        Self { field }
     }
 
     pub fn exists(&self) -> Result<RegexQuery> {
@@ -63,33 +63,33 @@ impl RangeField {
     }
 
     pub fn empty(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?;
+        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(EMPTY_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?;
+        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?;
+        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?;
+        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?;
+        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn compare_lower_bound(
         &self,
-        owned: &OwnedValue,
+        owned: &PdbOwnedValue,
         comparison: Comparison,
     ) -> Result<RangeQuery> {
         let query = match comparison {
@@ -116,7 +116,7 @@ impl RangeField {
 
     pub fn compare_upper_bound(
         &self,
-        owned: &OwnedValue,
+        owned: &PdbOwnedValue,
         comparison: Comparison,
     ) -> Result<RangeQuery> {
         let query = match comparison {
@@ -141,25 +141,9 @@ impl RangeField {
         Ok(query)
     }
 
-    fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
-        value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
+    fn as_range_term(&self, value: &PdbOwnedValue, path: Option<&str>) -> Result<Term> {
+        value_to_json_term(self.field, value, path, EXPAND_DOTS)
     }
-}
-
-pub fn serialize_bound_date_aware<S>(
-    bound: &Bound<OwnedValue>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let date_aware_bound = match bound {
-        Bound::Included(val) => Bound::Included(DateAwareOwnedValue::from(val.clone())),
-        Bound::Excluded(val) => Bound::Excluded(DateAwareOwnedValue::from(val.clone())),
-        Bound::Unbounded => Bound::Unbounded,
-    };
-
-    serialize_bound(&date_aware_bound, serializer)
 }
 
 /// Custom serialization function for `Bound<T>`.
@@ -197,19 +181,6 @@ where
             UnboundedBound.serialize(serializer)
         }
     }
-}
-
-pub fn deserialize_bound_date_aware<'de, D>(deserializer: D) -> Result<Bound<OwnedValue>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let date_aware_bound: Bound<DateAwareOwnedValue> = deserialize_bound(deserializer)?;
-    let owned_value_bound = match date_aware_bound {
-        Bound::Included(val) => Bound::Included(OwnedValue::from(val)),
-        Bound::Excluded(val) => Bound::Excluded(OwnedValue::from(val)),
-        Bound::Unbounded => Bound::Unbounded,
-    };
-    Ok(owned_value_bound)
 }
 
 /// Custom deserialization function for `Bound<T>`.

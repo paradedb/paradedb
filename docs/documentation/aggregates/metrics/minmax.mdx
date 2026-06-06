@@ -62,6 +62,13 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.min(:rating))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { min = new { field = "rating" } }))
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

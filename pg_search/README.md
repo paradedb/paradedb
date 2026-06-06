@@ -11,8 +11,6 @@ This README covers development of the `pg_search` extension. For installation, d
 
 ### Rust
 
-Install stable Rust:
-
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup install stable
@@ -33,10 +31,12 @@ sudo pacman -S extra/clang
 Then install `cargo-pgrx` and let it bootstrap a managed PostgreSQL installation under `~/.pgrx/`:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.18.0
-# On macOS, if `cargo pgrx init` fails with ICU-related errors, run (the
-# icu4c version may differ depending on what Homebrew has installed):
-# export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@78/lib/pkgconfig:$PKG_CONFIG_PATH"
+cargo install --locked cargo-pgrx --version 0.18.1
+# On macOS, if `cargo pgrx init` fails with ICU-related errors, run
+# `brew install icu4c`
+# and then run
+# `export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@78/lib/pkgconfig:$PKG_CONFIG_PATH"`
+# (the icu4c version may differ depending on what Homebrew has installed):
 cargo pgrx init
 ```
 
@@ -47,7 +47,7 @@ cargo pgrx init
 `pgvector` is needed for hybrid search integration tests. To build it against the pgrx-managed Postgres install (replace `18.3` with the version under `~/.pgrx/`):
 
 ```bash
-git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.2 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
 PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make

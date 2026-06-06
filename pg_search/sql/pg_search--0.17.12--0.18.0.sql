@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.18.0'" to load this file. \quit
+
 /*
 Don't know how to ALTER:
 CREATE OPERATOR pg_catalog.@@@(procedure=search_with_text, leftarg=text, rightarg=text, restrict=text_restrict)

@@ -93,9 +93,14 @@ pub enum ScanRecipe {
         segment_ids: Vec<SegmentId>,
         scanner_config: ScannerConfig,
     },
-    /// Lazy scan: segments are claimed dynamically from parallel state.
+    /// Lazy claim from `ParallelScanState`. `source_idx = Some(i)` claims from source
+    /// `i`'s pool for MPP non-partitioning sources; `None` uses the single-counter
+    /// `checkout_segment` for the basescan IAM, the MPP partitioning source, and
+    /// non-MPP parallel hash join. The non-partitioning path can't update the
+    /// partitioning-source-sized `claims` array.
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
+        source_idx: Option<usize>,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
@@ -260,71 +265,6 @@ impl PgSearchScanPlan {
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
         }
-    }
-
-    /// Produce a plan identical to `dyn_plan` but with `dynamic_filters` emptied.
-    ///
-    /// Used by MPP: the join's dynamic-filter Arc is pushed to the probe-side
-    /// scan by `FilterPushdown`, but MPP needs to apply it *after* the probe
-    /// shuffle (so local bounds are not applied to rows destined for peer
-    /// participants). We strip it from the scan and re-apply it via a
-    /// `FilterExec` above the post-shuffle output.
-    ///
-    /// Transfers scan state out of the original plan — the original becomes
-    /// a dead stub whose `execute` returns empty streams. Returns the plan
-    /// unchanged when there are no dynamic filters to strip.
-    ///
-    /// # Caller contract
-    ///
-    /// This is a primitive: it strips unconditionally and does not validate
-    /// that re-attaching the filter elsewhere is safe. It is correct only
-    /// when the caller is rebuilding the plan such that the stripped
-    /// filter will be reapplied above a `ShuffleExec` that crosses
-    /// participant boundaries.
-    ///
-    /// In particular, do *not* call this on a scan whose enclosing
-    /// `HashJoinExec` lives entirely on one participant (e.g., a join that
-    /// is itself below a shuffle): the dynamic filter is fully populated
-    /// locally there and dropping it loses a valuable optimization with no
-    /// correctness benefit.
-    #[allow(dead_code)] // walker (PR #4870) is the live caller
-    pub fn strip_dynamic_filters_from_dyn(
-        dyn_plan: Arc<dyn ExecutionPlan>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        let scan = match dyn_plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-            Some(s) => s,
-            None => {
-                return Err(DataFusionError::Internal(
-                    "strip_dynamic_filters_from_dyn called on a non-PgSearchScanPlan ExecutionPlan"
-                        .into(),
-                ));
-            }
-        };
-
-        if scan.dynamic_filters.is_empty() {
-            return Ok(dyn_plan);
-        }
-
-        let taken = {
-            let mut guard = scan.states.lock().map_err(|e| {
-                DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
-            })?;
-            std::mem::take(&mut *guard)
-        };
-        let states: Vec<ScanState> = taken.into_iter().flatten().map(|u| u.0).collect();
-
-        let schema = scan.properties.eq_properties.schema().clone();
-        let new_plan = PgSearchScanPlan::new(
-            states,
-            schema,
-            scan.query_for_display.clone(),
-            scan.sort_order.as_ref(),
-            scan.deferred_fields.clone(),
-            scan.ffhelper.clone(),
-            scan.indexrelid,
-            scan.deferred_ctid_plan_position,
-        );
-        Ok(Arc::new(new_plan))
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -553,13 +493,18 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                         ScanRecipe::Lazy {
                             parallel_state,
+                            source_idx,
                             planner_estimated_rows,
                             scanner_config,
                         } => {
-                            let res = if let Some(ps) = parallel_state {
-                                reader.search_lazy(ps, planner_estimated_rows)
-                            } else {
-                                reader.search()
+                            let res = match (parallel_state, source_idx) {
+                                (Some(ps), idx) => {
+                                    reader.search_lazy(ps, idx, planner_estimated_rows)
+                                }
+                                (None, Some(_)) => panic!(
+                                    "per-source claim needs `parallel_state` installed before recipe execution"
+                                ),
+                                (None, None) => reader.search(),
                             };
                             (res, scanner_config)
                         }

@@ -62,6 +62,15 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 In order for a Top K query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
@@ -161,6 +170,16 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .ThenBy(item => item.Id)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <Note>
@@ -243,6 +262,17 @@ MockItem.search(:description)
         .order(Arel::Nodes::Ascending.new(lower_description))
         .select(:description, :rating, :category)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "sleek running shoes")
+    )
+    .OrderBy(item => item.Description.ToLower())
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

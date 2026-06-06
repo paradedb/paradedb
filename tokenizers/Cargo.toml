@@ -20,7 +20,7 @@ tracing = "0.1.44"
 strum_macros = "0.27.2"
 strum = { version = "0.27.2", features = ["derive"] }
 tantivy-jieba = { workspace = true }
-emoji = "0.2.1"
+emojis = "0.8.2"
 icu_properties = "2.2.0"
 unicode-segmentation = "1.13.2"
 icu_segmenter = "2.2.0"

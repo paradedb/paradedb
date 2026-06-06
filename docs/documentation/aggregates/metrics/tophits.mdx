@@ -83,6 +83,26 @@ MockItem.search(:id)
         )
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .GroupBy(item => item.Rating)
+    .Select(group =>
+        EF.Functions.Agg(
+            new
+            {
+                top_hits = new
+                {
+                    size = 3,
+                    sort = new object[] { new { created_at = "desc" } },
+                    docvalue_fields = new[] { "id", "created_at" }
+                }
+            }
+        )
+    )
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -180,6 +200,27 @@ MockItem.search(:id)
         )
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .GroupBy(item => item.Rating)
+    .Select(group =>
+        EF.Functions.Agg(
+            new
+            {
+                top_hits = new
+                {
+                    size = 3,
+                    @from = 1,
+                    sort = new object[] { new { created_at = "desc" } },
+                    docvalue_fields = new[] { "id", "created_at" }
+                }
+            }
+        )
+    )
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
@@ -255,6 +296,26 @@ MockItem.search(:id)
             docvalue_fields: %w[id created_at]
           )
         )
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .GroupBy(item => item.Rating)
+    .Select(group =>
+        EF.Functions.Agg(
+            new
+            {
+                top_hits = new
+                {
+                    size = 3,
+                    sort = new object[] { new { created_at = "desc" }, new { id = "asc" } },
+                    docvalue_fields = new[] { "id", "created_at" }
+                }
+            }
+        )
+    )
+    .ToListAsync();
 ```
 
 </CodeGroup>

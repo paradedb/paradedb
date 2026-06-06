@@ -57,6 +57,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.RegexPhrase(item.Description, new[] { "ru.*", "shoes" })
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <div className="mt-8" />

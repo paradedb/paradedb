@@ -73,6 +73,12 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```cs EF Core
+modelBuilder.Entity<ArrayDemo>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Categories);
+```
+
 </CodeGroup>
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
@@ -154,6 +160,12 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```cs EF Core
+modelBuilder.Entity<ArrayDemo>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Categories, Tokenizer.Literal());
 ```
 
 </CodeGroup>

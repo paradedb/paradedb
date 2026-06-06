@@ -29,7 +29,6 @@ use crate::schema::{SearchFieldConfig, SearchFieldType};
 use crate::api::tokenizers::search_field_config_from_type;
 use crate::gucs::{global_enable_background_merging, global_target_segment_count};
 use anyhow::Result;
-use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
@@ -137,18 +136,6 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
 }
 
 #[pg_guard]
-extern "C-unwind" fn validate_fields(value: *const std::os::raw::c_char) {
-    let json_str = cstr_to_rust_str(value);
-    if json_str.is_empty() {
-        return;
-    }
-
-    // Just ensure the config can be deserialized as json.
-    let _: HashMap<String, serde_json::Value> = json5::from_str(&json_str)
-        .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
-}
-
-#[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
 }
@@ -222,98 +209,99 @@ pub unsafe extern "C-unwind" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "text_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, text_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, text_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "inet_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, inet_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, inet_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, numeric_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, numeric_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "boolean_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, boolean_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, boolean_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, json_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, json_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "range_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, range_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, range_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "datetime_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, datetime_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, datetime_fields_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, key_field_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, key_field_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, layer_sizes_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, layer_sizes_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "target_segment_count".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "background_layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, background_layer_sizes_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, background_layer_sizes_offset)
+                as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "mutable_segment_rows".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "sort_by".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, sort_by_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, sort_by_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "search_tokenizer".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, search_tokenizer_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, search_tokenizer_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },

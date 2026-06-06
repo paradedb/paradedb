@@ -411,6 +411,7 @@ impl ColumnarExecState {
         let state_partition = ScanState {
             recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
                 parallel_state: state.parallel_state,
+                source_idx: None,
                 planner_estimated_rows: 0,
                 scanner_config,
             },

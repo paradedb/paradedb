@@ -53,6 +53,15 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.percentiles(:rating, percents: [50, 95]))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item =>
+        EF.Functions.Agg(new { percentiles = new { field = "rating", percents = new[] { 50, 95 } } })
+    )
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

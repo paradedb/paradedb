@@ -296,7 +296,7 @@ jobs:
           if [ -n "$PR" ]; then
             echo "Main PR already exists: #$PR"
           else
-            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
+            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published." --label "Do Not Cherry Pick"
           fi
 
   notify-orm-repos:
@@ -307,10 +307,11 @@ jobs:
     env:
       # ORM repos to notify on new releases
       ORM_REPOS: |
-        paradedb/django-paradedb
-        paradedb/rails-paradedb
-        paradedb/sqlalchemy-paradedb
         paradedb/drizzle-paradedb
+        paradedb/django-paradedb
+        paradedb/sqlalchemy-paradedb
+        paradedb/rails-paradedb
+        paradedb/efcore-paradedb
 
     steps:
       - name: Retrieve GitHub Release Version
@@ -334,9 +335,11 @@ jobs:
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: |
+            drizzle-paradedb
             django-paradedb
-            rails-paradedb
             sqlalchemy-paradedb
+            rails-paradedb
+            efcore-paradedb
 
       - name: Notify ORM Repos of New Release
         env:

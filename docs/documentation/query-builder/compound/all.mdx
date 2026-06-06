@@ -113,6 +113,22 @@ MockItem.search(:id)
         .limit(5)
 ```
 
+```cs EF Core
+// Top K executed by standard Postgres
+await dbContext
+    .MockItems.Where(item => item.Rating != null)
+    .OrderBy(item => item.Rating)
+    .Take(5)
+    .ToListAsync();
+
+// Top K executed by ParadeDB
+await dbContext
+    .MockItems.Where(item => item.Rating != null && EF.Functions.All(item.Id))
+    .OrderBy(item => item.Rating)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,

@@ -1,0 +1,181 @@
+# workflows/test-pg_search-valgrind.yml
+#
+# Test pg_search under Valgrind
+# Runs the pg_regress suite with Postgres wrapped in Valgrind to catch memory
+# corruption (invalid reads/writes, use-after-free, use of uninitialised memory)
+# at the Rust<->Postgres FFI boundary that --enable-cassert alone cannot detect.
+#
+# Why this is a separate, weekly workflow (not part of test-pg_search.yml):
+#   - Valgrind slows execution ~10-50x; a full regress run takes multiple hours,
+#     so it must stay off the per-PR critical path.
+#   - Valgrind cannot decode aarch64 atomic instructions, so this MUST run on
+#     x86_64 (our normal pgrx regress run is arm64).
+#   - pgrx 0.18.1 wires --valgrind through to `regress`, so no Postgres/pgrx
+#     patching is required (see paradedb/paradedb#5059).
+
+name: Test pg_search Valgrind
+
+on:
+  schedule:
+    # Weekly, Tuesday overnight ET — Wednesday 07:00 UTC (~2am ET), matching the
+    # nightly test-pg_search.yml time-of-day convention.
+    - cron: "0 7 * * 3"
+  # Trigger on changes to this workflow only — scoped narrowly (not all of
+  # pg_search/) because the run takes multiple hours and shouldn't fire on every
+  # extension change. The weekly schedule covers ongoing coverage.
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - ".github/workflows/test-pg_search-valgrind.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: test-pg_search-valgrind-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pg_search-valgrind:
+    name: Test pg_search under Valgrind (PostgreSQL ${{ matrix.pg_version }}, x86_64)
+    # Valgrind requires x86_64 (cannot decode aarch64 atomics). Compute-optimized
+    # AMD c-family — Rust + Postgres are CPU-bound. Runs in us-east-1.
+    # See https://runs-on.com/configuration/job-labels/
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7a+c7i
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-x64
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
+      - extras=s3-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version: [18]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale. This workflow does not save the
+      # cache (save-if: false) — it restores from the nightly-warmed default
+      # branch cache to avoid thrashing.
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "v2-rust-cache"
+          shared-key: pg${{ matrix.pg_version }}
+          cache-targets: true
+          cache-all-crates: true
+          save-if: false
+
+      - name: Install required system tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            valgrind lsof build-essential clang flex bison pkg-config ca-certificates git \
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
+            libcurl4-openssl-dev
+
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
+
+      - name: Install pgrx
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
+
+      # The Valgrind-enabled Postgres build (USE_VALGRIND) differs from the normal
+      # pgrx build, so it gets its own cache key suffixed with "valgrind".
+      - name: Cache pgrx-compiled Postgres (Valgrind)
+        id: cache-pgrx-pg
+        uses: actions/cache@v5
+        with:
+          path: ~/.pgrx
+          key: pgrx-pg-valgrind-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Initialize pgrx environment with Valgrind
+        if: steps.cache-pgrx-pg.outputs.cache-hit != 'true'
+        run: cargo pgrx init --valgrind "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline" -j $(nproc)
+
+      - name: Add pg_search to shared_preload_libraries
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+
+      - name: Compile & install pg_search extension
+        working-directory: pg_search/
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }}"
+
+      # Runs the full pg_regress suite with the postmaster wrapped in Valgrind.
+      # This is the multi-hour step. Valgrind output (including any memory errors)
+      # is written to the Postgres log, not stdout — see the scan step below.
+      - name: Run pg_search Regression Tests under Valgrind
+        run: |
+          set -e
+          if ! cargo pgrx regress --valgrind --resetdb --package pg_search pg${{ matrix.pg_version }} --auto; then
+            git diff
+            echo "regress_failed=1" >> "$GITHUB_ENV"
+          fi
+
+      # Memory-corruption errors do not always fail the regress run (Valgrind does
+      # not exit non-zero on them by default), so scan the Postgres log explicitly.
+      # We look only for genuine memory *errors* — NOT leak summaries, since normal
+      # Postgres operation leaks heavily and would produce false positives.
+      - name: Scan Postgres log for Valgrind errors
+        if: always()
+        run: |
+          set -uo pipefail
+          LOG=~/.pgrx/${{ matrix.pg_version }}.log
+          if [[ ! -f "$LOG" ]]; then
+            echo "::error::Postgres log not found at $LOG"
+            exit 1
+          fi
+
+          # VALGRINDERROR-BEGIN/END delimit each report pgrx emits via valgrind.
+          # Match the corruption categories we care about; ignore leak accounting.
+          PATTERN='Invalid read|Invalid write|Invalid free|Mismatched free|Use of uninitialised|Conditional jump or move depends on uninitialised|Source and destination overlap|Syscall param .* points to (unaddressable|uninitialised)'
+
+          if grep -nE "$PATTERN" "$LOG"; then
+            echo "::error::Valgrind detected memory errors — see matches above and the uploaded Postgres log artifact."
+            exit 1
+          fi
+
+          echo "No Valgrind memory errors found in $LOG"
+
+          # If regress itself failed (e.g. an output diff or a crash), fail the job
+          # even when no Valgrind error pattern matched.
+          if [[ "${regress_failed:-0}" == "1" ]]; then
+            echo "::error::Regression tests failed (see the regress step output above)."
+            exit 1
+          fi
+
+      - name: Stop PostgreSQL
+        if: always()
+        working-directory: pg_search/
+        run: cargo pgrx stop pg${{ matrix.pg_version }} || true
+
+      - name: Upload Postgres log
+        if: always()
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
+        uses: actions/upload-artifact@v7
+        with:
+          name: valgrind-postgres-log-${{ matrix.pg_version }}
+          path: ~/.pgrx/${{ matrix.pg_version }}.log
+          retention-days: 7
+
+      - name: Print the Postgres Logs
+        if: always()
+        run: cat ~/.pgrx/${{ matrix.pg_version }}.log

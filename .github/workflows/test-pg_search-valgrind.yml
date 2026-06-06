@@ -1,28 +1,12 @@
 # workflows/test-pg_search-valgrind.yml
 #
-# Test pg_search under Valgrind
-# Runs the pg_regress suite with Postgres wrapped in Valgrind to catch memory
-# corruption (invalid reads/writes, use-after-free, use of uninitialised memory)
-# at the Rust<->Postgres FFI boundary that --enable-cassert alone cannot detect.
-#
-# Why this is a separate, weekly workflow (not part of test-pg_search.yml):
-#   - Valgrind slows execution ~10-50x; a full regress run takes multiple hours,
-#     so it must stay off the per-PR critical path.
-#   - Valgrind cannot decode aarch64 atomic instructions, so this MUST run on
-#     x86_64 (our normal pgrx regress run is arm64).
-#   - pgrx 0.18.1 wires --valgrind through to `regress`, so no Postgres/pgrx
-#     patching is required (see paradedb/paradedb#5059).
+# Test pg_search Valgrind
 
 name: Test pg_search Valgrind
 
 on:
   schedule:
-    # Weekly, Tuesday overnight ET — Wednesday 07:00 UTC (~2am ET), matching the
-    # nightly test-pg_search.yml time-of-day convention.
-    - cron: "0 7 * * 3"
-  # Trigger on changes to this workflow only — scoped narrowly (not all of
-  # pg_search/) because the run takes multiple hours and shouldn't fire on every
-  # extension change. The weekly schedule covers ongoing coverage.
+    - cron: "0 7 * * 3" # Weekly on Tuesday night
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
@@ -30,6 +14,7 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-pg_search-valgrind.yml"
+      - ".github/scripts/scan_valgrind_log.py"
   workflow_dispatch:
 
 concurrency:
@@ -120,45 +105,23 @@ jobs:
       # Runs the full pg_regress suite with the postmaster wrapped in Valgrind.
       # This is the multi-hour step. Valgrind output (including any memory errors)
       # is written to the Postgres log, not stdout — see the scan step below.
+      # A regress failure (output diff or crash) fails the job here; the always()
+      # scan step below still runs so we also surface any Valgrind memory errors.
       - name: Run pg_search Regression Tests under Valgrind
         run: |
           set -e
           if ! cargo pgrx regress --valgrind --resetdb --package pg_search pg${{ matrix.pg_version }} --auto; then
             git diff
-            echo "regress_failed=1" >> "$GITHUB_ENV"
+            exit 1
           fi
 
       # Memory-corruption errors do not always fail the regress run (Valgrind does
       # not exit non-zero on them by default), so scan the Postgres log explicitly.
-      # We look only for genuine memory *errors* — NOT leak summaries, since normal
-      # Postgres operation leaks heavily and would produce false positives.
+      # The script groups identical reports by codepath and ignores leak summaries
+      # (normal Postgres operation leaks heavily → false positives).
       - name: Scan Postgres log for Valgrind errors
         if: always()
-        run: |
-          set -uo pipefail
-          LOG=~/.pgrx/${{ matrix.pg_version }}.log
-          if [[ ! -f "$LOG" ]]; then
-            echo "::error::Postgres log not found at $LOG"
-            exit 1
-          fi
-
-          # VALGRINDERROR-BEGIN/END delimit each report pgrx emits via valgrind.
-          # Match the corruption categories we care about; ignore leak accounting.
-          PATTERN='Invalid read|Invalid write|Invalid free|Mismatched free|Use of uninitialised|Conditional jump or move depends on uninitialised|Source and destination overlap|Syscall param .* points to (unaddressable|uninitialised)'
-
-          if grep -nE "$PATTERN" "$LOG"; then
-            echo "::error::Valgrind detected memory errors — see matches above and the uploaded Postgres log artifact."
-            exit 1
-          fi
-
-          echo "No Valgrind memory errors found in $LOG"
-
-          # If regress itself failed (e.g. an output diff or a crash), fail the job
-          # even when no Valgrind error pattern matched.
-          if [[ "${regress_failed:-0}" == "1" ]]; then
-            echo "::error::Regression tests failed (see the regress step output above)."
-            exit 1
-          fi
+        run: python3 .github/scripts/scan_valgrind_log.py ~/.pgrx/${{ matrix.pg_version }}.log
 
       - name: Stop PostgreSQL
         if: always()
@@ -179,3 +142,41 @@ jobs:
       - name: Print the Postgres Logs
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version }}.log
+
+  # Ping Slack if the weekly (scheduled) run fails. PR runs are watched in the
+  # checks UI, so this only fires on schedule to avoid noise.
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [test-pg_search-valgrind]
+    if: |
+      always()
+      && github.event_name == 'schedule'
+      && needs.test-pg_search-valgrind.result == 'failure'
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+    steps:
+      - name: Send Slack notification
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            JSON_DATA="{
+              \"text\": \"🚨 Weekly pg_search Valgrind Run Failed - <!here>\",
+              \"attachments\": [
+                {
+                  \"color\": \"danger\",
+                  \"fields\": [
+                    {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                    {\"title\": \"Workflow\", \"value\": \"${{ github.workflow }}\", \"short\": true},
+                    {\"title\": \"Run ID\", \"value\": \"${{ github.run_id }}\", \"short\": true},
+                    {\"title\": \"View Logs\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>\", \"short\": true}
+                  ]
+                }
+              ]
+            }"
+
+            curl -X POST -H 'Content-type: application/json' \
+              --data "$JSON_DATA" \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "Slack webhook not configured, skipping notification"
+          fi

@@ -45,14 +45,15 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use datafusion_distributed::embedded::{
+    proc_for_task, run_worker_fragment, CooperativeDrainSet, InProcessWorkerResolver,
+    MppFrameHeader, MppMesh, MppPartitionSink, MppSender, ShmMqWorkerTransport,
+};
+use datafusion_distributed::PartitionSink;
+
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, InProcessWorkerResolver, MppMesh, ShmMqWorkerTransport,
-};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
-use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
-use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
@@ -257,10 +258,10 @@ pub(crate) fn run_mpp_worker(
                 .properties()
                 .output_partitioning()
                 .partition_count();
-            // Build per-output-partition senders. For each partition `q` emitted by this
-            // fragment, look up the destination proc via `fragment.routing` and clone the right
-            // outbound sender.
-            let mut per_partition_senders: Vec<MppSender> = Vec::with_capacity(n_out);
+            // Build a `PartitionSink` per output partition. For each partition `q` emitted by this
+            // fragment, look up the destination proc via `fragment.routing`, clone the right
+            // outbound sender, and wrap it as a sink the produce loop pushes through.
+            let mut per_partition_sinks: Vec<Box<dyn PartitionSink>> = Vec::with_capacity(n_out);
             for q in 0..n_out {
                 let dest_proc = match &fragment.routing {
                     FragmentRouting::Coalesce { dest_proc } => *dest_proc,
@@ -304,7 +305,7 @@ pub(crate) fn run_mpp_worker(
                 // ring doesn't block the backend thread. The spin pulls every inbound
                 // drain while retrying the send, breaking the symmetric-send stall
                 // pattern where every peer is blocked sending to a full peer.
-                per_partition_senders.push(
+                per_partition_sinks.push(Box::new(MppPartitionSink::new(
                     base.clone_with_header(MppFrameHeader::batch(
                         fragment.stage_id,
                         q_u32,
@@ -313,7 +314,7 @@ pub(crate) fn run_mpp_worker(
                     .with_cooperative_drain(
                         Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
                     ),
-                );
+                )));
             }
 
             // Broadcast invariant: fail-loud cap check.
@@ -398,7 +399,7 @@ pub(crate) fn run_mpp_worker(
             };
             futures.push(Box::pin(run_worker_fragment(
                 plan,
-                per_partition_senders,
+                per_partition_sinks,
                 task_ctx,
             )));
         }

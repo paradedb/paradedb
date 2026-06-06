@@ -47,11 +47,10 @@ use std::sync::Arc;
 
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::embedded::proc_for_task;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
 };
-
-use crate::postgres::customscan::mpp::runtime::proc_for_task;
 
 /// One worker fragment to run for `this_proc`. The fragment is one task of a
 /// producer stage; the dispatcher runs `plan` with the matching

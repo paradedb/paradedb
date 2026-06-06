@@ -137,8 +137,8 @@ FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
 ORDER BY category
 LIMIT 3;
-                                                                                                                                 QUERY PLAN                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: category
@@ -147,10 +147,11 @@ LIMIT 3;
                Indexes: dist_products_idx (dist_products)
                Group By: category
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
-                 :   CooperativeExec
-                 :     PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+                 : SortExec: TopK(fetch=3), expr=[category@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[], lim=[3]
+                 :     CooperativeExec
+                 :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
 
 SELECT DISTINCT category
 FROM dist_products
@@ -287,6 +288,20 @@ WARNING:  Aggregate Scan not used: DISTINCT ON is not supported (see https://git
  Electronics | Gaming Laptop
 (2 rows)
 
+-- With paradedb.check_aggregate_scan = false the decline warning must be
+-- suppressed; the query still runs correctly via native PG.
+SET paradedb.check_aggregate_scan = false;
+SELECT DISTINCT ON (category) category, name
+FROM dist_products
+WHERE name @@@ 'laptop OR keyboard'
+ORDER BY category, name;
+  category   |        name         
+-------------+---------------------
+ Accessories | Mechanical Keyboard
+ Electronics | Gaming Laptop
+(2 rows)
+
+RESET paradedb.check_aggregate_scan;
 -- =============================================================================
 -- TEST 7: DISTINCT with empty result set
 -- WHERE clause matches nothing; DISTINCT must return zero rows.

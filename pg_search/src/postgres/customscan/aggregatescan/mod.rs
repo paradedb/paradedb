@@ -158,12 +158,17 @@ impl AggregateDeclineReason {
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 alias,
             ),
-            AggregateDeclineReason::DistinctOn => AggregateScan::add_planner_warning(
-                "Aggregate Scan not used: DISTINCT ON is not supported \
-                 (see https://github.com/paradedb/paradedb/issues/new/choose). \
-                 To disable this warning: SET paradedb.check_aggregate_scan = false",
-                alias,
-            ),
+            AggregateDeclineReason::DistinctOn => {
+                if !gucs::check_aggregate_scan() {
+                    return;
+                }
+                AggregateScan::add_planner_warning(
+                    "Aggregate Scan not used: DISTINCT ON is not supported \
+                     (see https://github.com/paradedb/paradedb/issues/new/choose). \
+                     To disable this warning: SET paradedb.check_aggregate_scan = false",
+                    alias,
+                )
+            }
             AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
                 format!("Aggregate Scan (DataFusion) not used: {}", msg),
                 alias,
@@ -2025,15 +2030,29 @@ unsafe fn detect_join_aggregate_topk(
     let direction =
         SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
-    // Find matching position in output_rel target using structural equality
+    // Find matching position in output_rel target using structural equality.
+    // At UPPERREL_DISTINCT the planner leaves output_rel.reltarget.exprs empty,
+    // so fall back to parse->targetList (non-junk entries) to expose the
+    // DISTINCT columns to the position match.
     let reltarget = args.output_rel().reltarget;
     if reltarget.is_null() {
         return None;
     }
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+    let reltarget_list = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+    let target_exprs: Vec<*mut pg_sys::Expr> = if reltarget_list.is_empty()
+        && args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+    {
+        PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList)
+            .iter_ptr()
+            .filter(|te| !(**te).resjunk)
+            .map(|te| (*te).expr)
+            .collect()
+    } else {
+        reltarget_list.iter_ptr().collect()
+    };
 
     let mut match_pos = None;
-    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
+    for (pos, target_expr) in target_exprs.iter().copied().enumerate() {
         if pg_sys::equal(
             sort_expr as *const core::ffi::c_void,
             target_expr as *const core::ffi::c_void,

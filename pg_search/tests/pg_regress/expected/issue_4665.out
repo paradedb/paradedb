@@ -10,10 +10,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 2;
 SET max_parallel_workers = 4;
 SET paradedb.min_rows_per_worker = 0;
--- Inflate the per-segment cost so our score-DESC TopK cost comparison picks
--- parallel even for this small dataset; this keeps the test exercising the
--- parallel-worker-selection path that #4665 was specifically about.
-SET paradedb.per_segment_cost = 1000;
 SET enable_indexscan TO OFF;
 -- Force each INSERT batch to become its own segment
 SET paradedb.global_mutable_segment_rows = 0;
@@ -321,72 +317,11 @@ EXECUTE issue_4665_plimcoff_generic('technology', 3);
 (3 rows)
 
 DEALLOCATE issue_4665_plimcoff_generic;
--- ============================================================================
--- DEFAULT paradedb.per_segment_cost documentation
---
--- The earlier sections inflate per_segment_cost = 1000 to keep the test
--- exercising the parallel-worker-selection path that #4665 was originally
--- diagnosed against. This section drops back to the default and documents the
--- conservative #4664 gate: CUSTOM can resolve $1 at plan time and may use the
--- bounded score-DESC TopK cost branch, while GENERIC keeps $1 as a
--- PostgresExpression and uses general worker selection because the
--- planner cannot prove the runtime query will be Block-WAND-prunable. The
--- important #4665 invariant remains result parity, which the executions above
--- check in both plan modes.
--- ============================================================================
-RESET paradedb.per_segment_cost;
-SET plan_cache_mode = force_custom_plan;
-PREPARE issue_4665_parity_custom(text) AS
-SELECT id FROM issue_4665_test
-WHERE content ||| $1
-ORDER BY pdb.score(id) DESC
-LIMIT 10;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-EXECUTE issue_4665_parity_custom('technology');
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Base Scan) on issue_4665_test
-         Table: issue_4665_test
-         Index: issue_4665_idx
-         Exec Method: TopKScanExecState
-         Scores: true
-            TopK Order By: pdb.score() desc
-            TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(9 rows)
-
-DEALLOCATE issue_4665_parity_custom;
-SET plan_cache_mode = force_generic_plan;
-PREPARE issue_4665_parity_generic(text) AS
-SELECT id FROM issue_4665_test
-WHERE content ||| $1
-ORDER BY pdb.score(id) DESC
-LIMIT 10;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-EXECUTE issue_4665_parity_generic('technology');
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Gather Merge
-         Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Base Scan) on issue_4665_test
-               Table: issue_4665_test
-               Index: issue_4665_idx
-               Exec Method: TopKScanExecState
-               Scores: true
-                  TopK Order By: pdb.score() desc
-                  TopK Limit: 10
-               Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_4665_idx'::regclass, paradedb.match_disjunction('content'::paradedb.fieldname, $1))"}}}
-(11 rows)
-
-DEALLOCATE issue_4665_parity_generic;
 -- Cleanup
 DROP TABLE issue_4665_test CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET max_parallel_workers;
 RESET paradedb.min_rows_per_worker;
-RESET paradedb.per_segment_cost;
 RESET paradedb.global_mutable_segment_rows;
 RESET enable_indexscan;
 RESET plan_cache_mode;

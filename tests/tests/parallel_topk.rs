@@ -77,17 +77,24 @@ fn assert_plan_case(conn: &mut PgConnection, case: PlanCase) {
 }
 
 fn set_cost_defaults(conn: &mut PgConnection) {
+    // The expense cost model parallelizes a score-DESC TopK only when
+    // `matches * per_match * comparison_cost` clears PostgreSQL's Gather overhead.
+    // The fixtures below are deliberately small (a few thousand matches) to keep
+    // CI fast, so we scale the parallel knobs down — a cheap `parallel_setup_cost`
+    // and an inflated `cpu_operator_cost` — to make that threshold crossable at
+    // small scale. The model's *relative* decisions (single-term DESC serial,
+    // unions/ASC/phrase parallel) are what we assert; the absolute crossover
+    // point is a function of these costs.
     r#"
     SET max_parallel_workers_per_gather = 2;
     SET max_parallel_workers = 8;
-    SET parallel_setup_cost = 1000;
+    SET parallel_setup_cost = 100;
     SET parallel_tuple_cost = 0.1;
     SET cpu_tuple_cost = 0.01;
-    SET cpu_operator_cost = 0.0025;
+    SET cpu_operator_cost = 0.05;
     SET min_parallel_table_scan_size = 0;
     SET paradedb.global_mutable_segment_rows = 0;
     SET paradedb.min_rows_per_worker = 300000;
-    SET paradedb.per_segment_cost = 10;
     "#
     .execute(conn);
 }
@@ -257,11 +264,16 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     ORDER BY paradedb.score(id) DESC LIMIT 20",
             expected_workers: None,
         },
+        // The headline #4664 fix: a single-term score-DESC TopK stays serial
+        // even at a large static LIMIT. Block-WAND prunes a single posting list,
+        // so `per_match` is 0 and there is no scan work to split across workers —
+        // parallelizing only adds Gather-Merge overhead. This is exactly the
+        // shape that was being wrongly parallelized before.
         PlanCase {
-            name: "score_desc_large_static_limit_is_parallel",
+            name: "score_desc_single_term_large_limit_stays_serial",
             query: "SELECT id FROM topk_desc_many_segs WHERE body @@@ 'common'
                     ORDER BY paradedb.score(id) DESC LIMIT 1000",
-            expected_workers: Some(2),
+            expected_workers: None,
         },
         PlanCase {
             name: "score_asc_large_match_uses_general_parallel_path",
@@ -269,11 +281,14 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     ORDER BY paradedb.score(id) ASC LIMIT 10",
             expected_workers: Some(2),
         },
+        // Score-ASC can't prune (Block-WAND finds the highest scores, not the
+        // lowest), so it must score every match — but with only ~5 matches the
+        // scan work is far below the Gather threshold, so serial wins.
         PlanCase {
-            name: "score_asc_small_match_uses_general_parallel_path",
+            name: "score_asc_tiny_match_is_serial",
             query: "SELECT id FROM topk_asc_small WHERE body @@@ 'special'
                     ORDER BY paradedb.score(id) ASC LIMIT 10",
-            expected_workers: Some(1),
+            expected_workers: None,
         },
         PlanCase {
             name: "field_sort_large_match_uses_general_parallel_path",
@@ -281,11 +296,13 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     ORDER BY id ASC LIMIT 10",
             expected_workers: Some(2),
         },
+        // Field-sorted TopK still has to scan every match before sorting, but
+        // ~5 matches is well below the Gather threshold, so serial wins.
         PlanCase {
-            name: "field_sort_small_match_uses_general_parallel_path",
+            name: "field_sort_tiny_match_is_serial",
             query: "SELECT id FROM topk_asc_small WHERE body @@@ 'special'
                     ORDER BY id ASC LIMIT 10",
-            expected_workers: Some(1),
+            expected_workers: None,
         },
         PlanCase {
             name: "unordered_topk_small_limit_is_serial",
@@ -339,18 +356,6 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         assert_plan_case(&mut conn, case);
     }
 
-    "SET paradedb.per_segment_cost = 1000;".execute(&mut conn);
-    assert_plan_case(
-        &mut conn,
-        PlanCase {
-            name: "score_desc_many_segments_rare_match_can_be_tuned_parallel",
-            query: "SELECT id FROM topk_desc_many_segs WHERE body @@@ 'rare'
-                    ORDER BY paradedb.score(id) DESC LIMIT 20",
-            expected_workers: Some(2),
-        },
-    );
-    "SET paradedb.per_segment_cost = 10;".execute(&mut conn);
-
     "SET plan_cache_mode = force_generic_plan;".execute(&mut conn);
     r#"
     PREPARE topk_desc_param_limit(int) AS
@@ -390,7 +395,6 @@ fn dense_multi_term_query_accounts_for_term_union_traversal(mut conn: PgConnecti
     assert_eq!(single_term_matches, term_union_matches);
 
     r#"
-    SET paradedb.per_segment_cost = 0;
     SET cpu_operator_cost = 0.05;
     SET parallel_setup_cost = 100;
     "#

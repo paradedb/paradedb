@@ -200,11 +200,12 @@ unsafe fn topk_can_prune_for_method(
 /// score-DESC, `log2(terms)` for a term union, ~2 for regex/fuzzy, ~16 for
 /// phrase. We parallelize only when splitting that work across workers beats the
 /// fixed cost of starting them (PostgreSQL's `parallel_setup_cost`). This
-/// replaces the per-segment cost model and its `paradedb.per_segment_cost` GUC.
+/// replaces the previous reader-based cost model.
 ///
 /// # Safety
 ///
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
+#[allow(clippy::too_many_arguments)]
 unsafe fn decide_topk_workers(
     can_prune: bool,
     query: &SearchQueryInput,

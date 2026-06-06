@@ -761,9 +761,7 @@ impl pdb::Query {
             pdb::Query::UnclassifiedString { string, .. } => {
                 union_per_match(estimate_term_count(string), can_prune)
             }
-            pdb::Query::UnclassifiedArray { array, .. } => {
-                union_per_match(array.len(), can_prune)
-            }
+            pdb::Query::UnclassifiedArray { array, .. } => union_per_match(array.len(), can_prune),
         };
         QueryExpense {
             per_match,
@@ -2182,7 +2180,12 @@ mod tests {
             },
             true,
         ); // 1
-        let regex = per_match(&Query::Regex { pattern: "he.*".into() }, true); // 2
+        let regex = per_match(
+            &Query::Regex {
+                pattern: "he.*".into(),
+            },
+            true,
+        ); // 2
         let fuzzy = per_match(
             &Query::FuzzyTerm {
                 value: "help".into(),

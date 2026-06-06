@@ -682,6 +682,131 @@ impl pdb::Query {
             _ => crate::UNKNOWN_SELECTIVITY,
         }
     }
+
+    /// Cost characteristics of this query for the TopK serial-vs-parallel decision.
+    ///
+    /// Generalizes the score-DESC-specific cost branch (PR #5150) per review
+    /// feedback: switch on "this `SearchQueryInput` + ORDER BY is more or less
+    /// expensive" rather than on score-DESC in particular, in a framework where a
+    /// range query is more expensive than a pure posting-list query. Derived purely
+    /// from the query shape — no reader/scorer is constructed.
+    ///
+    /// `can_prune` must be true only when the ORDER BY is score-DESC: that is the
+    /// one case where Block-WAND makes a single posting list sublinear.
+    ///
+    /// Coefficients are anchored by measured ns/match on a ~20M corpus (term <
+    /// fast-field-range < regex ≈ fuzzy ≪ phrase) and are calibration knobs; the
+    /// relative ordering is what the cost model relies on.
+    pub fn expense(&self, can_prune: bool) -> QueryExpense {
+        let per_match = match self {
+            pdb::Query::All | pdb::Query::Empty => 0.0,
+
+            // A single posting list — the only shape Block-WAND fully prunes under
+            // score-DESC. `TermSet` uses a specialized single-field union scorer;
+            // treat as posting-list-cheap.
+            pdb::Query::Term { .. } | pdb::Query::TermSet { .. } | pdb::Query::Exists => {
+                if can_prune {
+                    0.0
+                } else {
+                    EXPENSE_POSTING
+                }
+            }
+
+            // Pure term unions: traversal grows with log2(term_count), matching the
+            // existing term_union_traversal_cost. A 1-token match is a single term.
+            pdb::Query::Match { value, .. } => {
+                union_per_match(estimate_term_count(value), can_prune)
+            }
+            pdb::Query::MatchArray { tokens, .. } => union_per_match(tokens.len(), can_prune),
+
+            // Fast-field numeric range: cheap scan, never WAND-pruned.
+            pdb::Query::FastFieldRangeWeight { .. } | pdb::Query::RangeTerm { .. } => {
+                EXPENSE_POSTING
+            }
+
+            // Automaton + term expansion, non-prunable (measured ~2x a posting advance).
+            pdb::Query::FuzzyTerm { .. }
+            | pdb::Query::Regex { .. }
+            | pdb::Query::ParseWithField {
+                fuzzy_data: Some(_),
+                ..
+            } => EXPENSE_AUTOMATON,
+
+            // Term-dictionary range over a tokenized text field expands to a union
+            // — the sense of "a range query is more expensive than a pure posting
+            // list query".
+            pdb::Query::Range { .. }
+            | pdb::Query::RangeContains { .. }
+            | pdb::Query::RangeIntersects { .. }
+            | pdb::Query::RangeWithin { .. } => EXPENSE_AUTOMATON,
+
+            // Position-list checks per candidate doc — most expensive (measured ~16x).
+            pdb::Query::Phrase { .. }
+            | pdb::Query::PhraseArray { .. }
+            | pdb::Query::TokenizedPhrase { .. }
+            | pdb::Query::Proximity { .. } => EXPENSE_POSITION,
+            pdb::Query::PhrasePrefix { .. } | pdb::Query::RegexPhrase { .. } => {
+                EXPENSE_POSITION * 1.5
+            }
+
+            // Wrappers: recurse (mirrors is_expensive_to_estimate).
+            pdb::Query::ScoreAdjusted { query, .. } => return query.expense(can_prune),
+
+            // Query-string / unresolved forms: approximate term count by whitespace
+            // tokenization (no reader needed).
+            pdb::Query::Parse { query_string, .. }
+            | pdb::Query::ParseWithField { query_string, .. } => {
+                union_per_match(estimate_term_count(query_string), can_prune)
+            }
+            pdb::Query::UnclassifiedString { string, .. } => {
+                union_per_match(estimate_term_count(string), can_prune)
+            }
+            pdb::Query::UnclassifiedArray { array, .. } => {
+                union_per_match(array.len(), can_prune)
+            }
+        };
+        QueryExpense {
+            per_match,
+            per_candidate: EXPENSE_POSTING,
+        }
+    }
+}
+
+/// Cost characteristics of a query for the TopK serial-vs-parallel decision.
+/// See [`pdb::Query::expense`] and `SearchQueryInput::expense`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct QueryExpense {
+    /// Per-matched-document traversal cost, in multiples of `cpu_operator_cost`.
+    /// Scales with the full match count and is the dominant factor in the decision.
+    pub per_match: f64,
+    /// Per-locally-collected-candidate heap cost (work is bounded by `LIMIT * segments`).
+    pub per_candidate: f64,
+}
+
+/// One posting-list advance: single term or fast-field scan.
+pub const EXPENSE_POSTING: f64 = 1.0;
+/// Automaton + term expansion (regex / fuzzy). Measured ~2x a posting advance.
+pub const EXPENSE_AUTOMATON: f64 = 2.0;
+/// Position-list checks per candidate doc (phrase). Measured ~16x a posting advance.
+pub const EXPENSE_POSITION: f64 = 16.0;
+
+/// Per-match traversal cost of a SHOULD union of `term_count` terms. A union of
+/// <= 1 effective term is a single posting list (prunable under score-DESC).
+pub fn union_per_match(term_count: usize, can_prune: bool) -> f64 {
+    if term_count <= 1 {
+        if can_prune {
+            0.0
+        } else {
+            EXPENSE_POSTING
+        }
+    } else {
+        (term_count as f64).log2() * EXPENSE_POSTING
+    }
+}
+
+/// Cheap whitespace-based term-count estimate (avoids constructing a tokenizer/reader).
+pub fn estimate_term_count(s: &str) -> usize {
+    s.split_whitespace().count().max(1)
 }
 
 impl InOutFuncs for pdb::Query {
@@ -2011,5 +2136,90 @@ mod tests {
             let from_typmod: FuzzyData = typmod_repr.into();
             assert_eq!(original, from_typmod);
         })
+    }
+
+    use super::pdb::Query;
+    use super::{EXPENSE_AUTOMATON, EXPENSE_POSITION, EXPENSE_POSTING};
+    use std::collections::Bound;
+
+    fn per_match(q: &Query, can_prune: bool) -> f64 {
+        q.expense(can_prune).per_match
+    }
+
+    fn match_query(value: &str) -> Query {
+        Query::Match {
+            value: value.to_string(),
+            tokenizer: None,
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+            conjunction_mode: None,
+        }
+    }
+
+    #[pg_test]
+    fn expense_single_term_prunes_under_score_desc() {
+        // a 1-token match is a single posting list: free to skip under score-DESC
+        // (Block-WAND), one posting advance otherwise (score-ASC / field sort).
+        assert_eq!(per_match(&match_query("help"), true), 0.0);
+        assert_eq!(per_match(&match_query("help"), false), EXPENSE_POSTING);
+    }
+
+    #[pg_test]
+    fn expense_union_grows_with_term_count() {
+        let five = match_query("a b c d e");
+        assert!((per_match(&five, true) - (5f64).log2()).abs() < 1e-9);
+        assert!(per_match(&match_query("a b c d e f g"), true) > per_match(&five, true));
+    }
+
+    #[pg_test]
+    fn expense_orders_query_types_by_measured_cost() {
+        let term = per_match(&match_query("help"), true); // 0 (prunes)
+        let fast_range = per_match(
+            &Query::FastFieldRangeWeight {
+                lower_bound: Bound::Unbounded,
+                upper_bound: Bound::Unbounded,
+            },
+            true,
+        ); // 1
+        let regex = per_match(&Query::Regex { pattern: "he.*".into() }, true); // 2
+        let fuzzy = per_match(
+            &Query::FuzzyTerm {
+                value: "help".into(),
+                distance: Some(1),
+                transposition_cost_one: None,
+                prefix: None,
+            },
+            true,
+        ); // 2
+        let phrase = per_match(
+            &Query::Phrase {
+                phrases: vec!["help".into(), "common".into()],
+                slop: None,
+            },
+            true,
+        ); // 16
+
+        // matches the measured ordering: term < fast-range < regex == fuzzy << phrase
+        assert!(term < fast_range);
+        assert!(fast_range < regex);
+        assert_eq!(regex, fuzzy);
+        assert!(regex < phrase);
+        assert_eq!(regex, EXPENSE_AUTOMATON);
+        assert_eq!(phrase, EXPENSE_POSITION);
+    }
+
+    #[pg_test]
+    fn expense_text_range_is_costed_above_posting_list() {
+        // "a range query is more expensive than a pure posting list query"
+        let posting = per_match(&match_query("help"), false); // 1 (single posting, no prune)
+        let text_range = per_match(
+            &Query::Range {
+                lower_bound: Bound::Unbounded,
+                upper_bound: Bound::Unbounded,
+            },
+            true,
+        );
+        assert!(text_range > posting);
     }
 }

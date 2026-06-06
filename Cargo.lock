@@ -788,7 +788,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
-version = "0.23.6"
+version = "0.24.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -1486,15 +1486,6 @@ dependencies = [
  "getrandom 0.2.17",
  "once_cell",
  "tiny-keccak",
-]
-
-[[package]]
-name = "convert_case"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
-dependencies = [
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -2711,29 +2702,6 @@ checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
 dependencies = [
  "derive_builder_core",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "derive_more"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
-dependencies = [
- "derive_more-impl",
-]
-
-[[package]]
-name = "derive_more-impl"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
-dependencies = [
- "convert_case 0.10.0",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.117",
- "unicode-xid",
 ]
 
 [[package]]
@@ -4942,7 +4910,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.23.6"
+version = "0.24.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5014,15 +4982,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
 ]
 
 [[package]]
@@ -5662,7 +5621,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.23.6"
+version = "0.24.1"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -5680,13 +5639,11 @@ dependencies = [
  "datafusion-distributed",
  "datafusion-proto",
  "decimal-bytes",
- "derive_more",
  "env_logger 0.11.10",
  "futures",
  "half 2.7.1",
  "lazy_static",
  "macros",
- "memoffset",
  "once_cell",
  "ordered-float 5.3.0",
  "parking_lot",
@@ -5826,7 +5783,7 @@ version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82169b961269f7436bfba3b9464f4d6be6b500f0ace1de694be77398b58c09a7"
 dependencies = [
- "convert_case 0.11.0",
+ "convert_case",
  "eyre",
  "petgraph",
  "proc-macro2",
@@ -7866,7 +7823,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.23.6"
+version = "0.24.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8256,7 +8213,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.23.6"
+version = "0.24.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -8426,7 +8383,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.23.6"
+version = "0.24.1"
 dependencies = [
  "anyhow",
  "emojis",

@@ -421,4 +421,3 @@ LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'simple_out_wrapper';
 
 DROP FUNCTION IF EXISTS pdb."alias_out_safe"(pdb.alias);
-

@@ -222,8 +222,9 @@ impl<'a> JsonSortGate<'a> {
 }
 
 /// Map a Postgres type OID to the Tantivy schema [`Type`](tantivy::schema::Type) whose stored
-/// order matches Postgres' btree ordering for that type. Returns `None` for OIDs that have no
-/// safe Tantivy counterpart
+/// order matches Postgres' btree ordering for that type
+/// Returns `None` for OIDs that have no safe Tantivy counterpart
+/// LIMIT can hide cast or precision differences errors making some mappings unsafe to pushdown
 fn pg_type_to_tantivy_type(pg_type: pg_sys::Oid) -> Option<tantivy::schema::Type> {
     use tantivy::schema::Type;
     if pg_type == pg_sys::TEXTOID

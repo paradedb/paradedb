@@ -7,6 +7,8 @@
 --   * Float leaf type (Type::F64) with true decimal JSON numbers -> pushdown
 --   * Probe miss when the requested JSON key is absent from every document
 --   * Non-fast JSON field (fast: false) -> is_raw_sortable returns false
+--   * Strict type map: ::int / ::float4 on I64 / F64 leaves -> pushdown rejected
+--   * Mixed JSON leaf types within a single segment -> pushdown rejected
 --   * DESC sort direction on a Str leaf
 --   * JSON sub-path as a secondary sort key
 --   * Aggregate scan ORDER BY (metadata->>'k')::cast LIMIT (aggregatescan/orderby.rs)
@@ -166,6 +168,167 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
 
+-- 4a. Explicit ::int cast on a JSON I64 leaf. PG int4 has a narrower domain than
+--     Tantivy's I64; with LIMIT, pushdown would silently swallow cast errors for
+--     values outside int4's range that fell outside the top K. The strict type
+--     map rejects this and PG performs the sort itself.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, (metadata->>'tier')::int AS tier
+FROM mock_items_jsonsort_edges
+WHERE id @@@ paradedb.all()
+ORDER BY tier ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_edges)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (((metadata ->> 'tier'::text))::integer), id
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items_jsonsort_edges
+               Table: mock_items_jsonsort_edges
+               Index: jsonsort_edges_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT description, (metadata->>'tier')::int AS tier
+FROM mock_items_jsonsort_edges
+WHERE id @@@ paradedb.all()
+ORDER BY tier ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_edges)
+  description   | tier 
+----------------+------
+ Computer mouse |    1
+ Monitor        |    1
+ Keyboard       |    2
+ Speaker        |    2
+ Printer        |    3
+(5 rows)
+
+-- 4b. Explicit ::real (float4) cast on a JSON F64 leaf. FLOAT4 has fewer mantissa
+--     bits than F64, so ordering of close-magnitude values can diverge from
+--     Tantivy's order. The strict type map rejects this and PG performs the sort.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, (metadata->>'weight')::real AS weight
+FROM mock_items_jsonsort_edges
+WHERE id @@@ paradedb.all()
+ORDER BY weight DESC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_edges)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (((metadata ->> 'weight'::text))::real) DESC, id
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items_jsonsort_edges
+               Table: mock_items_jsonsort_edges
+               Index: jsonsort_edges_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT description, (metadata->>'weight')::real AS weight
+FROM mock_items_jsonsort_edges
+WHERE id @@@ paradedb.all()
+ORDER BY weight DESC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_edges)
+  description   | weight 
+----------------+--------
+ Monitor        |      7
+ Printer        |    4.4
+ Speaker        |    3.1
+ Keyboard       |   2.25
+ Computer mouse |    1.5
+(5 rows)
+
+-- 4c. Mixed leaf types within a single segment. When a JSON key has been
+--     observed with both numeric and string values in the same segment,
+--     Tantivy stores both an I64 column and a Str column for that path.
+--     probe_segment_leaf_type detects this and returns None so the planner
+--     falls back to a PG sort even when the cast type *would* otherwise
+--     match the numeric leaf -- which is the case this gate exists to catch.
+DROP TABLE IF EXISTS mock_items_jsonsort_mixed;
+CREATE TABLE mock_items_jsonsort_mixed (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    metadata JSONB
+);
+INSERT INTO mock_items_jsonsort_mixed (description, metadata) VALUES
+('Numeric ten',    '{"value": 10}'),
+('Numeric twenty', '{"value": 20}'),
+('Text alpha',     '{"value": "alpha"}');
+CREATE INDEX jsonsort_mixed_idx ON mock_items_jsonsort_mixed
+USING bm25 (id, description, metadata)
+WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
+-- ::bigint cast: expected type (I64) would otherwise match the numeric leaf
+-- this segment has for `value`. Only the mixed-segment detection prevents the
+-- (unsafe) pushdown. EXPLAIN only because the PG-side sort would error
+-- casting "alpha" to bigint.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, (metadata->>'value')::bigint AS v
+FROM mock_items_jsonsort_mixed
+WHERE id @@@ paradedb.all()
+ORDER BY v ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_mixed)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (((metadata ->> 'value'::text))::bigint), id
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items_jsonsort_mixed
+               Table: mock_items_jsonsort_mixed
+               Index: jsonsort_mixed_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+-- Raw ->> against the same mixed-type path. Expected type (Str) also fails
+-- to match the numeric leaf, but this shape gives a deterministic PG-sorted
+-- result row for end-to-end coverage.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'value' AS v
+FROM mock_items_jsonsort_mixed
+WHERE id @@@ paradedb.all()
+ORDER BY v ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_mixed)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((metadata ->> 'value'::text)), id
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items_jsonsort_mixed
+               Table: mock_items_jsonsort_mixed
+               Index: jsonsort_mixed_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT description, metadata->>'value' AS v
+FROM mock_items_jsonsort_mixed
+WHERE id @@@ paradedb.all()
+ORDER BY v ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort_mixed)
+  description   |   v   
+----------------+-------
+ Numeric ten    | 10
+ Numeric twenty | 20
+ Text alpha     | alpha
+(3 rows)
+
+DROP TABLE mock_items_jsonsort_mixed;
 -- 5. DESC sort direction on a Str leaf -- confirms ORDER BY direction flows
 --    through the new JSON pushdown branch.
 EXPLAIN (COSTS OFF, TIMING OFF)
@@ -203,12 +366,13 @@ LIMIT 5;
 (5 rows)
 
 -- 6. JSON sub-path as a secondary sort key together with a primary fast field
---    (id). The full pathkey list must remain Top K compatible.
+--    (id). The full pathkey list must remain Top K compatible. Use ::bigint
+--    since ::int is now rejected (see test 4a).
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id, description, (metadata->>'tier')::int AS tier
+SELECT id, description, (metadata->>'tier')::bigint AS tier
 FROM mock_items_jsonsort_edges
 WHERE id @@@ paradedb.all()
-ORDER BY (metadata->>'tier')::int ASC, id ASC
+ORDER BY id ASC, (metadata->>'tier')::bigint ASC
 LIMIT 5;
                              QUERY PLAN                              
 ---------------------------------------------------------------------
@@ -218,35 +382,36 @@ LIMIT 5;
          Index: jsonsort_edges_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: metadata.tier asc, id asc
+            TopK Order By: id asc, metadata.tier asc
             TopK Limit: 5
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
 
-SELECT id, description, (metadata->>'tier')::int AS tier
+SELECT id, description, (metadata->>'tier')::bigint AS tier
 FROM mock_items_jsonsort_edges
 WHERE id @@@ paradedb.all()
-ORDER BY (metadata->>'tier')::int ASC, id ASC
+ORDER BY id ASC, (metadata->>'tier')::bigint ASC
 LIMIT 5;
  id |  description   | tier 
 ----+----------------+------
   1 | Computer mouse |    1
-  3 | Monitor        |    1
   2 | Keyboard       |    2
-  5 | Speaker        |    2
+  3 | Monitor        |    1
   4 | Printer        |    3
+  5 | Speaker        |    2
 (5 rows)
 
 -- 7. Aggregate scan path: GROUP BY ... ORDER BY (metadata->>'k')::cast LIMIT.
 --    Confirms that aggregatescan/orderby.rs threads the JsonSortGate through
---    when the sort key is a cast over a JSON sub-path.
+--    when the sort key is a cast over a JSON sub-path. Uses ::bigint for the
+--    same reason as test 6.
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT (metadata->>'tier')::int AS tier, COUNT(*)
+SELECT (metadata->>'tier')::bigint AS tier, COUNT(*)
 FROM mock_items_jsonsort_edges
 WHERE id @@@ paradedb.all()
-GROUP BY (metadata->>'tier')::int
-ORDER BY (metadata->>'tier')::int ASC
+GROUP BY (metadata->>'tier')::bigint
+ORDER BY (metadata->>'tier')::bigint ASC
 LIMIT 5;
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
@@ -260,11 +425,11 @@ LIMIT 5;
            Aggregate Definition: {"grouped":{"terms":{"field":"metadata.tier","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (8 rows)
 
-SELECT (metadata->>'tier')::int AS tier, COUNT(*)
+SELECT (metadata->>'tier')::bigint AS tier, COUNT(*)
 FROM mock_items_jsonsort_edges
 WHERE id @@@ paradedb.all()
-GROUP BY (metadata->>'tier')::int
-ORDER BY (metadata->>'tier')::int ASC
+GROUP BY (metadata->>'tier')::bigint
+ORDER BY (metadata->>'tier')::bigint ASC
 LIMIT 5;
  tier | count 
 ------+-------

@@ -91,10 +91,13 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
  Computer mouse | 100
 (5 rows)
 
--- Explicit ::int cast on the same key matches the I64 fast field type, so pushdown
--- is allowed and the result is in numeric order.
+-- Explicit ::bigint cast on the same key matches the I64 fast field type exactly,
+-- so pushdown is allowed and the result is in numeric order. (::int / ::smallint
+-- would be rejected because their domains are narrower than I64; with LIMIT that
+-- would silently swallow cast errors for values outside the top K -- see
+-- topn-json-orderby-edges.sql.)
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT description, (metadata->>'price')::int AS price FROM mock_items_jsonsort
+SELECT description, (metadata->>'price')::bigint AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY price DESC
 LIMIT 5;
@@ -112,7 +115,7 @@ LIMIT 5;
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
 
-SELECT description, (metadata->>'price')::int AS price FROM mock_items_jsonsort
+SELECT description, (metadata->>'price')::bigint AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY price DESC
 LIMIT 5;
@@ -125,9 +128,9 @@ LIMIT 5;
  Speaker        |    80
 (5 rows)
 
--- Explicit ::numeric cast maps to F64 expected type, but the stored fast field is
--- I64 (integer JSON values). The probe disagrees, so pushdown is rejected and PG
--- performs the sort itself.
+-- Explicit ::numeric cast: NUMERIC has arbitrary precision and different NaN /
+-- precision semantics from Tantivy's F64, so the type map refuses to consider
+-- it pushable at all. PG performs the sort itself.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT description, (metadata->>'price')::numeric AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
@@ -193,6 +196,41 @@ LIMIT 5;
  Speaker        | t
  Keyboard       | f
  Printer        | f
+(5 rows)
+
+-- Timestamp cast matches the Date fast field type.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, (metadata->>'released')::timestamp AS released FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY released ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort)
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (((metadata ->> 'released'::text))::timestamp without time zone), id
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items_jsonsort
+               Table: mock_items_jsonsort
+               Index: jsonsort_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT description, (metadata->>'released')::timestamp AS released FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY released ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonsort)
+  description   |         released         
+----------------+--------------------------
+ Printer        | Sat Nov 30 00:00:00 2019
+ Keyboard       | Wed Jan 15 00:00:00 2020
+ Computer mouse | Sat May 01 00:00:00 2021
+ Monitor        | Sat Aug 20 00:00:00 2022
+ Speaker        | Fri Mar 10 00:00:00 2023
 (5 rows)
 
 DROP TABLE mock_items_jsonsort;

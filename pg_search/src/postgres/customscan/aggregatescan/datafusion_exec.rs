@@ -87,7 +87,7 @@ pub async fn build_join_aggregate_plan(
     topk: Option<&DataFusionTopK>,
     join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
-    custom_scan_tlist: *mut pg_sys::List,
+    tlist_col_map: &[Option<String>],
     having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
@@ -100,7 +100,7 @@ pub async fn build_join_aggregate_plan(
         plan,
         join_level_predicates,
         custom_exprs,
-        custom_scan_tlist,
+        tlist_col_map,
         expr_context,
         planstate,
         mpp_ctx,
@@ -277,7 +277,7 @@ fn build_relnode_df<'a>(
     node: &'a RelNode,
     join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
-    custom_scan_tlist: *mut pg_sys::List,
+    tlist_col_map: &'a [Option<String>],
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_ctx: Option<MppPlanContext>,
@@ -299,7 +299,7 @@ fn build_relnode_df<'a>(
                     &join.left,
                     join_level_predicates,
                     custom_exprs,
-                    custom_scan_tlist,
+                    tlist_col_map,
                     expr_context,
                     planstate,
                     mpp_ctx,
@@ -310,7 +310,7 @@ fn build_relnode_df<'a>(
                     &join.right,
                     join_level_predicates,
                     custom_exprs,
-                    custom_scan_tlist,
+                    tlist_col_map,
                     expr_context,
                     planstate,
                     mpp_ctx,
@@ -325,7 +325,7 @@ fn build_relnode_df<'a>(
                     &filter.input,
                     join_level_predicates,
                     custom_exprs,
-                    custom_scan_tlist,
+                    tlist_col_map,
                     expr_context,
                     planstate,
                     mpp_ctx,
@@ -364,10 +364,7 @@ fn build_relnode_df<'a>(
                 // them back to the correct DataFusion column names.
                 let mut translated_exprs = Vec::new();
                 if !custom_exprs.is_null() {
-                    let mapper = AggregateIndexVarMapper {
-                        sources: &sources,
-                        custom_scan_tlist,
-                    };
+                    let mapper = AggregateIndexVarMapper { tlist_col_map };
                     let translator =
                         PredicateTranslator::new(&sources).with_mapper(Box::new(mapper));
                     unsafe {
@@ -401,37 +398,29 @@ fn build_relnode_df<'a>(
 }
 
 /// Maps INDEX_VAR references (from setrefs-transformed custom_exprs) back to
-/// DataFusion column names. In the aggregate scan, custom_scan_tlist mirrors
-/// the plan's targetlist (plus any Vars we added for predicates), and INDEX_VAR
-/// varattno indexes into it. We resolve each Var by looking up the original
-/// (rti, attno) from custom_scan_tlist and finding the corresponding source.
+/// DataFusion column expressions using the planning-time `tlist_col_map`.
+///
+/// Each entry in `tlist_col_map` is the fully-qualified DataFusion column name
+/// `"<exec_alias>.<field>"` precomputed in `build_tlist_col_map` at planning
+/// time.  The source lookup used there is by `heaprelid` (relation OID, globally
+/// unique), which is immune to RTI namespace collisions between the outer and
+/// inner PlannerInfos in anti-join / sublink-pullup shapes.  Because the string
+/// is precomputed, `resolve_index_var_to_expr` needs no source lookup at all.
 struct AggregateIndexVarMapper<'a> {
-    sources: &'a [&'a JoinSource],
-    custom_scan_tlist: *mut pg_sys::List,
+    tlist_col_map: &'a [Option<String>],
 }
 
 impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
-    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        let (rti, attno) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
-            // INDEX_VAR: look up the original Var from custom_scan_tlist.
-            // varattno is 1-indexed into the target list.
-            unsafe {
-                let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(self.custom_scan_tlist);
-                let idx = (varattno - 1) as usize;
-                let te = tlist.get_ptr(idx)?;
-                if (*(*te).expr).type_ != pg_sys::NodeTag::T_Var {
-                    return None;
-                }
-                let var = (*te).expr as *mut pg_sys::Var;
-                ((*var).varno as pg_sys::Index, (*var).varattno)
-            }
-        } else {
-            (varno, varattno)
-        };
+    fn resolve_index_var_to_expr(&self, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        let col_name = self.tlist_col_map.get((varattno - 1) as usize)?.as_ref()?;
+        Some(datafusion::prelude::col(col_name.as_str()))
+    }
 
-        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
-        let field_name = source.column_name(attno)?;
-        Some(make_source_col(source, &field_name))
+    fn map_var(&self, _varno: pg_sys::Index, _varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        // This mapper is only used for INDEX_VAR resolution via resolve_index_var_to_expr.
+        // Non-INDEX_VAR Vars in custom_exprs (if setrefs left them unrewritten) are
+        // handled by PredicateTranslator's own sources slice in translate_var.
+        None
     }
 }
 

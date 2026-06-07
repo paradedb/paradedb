@@ -129,7 +129,6 @@ VALUES (10, 'cloe', 'red', '53');
 INSERT INTO orders
 VALUES (11, 'brandy', 'green', '92');
 ANALYZE;
--- TODO: See https://github.com/paradedb/paradedb/issues/5266.
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT (SELECT COUNT(*)
         FROM users
@@ -138,11 +137,12 @@ SELECT (SELECT COUNT(*)
            OR (NOT (products.age = '20')) AND (users.name = 'bob')
            OR ((users.color = 'blue') AND (users.name = 'bob')) AND (products.color = 'blue')
            OR (NOT (products.name = 'bob')));
-ERROR:  Failed to build DataFusion aggregate plan: Internal error: Failed to translate aggregate custom expression at index 0.
-This issue was likely caused by a bug in DataFusion's code. Please help us to resolve this by filing a bug report in our issue tracker: https://github.com/apache/datafusion/issues
--- TODO: See https://github.com/paradedb/paradedb/issues/5266.
+ count
+-------
+    13
+(1 row)
+
 SET paradedb.enable_aggregate_custom_scan TO off;
---
 -- each pair of queries should produce the same number of results
 --
 ---- idx=50 ----
@@ -163,7 +163,7 @@ SELECT (SELECT COUNT(*)
            OR ((users.color @@@ 'blue') AND (users.name @@@ 'bob')) AND (products.color @@@ 'blue')
            OR (NOT (products.name @@@ 'bob')));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
- count | count 
+ count | count
 -------+-------
     13 |    13
 (1 row)
@@ -187,7 +187,7 @@ SELECT (SELECT COUNT(*)
            OR ((users.color @@@ 'blue') OR (NOT (users.name @@@ 'bob'))) AND
               NOT ((orders.name @@@ 'bob') OR (orders.age @@@ '20')) AND (orders.name @@@ 'bob'));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
- count | count 
+ count | count
 -------+-------
      0 |     0
 (1 row)
@@ -211,7 +211,7 @@ SELECT (SELECT COUNT(*)
            OR ((users.name @@@ 'bob') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.color @@@ 'blue') AND
               ((products.color @@@ 'blue') OR (products.color @@@ 'blue')));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
- count | count 
+ count | count
 -------+-------
      2 |     2
 (1 row)
@@ -235,7 +235,7 @@ SELECT (SELECT COUNT(*)
            OR ((users.age @@@ '20') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.age @@@ '20') AND
               (NOT (NOT (products.name @@@ 'bob'))));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
- count | count 
+ count | count
 -------+-------
      3 |     3
 (1 row)
@@ -259,7 +259,7 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.color @@@ 'blue')) AND NOT (products.age @@@ '20') AND
               ((products.color @@@ 'blue') AND (products.name @@@ 'bob')));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: products, users)
- count | count 
+ count | count
 -------+-------
      2 |     2
 (1 row)
@@ -281,7 +281,7 @@ SELECT (SELECT COUNT(*)
               NOT NOT (NOT ((NOT (orders.name @@@ 'bob')) OR (orders.name @@@ 'bob'))) AND NOT (users.age @@@ '20')
            OR ((users.age @@@ '20') AND (NOT (users.color @@@ 'blue'))));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
- count | count 
+ count | count
 -------+-------
     13 |    13
 (1 row)
@@ -303,7 +303,7 @@ SELECT (SELECT COUNT(*)
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: orders, users)
- count | count 
+ count | count
 -------+-------
     13 |    13
 (1 row)
@@ -327,7 +327,7 @@ SELECT (SELECT COUNT(*)
            OR (orders.color @@@ 'blue') AND NOT (users.age @@@ '20')
            OR ((users.name @@@ 'bob') AND (NOT (users.color @@@ 'blue'))));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
- count | count 
+ count | count
 -------+-------
     14 |    14
 (1 row)
@@ -348,8 +348,7 @@ SELECT (SELECT COUNT(*)
         WHERE (NOT (products.id @@@ '3'))
            OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, products)
- count | count 
+ count | count
 -------+-------
     19 |    19
 (1 row)
-

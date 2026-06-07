@@ -30,8 +30,41 @@ use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL
 use crate::scan::SearchPredicateUDF;
 
 pub trait ColumnMapper {
-    /// Map a PostgreSQL variable to a DataFusion Column expression
+    /// Resolve an INDEX_VAR directly to a DataFusion `Expr` using the
+    /// planning-time `tlist_col_map` (built in `plan_custom_path` before
+    /// setrefs rewrites inner RTIs). Correct for any RTI offset pattern —
+    /// uniform, non-uniform, lateral joins, CTEs, partitioned tables.
+    ///
+    /// Return `None` to fall through to `map_var(INDEX_VAR, varattno)`.
+    /// `CombinedMapper` returns `None` here and handles INDEX_VAR entirely
+    /// in `map_var` via its pre-built `output_columns`.
+    fn resolve_index_var_to_expr(&self, _varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        None
+    }
+
+    /// Map a PostgreSQL Var to a DataFusion `Expr`.
+    ///
+    /// `varno` is a heap RTI for regular (non-INDEX_VAR) Vars. For
+    /// `CombinedMapper`, `varno` may be `INDEX_VAR` — the mapper resolves
+    /// it internally via `output_columns`.
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
+}
+
+/// Unwrap binary-compatible cast nodes to reach the underlying Var.
+/// Handles `RelabelType` (varchar → text, etc.). Returns `None` for anything
+/// more complex. Used by `build_tlist_col_map` to extract Var RTIs from tlist
+/// entries at planning time.
+pub(crate) unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    while !node.is_null() {
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+            }
+            _ => return None,
+        }
+    }
+    None
 }
 
 /// Human-readable PG type name (e.g. `"integer"`, `"jsonb"`) for debug

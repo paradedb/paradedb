@@ -571,10 +571,26 @@ impl<'a> PredicateTranslator<'a> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
-        if varno != pg_sys::INDEX_VAR as pg_sys::Index
-            && !self.sources.iter().any(|s| s.contains_rti(varno))
-        {
+        if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+            if let Some(ref mapper) = self.mapper {
+                // Planning-time column map: O(1) lookup, correct for any RTI
+                // offset (uniform, non-uniform, lateral joins, CTEs, partitions).
+                if let Some(expr) = mapper.resolve_index_var_to_expr(varattno) {
+                    return Some(expr);
+                }
+                // CombinedMapper fallback: handles INDEX_VAR via output_columns.
+                if let Some(expr) = mapper.map_var(varno, varattno) {
+                    return Some(expr);
+                }
+                pgrx::debug1!(
+                    "PredicateTranslator: mapper failed to resolve [Var] varno=INDEX_VAR, varattno={}",
+                    varattno
+                );
+            }
+            return None;
+        }
+
+        if !self.sources.iter().any(|s| s.contains_rti(varno)) {
             pgrx::debug1!(
                 "PredicateTranslator: unknown source [Var] varno={}, varattno={}",
                 varno,
@@ -1026,4 +1042,338 @@ mod tests {
     // minimal in-test schema triggers an unrelated JoinScan DISTINCT+PK-join
     // schema bug (column-name="" in apply_distinct_group_by), so the SQL
     // regression remains the authoritative coverage for that path.
+
+    // ---------- RTI offset and ColumnMapper unit tests ----------
+
+    /// `unwrap_to_var` with a null pointer must yield `None` without accessing
+    /// any memory — the while-loop guard `!node.is_null()` exits immediately.
+    #[pg_test]
+    fn unwrap_to_var_null_ptr_yields_none() {
+        use crate::postgres::customscan::datafusion::translator::unwrap_to_var;
+        let result = unsafe { unwrap_to_var(std::ptr::null_mut()) };
+        assert!(result.is_none(), "null node pointer must yield None");
+    }
+
+    /// `ColumnMapper::resolve_index_var_to_expr` must return `None` by default.
+    /// Mappers that don't override it (e.g. `CombinedMapper`) fall through to
+    /// `map_var(INDEX_VAR, varattno)` in `translate_var`.
+    #[pg_test]
+    fn default_resolve_index_var_to_expr_returns_none() {
+        use crate::postgres::customscan::datafusion::translator::ColumnMapper;
+
+        struct NullMapper;
+        impl ColumnMapper for NullMapper {
+            fn map_var(
+                &self,
+                _varno: pgrx::pg_sys::Index,
+                _varattno: pgrx::pg_sys::AttrNumber,
+            ) -> Option<Expr> {
+                None
+            }
+        }
+
+        let mapper = NullMapper;
+        for attno in [0i16, 1, 2, 5, 100, i16::MAX] {
+            assert!(
+                mapper.resolve_index_var_to_expr(attno).is_none(),
+                "default resolve_index_var_to_expr must return None for varattno={attno}",
+            );
+        }
+    }
+
+    fn setup_rti_tables() {
+        pgrx::Spi::run(
+            r#"
+            DROP TABLE IF EXISTS rti_o CASCADE;
+            DROP TABLE IF EXISTS rti_p CASCADE;
+            CREATE TABLE rti_p (id INT PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE rti_o (id INT PRIMARY KEY, name TEXT NOT NULL);
+            INSERT INTO rti_p VALUES (1, 'bob'), (2, 'alice'), (3, 'charlie');
+            INSERT INTO rti_o VALUES (1, 'bob'), (2, 'alice'), (3, 'charlie');
+            CREATE INDEX rti_p_idx ON rti_p
+                USING bm25 (id, name)
+                WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+            CREATE INDEX rti_o_idx ON rti_o
+                USING bm25 (id, name)
+                WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+            "#,
+        )
+        .expect("setup_rti_tables failed");
+    }
+
+    fn teardown_rti_tables() {
+        pgrx::Spi::run("DROP TABLE IF EXISTS rti_o CASCADE; DROP TABLE IF EXISTS rti_p CASCADE;")
+            .expect("teardown_rti_tables failed");
+    }
+
+    fn run_count(query: &str) -> i64 {
+        pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(query, None, &args)?;
+            let row = result
+                .into_iter()
+                .next()
+                .ok_or(pgrx::spi::Error::InvalidPosition)?;
+            Ok::<_, pgrx::spi::Error>(row.get::<i64>(1)?.unwrap_or(0))
+        })
+        .expect("run_count failed")
+    }
+
+    /// Baseline: a single agg-on-join query with a cross-table OR predicate
+    /// (no outer query → no RTI offset). Both the custom scan and native PG must
+    /// return the same count.
+    #[pg_test]
+    fn rti_offset_baseline_no_outer_query() {
+        setup_rti_tables();
+
+        let pdb_q = "SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+                     WHERE p.name @@@ 'bob OR alice' AND (o.id = 1 OR p.id = 2)";
+        let native_q = "SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+                        WHERE p.name IN ('bob', 'alice') AND (o.id = 1 OR p.id = 2)";
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+        let pdb_count = run_count(pdb_q);
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO off").unwrap();
+        let native_count = run_count(native_q);
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+
+        assert_eq!(
+            pdb_count, native_count,
+            "baseline: pdb and native must agree"
+        );
+        assert_eq!(
+            pdb_count, 2,
+            "expected both id=1 (o.id=1) and id=2 (p.id=2) to match"
+        );
+
+        teardown_rti_tables();
+    }
+
+    /// RTI offset = 1: a single-table scalar subquery precedes the agg-on-join
+    /// scalar subquery. PostgreSQL's setrefs shifts the join query's RTIs by 1
+    /// (one slot for `rti_p` in the first subquery), so the tlist Vars carry
+    /// outer RTIs 2 and 3 while sources have inner heap_rtis 1 and 2.
+    #[pg_test]
+    fn rti_offset_one_extra_table_in_outer_query() {
+        setup_rti_tables();
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+
+        // The outer SELECT adds rti_p (RTI 1) from the first scalar subquery.
+        // The second subquery's inner RTIs (1, 2) become outer RTIs (2, 3).
+        let outer_q = "SELECT \
+            (SELECT COUNT(*) FROM rti_p WHERE name = 'bob'), \
+            (SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+             WHERE p.name @@@ 'bob OR alice' AND (o.id = 1 OR p.id = 2))";
+
+        let (c1, c2) = pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(outer_q, None, &args)?;
+            let row = result
+                .into_iter()
+                .next()
+                .ok_or(pgrx::spi::Error::InvalidPosition)?;
+            Ok::<_, pgrx::spi::Error>((
+                row.get::<i64>(1)?.unwrap_or(-1),
+                row.get::<i64>(2)?.unwrap_or(-1),
+            ))
+        })
+        .expect("rti_offset_one_extra_table query failed");
+
+        assert_eq!(c1, 1, "first subquery: 1 bob in rti_p");
+        assert_eq!(
+            c2, 2,
+            "second subquery: 2 matching rows (bob id=1 via o.id=1, alice id=2 via p.id=2)"
+        );
+
+        teardown_rti_tables();
+    }
+
+    /// RTI offset = 2: both subqueries are joins. The first join adds 2 RTI
+    /// slots (rti_p and rti_o).
+    #[pg_test]
+    fn rti_offset_two_extra_tables_join_in_outer_query() {
+        setup_rti_tables();
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+
+        let outer_q = "SELECT \
+            (SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id WHERE p.name = 'bob'), \
+            (SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+             WHERE p.name @@@ 'bob OR alice' AND (o.id = 1 OR p.id = 2))";
+
+        let (c1, c2) = pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(outer_q, None, &args)?;
+            let row = result
+                .into_iter()
+                .next()
+                .ok_or(pgrx::spi::Error::InvalidPosition)?;
+            Ok::<_, pgrx::spi::Error>((
+                row.get::<i64>(1)?.unwrap_or(-1),
+                row.get::<i64>(2)?.unwrap_or(-1),
+            ))
+        })
+        .expect("rti_offset=2 query failed");
+
+        assert_eq!(c1, 1, "first join: 1 bob matched");
+        assert_eq!(c2, 2, "second join with RTI offset=2: must still return 2");
+
+        teardown_rti_tables();
+    }
+
+    /// RTI offset with text literal predicates: verifies that `translate_const`
+    /// correctly handles TEXT/VARCHAR constants in cross-table predicates under
+    /// an RTI offset. Uses `o.name = 'alice' OR p.name = 'bob'` which requires
+    /// `translate_const` to produce `ScalarValue::Utf8`.
+    #[pg_test]
+    fn rti_offset_text_literal_in_cross_table_predicate() {
+        setup_rti_tables();
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+
+        let outer_q = "SELECT \
+            (SELECT COUNT(*) FROM rti_p WHERE name = 'bob'), \
+            (SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+             WHERE p.name @@@ 'bob OR alice' AND (o.name = 'alice' OR p.name = 'bob'))";
+
+        // Expected: 2 rows (id=1: p.name='bob' → p.name='bob' ✓; id=2: o.name='alice' ✓)
+        let (c1, c2) = pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(outer_q, None, &args)?;
+            let row = result
+                .into_iter()
+                .next()
+                .ok_or(pgrx::spi::Error::InvalidPosition)?;
+            Ok::<_, pgrx::spi::Error>((
+                row.get::<i64>(1)?.unwrap_or(-1),
+                row.get::<i64>(2)?.unwrap_or(-1),
+            ))
+        })
+        .expect("text literal predicate query failed");
+
+        assert_eq!(c1, 1, "first subquery: 1 bob");
+        assert_eq!(c2, 2, "second subquery with text literals: id=1 (p.name=bob) and id=2 (o.name=alice) both match");
+
+        teardown_rti_tables();
+    }
+
+    /// Exact reproduction of issue #5266: two scalar subqueries in the outer
+    /// SELECT where the second uses @@@ predicates with a cross-table OR condition.
+    /// The first subquery adds a range-table slot that offsets the second subquery's
+    /// inner RTIs. With the planning-time tlist_col_map fix, both subqueries must
+    /// return the same count.
+    #[pg_test]
+    fn rti_offset_issue5266_exact_reproduction() {
+        pgrx::Spi::run(
+            r#"
+            DROP TABLE IF EXISTS issue5266_orders CASCADE;
+            DROP TABLE IF EXISTS issue5266_products CASCADE;
+            CREATE TABLE issue5266_products (id serial8 NOT NULL PRIMARY KEY, name TEXT);
+            CREATE TABLE issue5266_orders   (id serial8 NOT NULL PRIMARY KEY, name TEXT);
+            INSERT INTO issue5266_products (id, name) VALUES (1,'alice'),(2,'bob'),(3,'charlie');
+            INSERT INTO issue5266_orders   (id, name) VALUES (1,'alice'),(2,'bob'),(3,'charlie');
+            CREATE INDEX issue5266_pidx ON issue5266_products USING bm25 (id, name)
+                WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"}}}');
+            CREATE INDEX issue5266_oidx ON issue5266_orders USING bm25 (id, name)
+                WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"}}}');
+            "#,
+        )
+        .expect("setup issue5266 tables");
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+
+        let outer = "SELECT \
+            (SELECT COUNT(*) FROM issue5266_products JOIN issue5266_orders \
+             ON issue5266_products.name = issue5266_orders.name \
+             WHERE (NOT (issue5266_products.id = '3')) \
+                OR ((issue5266_products.name = 'bob') AND (issue5266_orders.id = '3'))), \
+            (SELECT COUNT(*) FROM issue5266_products JOIN issue5266_orders \
+             ON issue5266_products.name = issue5266_orders.name \
+             WHERE (NOT (issue5266_products.id @@@ '3')) \
+                OR ((issue5266_products.name @@@ 'bob') AND (issue5266_orders.id @@@ '3')))";
+
+        let (plain_sql, pdb) = pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(outer, None, &args)?;
+            let row = result
+                .into_iter()
+                .next()
+                .ok_or(pgrx::spi::Error::InvalidPosition)?;
+            Ok::<_, pgrx::spi::Error>((
+                row.get::<i64>(1)?.unwrap_or(-1),
+                row.get::<i64>(2)?.unwrap_or(-1),
+            ))
+        })
+        .expect("issue5266 query failed");
+
+        // Join on name: (1,'alice')×(1,'alice'), (2,'bob')×(2,'bob'), (3,'charlie')×(3,'charlie')
+        // Filter NOT(id=3) OR (name='bob' AND orders.id=3):
+        //   id=1 (alice): NOT(1=3) = T → included
+        //   id=2 (bob):   NOT(2=3) = T → included
+        //   id=3 (charlie): NOT(3=3) = F, (charlie='bob' AND 3=3) = F → excluded
+        assert_eq!(plain_sql, 2, "plain SQL subquery must return 2");
+        assert_eq!(
+            pdb, plain_sql,
+            "@@@ subquery must match plain SQL (issue #5266 regression)"
+        );
+
+        pgrx::Spi::run(
+            "DROP TABLE IF EXISTS issue5266_orders CASCADE; \
+             DROP TABLE IF EXISTS issue5266_products CASCADE;",
+        )
+        .unwrap();
+    }
+
+    /// Parity test: the RTI offset fix must not change results for queries
+    /// already handled correctly. Runs the same cross-table OR query with
+    /// agg-scan on and off; both must agree on the count.
+    #[pg_test]
+    fn rti_offset_agg_scan_on_and_off_agree() {
+        setup_rti_tables();
+
+        let pdb_outer = "SELECT \
+            (SELECT COUNT(*) FROM rti_p WHERE name = 'bob'), \
+            (SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+             WHERE p.name @@@ 'bob OR alice' AND (o.id = 1 OR p.id = 2))";
+
+        let native_outer = "SELECT \
+            (SELECT COUNT(*) FROM rti_p WHERE name = 'bob'), \
+            (SELECT COUNT(*) FROM rti_p p JOIN rti_o o ON p.id = o.id \
+             WHERE p.name IN ('bob', 'alice') AND (o.id = 1 OR p.id = 2))";
+
+        let read_pair = |q: &str| -> (i64, i64) {
+            pgrx::Spi::connect(|client| {
+                let args: [pgrx::datum::DatumWithOid; 0] = [];
+                let result = client.select(q, None, &args)?;
+                let row = result
+                    .into_iter()
+                    .next()
+                    .ok_or(pgrx::spi::Error::InvalidPosition)?;
+                Ok::<_, pgrx::spi::Error>((
+                    row.get::<i64>(1)?.unwrap_or(-1),
+                    row.get::<i64>(2)?.unwrap_or(-1),
+                ))
+            })
+            .expect("read_pair failed")
+        };
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+        let (pdb_c1, pdb_c2) = read_pair(pdb_outer);
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO off").unwrap();
+        let (nat_c1, nat_c2) = read_pair(native_outer);
+
+        pgrx::Spi::run("SET paradedb.enable_aggregate_custom_scan TO on").unwrap();
+
+        assert_eq!(pdb_c1, nat_c1, "first subquery counts must agree");
+        assert_eq!(
+            pdb_c2, nat_c2,
+            "second subquery (with RTI offset) counts must agree"
+        );
+
+        teardown_rti_tables();
+    }
 }

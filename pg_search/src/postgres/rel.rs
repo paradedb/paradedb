@@ -277,6 +277,24 @@ impl PgSearchRelation {
         unsafe { (*(*self.as_ptr()).rd_index).indisvalid }
     }
 
+    /// Returns false if the index should not receive writes yet, such as during
+    /// the early stages of `CREATE INDEX CONCURRENTLY` or `REINDEX CONCURRENTLY`.
+    pub fn is_ready(&self) -> bool {
+        unsafe { (*(*self.as_ptr()).rd_index).indisready }
+    }
+
+    /// Returns false if the index is in a concurrent drop phase and should not
+    /// be touched by callers.
+    pub fn is_live(&self) -> bool {
+        unsafe { (*(*self.as_ptr()).rd_index).indislive }
+    }
+
+    /// Returns true when Postgres considers this index safe to inspect as a
+    /// complete, usable index.
+    pub fn is_usable(&self) -> bool {
+        self.is_valid() && self.is_ready() && self.is_live()
+    }
+
     /// Allows the user to decide for themselves if this [`PgSearchRelation`] instance (and all its
     /// clones) need to do WAL or not.
     pub fn set_need_wal(&mut self, need_wal: bool) {

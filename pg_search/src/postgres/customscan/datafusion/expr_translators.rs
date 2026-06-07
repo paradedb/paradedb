@@ -648,6 +648,18 @@ impl<'a> PredicateTranslator<'a> {
                 let val = datum.value() != 0;
                 ScalarValue::Boolean(Some(val))
             }
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID => {
+                let cstr = pg_sys::text_to_cstring(datum.cast_mut_ptr::<pg_sys::text>());
+                let s = std::ffi::CStr::from_ptr(cstr).to_str().ok()?.to_string();
+                ScalarValue::Utf8(Some(s))
+            }
+            pg_sys::NAMEOID => {
+                let s = std::ffi::CStr::from_ptr(datum.value() as *const std::ffi::c_char)
+                    .to_str()
+                    .ok()?
+                    .to_string();
+                ScalarValue::Utf8(Some(s))
+            }
             _ => {
                 pgrx::debug1!(
                     "PredicateTranslator: unsupported const type [Const] type={}",

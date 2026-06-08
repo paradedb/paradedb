@@ -1,13 +1,12 @@
+-- Tests for minimum_should_match parameter in paradedb.boolean()
 CREATE EXTENSION IF NOT EXISTS pg_search;
-CREATE EXTENSION
+NOTICE:  extension "pg_search" already exists, skipping
 DROP TABLE IF EXISTS docs CASCADE;
-DROP TABLE
 CREATE TABLE docs (
     id SERIAL PRIMARY KEY,
     title TEXT,
     body TEXT
 );
-CREATE TABLE
 INSERT INTO docs (title, body) VALUES
     ('apple banana cherry',   'fruit salad'),
     ('apple banana',          'two fruits'),
@@ -15,11 +14,11 @@ INSERT INTO docs (title, body) VALUES
     ('banana cherry date',    'three fruits'),
     ('cherry date elderberry','more fruits'),
     ('unrelated document',    'no match');
-INSERT 0 6
 CREATE INDEX docs_idx ON docs
 USING bm25 (id, title, body)
 WITH (key_field = 'id');
-CREATE INDEX
+-- Test 1: minimum_should_match => 2 with 3 should clauses
+-- Only docs matching at least 2 of: apple, banana, cherry
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -38,6 +37,7 @@ ORDER BY id;
   4 | banana cherry date
 (3 rows)
 
+-- Test 2: minimum_should_match => 3 (all 3 must match)
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -54,6 +54,8 @@ ORDER BY id;
   1 | apple banana cherry
 (1 row)
 
+-- Test 3: minimum_should_match => 0 (matches everything that Tantivy can retrieve)
+-- With only should clauses and minimum_should_match=0, all docs match
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -72,6 +74,7 @@ ORDER BY id;
   4 | banana cherry date
 (4 rows)
 
+-- Test 4: minimum_should_match larger than number of should clauses (matches nothing)
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -86,6 +89,8 @@ ORDER BY id;
 ----+-------
 (0 rows)
 
+-- Test 5: Combined with must clause
+-- must: body matches 'fruit', should: title matches apple OR banana (at least 1)
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -103,6 +108,7 @@ ORDER BY id;
   1 | apple banana cherry
 (1 row)
 
+-- Test 6: Omitting minimum_should_match keeps existing behavior (at least 1 should)
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -120,6 +126,7 @@ ORDER BY id;
   4 | banana cherry date
 (4 rows)
 
+-- Test 7: boolean_singles variant also accepts minimum_should_match
 SELECT id, title
 FROM docs
 WHERE id @@@ paradedb.boolean(
@@ -135,4 +142,3 @@ ORDER BY id;
 (3 rows)
 
 DROP TABLE docs CASCADE;
-DROP TABLE

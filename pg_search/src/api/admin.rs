@@ -294,10 +294,17 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let index_kind = IndexKind::for_index(index)?;
+    let index_kind = IndexKind::for_index(index.clone())?;
+    if !index.is_usable() {
+        return Ok(TableIterator::new(Vec::new()));
+    }
 
     let mut results = Vec::new();
     for index in index_kind.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+
         // open the specified index
         let mut segment_components = MetaPage::open(&index).segment_metas();
         let all_entries = unsafe { segment_components.list(None) };
@@ -827,9 +834,13 @@ from (select relname,
              min(low)                                                                                   as low,
              max(high)                                                                                  as high,
              array_agg(segno)                                                                           as segments
-      from (with indexes as (select oid::regclass as relname
-                             from pg_class
-                             where relam = (select oid from pg_am where amname = 'bm25')),
+      from (with indexes as (select c.oid::regclass as relname
+                             from pg_class c
+                                      join pg_index i on i.indexrelid = c.oid
+                             where c.relam = (select oid from pg_am where amname = 'bm25')
+                               and i.indisvalid
+                               and i.indisready
+                               and i.indislive),
                  segments as (select relname, index_info.*
                               from indexes
                                        inner join paradedb.index_info(indexes.relname, true) on true),
@@ -871,9 +882,13 @@ from (select relname,
              min(low)                                                                                   as low,
              max(high)                                                                                  as high,
              array_agg(segno)                                                                           as segments
-      from (with indexes as (select oid::regclass as relname
-                             from pg_class
-                             where relam = (select oid from pg_am where amname = 'bm25')),
+      from (with indexes as (select c.oid::regclass as relname
+                             from pg_class c
+                                      join pg_index i on i.indexrelid = c.oid
+                             where c.relam = (select oid from pg_am where amname = 'bm25')
+                               and i.indisvalid
+                               and i.indisready
+                               and i.indislive),
                  segments as (select relname, index_info.*
                               from indexes
                                        inner join paradedb.index_info(indexes.relname, true) on true),

@@ -35,11 +35,13 @@ pub fn boolean_arrays(
     must: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
     should: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
     must_not: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    minimum_should_match: default!(Option<i64>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::Boolean {
         must,
         should,
         must_not,
+        minimum_should_match,
     }
 }
 
@@ -48,11 +50,13 @@ pub fn boolean_singles(
     must: default!(Option<SearchQueryInput>, "NULL"),
     should: default!(Option<SearchQueryInput>, "NULL"),
     must_not: default!(Option<SearchQueryInput>, "NULL"),
+    minimum_should_match: default!(Option<i64>, "NULL"),
 ) -> SearchQueryInput {
     boolean_arrays(
         must.map_or(vec![], |v| vec![v]),
         should.map_or(vec![], |v| vec![v]),
         must_not.map_or(vec![], |v| vec![v]),
+        minimum_should_match,
     )
 }
 
@@ -117,7 +121,8 @@ pub unsafe fn term_with_operator(
                         // ensure that we don't match NULL nulls as not being equal to whatever the user specified
                         must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: pdb::Query::Exists}],
                         should: vec![],
-                        must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}]
+                        must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}],
+                        minimum_should_match: None,
                     }
                 ),
                 ">" => generic_range_query(Bound::Excluded($anyelement), Bound::Unbounded).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
@@ -245,6 +250,7 @@ pub unsafe fn terms_with_operator(
                 must: quals,
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             })
         } else {
             // OR the queries together
@@ -252,6 +258,7 @@ pub unsafe fn terms_with_operator(
                 must: vec![],
                 should: quals,
                 must_not: vec![],
+                minimum_should_match: None,
             })
         }
     }

@@ -155,6 +155,7 @@ pub extern "C-unwind" fn amrescan(
             must: vec![search_query_input, key],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         };
     }
 

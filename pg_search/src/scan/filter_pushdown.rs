@@ -104,6 +104,7 @@ impl<'a> FilterAnalyzer<'a> {
             must: vec![left_query, right_query],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         })
     }
 
@@ -114,6 +115,7 @@ impl<'a> FilterAnalyzer<'a> {
             must: vec![],
             should: vec![left_query, right_query],
             must_not: vec![],
+            minimum_should_match: None,
         })
     }
 
@@ -123,6 +125,7 @@ impl<'a> FilterAnalyzer<'a> {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![inner_query],
+            minimum_should_match: None,
         })
     }
 
@@ -265,6 +268,7 @@ impl<'a> FilterAnalyzer<'a> {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![query],
+            minimum_should_match: None,
         }
     }
 
@@ -408,6 +412,7 @@ pub fn combine_with_and(queries: Vec<SearchQueryInput>) -> Option<SearchQueryInp
             must: queries,
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }),
     }
 }

@@ -175,6 +175,7 @@ impl BaseScan {
                         must: vec![base_query.clone()],
                         should: vec![join_predicate.clone()],
                         must_not: vec![],
+                        minimum_should_match: None,
                     })
                 } else {
                     None
@@ -1198,6 +1199,7 @@ impl CustomScan for BaseScan {
                             must: vec![original_base_query.clone()],
                             should: vec![join_predicate.clone()],
                             must_not: vec![],
+                            minimum_should_match: None,
                         });
                     }
                 }
@@ -2344,6 +2346,7 @@ fn base_query_has_search_predicates(
             must,
             should,
             must_not,
+            ..
         } => {
             must.iter()
                 .any(|q| base_query_has_search_predicates(q, current_index_oid))

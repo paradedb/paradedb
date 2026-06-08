@@ -513,6 +513,7 @@ impl From<&Qual> for SearchQueryInput {
                             must,
                             should,
                             must_not: vec![],
+                            minimum_should_match: None,
                         }
                     }
                 } else {
@@ -662,6 +663,7 @@ impl From<&Qual> for SearchQueryInput {
                     must,
                     should: vec![],
                     must_not: vec![],
+                    minimum_should_match: None,
                 };
 
                 // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
@@ -690,15 +692,58 @@ impl From<&Qual> for SearchQueryInput {
                         must: Default::default(),
                         should: Default::default(),
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                     _ => SearchQueryInput::Boolean {
                         must: Default::default(),
                         should,
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                 }
             }
-            Qual::Not(qual) => negated_search_query_input(qual.as_ref()),
+            Qual::Not(qual) => {
+                // Special handling for boolean fields to correctly handle NULL values
+                match qual.as_ref() {
+                    // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
+                    // rather than using must_not, to avoid including NULLs
+                    // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
+                    // and does NOT include NULL values
+                    Qual::PushdownVarEqTrue { field } => Self::from(&Qual::PushdownVarEqFalse {
+                        field: field.clone(),
+                    }),
+                    // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
+                    // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
+                    // and does NOT include NULL values
+                    Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
+                        field: field.clone(),
+                    }),
+
+                    // If the Qual represents a placeholder to another Var elsewhere in the plan,
+                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
+                    // is "all" rather than "NOT all"
+                    Qual::ExternalVar => SearchQueryInput::All,
+
+                    // If the Qual represents a placeholder to another Expr elsewhere in the plan,
+                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
+                    // is "all" rather than "NOT all"
+                    Qual::ExternalExpr => SearchQueryInput::All,
+
+                    // For other types of negation, use the standard Boolean query with must_not
+                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
+                    // NULL values differently than when negating equality operators
+                    _ => {
+                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
+
+                        SearchQueryInput::Boolean {
+                            must: vec![SearchQueryInput::All],
+                            should: Default::default(),
+                            must_not,
+                            minimum_should_match: None,
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1967,6 +2012,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                         must: indexed_queries.clone(),
                         should: vec![],
                         must_not: vec![],
+                        minimum_should_match: None,
                     };
                 }
             }
@@ -2402,6 +2448,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => should.is_empty() && must_not.is_empty() && quals.len() == must.len(),
 
@@ -2412,6 +2459,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => must.is_empty() && must_not.is_empty() && quals.len() == should.len(),
 
@@ -2432,6 +2480,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) if matches!(inner.as_ref(), Qual::And(_)) => {
                 let Qual::And(quals) = inner.as_ref() else {

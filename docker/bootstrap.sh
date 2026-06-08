@@ -111,20 +111,20 @@ tune() {
   PARALLEL_WORKERS=$(awk "BEGIN {print int($CPU_COUNT * 5)}")
 
   echo "ParadeDB auto-tune: Writing configuration to $PGDATA/postgresql.conf"
-  tee -a "$PGDATA/postgresql.conf" <<EOF
-
-# Begin ParadeDB tuning recommendations
-# Parameters based on auto-detected $CPU_COUNT CPUs and ${TOTAL_RAM_MB}MB RAM
-shared_buffers = '${SHARED_BUFFERS_MB}MB' # 25% of RAM, capped at 16GB
-effective_cache_size = '$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")MB' # 75% of RAM
-maintenance_work_mem = '$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")MB' # RAM / 16, capped at 2GB
-work_mem = '${WORK_MEM_MB}MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-max_parallel_workers = '$PARALLEL_WORKERS' # CPUs * 5
-max_worker_processes = '$(awk "BEGIN {print int($PARALLEL_WORKERS + 8)}")' # max_parallel_workers + 8
-max_parallel_workers_per_gather = '$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p < 1 ? 1 : p)}")' # CPUs / 2, at least 1
-max_parallel_maintenance_workers = '$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p > 8 ? 8 : (p < 2 ? 2 : p))}")' # CPUs / 2, at least 2, at most 8
-# End ParadeDB tuning recommendations
-EOF
+  {
+    echo
+    echo "# Begin ParadeDB tuning recommendations"
+    echo "# Parameters based on auto-detected $CPU_COUNT CPUs and ${TOTAL_RAM_MB}MB RAM"
+    printf "%-45s # %s\n" "shared_buffers = '${SHARED_BUFFERS_MB}MB'" "25% of RAM, capped at 16GB"
+    printf "%-45s # %s\n" "effective_cache_size = '$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")MB'" "75% of RAM"
+    printf "%-45s # %s\n" "maintenance_work_mem = '$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")MB'" "RAM / 16, capped at 2GB"
+    printf "%-45s # %s\n" "work_mem = '${WORK_MEM_MB}MB'" "(RAM - shared_buffers) / (3 * max_connections), at least 15MB"
+    printf "%-45s # %s\n" "max_parallel_workers = '$PARALLEL_WORKERS'" "CPUs * 5"
+    printf "%-45s # %s\n" "max_worker_processes = '$(awk "BEGIN {print int($PARALLEL_WORKERS + 8)}")'" "max_parallel_workers + 8"
+    printf "%-45s # %s\n" "max_parallel_workers_per_gather = '$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p < 1 ? 1 : p)}")'" "CPUs / 2, at least 1"
+    printf "%-45s # %s\n" "max_parallel_maintenance_workers = '$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p > 8 ? 8 : (p < 2 ? 2 : p))}")'" "CPUs / 2, at least 2, at most 8"
+    echo "# End ParadeDB tuning recommendations"
+  } | tee -a "$PGDATA/postgresql.conf"
 }
 
 tune

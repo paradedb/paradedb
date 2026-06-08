@@ -285,14 +285,14 @@ jobs:
           assert_tuned paradedb-autotune-fractional-cpu <<'EOF'
           # Begin ParadeDB tuning recommendations
           # Parameters based on auto-detected 2.7 CPUs and 2048MB RAM
-          shared_buffers = '512MB' # 25% of RAM, capped at 16GB
-          effective_cache_size = '1536MB' # 75% of RAM
-          maintenance_work_mem = '128MB' # RAM / 16, capped at 2GB
-          work_mem = '15MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-          max_parallel_workers = '13' # CPUs * 5
-          max_worker_processes = '21' # max_parallel_workers + 8
-          max_parallel_workers_per_gather = '1' # CPUs / 2, at least 1
-          max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
+          shared_buffers = '512MB'                      # 25% of RAM, capped at 16GB
+          effective_cache_size = '1536MB'               # 75% of RAM
+          maintenance_work_mem = '128MB'                # RAM / 16, capped at 2GB
+          work_mem = '15MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+          max_parallel_workers = '13'                   # CPUs * 5
+          max_worker_processes = '21'                   # max_parallel_workers + 8
+          max_parallel_workers_per_gather = '1'         # CPUs / 2, at least 1
+          max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
           # End ParadeDB tuning recommendations
           EOF
           docker rm -f paradedb-autotune-fractional-cpu
@@ -309,14 +309,14 @@ jobs:
           assert_tuned paradedb-autotune-1cpu-1gb <<'EOF'
           # Begin ParadeDB tuning recommendations
           # Parameters based on auto-detected 1 CPUs and 1024MB RAM
-          shared_buffers = '256MB' # 25% of RAM, capped at 16GB
-          effective_cache_size = '768MB' # 75% of RAM
-          maintenance_work_mem = '64MB' # RAM / 16, capped at 2GB
-          work_mem = '15MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-          max_parallel_workers = '5' # CPUs * 5
-          max_worker_processes = '13' # max_parallel_workers + 8
-          max_parallel_workers_per_gather = '1' # CPUs / 2, at least 1
-          max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
+          shared_buffers = '256MB'                      # 25% of RAM, capped at 16GB
+          effective_cache_size = '768MB'                # 75% of RAM
+          maintenance_work_mem = '64MB'                 # RAM / 16, capped at 2GB
+          work_mem = '15MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+          max_parallel_workers = '5'                    # CPUs * 5
+          max_worker_processes = '13'                   # max_parallel_workers + 8
+          max_parallel_workers_per_gather = '1'         # CPUs / 2, at least 1
+          max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
           # End ParadeDB tuning recommendations
           EOF
           docker rm -f paradedb-autotune-1cpu-1gb
@@ -333,14 +333,14 @@ jobs:
           assert_tuned paradedb-autotune-4cpu-8gb <<'EOF'
           # Begin ParadeDB tuning recommendations
           # Parameters based on auto-detected 4 CPUs and 8192MB RAM
-          shared_buffers = '2048MB' # 25% of RAM, capped at 16GB
-          effective_cache_size = '6144MB' # 75% of RAM
-          maintenance_work_mem = '512MB' # RAM / 16, capped at 2GB
-          work_mem = '20MB' # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
-          max_parallel_workers = '20' # CPUs * 5
-          max_worker_processes = '28' # max_parallel_workers + 8
-          max_parallel_workers_per_gather = '2' # CPUs / 2, at least 1
-          max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
+          shared_buffers = '2048MB'                     # 25% of RAM, capped at 16GB
+          effective_cache_size = '6144MB'               # 75% of RAM
+          maintenance_work_mem = '512MB'                # RAM / 16, capped at 2GB
+          work_mem = '20MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+          max_parallel_workers = '20'                   # CPUs * 5
+          max_worker_processes = '28'                   # max_parallel_workers + 8
+          max_parallel_workers_per_gather = '2'         # CPUs / 2, at least 1
+          max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
           # End ParadeDB tuning recommendations
           EOF
           docker rm -f paradedb-autotune-4cpu-8gb

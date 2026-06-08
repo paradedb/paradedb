@@ -309,8 +309,12 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
             query: "SELECT id FROM topk_desc_large WHERE body @@@ 'gamma' LIMIT 10",
             expected_workers: None,
         },
+        // Window aggregates genuinely bail to the general path (`compute_nworkers`),
+        // not the cost model. With #4457 reverted, the general path applies the
+        // #3055 row cap to sorted output, so on this ~20K-row fixture (below the
+        // 300K `min_rows_per_worker`) it is serial.
         PlanCase {
-            name: "window_aggregate_routes_to_general_parallel_path",
+            name: "window_aggregate_routes_to_general_path_serial_on_small_data",
             query: "SELECT id,
                            paradedb.score(id),
                            pdb.agg('{\"terms\": {\"field\": \"body\", \"size\": 5}}', false)
@@ -319,7 +323,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     WHERE body @@@ 'alpha'
                     ORDER BY paradedb.score(id) DESC
                     LIMIT 10",
-            expected_workers: Some(2),
+            expected_workers: None,
         },
         PlanCase {
             name: "unanalyzed_small_limit_is_serial",
@@ -363,12 +367,15 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     ORDER BY paradedb.score(id) DESC LIMIT $1;
     "#
     .execute(&mut conn);
+    // Parameterized LIMIT bails to the general path (`compute_nworkers`), not the
+    // cost model. With #4457 reverted, the general path applies the #3055 row cap to
+    // sorted output, so on this ~20K-row fixture it is serial.
     assert_plan_case(
         &mut conn,
         PlanCase {
-            name: "parameterized_limit_routes_to_general_parallel_path",
+            name: "parameterized_limit_routes_to_general_path_serial_on_small_data",
             query: "EXECUTE topk_desc_param_limit(10)",
-            expected_workers: Some(2),
+            expected_workers: None,
         },
     );
 }

@@ -69,7 +69,7 @@ pub struct InsertModeMutable {
     key_field_name: FieldName,
     key_field_attno: usize,
     row_limit: usize,
-    datetime_field_attnos: Vec<usize>, // attnos of columns that are dates, so we can validate they're in range at insert-time instead of read-time
+    datetime_fields: Vec<(usize, PgOid)>, // attnos & type OIDs of columns that are dates, so we can validate they're in range at insert-time instead of read-time
 }
 
 pub enum InsertMode {
@@ -115,7 +115,8 @@ impl InsertState {
                 })
                 .expect("No key field defined.");
 
-            let datetime_field_attnos = indexrel
+            // precomputing fields that are dates, so we can validate they're in range at insert-time instead of read-time
+            let datetime_fields = indexrel
                 .schema()?
                 .categorized_fields()
                 .iter()
@@ -134,7 +135,7 @@ impl InsertState {
                         )
                     )
                 })
-                .map(|(_, field)| field.attno)
+                .map(|(_, field)| (field.attno, field.base_oid, field.is_array))
                 .collect();
 
             InsertMode::Mutable(InsertModeMutable {
@@ -142,7 +143,7 @@ impl InsertState {
                 key_field_name,
                 key_field_attno,
                 row_limit: row_limit.into(),
-                datetime_field_attnos,
+                datetime_fields,
             })
         } else {
             InsertMode::Immutable(InsertModeImmutable::new(indexrel)?)
@@ -337,6 +338,12 @@ unsafe fn insert(
         InsertMode::Mutable(mode) => {
             if *isnull.add(mode.key_field_attno) {
                 panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
+            }
+
+            for (attno, typeoid) in mode.datetime_fields.iter() {
+                if *attno == 1 || typeoid.value() == pg_sys::Oid::INVALID {
+                    panic!("idk");
+                }
             }
 
             if mode.ctids.len() < mode.row_limit {

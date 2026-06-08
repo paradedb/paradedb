@@ -20,22 +20,6 @@ These settings can be changed in several ways:
 SET maintenance_work_mem = '8GB'
 ```
 
-## CloudNativePG
-
-If ParadeDB is deployed with [CloudNativePG](/deploy/self-hosted/kubernetes), these settings should be set in your
-`.tfvars` file.
-
-```hcl .tfvars
-postgresql = {
-    parameters = {
-      max_worker_processes                   = 76
-      max_parallel_workers                   = 64
-      # Note that paradedb.* settings must be wrapped in double quotes
-      "paradedb.global_mutable_segment_rows" = 1000
-    }
-}
-```
-
 ## Docker
 
 When running ParadeDB in Docker, sensible default parameters are automatically configured based on the resources available to the container. For example, running a container with 4 CPUs and 8GB memory will cause the following to be appended to `postgresql.conf`. Be sure to adjust these parameters as you tune your deployment.
@@ -55,3 +39,19 @@ max_parallel_maintenance_workers = '2' # CPUs / 2, at least 2, at most 8
 ```
 
 To disable auto-tuning, set `PG_TUNE=false` in the container.
+
+## CloudNativePG
+
+If ParadeDB is deployed with [CloudNativePG](/deploy/self-hosted/kubernetes), these settings should be set in your
+`.tfvars` file.
+
+```hcl .tfvars
+postgresql = {
+    parameters = {
+      max_worker_processes                   = 76
+      max_parallel_workers                   = 64
+      # Note that paradedb.* settings must be wrapped in double quotes
+      "paradedb.global_mutable_segment_rows" = 1000
+    }
+}
+```

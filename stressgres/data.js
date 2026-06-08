@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780942889136,
+  "lastUpdate": 1780942924094,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35966,6 +35966,114 @@ window.BENCHMARK_DATA = {
             "value": 173.44921875,
             "unit": "median mem",
             "extra": "avg mem: 170.84239418361378, max mem: 174.3671875, count: 55565"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3690dd1d4dd60d835c28b052d2e1d4de9aea3b10",
+          "message": "fix: skip not-ready BM25 indexes in index info (#5279)\n\n# Ticket(s) Closed\n\nFixes #5278.\n\n## Summary\n\nThis updates `index_layer_info` and `index_info()` so transient BM25\nindexes that PostgreSQL has not marked usable are skipped instead of\nbeing opened.\n\n## Root Cause\n\nDuring `REINDEX INDEX CONCURRENTLY`, PostgreSQL can expose transient\ncatalog rows such as `*_ccnew` before the index is valid, ready, and\nlive. `index_layer_info` enumerated BM25 indexes directly from\n`pg_class`, so it could include those transient relations.\n\nThe view then called `paradedb.index_info()`, which could try to read\nBM25 storage block 0 before the storage was available, producing errors\nlike:\n\n```text\ncould not read blocks 0..0 ... read only 0 of 8192 bytes\n```\n\n## Changes\n\n- Filter both `paradedb.index_layer_info` and `pdb.index_layer_info`\nthrough `pg_index` with `indisvalid`, `indisready`, and `indislive`.\n- Add a defensive `index_info()` guard that returns no rows for indexes\nthat are not usable before reading storage.\n- Add regression coverage using a deterministic `_ccnew`-style BM25\nindex catalog state.\n\n## Validation\n\n- `cargo fmt --check`\n- `git diff --check origin/main..HEAD`\n- `cargo pgrx regress --package pg_search pg18 index_layer_info`",
+          "timestamp": "2026-06-08T22:48:56+05:30",
+          "tree_id": "e339a90e41183a5084caa3d616a1532636203530",
+          "url": "https://github.com/paradedb/paradedb/commit/3690dd1d4dd60d835c28b052d2e1d4de9aea3b10"
+        },
+        "date": 1780942891254,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.183189383677618, max cpu: 47.151276, count: 55655"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 175.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.99130637409039, max mem: 178.26953125, count: 55655"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.695483960326013, max cpu: 28.070175, count: 55655"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 119.13002832741893, max mem: 120.4453125, count: 55655"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.325449235461873, max cpu: 18.916256, count: 55655"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 165.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 145.13997738579192, max mem: 180.2890625, count: 55655"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16524,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16905.266984098464, max block_count: 31548.0, count: 55655"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.004068459484878, max cpu: 4.6511626, count: 55655"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 105.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.60997081630133, max mem: 136.65234375, count: 55655"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.632701464378762, max segment_count: 38.0, count: 55655"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.217137922502069, max cpu: 28.042841, count: 111310"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.38503868700028, max mem: 183.80859375, count: 111310"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.2374314551603, max cpu: 27.692308, count: 55655"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.75,
+            "unit": "median mem",
+            "extra": "avg mem: 171.1772694922963, max mem: 174.48046875, count: 55655"
           }
         ]
       }

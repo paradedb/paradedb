@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780698430582,
+  "lastUpdate": 1780940384151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4170,6 +4170,78 @@ window.BENCHMARK_DATA = {
             "value": 67.01945981319987,
             "unit": "median tps",
             "extra": "avg tps: 92.35556571161707, max tps: 764.6826719847797, count: 55201"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3690dd1d4dd60d835c28b052d2e1d4de9aea3b10",
+          "message": "fix: skip not-ready BM25 indexes in index info (#5279)\n\n# Ticket(s) Closed\n\nFixes #5278.\n\n## Summary\n\nThis updates `index_layer_info` and `index_info()` so transient BM25\nindexes that PostgreSQL has not marked usable are skipped instead of\nbeing opened.\n\n## Root Cause\n\nDuring `REINDEX INDEX CONCURRENTLY`, PostgreSQL can expose transient\ncatalog rows such as `*_ccnew` before the index is valid, ready, and\nlive. `index_layer_info` enumerated BM25 indexes directly from\n`pg_class`, so it could include those transient relations.\n\nThe view then called `paradedb.index_info()`, which could try to read\nBM25 storage block 0 before the storage was available, producing errors\nlike:\n\n```text\ncould not read blocks 0..0 ... read only 0 of 8192 bytes\n```\n\n## Changes\n\n- Filter both `paradedb.index_layer_info` and `pdb.index_layer_info`\nthrough `pg_index` with `indisvalid`, `indisready`, and `indislive`.\n- Add a defensive `index_info()` guard that returns no rows for indexes\nthat are not usable before reading storage.\n- Add regression coverage using a deterministic `_ccnew`-style BM25\nindex catalog state.\n\n## Validation\n\n- `cargo fmt --check`\n- `git diff --check origin/main..HEAD`\n- `cargo pgrx regress --package pg_search pg18 index_layer_info`",
+          "timestamp": "2026-06-08T22:48:56+05:30",
+          "tree_id": "e339a90e41183a5084caa3d616a1532636203530",
+          "url": "https://github.com/paradedb/paradedb/commit/3690dd1d4dd60d835c28b052d2e1d4de9aea3b10"
+        },
+        "date": 1780940350748,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.07305157102843,
+            "unit": "median tps",
+            "extra": "avg tps: 128.25937329802335, max tps: 143.22834076703165, count: 54882"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 501.7871538786364,
+            "unit": "median tps",
+            "extra": "avg tps: 499.51722429623067, max tps: 581.6441389619014, count: 54882"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3244.514264085391,
+            "unit": "median tps",
+            "extra": "avg tps: 3228.4174043774074, max tps: 3321.7659664024513, count: 54882"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 420.9721333301038,
+            "unit": "median tps",
+            "extra": "avg tps: 421.7211670365394, max tps: 470.91133587185936, count: 54882"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2859.761248427412,
+            "unit": "median tps",
+            "extra": "avg tps: 2843.8829523717036, max tps: 2882.640512622123, count: 109764"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 504.7043957089054,
+            "unit": "median tps",
+            "extra": "avg tps: 502.95161520457293, max tps: 602.2357533939163, count: 54882"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1867.913206116624,
+            "unit": "median tps",
+            "extra": "avg tps: 1860.9395363042738, max tps: 1874.5418286792883, count: 54882"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 130.88284023521874,
+            "unit": "median tps",
+            "extra": "avg tps: 144.4567260523431, max tps: 251.46714313543313, count: 54882"
           }
         ]
       }

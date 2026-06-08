@@ -4,6 +4,13 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.global_mutable_segment_rows = 0;
+-- Force the window aggregate onto the parallel path. The
+-- `max_window_aggregate_response_bytes` size guard tested below is parallel-only
+-- by design (it bounds the DSM transport buffer during a parallel scan); a serial
+-- window agg has no such limit and would return the oversized result instead of
+-- erroring. The #3055 row cap (`min_rows_per_worker`, default 300K) would otherwise
+-- serialize this small (50K-row) fixture, so disable it here to exercise the guard.
+SET paradedb.min_rows_per_worker = 0;
 -- =====================================================================
 -- SECTION 1: Large Aggregation Error
 -- =====================================================================

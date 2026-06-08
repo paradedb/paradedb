@@ -233,6 +233,7 @@ jobs:
             git diff --no-index -- "$expected_file" "$actual_file"
           }
 
+          echo "TEST: Skip tuning when it is disabled with PDB_TUNE"
           docker run -d \
             --name paradedb-autotune-disabled \
             --cpus 2 \
@@ -245,7 +246,9 @@ jobs:
           sleep 8
           assert_not_tuned paradedb-autotune-disabled "Auto-tuning is disabled, skipping."
           docker rm -f paradedb-autotune-disabled
+          echo && echo && echo
 
+          echo "TEST: Skip tuning when memory is less than 512mb"
           docker run -d \
             --name paradedb-autotune-low-memory \
             --cpus 2 \
@@ -257,7 +260,9 @@ jobs:
           sleep 8
           assert_not_tuned paradedb-autotune-low-memory "Available memory is less than 512mb, skipping auto tuning."
           docker rm -f paradedb-autotune-low-memory
+          echo && echo && echo
 
+          echo "TEST: Tunes successfully when no explicit limits are set"
           docker run -d \
             --name paradedb-autotune-default-resources \
             -e POSTGRES_USER=myuser \
@@ -272,7 +277,9 @@ jobs:
             exit 1
           fi
           docker rm -f paradedb-autotune-default-resources
+          echo && echo && echo
 
+          echo "TEST: Tunes with a fractional CPU value"
           docker run -d \
             --name paradedb-autotune-fractional-cpu \
             --cpus 2.7 \
@@ -296,7 +303,9 @@ jobs:
           # End ParadeDB tuning recommendations
           EOF
           docker rm -f paradedb-autotune-fractional-cpu
+          echo && echo && echo
 
+          echo "TEST: Tunes with 1 CPU and 1GB RAM"
           docker run -d \
             --name paradedb-autotune-1cpu-1gb \
             --cpus 1 \
@@ -320,7 +329,9 @@ jobs:
           # End ParadeDB tuning recommendations
           EOF
           docker rm -f paradedb-autotune-1cpu-1gb
+          echo && echo && echo
 
+          echo "TEST: Tunes with 4 CPU and 8GB RAM"
           docker run -d \
             --name paradedb-autotune-4cpu-8gb \
             --cpus 4 \
@@ -344,6 +355,7 @@ jobs:
           # End ParadeDB tuning recommendations
           EOF
           docker rm -f paradedb-autotune-4cpu-8gb
+          echo && echo && echo
 
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History

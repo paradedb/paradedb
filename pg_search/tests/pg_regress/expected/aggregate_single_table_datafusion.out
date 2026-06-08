@@ -107,9 +107,9 @@ FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
 GROUP BY category
 ORDER BY category;
-  category   | count 
--------------+-------
- Electronics |     2
+ category | count 
+----------+-------
+ Audio    |     1
 (1 row)
 
 -- Test 2.3: Multiple aggregates via DataFusion fallback
@@ -134,9 +134,9 @@ FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
 GROUP BY category
 ORDER BY category;
-  category   | count |   sum   | avg |  min   |   max   
--------------+-------+---------+-----+--------+---------
- Electronics |     2 | 2299.98 | 4.5 | 999.99 | 1299.99
+ category | count |  sum   | avg |  min   |  max   
+----------+-------+--------+-----+--------+--------
+ Audio    |     1 | 199.99 |   4 | 199.99 | 199.99
 (1 row)
 
 -- Test 2.4: Scalar aggregate (no GROUP BY) via DataFusion fallback
@@ -172,9 +172,9 @@ FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
 GROUP BY category
 ORDER BY category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     2 | 2299.98
+ category | count |  sum   
+----------+-------+--------
+ Audio    |     1 | 199.99
 (1 row)
 
 -- Postgres native

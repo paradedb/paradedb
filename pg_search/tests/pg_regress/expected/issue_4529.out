@@ -45,24 +45,27 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
-                                                     QUERY PLAN                                                      
----------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
-         ->  Sort
-               Sort Key: s.name
-               ->  Nested Loop
-                     Join Filter: (p.supplier_id = s.id)
-                     ->  Custom Scan (ParadeDB Base Scan) on typmod_products p
-                           Table: typmod_products
-                           Index: typmod_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: supplier_id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
-                     ->  Seq Scan on typmod_suppliers s
-(14 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Relation Tree: s INNER p
+               Join Cond: p.supplier_id = s.id
+               Limit: 10
+               Distinct: true
+               Order By: s.name asc
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[name@1 as col_1], aggr=[ctid_0, ctid_1]
+                 :     VisibilityFilterExec: tables=[s, p]
+                 :       ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT DISTINCT s.name
 FROM typmod_products p
@@ -70,7 +73,6 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
  name  
 -------
  Alpha

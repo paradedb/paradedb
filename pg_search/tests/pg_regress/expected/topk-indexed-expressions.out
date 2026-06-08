@@ -26,25 +26,23 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (upper(description)) DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items
-               Table: mock_items
-               Index: upper_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: upper_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description desc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
          description         | rating 
 -----------------------------+--------
  Plastic Keyboard            |      4
@@ -64,25 +62,23 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY trim(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (TRIM(BOTH FROM description)) DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items
-               Table: mock_items
-               Index: trim_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: trim_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description desc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY trim(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
          description         | rating 
 -----------------------------+--------
  Plastic Keyboard            |      4
@@ -126,25 +122,23 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (lower(description)) DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items
-               Table: mock_items
-               Index: lower_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: lower_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description desc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5
@@ -160,25 +154,23 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) ASC, rating DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (lower(description)), rating DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items
-               Table: mock_items
-               Index: mixed_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: mixed_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description asc, rating desc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) ASC, rating DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5
@@ -194,25 +186,23 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) ASC, rating DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (upper(description)), rating DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items
-               Table: mock_items
-               Index: mixed_expr_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: mixed_expr_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description asc, rating desc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) ASC, rating DESC
     LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
          description         | rating 
 -----------------------------+--------
  Bluetooth-enabled speaker   |      3
@@ -287,30 +277,30 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, (upper(p.name))
-   ->  Sort
-         Output: p.name, s.name, (upper(p.name))
-         Sort Key: (upper(p.name))
-         ->  Hash Join
-               Output: p.name, s.name, upper(p.name)
-               Inner Unique: true
-               Hash Cond: (s.product_id = p.id)
-               ->  Seq Scan on public.expr_suppliers s
-                     Output: s.id, s.product_id, s.name, s.contact_info
-               ->  Hash
-                     Output: p.name, p.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.expr_products p
-                           Output: p.name, p.id
-                           Table: expr_products
-                           Index: expr_products_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   ->  Result
+         Output: p.name, s.name, upper(p.name)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.name, s.name
+               Relation Tree: s INNER p
+               Join Cond: p.id = s.product_id
+               Limit: 5
+               Order By: name asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   TantivyLookupExec: decode=[name]
+                 :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5
+                 :       VisibilityFilterExec: tables=[s, p]
+                 :         ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, name@1 as name]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, name@2, ctid_0@3]
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -318,7 +308,6 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Headphones       | TechCorp
@@ -338,30 +327,28 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.name, s.name
-         Sort Key: s.name
-         ->  Hash Join
-               Output: p.name, s.name
-               Inner Unique: true
-               Hash Cond: (s.product_id = p.id)
-               ->  Seq Scan on public.expr_suppliers s
-                     Output: s.id, s.product_id, s.name, s.contact_info
-               ->  Hash
-                     Output: p.name, p.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.expr_products p
-                           Output: p.name, p.id
-                           Table: expr_products
-                           Index: expr_products_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+         Relation Tree: s INNER p
+         Join Cond: p.id = s.product_id
+         Limit: 5
+         Order By: s.name asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, name@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyLookupExec: decode=[name]
+           :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5
+           :       VisibilityFilterExec: tables=[s, p]
+           :         ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(19 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -369,7 +356,6 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | CableCo

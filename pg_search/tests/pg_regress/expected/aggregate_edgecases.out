@@ -207,19 +207,16 @@ SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc
 -- Test solve_mvcc=false with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: category, (pdb.agg_fn('AGG'::text))
-   Sort Key: mvcc_agg_test.category
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
-         Output: category, pdb.agg_fn('AGG'::text)
-         Index: mvcc_agg_test_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
-           Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: mvcc_agg_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
  category |      agg       

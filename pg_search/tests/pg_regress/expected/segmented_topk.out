@@ -55,31 +55,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Sort Key: f.title
-         ->  Hash Join
-               Output: f.id, f.title
-               Inner Unique: true
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on public.stk_files f
-                     Output: f.id, f.document_id, f.title, f.content
-               ->  Hash
-                     Output: d.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
-                           Output: d.id
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 3
+         Order By: f.title asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3
+           :       VisibilityFilterExec: tables=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -88,7 +84,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |     title      
 ----+----------------
   1 | File Title 001
@@ -107,31 +102,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title DESC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Sort Key: f.title DESC
-         ->  Hash Join
-               Output: f.id, f.title
-               Inner Unique: true
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on public.stk_files f
-                     Output: f.id, f.document_id, f.title, f.content
-               ->  Hash
-                     Output: d.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
-                           Output: d.id
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 3
+         Order By: f.title desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@2 DESC], k=3
+           :       VisibilityFilterExec: tables=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -140,7 +131,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title DESC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |     title      
 ----+----------------
  99 | File Title 099
@@ -159,27 +149,25 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
-   ->  Sort (actual rows=3.00 loops=1)
-         Sort Key: f.title
-         Sort Method: top-N heapsort  Memory: 25kB
-         ->  Hash Join (actual rows=50.00 loops=1)
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on stk_files f (actual rows=100.00 loops=1)
-               ->  Hash (actual rows=5.00 loops=1)
-                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
-                     ->  Custom Scan (ParadeDB Base Scan) on stk_documents d (actual rows=5.00 loops=1)
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Heap Fetches: 0
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 3
+         Order By: f.title asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
+           :   TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
+           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
+           :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=50, output_bytes=1450.0 B, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=automaton, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=0, rows_scanned=50]
+(16 rows)
 
 -- =============================================================================
 -- TEST 4: K > total rows — no pruning, all rows survive
@@ -191,7 +179,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 1000;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |     title      
 ----+----------------
   1 | File Title 001
@@ -256,7 +243,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 1;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |     title      
 ----+----------------
   1 | File Title 001
@@ -341,31 +327,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Sort Key: f.title
-         ->  Hash Join
-               Output: f.id, f.title
-               Inner Unique: true
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on public.stk_files f
-                     Output: f.id, f.document_id, f.title, f.content
-               ->  Hash
-                     Output: d.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
-                           Output: d.id
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 3
+         Order By: f.title asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     TantivyLookupExec: decode=[title]
+           :       VisibilityFilterExec: tables=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 -- Verify results are the same with optimization disabled
 SELECT f.id, f.title
@@ -375,7 +357,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |     title      
 ----+----------------
   1 | File Title 001
@@ -411,7 +392,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id  |     title     
 -----+---------------
  106 | Group A Title
@@ -431,31 +411,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Sort Key: f.title, f.id DESC
-         ->  Hash Join
-               Output: f.id, f.title
-               Inner Unique: true
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on public.stk_files f
-                     Output: f.id, f.document_id, f.title, f.content
-               ->  Hash
-                     Output: d.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
-                           Output: d.id
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, f.id desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 DESC], k=5
+           :       VisibilityFilterExec: tables=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -464,7 +440,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id  |     title     
 -----+---------------
  106 | Group A Title
@@ -485,7 +460,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id  |     title     |  content   
 -----+---------------+------------
  106 | Group A Title | content 06
@@ -504,31 +478,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, f.content
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title, f.content
-         Sort Key: f.title, f.content DESC
-         ->  Hash Join
-               Output: f.id, f.title, f.content
-               Inner Unique: true
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on public.stk_files f
-                     Output: f.id, f.document_id, f.title, f.content
-               ->  Hash
-                     Output: d.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
-                           Output: d.id
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, f.content desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[title, content]
+           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, content@3 DESC], k=5
+           :       VisibilityFilterExec: tables=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, content@5]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 SELECT f.id, f.title, f.content
 FROM stk_files f
@@ -537,7 +507,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id  |     title     |  content   
 -----+---------------+------------
  106 | Group A Title | content 06
@@ -558,7 +527,6 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id  |     title     |             category              
 -----+---------------+-----------------------------------
  102 | Group A Title | PROJECT_ALPHA roadmap planning
@@ -576,31 +544,28 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, d.category
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title, d.category
-         Sort Key: f.title, d.category DESC, f.id
-         ->  Hash Join
-               Output: f.id, f.title, d.category
-               Inner Unique: true
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on public.stk_files f
-                     Output: f.id, f.document_id, f.title, f.content
-               ->  Hash
-                     Output: d.category, d.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
-                           Output: d.category, d.id
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, d.category desc, f.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+           :     TantivyLookupExec: decode=[category, title]
+           :       VisibilityFilterExec: tables=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT f.id, f.title, d.category
 FROM stk_files f
@@ -608,7 +573,7 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
+WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
  id  |     title     |             category              
 -----+---------------+-----------------------------------
  102 | Group A Title | PROJECT_ALPHA roadmap planning
@@ -671,7 +636,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |      title       
 ----+------------------
   1 | File Title 00001
@@ -691,27 +655,25 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=5.00 loops=1)
-   ->  Sort (actual rows=5.00 loops=1)
-         Sort Key: f.title
-         Sort Method: top-N heapsort  Memory: 25kB
-         ->  Hash Join (actual rows=30000.00 loops=1)
-               Hash Cond: (f.document_id = d.id)
-               ->  Seq Scan on stk_files f (actual rows=50000.00 loops=1)
-               ->  Hash (actual rows=3.00 loops=1)
-                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
-                     ->  Custom Scan (ParadeDB Base Scan) on stk_documents d (actual rows=3.00 loops=1)
-                           Table: stk_documents
-                           Index: stk_documents_bm25_idx
-                           Heap Fetches: 0
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
+           :   TantivyLookupExec: decode=[title], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
+           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, metrics=[rows_input=14.26 K, rows_output=5, segments_seen=2]
+           :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=14.26 K, output_bytes=793.9 KB, output_batches=2]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=14.26 K, output_bytes=827.1 KB, output_batches=2, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.26 K, build_mem_used=228, avg_fanout=100% (14.26 K/14.26 K), probe_hit_rate=56% (14.26 K/25.52 K)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=14.26 K, output_bytes=515.3 KB, output_batches=4, rows_pruned=15.74 K, rows_scanned=30.00 K]
+(16 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -720,7 +682,6 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: d, f)
  id |      title       
 ----+------------------
   1 | File Title 00001

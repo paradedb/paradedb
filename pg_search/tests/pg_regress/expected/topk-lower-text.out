@@ -16,26 +16,24 @@ EXPLAIN SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.02..10.03 rows=1 width=68)
-   ->  Sort  (cost=10.02..10.03 rows=1 width=68)
-         Sort Key: (lower(description)) DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..10.01 rows=1 width=68)
-               Table: mock_items
-               Index: search_idx
-               Segment Count: 1
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..10.01 rows=1 width=68)
+         Table: mock_items
+         Index: search_idx
+         Segment Count: 1
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description desc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (10 rows)
 
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5

@@ -58,7 +58,7 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
         );
     "#.execute(conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) COLLATE \"C\" LIMIT 5".fetch_one::<(Value,)>(conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(conn);
     eprintln!("{plan:#?}");
     plan
 }
@@ -135,7 +135,7 @@ fn sort_by_raw(mut conn: PgConnection) {
         );
     "#.execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category COLLATE \"C\" LIMIT 5".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
     let plan = plan
         .pointer("/0/Plan/Plans/0")

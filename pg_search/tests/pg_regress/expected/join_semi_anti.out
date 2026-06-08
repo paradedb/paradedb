@@ -307,34 +307,27 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY category ASC, id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: table_a, table_b)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: table_a.id, table_a.category
-         Sort Key: table_a.category, table_a.id
-         ->  Hash Semi Join
-               Output: table_a.id, table_a.category
-               Hash Cond: (table_a.id = table_b.a_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.table_a
-                     Output: table_a.id, table_a.category
-                     Table: table_a
-                     Index: table_a_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: category, id
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     Output: table_b.a_id
-                     ->  Bitmap Heap Scan on public.table_b
-                           Output: table_b.a_id
-                           Recheck Cond: ((table_b.group_id)::text = 'group_1'::text)
-                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx
-                                 Index Cond: ((table_b.group_id)::text = 'group_1'::text)
-(23 rows)
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.category asc, table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
+           :   TantivyLookupExec: decode=[category]
+           :     SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10
+           :       VisibilityFilterExec: tables=[table_a]
+           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT *
 FROM table_a
@@ -346,8 +339,6 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY category ASC, id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: table_a, table_b)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category

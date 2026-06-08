@@ -762,7 +762,7 @@ async fn generated_joinscan(database: Db) {
         // to ensure deterministic results when LIMIT is applied
         let mut order_parts = Vec::new();
         if include_expr_ordering {
-            order_parts.push(format!("upper({}.category) COLLATE \"C\"", used_tables[0]));
+            order_parts.push(format!("upper({}.category)", used_tables[0]));
         }
         order_parts.push(format!("{}.id", used_tables[0]));
         // Only add inner table tiebreakers when NOT using expression ordering,

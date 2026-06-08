@@ -295,6 +295,15 @@ unsafe fn find_target_entry_by_ref(
 // If a field does not have a collation (ex: integers, non-text data), it's considered safe
 // Otherwise, for collatable fields, if the collation is C-like it's safe
 pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
+    const SAFE_COLLATION_NAMES: &[&str] = &[
+        "C",
+        "POSIX",
+        "C.UTF-8",
+        "POSIX.UTF-8",
+        "C.utf8",
+        "POSIX.utf8",
+    ];
+
     match collation {
         pg_sys::Oid::INVALID => true,
         pg_sys::C_COLLATION_OID => true,
@@ -305,7 +314,7 @@ pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
             #[cfg(any(feature = "pg17", feature = "pg18"))]
             Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
             Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((datcollate, _)) => datcollate == "C" || datcollate == "POSIX",
+            Some((datcollate, _)) => SAFE_COLLATION_NAMES.contains(&datcollate.as_str()),
             None => false,
         },
         // for all other collations, same as above
@@ -315,7 +324,7 @@ pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
             #[cfg(any(feature = "pg17", feature = "pg18"))]
             Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
             Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((Some(collcollate), _)) => collcollate == "C" || collcollate == "POSIX",
+            Some((Some(collcollate), _)) => SAFE_COLLATION_NAMES.contains(&collcollate.as_str()),
             _ => false,
         },
     }

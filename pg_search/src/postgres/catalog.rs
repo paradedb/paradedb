@@ -158,7 +158,7 @@ pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
             &mut is_datcollate_null,
         );
 
-        let datcollate = String::from_datum(datcollate_datum, is_datcollate_null)?;
+        let datcollate = String::from_datum(datcollate_datum, is_datcollate_null);
 
         let mut is_datlocprovider_null: bool = false;
         let datlocprovider_datum = pg_sys::SysCacheGetAttr(
@@ -169,10 +169,11 @@ pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
         );
 
         let datlocprovider =
-            i8::from_datum(datlocprovider_datum, is_datlocprovider_null).map(|c| c as u8)?;
+            i8::from_datum(datlocprovider_datum, is_datlocprovider_null).map(|c| c as u8);
 
         pg_sys::ReleaseSysCache(entry);
-        Some((datcollate, datlocprovider))
+
+        datcollate.zip(datlocprovider)
     }
 }
 
@@ -209,9 +210,9 @@ pub fn lookup_collation_collcollate_and_provider(
         );
 
         let collprovider =
-            i8::from_datum(collprovider_datum, is_collprovider_null).map(|c| c as u8)?;
+            i8::from_datum(collprovider_datum, is_collprovider_null).map(|c| c as u8);
 
         pg_sys::ReleaseSysCache(entry);
-        Some((collcollate, collprovider))
+        collprovider.map(|collprovider| (collcollate, collprovider))
     }
 }

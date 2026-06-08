@@ -212,19 +212,16 @@ FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('SUM'::text)), (pdb.agg_fn('AVG'::text))
-   Sort Key: empty_test.category
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-         Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
-         Index: empty_test_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
-           Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null}},"1":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
+   Index: empty_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null}},"1":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 SELECT category, COUNT(*), SUM(value), AVG(value)
 FROM empty_test
@@ -250,19 +247,16 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category, value
 ORDER BY category, value;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: category, value, (pdb.agg_fn('COUNT(*)'::text))
-   Sort Key: empty_test.category, empty_test.value
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-         Output: category, value, pdb.agg_fn('COUNT(*)'::text)
-         Index: empty_test_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
-           Applies to Aggregates: COUNT(*)
-           Group By: category, value
-           Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"value","segment_size":65000,"size":65000}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
+   Output: category, value, pdb.agg_fn('COUNT(*)'::text)
+   Index: empty_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: category, value
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all()

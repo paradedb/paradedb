@@ -46,9 +46,8 @@ WHERE
     )
 ORDER BY created_at DESC, id DESC
 LIMIT 100;
-WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: items)
-                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: items.id, items.status, items.created_at
    InitPlan 1
@@ -63,17 +62,16 @@ WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead)
      ->  Index Scan using items_pkey on public.items items_3
            Output: items_3.created_at
            Index Cond: (items_3.id = '4'::text)
-   ->  Sort
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: items.id, items.status, items.created_at
-         Sort Key: items.created_at DESC, items.id DESC
-         ->  Custom Scan (ParadeDB Base Scan) on public.items
-               Output: items.id, items.status, items.created_at
-               Table: items
-               Index: items_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"IN [posted pending]","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1"}}]}}
-(24 rows)
+         Table: items
+         Index: items_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: created_at desc, id desc
+            TopK Limit: 100
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"IN [posted pending]","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1"}}]}}
+(23 rows)
 
 SELECT id, status, created_at
 FROM items
@@ -89,7 +87,6 @@ WHERE
     )
 ORDER BY created_at DESC, id DESC
 LIMIT 100;
-WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: items)
  id | status  |        created_at        
 ----+---------+--------------------------
  3  | pending | Wed Jan 01 12:00:00 2025

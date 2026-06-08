@@ -24,25 +24,23 @@ SELECT * FROM test
 WHERE lower(description) === 'cloud engineer'
 ORDER BY lower(description)
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test)
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (lower(description))
-         ->  Custom Scan (ParadeDB Base Scan) on test
-               Table: test
-               Index: test_bm25
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on test
+         Table: test
+         Index: test_bm25
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description asc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer"}}}}
 (9 rows)
 
 SELECT * FROM test
 WHERE lower(description) === 'cloud engineer'
 ORDER BY lower(description)
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test)
  id |  description   
 ----+----------------
   2 | cloud engineer

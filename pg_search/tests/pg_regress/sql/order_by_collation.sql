@@ -1,6 +1,6 @@
 -- Test ORDER BY collation safety for pushdown
 -- Ensures that ParadeDB correctly refuses to push down ORDER BY when a non-C collation
--- is in use, since Tantivy sorts by raw byte order (equivalent to C/POSIX only).
+-- is in use, since Tantivy sorts by raw byte order (equivalent to C/POSIX/C.UTF-8 only).
 --
 -- Tests cover:
 -- 1. TopK (base scan ORDER BY ... LIMIT) with C vs non-C collation
@@ -8,6 +8,10 @@
 -- 3. Sorted index scan (sort_by) with C vs non-C collation
 -- 4. Non-text columns (integers) are unaffected by collation checks
 -- 5. Result correctness
+-- 6. JoinScan ORDER BY collation check
+-- 7. Aggregate-on-Join TopK collation check
+-- 8. Default database collation (no explicit COLLATE) -> pushdown safe when default is C-like
+-- 9. Mixed ORDER BY with safe and unsafe columns
 
 \i common/common_setup.sql
 
@@ -23,21 +27,22 @@ CREATE TABLE collation_test (
     id SERIAL PRIMARY KEY,
     name_c TEXT COLLATE "C",
     name_icu TEXT COLLATE "test_icu",
+    name_default TEXT,
     priority INTEGER
 );
 
-INSERT INTO collation_test (name_c, name_icu, priority) VALUES
-    ('apple', 'apple', 10),
-    ('Banana', 'Banana', 20),
-    ('cherry', 'cherry', 30),
-    ('Date', 'Date', 40),
-    ('elderberry', 'elderberry', 50);
+INSERT INTO collation_test (name_c, name_icu, name_default, priority) VALUES
+    ('apple', 'apple', 'apple', 10),
+    ('Banana', 'Banana', 'Banana', 20),
+    ('cherry', 'cherry', 'cherry', 30),
+    ('Date', 'Date', 'Date', 40),
+    ('elderberry', 'elderberry', 'elderberry', 50);
 
 CREATE INDEX collation_test_idx ON collation_test
-USING bm25 (id, name_c, name_icu, priority)
+USING bm25 (id, name_c, name_icu, name_default, priority)
 WITH (
     key_field = 'id',
-    text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}}',
+    text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
     numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
 );
 
@@ -294,6 +299,73 @@ ORDER BY priority
 LIMIT 3;
 
 RESET paradedb.enable_aggregate_custom_scan;
+
+-- =============================================================================
+-- SECTION 7: Default database collation (no explicit COLLATE)
+-- The database default is C.UTF-8 (safe for byte-order pushdown)
+-- =============================================================================
+
+\echo '=== SECTION 7: Default Database Collation (C.UTF-8) ==='
+
+\echo 'Test 7.1: ORDER BY default-collation text column -> TopK pushdown (default is C.UTF-8, safe)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_default FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_default
+LIMIT 5;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+\echo 'Test 7.2: GROUP BY + ORDER BY default-collation text -> aggregate pushdown (no Sort node)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_default, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_default
+ORDER BY name_default;
+
+\echo 'Test 7.3: GROUP BY + ORDER BY default-collation text + LIMIT -> aggregate TopK pushdown'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_default, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_default
+ORDER BY name_default
+LIMIT 3;
+
+RESET paradedb.enable_aggregate_custom_scan;
+
+-- =============================================================================
+-- SECTION 8: Mixed ORDER BY with safe and unsafe columns
+-- =============================================================================
+
+\echo '=== SECTION 8: Mixed ORDER BY (safe + unsafe) ==='
+
+\echo 'Test 8.1: ORDER BY safe_col (C), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c, name_icu
+LIMIT 5;
+
+\echo 'Test 8.2: ORDER BY safe_col (integer), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY priority, name_icu
+LIMIT 5;
+
+\echo 'Test 8.3: ORDER BY safe_col (C), safe_col (default) -> TopK pushdown (both safe)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c, name_default FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c, name_default
+LIMIT 5;
+
+\echo 'Test 8.4: ORDER BY safe_col (integer), safe_col (default) -> TopK pushdown (both safe)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority, name_default FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY priority, name_default
+LIMIT 5;
 
 -- =============================================================================
 -- CLEANUP

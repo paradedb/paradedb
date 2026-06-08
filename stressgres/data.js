@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780942239798,
+  "lastUpdate": 1780942889136,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29652,6 +29652,60 @@ window.BENCHMARK_DATA = {
             "value": 15.597233534130856,
             "unit": "median tps",
             "extra": "avg tps: 15.362738290714299, max tps: 21.477290975648252, count: 55565"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3690dd1d4dd60d835c28b052d2e1d4de9aea3b10",
+          "message": "fix: skip not-ready BM25 indexes in index info (#5279)\n\n# Ticket(s) Closed\n\nFixes #5278.\n\n## Summary\n\nThis updates `index_layer_info` and `index_info()` so transient BM25\nindexes that PostgreSQL has not marked usable are skipped instead of\nbeing opened.\n\n## Root Cause\n\nDuring `REINDEX INDEX CONCURRENTLY`, PostgreSQL can expose transient\ncatalog rows such as `*_ccnew` before the index is valid, ready, and\nlive. `index_layer_info` enumerated BM25 indexes directly from\n`pg_class`, so it could include those transient relations.\n\nThe view then called `paradedb.index_info()`, which could try to read\nBM25 storage block 0 before the storage was available, producing errors\nlike:\n\n```text\ncould not read blocks 0..0 ... read only 0 of 8192 bytes\n```\n\n## Changes\n\n- Filter both `paradedb.index_layer_info` and `pdb.index_layer_info`\nthrough `pg_index` with `indisvalid`, `indisready`, and `indislive`.\n- Add a defensive `index_info()` guard that returns no rows for indexes\nthat are not usable before reading storage.\n- Add regression coverage using a deterministic `_ccnew`-style BM25\nindex catalog state.\n\n## Validation\n\n- `cargo fmt --check`\n- `git diff --check origin/main..HEAD`\n- `cargo pgrx regress --package pg_search pg18 index_layer_info`",
+          "timestamp": "2026-06-08T22:48:56+05:30",
+          "tree_id": "e339a90e41183a5084caa3d616a1532636203530",
+          "url": "https://github.com/paradedb/paradedb/commit/3690dd1d4dd60d835c28b052d2e1d4de9aea3b10"
+        },
+        "date": 1780942854691,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.144436120201707,
+            "unit": "median tps",
+            "extra": "avg tps: 29.044980795070206, max tps: 33.37243952877804, count: 55655"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.64668011170534,
+            "unit": "median tps",
+            "extra": "avg tps: 279.7500215793753, max tps: 3305.3332620059364, count: 55655"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 572.4263119965805,
+            "unit": "median tps",
+            "extra": "avg tps: 554.7060315478797, max tps: 638.130951034785, count: 55655"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 164.12163377048114,
+            "unit": "median tps",
+            "extra": "avg tps: 180.00944306604876, max tps: 1376.2079499186348, count: 111310"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.473918981195123,
+            "unit": "median tps",
+            "extra": "avg tps: 15.351292209574778, max tps: 19.68232413922111, count: 55655"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780942202319,
+  "lastUpdate": 1780942239798,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26422,6 +26422,108 @@ window.BENCHMARK_DATA = {
             "value": 163.109375,
             "unit": "median mem",
             "extra": "avg mem: 181.7737863451147, max mem: 221.578125, count: 56537"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3690dd1d4dd60d835c28b052d2e1d4de9aea3b10",
+          "message": "fix: skip not-ready BM25 indexes in index info (#5279)\n\n# Ticket(s) Closed\n\nFixes #5278.\n\n## Summary\n\nThis updates `index_layer_info` and `index_info()` so transient BM25\nindexes that PostgreSQL has not marked usable are skipped instead of\nbeing opened.\n\n## Root Cause\n\nDuring `REINDEX INDEX CONCURRENTLY`, PostgreSQL can expose transient\ncatalog rows such as `*_ccnew` before the index is valid, ready, and\nlive. `index_layer_info` enumerated BM25 indexes directly from\n`pg_class`, so it could include those transient relations.\n\nThe view then called `paradedb.index_info()`, which could try to read\nBM25 storage block 0 before the storage was available, producing errors\nlike:\n\n```text\ncould not read blocks 0..0 ... read only 0 of 8192 bytes\n```\n\n## Changes\n\n- Filter both `paradedb.index_layer_info` and `pdb.index_layer_info`\nthrough `pg_index` with `indisvalid`, `indisready`, and `indislive`.\n- Add a defensive `index_info()` guard that returns no rows for indexes\nthat are not usable before reading storage.\n- Add regression coverage using a deterministic `_ccnew`-style BM25\nindex catalog state.\n\n## Validation\n\n- `cargo fmt --check`\n- `git diff --check origin/main..HEAD`\n- `cargo pgrx regress --package pg_search pg18 index_layer_info`",
+          "timestamp": "2026-06-08T22:48:56+05:30",
+          "tree_id": "e339a90e41183a5084caa3d616a1532636203530",
+          "url": "https://github.com/paradedb/paradedb/commit/3690dd1d4dd60d835c28b052d2e1d4de9aea3b10"
+        },
+        "date": 1780942204792,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07335456475583864, max background_merging: 2.0, count: 56520"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.711600512646821, max cpu: 9.667674, count: 56520"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.891179352994516, max mem: 25.90625, count: 56520"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.022125022705769, max cpu: 9.805924, count: 56520"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 169.01246184978768, max mem: 170.58984375, count: 56520"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51428,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51292.081068648266, max block_count: 51428.0, count: 56520"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.60891719745223, max segment_count: 56.0, count: 56520"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7103078198176345, max cpu: 28.374382, count: 56520"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 157.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 143.6182239832139, max mem: 167.625, count: 56520"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.878220517138677, max cpu: 28.152493, count: 56520"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 191.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 186.81697090078734, max mem: 192.0859375, count: 56520"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.87233892391345, max cpu: 33.566433, count: 56520"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.13971506214614, max mem: 221.61328125, count: 56520"
           }
         ]
       }

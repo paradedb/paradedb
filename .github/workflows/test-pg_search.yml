@@ -123,6 +123,13 @@ jobs:
       # for all PG versions on the default branch.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
+        # The runs-on S3 cache proxy can stall a multi-GB restore. Without a short
+        # segment timeout the download hangs (~10min) and the runner is reaped,
+        # failing the job. SEGMENT_DOWNLOAD_TIMEOUT_MINS aborts a stalled segment so
+        # rust-cache falls back to a cache miss; timeout-minutes is a hard backstop.
+        timeout-minutes: 6
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: "2"
         with:
           prefix-key: "v2-rust-cache"
           shared-key: pg${{ matrix.pg_version }}

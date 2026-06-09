@@ -25,6 +25,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::merge::{do_merge, MergeStyle};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
@@ -347,7 +348,7 @@ unsafe fn insert(
                 panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
             }
 
-            // Validating the datetime fields are in range
+            // Validating the datetime fields are in range for Tantivy's nanosecond storage
             for categorized in mode.datetime_fields.iter() {
                 if !*isnull.add(categorized.attno) {
                     let datum = if type_is_alias(categorized.pg_type.value())
@@ -358,12 +359,20 @@ unsafe fn insert(
                         *values.add(categorized.attno)
                     };
 
-                    if categorized.is_array {
+                    let values_to_check: Vec<TantivyValue> = if categorized.is_array {
                         TantivyValue::try_from_datum_array(datum, categorized.base_oid)
-                            .unwrap_or_else(|e| panic!("could not parse field: {e}"));
+                            .unwrap_or_else(|e| panic!("could not parse field: {e}"))
                     } else {
-                        TantivyValue::try_from_datum(datum, categorized.base_oid)
-                            .unwrap_or_else(|e| panic!("could not parse field: {e}"));
+                        vec![TantivyValue::try_from_datum(datum, categorized.base_oid)
+                            .unwrap_or_else(|e| panic!("could not parse field: {e}"))]
+                    };
+
+                    for tv in values_to_check {
+                        if let PdbOwnedValue::Date(pg_dt) = tv.0 {
+                            let _: tantivy::DateTime = pg_dt.try_into().unwrap_or_else(|_| {
+                                panic!("could not parse field: date is outside DateTime range")
+                            });
+                        }
                     }
                 }
             }

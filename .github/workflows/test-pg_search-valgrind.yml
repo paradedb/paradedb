@@ -1,8 +1,8 @@
 # workflows/test-pg_search-valgrind.yml
 #
-# Test pg_search Valgrind
+# Test pg_search (Valgrind)
 
-name: Test pg_search Valgrind
+name: Test pg_search (Valgrind)
 
 on:
   schedule:

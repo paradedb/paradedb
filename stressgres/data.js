@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780943611124,
+  "lastUpdate": 1780972071967,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4242,6 +4242,78 @@ window.BENCHMARK_DATA = {
             "value": 130.88284023521874,
             "unit": "median tps",
             "extra": "avg tps: 144.4567260523431, max tps: 251.46714313543313, count: 54882"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "163ec0c8229c02a738ebdd7873b3ff1227332aed",
+          "message": "feat: Enable aggregate and join scans by default (#5252)\n\n# Ticket(s) Closed\n\n- Closes #5075\n\n## What\n\nEnable the `aggregate` and `join` custom scans by default.\n\n## Why\n\nThe aggregate and join scans have been equivalence tested against\nPostgres for a few releases now, and a variety of users have\nsuccessfully used them in production.\n\nFor queries that they support, the aggregate and join scans will either:\n1. accelerate a query (thanks to columnar access and late\nmaterialization)\n2. make it possible to run at all: avoiding an \"Unsupported plan shape\"\nerror (e.g. when using `pdb.score` in a join that might not otherwise be\nable to be recognized by the base scan)\n\nBut even for queries which are not yet supported by these scans, the\nwarnings that they render can give useful guidance around index\nmisconfiguration.\n\n## How\n\nEnable both scan GUCs by default, and improve the warnings that they\nrender in cases where they are combined.\n\nAdditionally, make a series of fixes identified by the existing tests\nfor the aggregate and join scans:\n* Skip the aggregate scan for obscure failures such as #5266.\n* Fix LTREE groupbys in the aggregate scan.\n* Disable the aggregate scan for partitioned tables.",
+          "timestamp": "2026-06-08T19:07:10-07:00",
+          "tree_id": "da21968b58a0f76cc6daa7529f14f68aeac8e76a",
+          "url": "https://github.com/paradedb/paradedb/commit/163ec0c8229c02a738ebdd7873b3ff1227332aed"
+        },
+        "date": 1780972039601,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.96442004969973,
+            "unit": "median tps",
+            "extra": "avg tps: 129.45715618677949, max tps: 140.08358531731076, count: 55241"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 131.45542469483723,
+            "unit": "median tps",
+            "extra": "avg tps: 131.8562671925508, max tps: 141.48010495475822, count: 55241"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3314.2060454048956,
+            "unit": "median tps",
+            "extra": "avg tps: 3307.6351423158267, max tps: 3383.096081994513, count: 55241"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 421.8334181019641,
+            "unit": "median tps",
+            "extra": "avg tps: 425.1933539602838, max tps: 486.3111741246885, count: 55241"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2786.6840382621704,
+            "unit": "median tps",
+            "extra": "avg tps: 2821.8394328154823, max tps: 2916.4210928663506, count: 110482"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 473.9458047885295,
+            "unit": "median tps",
+            "extra": "avg tps: 477.19770564679106, max tps: 543.7790247895858, count: 55241"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1895.5591538220106,
+            "unit": "median tps",
+            "extra": "avg tps: 1890.957703355864, max tps: 1905.8944608617303, count: 55241"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 44.70248224811181,
+            "unit": "median tps",
+            "extra": "avg tps: 49.2640415064984, max tps: 134.98605459070023, count: 55241"
           }
         ]
       }

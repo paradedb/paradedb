@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781041560177,
+  "lastUpdate": 1781042213412,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40174,6 +40174,54 @@ window.BENCHMARK_DATA = {
             "value": 264.243656689237,
             "unit": "median tps",
             "extra": "avg tps: 261.6686857993985, max tps: 505.0085552436168, count: 107706"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e27965f34cdf44550287d25aa87e59b7b804fe37",
+          "message": "perf: Use a shared threshold across index segments (#5210)\n\n# Ticket(s) Closed\n\n- Closes #4309\n\n## What\n\nAs described on #4309, incorporates Tantivy support for sharing a\nthreshold across segments during TopK. See\nhttps://github.com/paradedb/tantivy/pull/147 for the Tantivy side.\n\n## Why\n\nWithout threshold sharing, each segment computes a new score from\nscratch, and will take a while to begin effectively pruning documents\nusing Block-Max WAND or even avoiding putting things in the TopNComputer\nbuffer. Sharing the threshold allows threshold pruning to begin much\nmore quickly.\n\n## How\n\nExtended the `SharedThreshold` trait with an implementation backed by\n`ParallelScanState` using either an atomic or a spinlock depending on\nsize.\n\n## Tests\n\nBenchmarks show up to 50% speedup for some `ORDER BY pdb.score DESC`\nqueries (depending on selectivity and worker count).\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-09T13:47:43-07:00",
+          "tree_id": "1120f89986461c14a550250b1dbc1495ad543568",
+          "url": "https://github.com/paradedb/paradedb/commit/e27965f34cdf44550287d25aa87e59b7b804fe37"
+        },
+        "date": 1781042178452,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 140.14984481217584,
+            "unit": "median tps",
+            "extra": "avg tps: 140.4688020353592, max tps: 144.5984315986518, count: 53833"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 527.5669906288521,
+            "unit": "median tps",
+            "extra": "avg tps: 532.957059790197, max tps: 664.6204234606873, count: 53833"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 140.85692899736713,
+            "unit": "median tps",
+            "extra": "avg tps: 141.31135875141123, max tps: 155.0979700146214, count: 53833"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 267.5914628392565,
+            "unit": "median tps",
+            "extra": "avg tps: 260.59563092195833, max tps: 571.4776269087683, count: 107666"
           }
         ]
       }

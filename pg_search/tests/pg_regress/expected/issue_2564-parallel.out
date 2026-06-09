@@ -118,6 +118,7 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
@@ -158,6 +159,7 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
   id  | parents  |  title  |     file_path      | fileid | page_number 
 ------+----------+---------+--------------------+--------+-------------
  doc2 | Factures | Receipt | /receipts/2023.pdf | file3  |           1

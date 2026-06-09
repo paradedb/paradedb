@@ -31,6 +31,7 @@ use pgrx::PgList;
 pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
+    pub original_type_oid: pg_sys::Oid,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -157,7 +158,20 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                                 );
                             }
 
-                            grouping_columns.push(GroupingColumn { field_name, attno });
+                            // Because AggregateScan bypasses Postgres's ExecProject for grouping columns
+                            // and maps them directly to INDEX_VARs pointing at the final scan slot,
+                            // Postgres expects the slot to contain the Datum of the *cast* type (e.g. TEXTOID),
+                            // not the base column type.
+                            // This approach is only valid for known-safe casts (handled in `group_key_to_datum`),
+                            // where the grouping and comparison semantics of the internal fast field value
+                            // are strictly equivalent to the semantics of the projected value. If they were
+                            // different, we would need to evaluate grouping expressions natively via ExecProject.
+                            let original_type_oid = search_field.field_type().typeoid().value();
+                            grouping_columns.push(GroupingColumn {
+                                field_name,
+                                attno,
+                                original_type_oid,
+                            });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
                         } else {

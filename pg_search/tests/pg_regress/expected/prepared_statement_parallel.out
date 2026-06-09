@@ -55,30 +55,35 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
 -- Execute multiple times to trigger generic plan
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122
@@ -86,6 +91,7 @@ EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 
 -- 6th execution should use generic plan and return same result
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122
@@ -111,6 +117,7 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
   AND c.created_at::date <= $3::date;
 -- These should all return consistent results
 EXECUTE test_parallel_join_generic('ea', '2024-01-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
    122

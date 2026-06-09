@@ -1082,11 +1082,7 @@ unsafe fn require_fast_field(
             source.scan_info.add_field(attno, field);
             Ok(())
         }
-        None => Err(format!(
-            "{} is not a fast field on table {}",
-            describe(),
-            source.scan_info.heaprelid.to_u32()
-        )),
+        None => Err(format!("{} is not a fast field", describe())),
     }
 }
 
@@ -1178,10 +1174,8 @@ pub unsafe fn populate_required_fields(
 
             if resolved_field.is_none() {
                 return Err(format!(
-                    "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
-                    gc.field_name,
-                    gc.attno,
-                    source.scan_info.heaprelid.to_u32()
+                    "GROUP BY column '{}' (attno={}) is not a fast field",
+                    gc.field_name, gc.attno,
                 ));
             }
         }

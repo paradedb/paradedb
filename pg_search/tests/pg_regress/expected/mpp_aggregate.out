@@ -65,7 +65,6 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -85,7 +84,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
  count 
 -------
   1000
@@ -99,7 +97,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -129,7 +126,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
   title   | count |  sum  
 ----------+-------+-------
  file-1   |     5 | 10040
@@ -153,7 +149,6 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -184,7 +179,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
  count 
 -------
   1000
@@ -197,7 +191,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -245,7 +238,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
   title   | count |  sum  
 ----------+-------+-------
  file-1   |     5 | 10040

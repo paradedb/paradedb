@@ -376,13 +376,11 @@ unsafe fn is_type_cast_function(funcid: pg_sys::Oid) -> bool {
         return false;
     }
 
-    let func_name = pg_sys::get_func_name(funcid);
-    if func_name.is_null() {
-        return false;
+    if let Some(func_name_cstr) = crate::postgres::catalog::lookup_func_name_cstr(funcid) {
+        return pg_sys::TypenameGetTypid(func_name_cstr.as_ptr()) != pg_sys::Oid::INVALID;
     }
 
-    // A function is a type cast if there's a type with the same name
-    pg_sys::TypenameGetTypid(func_name) != pg_sys::Oid::INVALID
+    false
 }
 
 /// Compare two PgList argument lists for semantic equality.
@@ -454,19 +452,19 @@ unsafe fn funcs_are_equivalent(funcid1: pg_sys::Oid, funcid2: pg_sys::Oid) -> bo
         return false;
     }
 
-    let name1 = pg_sys::get_func_name(funcid1);
-    let name2 = pg_sys::get_func_name(funcid2);
-    if name1.is_null() || name2.is_null() {
+    let name1 = crate::postgres::catalog::lookup_func_name_cstr(funcid1);
+    let name2 = crate::postgres::catalog::lookup_func_name_cstr(funcid2);
+    if name1.is_none() || name2.is_none() {
         return false;
     }
 
-    let name1_str = std::ffi::CStr::from_ptr(name1).to_string_lossy();
-    let name2_str = std::ffi::CStr::from_ptr(name2).to_string_lossy();
+    let name1_str = name1.unwrap().to_str().unwrap_or("");
+    let name2_str = name2.unwrap().to_str().unwrap_or("");
 
     // Check if both are arithmetic operations that normalize to the same op
     match (
-        normalize_arithmetic_op(&name1_str),
-        normalize_arithmetic_op(&name2_str),
+        normalize_arithmetic_op(name1_str),
+        normalize_arithmetic_op(name2_str),
     ) {
         (Some(op1), Some(op2)) => op1 == op2,
         _ => false,

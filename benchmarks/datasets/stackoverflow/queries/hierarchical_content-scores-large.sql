@@ -17,7 +17,7 @@ ORDER BY pdb_score DESC
 LIMIT 1000;
 
 -- CTE to execute a smaller join before Top K and then fetch the rest of the content after Top K.
-WITH topk AS (
+SET paradedb.enable_join_custom_scan TO off; WITH topk AS (
   SELECT
     users.id AS user_id,
     stackoverflow_posts.id AS post_id,

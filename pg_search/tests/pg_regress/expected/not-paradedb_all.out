@@ -67,6 +67,7 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
  id | id 
 ----+----
   1 |  1

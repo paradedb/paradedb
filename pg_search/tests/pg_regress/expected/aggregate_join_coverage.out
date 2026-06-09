@@ -181,6 +181,7 @@ JOIN cov_items i ON o.id = i.order_id
 WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
 GROUP BY o.customer
 ORDER BY o.customer;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
  customer  | count | sum | min | max 
 -----------+-------+-----+-----+-----
  Acme Corp |     3 |  21 |  49 | 999
@@ -214,6 +215,7 @@ SELECT COUNT(*), SUM(o.quantity), SUM(o.amount), AVG(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
 WHERE o.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
  count | sum |  sum  |         avg         
 -------+-----+-------+---------------------
      5 | 121 | 29995 | 24.2000000000000000
@@ -309,6 +311,7 @@ SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
 FROM cov_sensors s
 JOIN cov_logs l ON s.id = l.sensor_id
 WHERE s.description @@@ 'temperature';
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, s)
  count |  sum  | min | max  
 -------+-------+-----+------
      3 | 229.2 |  32 | 98.6
@@ -379,6 +382,7 @@ SELECT SUM(b.qty)
 FROM cov_big b
 JOIN cov_big_tags t ON b.id = t.big_id
 WHERE b.description @@@ 'laptop OR phone';
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: b, t)
  sum 
 -----
  300

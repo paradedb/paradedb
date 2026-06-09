@@ -1,0 +1,109 @@
+-- Issue #4906 negative safety test:
+--
+-- Verify that ParadeDB planner/pushdown code does not unconditionally call
+-- operator_oid("<@(ltree,ltree)") while planning unrelated non-ltree queries.
+--
+-- ltree is an extension-provided type/operator set. Therefore the operator
+-- <@(ltree,ltree) is not guaranteed to exist in every database.
+--
+-- This test is intentionally standalone and should be run in an isolated
+-- reset regression database. Do not merge it into ltree-dependent tests,
+-- because those tests create ltree columns and therefore make DROP EXTENSION
+-- unsafe without CASCADE.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- This file is intended to run in a clean regression DB. The DROP is defensive
+-- so the test also works if the extension happened to exist without dependent
+-- objects.
+DROP EXTENSION IF EXISTS ltree;
+-- to_regoperator returns NULL instead of throwing when the operator cannot be
+-- resolved. This is the safe SQL-side analogue of what the Rust code must
+-- effectively guarantee: absence of ltree operator must not abort unrelated
+-- planning.
+SELECT
+    to_regtype('ltree') IS NULL AS ltree_type_missing,
+    to_regoperator('<@(ltree,ltree)') IS NULL AS ltree_descendant_operator_missing;
+ ltree_type_missing | ltree_descendant_operator_missing 
+--------------------+-----------------------------------
+ t                  | t
+(1 row)
+
+DROP TABLE IF EXISTS issue_4906_without_ltree CASCADE;
+CREATE TABLE issue_4906_without_ltree (
+    id BIGINT PRIMARY KEY,
+    body TEXT NOT NULL,
+    rating INTEGER NOT NULL
+);
+INSERT INTO issue_4906_without_ltree (id, body, rating)
+VALUES
+    (1, 'alpha document', 1),
+    (2, 'beta document', 2),
+    (3, 'gamma document', 3);
+CREATE INDEX issue_4906_without_ltree_idx
+ON issue_4906_without_ltree
+USING bm25 (id, body, rating)
+WITH (key_field = 'id');
+ANALYZE issue_4906_without_ltree;
+CREATE OR REPLACE FUNCTION pg_temp.issue_4906_absent_ltree_explain_text(query text)
+RETURNS text
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    line text;
+    result text := '';
+BEGIN
+    FOR line IN EXECUTE format(
+        'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) %s',
+        query
+    )
+    LOOP
+        result := result
+            || CASE WHEN result = '' THEN '' ELSE E'\n' END
+            || line;
+    END LOOP;
+
+    RETURN result;
+END;
+$$;
+SET enable_seqscan = off;
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_custom_scan_without_operator = off;
+SET paradedb.enable_filter_pushdown = on;
+-- This query is deliberately unrelated to ltree, but it contains a normal
+-- PostgreSQL OpExpr (`rating > 1`) alongside a ParadeDB @@@ predicate.
+--
+-- If try_build_pushdown_qual() or a helper it calls unconditionally evaluates
+-- operator_oid("<@(ltree,ltree)"), this EXPLAIN will fail while ltree is absent.
+--
+-- Correct behavior: planning succeeds and chooses ParadeDB Custom Scan.
+SELECT
+    plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS non_ltree_query_uses_paradedb_custom_scan,
+    plan LIKE '%Tantivy Query:%' AS non_ltree_query_has_tantivy_query,
+    plan LIKE '%"field":"body"%' AS non_ltree_query_uses_body_field
+FROM (
+    SELECT pg_temp.issue_4906_absent_ltree_explain_text(
+        $$SELECT id, body
+            FROM issue_4906_without_ltree
+           WHERE body @@@ 'document'
+             AND rating > 1$$
+    ) AS plan
+) s;
+ non_ltree_query_uses_paradedb_custom_scan | non_ltree_query_has_tantivy_query | non_ltree_query_uses_body_field 
+-------------------------------------------+-----------------------------------+---------------------------------
+ t                                         | t                                 | t
+(1 row)
+
+SELECT array_agg(id ORDER BY id) AS non_ltree_query_result_ids
+FROM issue_4906_without_ltree
+WHERE body @@@ 'document'
+  AND rating > 1;
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_without_ltree)
+ non_ltree_query_result_ids 
+----------------------------
+ {2,3}
+(1 row)
+
+RESET enable_seqscan;
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_custom_scan_without_operator;
+RESET paradedb.enable_filter_pushdown;
+DROP TABLE issue_4906_without_ltree CASCADE;

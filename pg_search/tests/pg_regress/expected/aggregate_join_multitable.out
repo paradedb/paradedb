@@ -126,6 +126,7 @@ JOIN mt_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, t)
   category   | count | sum |        avg         
 -------------+-------+-----+--------------------
  Clothing    |     1 |   3 | 3.0000000000000000
@@ -192,6 +193,7 @@ JOIN mt_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, s, t)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     1 |   3
@@ -223,6 +225,7 @@ LEFT JOIN mt_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR kids'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, t)
   category   | count | count 
 -------------+-------+-------
  Clothing    |     1 |     1
@@ -307,6 +310,7 @@ JOIN mt_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, t)
   category   | sum 
 -------------+-----
  Clothing    |   3

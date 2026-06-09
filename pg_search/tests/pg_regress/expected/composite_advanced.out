@@ -116,16 +116,14 @@ INSERT INTO mvcc_test (content) VALUES ('unique_epsilon_new');
 -- Test 1: Deleted row's content should NOT be visible
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_beta_two');
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_beta_two","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_beta_two","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_beta_two');
  deleted_not_visible 
@@ -136,16 +134,14 @@ SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('co
 -- Test 2: Updated row's OLD content should NOT be visible
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_alpha_one');
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_alpha_one","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_alpha_one","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_alpha_one');
  old_content_not_visible 
@@ -156,16 +152,14 @@ SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse
 -- Test 3: Updated row's NEW content SHOULD be visible
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_delta_updated');
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_delta_updated","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_delta_updated","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_delta_updated');
  new_content_visible 
@@ -176,16 +170,14 @@ SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('co
 -- Test 4: Unchanged row SHOULD still be visible
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_gamma_three');
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_gamma_three","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_gamma_three","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_gamma_three');
  unchanged_visible 
@@ -196,16 +188,14 @@ SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('cont
 -- Test 5: Newly inserted row SHOULD be visible
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_epsilon_new');
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_epsilon_new","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:unique_epsilon_new","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_epsilon_new');
  new_row_visible 
@@ -268,16 +258,14 @@ SELECT COUNT(*) AS segment_count FROM paradedb.index_info('idx_catchup');
 -- Modified row should have new content indexed
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('content:modified_one');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on catchup_test
-         Table: catchup_test
-         Index: idx_catchup
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:modified_one","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on catchup_test
+   Index: idx_catchup
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:modified_one","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('content:modified_one');
  modified_found 
@@ -288,16 +276,14 @@ SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('cont
 -- Original content should NOT be found
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_one');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on catchup_test
-         Table: catchup_test
-         Index: idx_catchup
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_one","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on catchup_test
+   Index: idx_catchup
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_one","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_one');
  original_not_found 
@@ -308,16 +294,14 @@ SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('
 -- Deleted row should not be in index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_two');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on catchup_test
-         Table: catchup_test
-         Index: idx_catchup
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_two","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on catchup_test
+   Index: idx_catchup
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_two","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_two');
  deleted_not_found 
@@ -328,16 +312,14 @@ SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('c
 -- Newly inserted row should be in index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('content:inserted_six');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on catchup_test
-         Table: catchup_test
-         Index: idx_catchup
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:inserted_six","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on catchup_test
+   Index: idx_catchup
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:inserted_six","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('content:inserted_six');
  inserted_found 
@@ -348,16 +330,14 @@ SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('cont
 -- Unchanged rows should be in index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_three');
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on catchup_test
-         Table: catchup_test
-         Index: idx_catchup
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_three","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on catchup_test
+   Index: idx_catchup
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:original_three","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_three');
  unchanged_found 
@@ -412,16 +392,14 @@ INSERT INTO fast_test_50 (t01, t20, t40, n01, n05, n10) VALUES
 -- Verify search works on first text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first_text');
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
-         Table: fast_test_50
-         Index: idx_fast_50
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t01:first_text","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
+   Index: idx_fast_50
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t01:first_text","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first_text');
  t01_count 
@@ -432,16 +410,14 @@ SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first
 -- Verify search works on middle text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middle_text');
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
-         Table: fast_test_50
-         Index: idx_fast_50
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t20:middle_text","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
+   Index: idx_fast_50
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t20:middle_text","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middle_text');
  t20_count 
@@ -452,16 +428,14 @@ SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middl
 -- Verify search works on last text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ pdb.parse('t40:last_text');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
-         Table: fast_test_50
-         Index: idx_fast_50
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t40:last_text","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
+   Index: idx_fast_50
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t40:last_text","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ pdb.parse('t40:last_text');
  t40_count 
@@ -583,16 +557,14 @@ END $$;
 -- Verify search works on first, middle, and last fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f001:first_field');
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on max_fields_test
-         Table: max_fields_test
-         Index: idx_max_fields
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on max_fields_test
+   Index: idx_max_fields
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f001:first_field');
  first_field_found 
@@ -602,16 +574,14 @@ SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f250:middle_field');
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on max_fields_test
-         Table: max_fields_test
-         Index: idx_max_fields
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f250:middle_field","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on max_fields_test
+   Index: idx_max_fields
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f250:middle_field","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f250:middle_field');
  middle_field_found 
@@ -621,16 +591,14 @@ SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.pars
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f500:last_field');
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on max_fields_test
-         Table: max_fields_test
-         Index: idx_max_fields
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f500:last_field","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on max_fields_test
+   Index: idx_max_fields
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f500:last_field","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f500:last_field');
  last_field_found 
@@ -722,16 +690,14 @@ VALUES ('first_a', 'mid_a', 'last_a', 'first_b', 'mid_b', 'last_b');
 -- Test search on both composite types using pdb.parse
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0001:first_a","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0001:first_a","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
  a_first 
@@ -741,16 +707,14 @@ SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:fir
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0400:last_a","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0400:last_a","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
  a_last 
@@ -760,16 +724,14 @@ SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0001:first_b","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0001:first_b","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
  b_first 
@@ -779,16 +741,14 @@ SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:fir
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0400:last_b","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0400:last_b","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
  b_last 
@@ -802,16 +762,14 @@ SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last
 -- pdb.term() on composite field from type A
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"a0001","value":"first_a"}}}}
-(7 rows)
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"a0001","value":"first_a"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
  term_a 
@@ -822,16 +780,14 @@ SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a'
 -- pdb.term() on composite field from type B
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"b0001","value":"first_b"}}}}
-(7 rows)
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"b0001","value":"first_b"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
  term_b 
@@ -842,16 +798,14 @@ SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b'
 -- pdb.match() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
  match_a 
@@ -862,16 +816,14 @@ SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a'
 -- pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"regex":{"field":"b0400","pattern":"last.*"}}}}
-(7 rows)
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dual_comp_test
+   Index: idx_dual_comp
+   Tantivy Query: {"with_index":{"query":{"regex":{"field":"b0400","pattern":"last.*"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
  regex_b 
@@ -882,16 +834,14 @@ SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*
 -- Test pdb functions on MVCC test table composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"content","value":"unique_gamma_three"}}}}
-(7 rows)
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"content","value":"unique_gamma_three"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
  mvcc_term 
@@ -901,16 +851,14 @@ SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_g
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"unique_delta_updated","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"unique_delta_updated","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
  mvcc_match 
@@ -920,16 +868,14 @@ SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique_.*_new');
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
-         Table: mvcc_test
-         Index: idx_mvcc
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"regex":{"field":"content","pattern":"unique_.*_new"}}}}
-(7 rows)
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mvcc_test
+   Index: idx_mvcc
+   Tantivy Query: {"with_index":{"query":{"regex":{"field":"content","pattern":"unique_.*_new"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique_.*_new');
  mvcc_regex 
@@ -940,16 +886,14 @@ SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique
 -- Test pdb functions on parallel test table composite fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on parallel_test
-         Table: parallel_test
-         Index: idx_parallel
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_100"}}}}
-(7 rows)
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on parallel_test
+   Index: idx_parallel
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_100"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
  parallel_term 
@@ -959,16 +903,14 @@ SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on parallel_test
-         Table: parallel_test
-         Index: idx_parallel
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"f2","value":"field2_500","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on parallel_test
+   Index: idx_parallel
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"f2","value":"field2_500","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
  parallel_match 
@@ -979,16 +921,14 @@ SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('fie
 -- Test pdb functions on fast fields table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
-         Table: fast_test_50
-         Index: idx_fast_50
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text"}}}}
-(7 rows)
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
+   Index: idx_fast_50
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
  fast_term 
@@ -998,16 +938,14 @@ SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_tex
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
-         Table: fast_test_50
-         Index: idx_fast_50
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"t20","value":"middle_text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on fast_test_50
+   Index: idx_fast_50
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"t20","value":"middle_text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
  fast_match 

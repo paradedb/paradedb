@@ -68,6 +68,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | J.K. Rowling    |     2.540445 |          0
@@ -119,6 +120,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
        3 | J.K. Rowling |    1.5404451 |  0.4624617
@@ -135,6 +137,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT
     b.id as book_id,
@@ -145,6 +148,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
        1 | Stephen King |    1.5404451 |          0
@@ -160,6 +164,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT
     b.id as book_id,
@@ -170,6 +175,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | Stephen King    |     2.540445 |          0
@@ -204,6 +210,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE a.name @@@ 'Rowling'
 ORDER BY a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  query_type | author_id | author_name  | author_score 
 ------------+-----------+--------------+--------------
  Join Query |         1 | J.K. Rowling |    1.5404451
@@ -221,6 +228,7 @@ FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | J.K. Rowling    |     2.540445 |          0
@@ -241,6 +249,7 @@ FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
 ORDER BY a.id;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
@@ -255,6 +264,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  | author_score_1 | author_score_2 | book_score_1 | book_score_2 
 ---------+--------------+----------------+----------------+--------------+--------------
        1 | J.K. Rowling |              1 |              1 |   0.35745716 |   0.35745716
@@ -290,6 +300,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score |   author_snippet    | book_score |                                                                       book_snippet                                                                       
 ---------+-----------------+--------------+---------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------
        1 | J.K. Rowling    |     2.540445 | J.K. <b>Rowling</b> |          0 | 
@@ -306,6 +317,7 @@ FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
  id |     name     | author_score | book_score 
 ----+--------------+--------------+------------
   1 | Stephen King |    1.5404451 |          0
@@ -318,6 +330,7 @@ FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY a.id;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
  id |     name     | author_score | book_score 
 ----+--------------+--------------+------------
   1 | Stephen King |    1.5404451 |          0

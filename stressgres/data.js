@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781042249767,
+  "lastUpdate": 1781045669070,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4386,6 +4386,78 @@ window.BENCHMARK_DATA = {
             "value": 26.59855576462283,
             "unit": "median tps",
             "extra": "avg tps: 37.01315787095702, max tps: 203.41306786571892, count: 55160"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a458e0afe3184139d9341ba65a4c818f74b22b08",
+          "message": "fix: wrap placeholder functions across comma joins (#5108) (#5289)\n\n## What\n\nFixes #5108. `pdb.score()`, `pdb.snippet()`, and\n`pdb.snippet_positions()` panic with `Unsupported query shape` in\nparallel plans that use **comma-join** syntax (`FROM a, b WHERE ...`).\n\n## Why\n\n`placeholder_support()` decides whether to wrap a placeholder call in a\n`PlaceHolderVar` so it is produced by the BaseScan and carried up,\ninstead of being re-evaluated above the Gather Merge. It only treated an\nexplicit `JOIN ... ON` (`T_JoinExpr`) as a join context. A comma join is\na `FromExpr` with more than one `fromlist` entry and **no** `JoinExpr`,\nso the placeholder was left unwrapped; the planner then scheduled it\nabove the Gather Merge, where it cannot run, and panicked.\n\n## How\n\nDetect comma joins in `find_join_expr_walker`: a `FromExpr` with\n`fromlist.len() > 1` is a join context. This is function-agnostic, so it\ncovers all three placeholder families with one change.\n\n## Testing\n\n`pg_search/tests/pg_regress/sql/issue_5108.sql` exercises score /\nsnippet / snippet_positions in both the comma-join and inlined-CTE +\n`JOIN ON` shapes, under forced parallelism (`debug_parallel_query = on`,\nhash/merge join disabled). Each comma-join query panics pre-fix and\nreturns rows post-fix; result rows carry primary-key tie-breakers so the\ngolden output is deterministic. The fix was confirmed load-bearing by\nreverting it (snippet/comma re-crashes).\n\n## Scope\n\nThe inlined-CTE + explicit `JOIN ON` case raised in the issue thread\ndoes **not** reproduce on current `main` (PG17/PG18): the planner uses\n`TopKScanExecState`, which produces the score inside the scan so the\nGather Merge carries it — see\nhttps://github.com/paradedb/paradedb/issues/5108#issuecomment-4662945052.\nThis PR fixes the reproducible comma-join path; the `JOIN ON` shape can\nbe revisited if a standalone repro surfaces.",
+          "timestamp": "2026-06-09T18:33:50-04:00",
+          "tree_id": "125afcd5e073ad2ca9b6272c0d2d4c858c19d74f",
+          "url": "https://github.com/paradedb/paradedb/commit/a458e0afe3184139d9341ba65a4c818f74b22b08"
+        },
+        "date": 1781045636809,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 124.92385285133017,
+            "unit": "median tps",
+            "extra": "avg tps: 125.86351986997789, max tps: 138.6072429284096, count: 55142"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 125.34285454109859,
+            "unit": "median tps",
+            "extra": "avg tps: 126.29040064651099, max tps: 139.42050892416734, count: 55142"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3327.2467321544714,
+            "unit": "median tps",
+            "extra": "avg tps: 3303.5859336810145, max tps: 3340.6735867149982, count: 55142"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 382.2966471343282,
+            "unit": "median tps",
+            "extra": "avg tps: 386.08362583287493, max tps: 433.78271596021625, count: 55142"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2914.1398001243233,
+            "unit": "median tps",
+            "extra": "avg tps: 2882.7896797383023, max tps: 2949.423507599673, count: 110284"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 461.9573684212004,
+            "unit": "median tps",
+            "extra": "avg tps: 465.72484757149266, max tps: 583.7359076865177, count: 55142"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1833.664669472601,
+            "unit": "median tps",
+            "extra": "avg tps: 1832.7182471319177, max tps: 1850.9788345381785, count: 55142"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.31865534289955,
+            "unit": "median tps",
+            "extra": "avg tps: 25.637411135616507, max tps: 259.5174230265917, count: 55142"
           }
         ]
       }

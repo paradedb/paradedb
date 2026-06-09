@@ -33,6 +33,7 @@ mod pdb {
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
     pub fn more_like_this_fields(
         document: String,
+        fields: default!(Option<Vec<String>>, "NULL"),
         min_doc_frequency: default!(Option<i32>, "NULL"),
         max_doc_frequency: default!(Option<i32>, "NULL"),
         min_term_frequency: default!(Option<i32>, "NULL"),
@@ -56,7 +57,7 @@ mod pdb {
             stopwords,
             document: Some(document.into_iter().collect()),
             key_value: None,
-            fields: None,
+            fields: fields.map(|f| f.into_iter().collect()),
         }
     }
 

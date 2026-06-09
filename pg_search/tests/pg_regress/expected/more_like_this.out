@@ -125,6 +125,23 @@ SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], max_
   4 | aaa aaa      | baz baz      |             3 | {"color": "aaa aaa"}
 (3 rows)
 
+-- Document path with additional options
+SELECT * FROM mlt WHERE id @@@ pdb.more_like_this('{"text_field_a":"aaa"}', min_term_frequency => 1, min_doc_frequency => 1);
+ id | text_field_a | text_field_b | numeric_field |        json_field        
+----+--------------+--------------+---------------+--------------------------
+  1 | aaa bbb ccc  | foo bar      |             1 | {"color": "aaa bbb ccc"}
+  2 | aaa aaa      | baz baz      |             1 | {"color": "aaa aaa"}
+  4 | aaa aaa      | baz baz      |             3 | {"color": "aaa aaa"}
+(3 rows)
+
+-- Document path with fields filter
+SELECT * FROM mlt WHERE id @@@ pdb.more_like_this('{"text_field_a":"aaa", "text_field_b":"foo"}', ARRAY['text_field_b'], min_term_frequency => 1, min_doc_frequency => 1);
+ id | text_field_a | text_field_b | numeric_field |        json_field        
+----+--------------+--------------+---------------+--------------------------
+  1 | aaa bbb ccc  | foo bar      |             1 | {"color": "aaa bbb ccc"}
+  3 | ddd eee fff  | foo foo foo  |             2 | {"color": "ddd eee fff"}
+(2 rows)
+
 -- JSON not supported
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['json_field']);
 ERROR:  json fields are not supported for more_like_this

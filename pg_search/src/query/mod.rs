@@ -1216,9 +1216,14 @@ impl SearchQueryInput {
                             None => Box::new(EmptyQuery) as Box<dyn TantivyQuery>,
                         }
                     }
-                    (None, None, Some(doc)) => {
+                    (None, fields_ref, Some(doc)) => {
                         let mut fields_map = HashMap::default();
                         for (field, mut value) in doc.clone() {
+                            if let Some(fields) = fields_ref {
+                                if !fields.contains(&field) {
+                                    continue;
+                                }
+                            }
                             let search_field = schema
                                 .search_field(&field)
                                 .ok_or(QueryError::NonIndexedField(field.into()))?;

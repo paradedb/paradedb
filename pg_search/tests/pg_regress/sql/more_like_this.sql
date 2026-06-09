@@ -43,6 +43,12 @@ SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], stop
 -- Max query terms
 SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], max_query_terms => 2);
 
+-- Document path with additional options
+SELECT * FROM mlt WHERE id @@@ pdb.more_like_this('{"text_field_a":"aaa"}', min_term_frequency => 1, min_doc_frequency => 1);
+
+-- Document path with fields filter
+SELECT * FROM mlt WHERE id @@@ pdb.more_like_this('{"text_field_a":"aaa", "text_field_b":"foo"}', ARRAY['text_field_b'], min_term_frequency => 1, min_doc_frequency => 1);
+
 -- JSON not supported
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['json_field']);
 -- Document ID doesn't exist

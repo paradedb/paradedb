@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781046377196,
+  "lastUpdate": 1781046471374,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18522,6 +18522,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.13262795275591, max segment_count: 133.0, count: 56896"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a458e0afe3184139d9341ba65a4c818f74b22b08",
+          "message": "fix: wrap placeholder functions across comma joins (#5108) (#5289)\n\n## What\n\nFixes #5108. `pdb.score()`, `pdb.snippet()`, and\n`pdb.snippet_positions()` panic with `Unsupported query shape` in\nparallel plans that use **comma-join** syntax (`FROM a, b WHERE ...`).\n\n## Why\n\n`placeholder_support()` decides whether to wrap a placeholder call in a\n`PlaceHolderVar` so it is produced by the BaseScan and carried up,\ninstead of being re-evaluated above the Gather Merge. It only treated an\nexplicit `JOIN ... ON` (`T_JoinExpr`) as a join context. A comma join is\na `FromExpr` with more than one `fromlist` entry and **no** `JoinExpr`,\nso the placeholder was left unwrapped; the planner then scheduled it\nabove the Gather Merge, where it cannot run, and panicked.\n\n## How\n\nDetect comma joins in `find_join_expr_walker`: a `FromExpr` with\n`fromlist.len() > 1` is a join context. This is function-agnostic, so it\ncovers all three placeholder families with one change.\n\n## Testing\n\n`pg_search/tests/pg_regress/sql/issue_5108.sql` exercises score /\nsnippet / snippet_positions in both the comma-join and inlined-CTE +\n`JOIN ON` shapes, under forced parallelism (`debug_parallel_query = on`,\nhash/merge join disabled). Each comma-join query panics pre-fix and\nreturns rows post-fix; result rows carry primary-key tie-breakers so the\ngolden output is deterministic. The fix was confirmed load-bearing by\nreverting it (snippet/comma re-crashes).\n\n## Scope\n\nThe inlined-CTE + explicit `JOIN ON` case raised in the issue thread\ndoes **not** reproduce on current `main` (PG17/PG18): the planner uses\n`TopKScanExecState`, which produces the score inside the scan so the\nGather Merge carries it — see\nhttps://github.com/paradedb/paradedb/issues/5108#issuecomment-4662945052.\nThis PR fixes the reproducible comma-join path; the `JOIN ON` shape can\nbe revisited if a standalone repro surfaces.",
+          "timestamp": "2026-06-09T18:33:50-04:00",
+          "tree_id": "125afcd5e073ad2ca9b6272c0d2d4c858c19d74f",
+          "url": "https://github.com/paradedb/paradedb/commit/a458e0afe3184139d9341ba65a4c818f74b22b08"
+        },
+        "date": 1781046379053,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.68576988514212, max cpu: 43.50453, count: 57744"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.7542129647669, max mem: 237.53125, count: 57744"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.597447676003597, max cpu: 33.432835, count: 57744"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.25,
+            "unit": "median mem",
+            "extra": "avg mem: 178.0280974132594, max mem: 178.74609375, count: 57744"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34548,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33786.76723122749, max block_count: 36526.0, count: 57744"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.88149418121364, max segment_count: 131.0, count: 57744"
           }
         ]
       }

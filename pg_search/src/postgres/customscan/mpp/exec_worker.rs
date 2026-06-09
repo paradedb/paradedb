@@ -275,9 +275,19 @@ pub(crate) fn run_mpp_worker(
                     FragmentRouting::Coalesce { dest_proc } => *dest_proc,
                     // Output partition q routes to the consumer task the crate's
                     // `route_partition` picked (precomputed in `worker_fragments`), hosted on
-                    // `proc_for_task`.
+                    // `proc_for_task`. A partition outside the table means the decoded plan's
+                    // partitioning drifted from the blob the leader routed; name it instead of
+                    // panicking on the index.
                     FragmentRouting::Hashed { consumer_task, .. } => {
-                        proc_for_task(n_workers, consumer_task[q])
+                        let Some(&task) = consumer_task.get(q) else {
+                            return Err(datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch: partition {q} outside routing table of                                  len {} (stage_id={} task_idx={})",
+                                consumer_task.len(),
+                                fragment.stage_id,
+                                fragment.task_idx,
+                            )));
+                        };
+                        proc_for_task(n_workers, task)
                     }
                 };
                 let base = match outbound_senders

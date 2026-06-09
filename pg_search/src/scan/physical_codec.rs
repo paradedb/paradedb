@@ -29,8 +29,7 @@ use std::sync::Arc;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
-use datafusion::functions_aggregate as dfa;
-use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
+use datafusion::logical_expr::ScalarUDF;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
@@ -151,24 +150,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         )))
     }
 
-    fn try_decode_udaf(&self, name: &str, _buf: &[u8]) -> Result<Arc<AggregateUDF>> {
-        match name {
-            "min" => Ok(dfa::min_max::min_udaf()),
-            "max" => Ok(dfa::min_max::max_udaf()),
-            "count" => Ok(dfa::count::count_udaf()),
-            "sum" => Ok(dfa::sum::sum_udaf()),
-            "avg" => Ok(dfa::average::avg_udaf()),
-            _ => Err(DataFusionError::NotImplemented(format!(
-                "PhysicalExtensionCodec is not provided for aggregate function {name}"
-            ))),
-        }
-    }
-
-    fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
-        buf.extend_from_slice(node.name().as_bytes());
-        Ok(())
-    }
-
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
         if name == "pdb_search_predicate" {
             let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
@@ -180,7 +161,11 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                         .index_segment_ids
                         .get(plan_position)
                         .cloned()
-                        .expect("missing canonical segment IDs for plan_position");
+                        .ok_or_else(|| {
+                            DataFusionError::Internal(format!(
+                                "missing canonical segment IDs for plan_position {plan_position}"
+                            ))
+                        })?;
                     udf.set_canonical_segment_ids(ids);
                 }
             }
@@ -230,9 +215,9 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             return Ok(());
         }
 
-        Err(DataFusionError::NotImplemented(format!(
-            "UDF '{name}' serialization not implemented"
-        )))
+        // Not ours: encode nothing so the expression travels by name and the decoding session
+        // resolves it from its registry (DataFusion built-ins are registered there).
+        Ok(())
     }
 }
 
@@ -243,8 +228,9 @@ struct ScanRuntime {
     ctid_plan_position: Option<usize>,
 }
 
-/// Walk a decoded subtree collecting each `PgSearchScanPlan`'s runtime handles. Stops naturally at
-/// network boundaries (a Remote stage has no children).
+/// Walk a decoded subtree collecting each `PgSearchScanPlan`'s runtime handles. Nested stages are
+/// still `Local` at decode time, so the walk descends into them. Binding a resolver to any reader
+/// it finds is fine: canonical segment sets give every proc the same `segment_ord` layout.
 fn collect_scan_runtime(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<ScanRuntime>) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
         out.push(ScanRuntime {
@@ -301,11 +287,63 @@ fn first_scan_ffhelper(input: &Arc<dyn ExecutionPlan>) -> Option<Arc<FFHelper>> 
     scans.into_iter().find_map(|s| s.ffhelper)
 }
 
+/// [`DistributedCodec`] with the pg_search UDF names carved out of its UDF/UDAF handling.
+///
+/// The composed codec takes the first `Ok` per call, and the trait's default `try_encode_udf`
+/// returns `Ok` writing nothing, so a bare `DistributedCodec` at position 0 would shadow the
+/// pg_search UDF serialization: no `fun_definition` would ever travel, and a dispatched stage
+/// retaining a `pdb_search_predicate` / `pg_expr_*` expression would fail decode on the worker
+/// (their registry has no such functions). Position 0 still matters for everything else:
+/// `prost` skips default values, so only position 0 with an empty blob encodes to zero bytes,
+/// which is what keeps registry-resolved built-ins travelling by name. So this wrapper accepts
+/// (encodes nothing for) every name except ours, and declines ours so composition falls through
+/// to [`PgSearchPhysicalExtensionCodec`], which ships the real definition.
+#[derive(Debug)]
+struct DistributedCodecHostingPgSearchUdfs(DistributedCodec);
+
+fn is_pg_search_udf(name: &str) -> bool {
+    name == "pdb_search_predicate" || name.starts_with(PG_EXPR_UDF_PREFIX)
+}
+
+impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[Arc<dyn ExecutionPlan>],
+        ctx: &TaskContext,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        self.0.try_decode(buf, inputs, ctx)
+    }
+
+    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
+        self.0.try_encode(node, buf)
+    }
+
+    fn try_encode_udf(&self, node: &ScalarUDF, _buf: &mut Vec<u8>) -> Result<()> {
+        if is_pg_search_udf(node.name()) {
+            return Err(DataFusionError::NotImplemented(format!(
+                "UDF '{}' is encoded by the pg_search codec",
+                node.name()
+            )));
+        }
+        Ok(())
+    }
+
+    fn try_decode_udf(&self, name: &str, _buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        Err(DataFusionError::NotImplemented(format!(
+            "UDF '{name}' is not registered on the decoding session and carries no definition"
+        )))
+    }
+}
+
 /// Compose the fork's [`DistributedCodec`] (handles `Network*Exec` / `StageExec`) with the
 /// `pg_search` codec. Encode and decode MUST build the same list in the same order: the composed
 /// codec records each node's codec index on the wire.
 fn combined_codec(user: PgSearchPhysicalExtensionCodec) -> ComposedPhysicalExtensionCodec {
-    ComposedPhysicalExtensionCodec::new(vec![Arc::new(DistributedCodec {}), Arc::new(user)])
+    ComposedPhysicalExtensionCodec::new(vec![
+        Arc::new(DistributedCodecHostingPgSearchUdfs(DistributedCodec {})),
+        Arc::new(user),
+    ])
 }
 
 /// Serialize one stage's physical subplan for dispatch. Context-free: only the recipe travels,

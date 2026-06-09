@@ -62,6 +62,14 @@ fn blob_config() -> impl bincode::config::Config {
     bincode::config::standard()
 }
 
+/// Physical-plan blobs grow with the logical plan but with a different constant: the physical
+/// encoding repeats schemas per node and carries the dispatch descriptors. The factor is
+/// deliberately generous because the region lives only for the query and an overflowing blob
+/// falls back to serial, while an undersized region costs the MPP path.
+const DISPATCH_BLOAT_FACTOR: usize = 64;
+/// Floor for tiny logical plans, whose physical expansion is dominated by fixed overhead.
+const DISPATCH_MIN_CAPACITY: usize = 1 << 20;
+
 /// DSM plan-region capacity for the dispatch payload (`[tag][u64 len][blob][pad]`).
 ///
 /// The region is sized at `estimate_dsm` time, before the physical plan (and so the real blob
@@ -69,7 +77,10 @@ fn blob_config() -> impl bincode::config::Config {
 /// logical-plan length; an overflowing blob falls back to serial. `estimate_dsm` and
 /// `initialize_dsm` MUST call this with the same `logical_len` so the DSM layout matches.
 pub fn dispatch_plan_capacity(logical_len: usize) -> usize {
-    1 + 8 + logical_len.saturating_mul(64).max(1 << 20)
+    1 + 8
+        + logical_len
+            .saturating_mul(DISPATCH_BLOAT_FACTOR)
+            .max(DISPATCH_MIN_CAPACITY)
 }
 
 /// Frame the blob into a fixed-capacity dispatch payload:
@@ -113,6 +124,10 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
 /// dropping the query to serial with the real state intact). Lazy scans ship source indices, and
 /// each worker injects its own `ParallelScanState` + segments on decode. `mesh = None` keeps the
 /// build off the transport; the stage numbering matches the consumer plan the leader builds at exec.
+///
+/// The logical bytes predate exec-time rewrites: joinscan injects a runtime `Limit` for
+/// parameterized LIMIT/OFFSET only at exec, after this build. Workers re-planned from these same
+/// bytes before dispatch existed, so the producer-stage shapes here match that precedent.
 pub fn build_dispatch_blob(
     logical_bytes: &[u8],
     seed: SessionContext,
@@ -132,10 +147,21 @@ pub fn build_dispatch_blob(
     let physical =
         runtime.block_on(async { session.state().create_physical_plan(&logical).await })?;
 
-    let stages = collect_dispatched_stages(&physical, n_workers);
+    let stages = collect_dispatched_stages(&physical, n_workers)?;
     let mut dispatched = Vec::with_capacity(stages.len());
+    let decode_ctx = session.task_ctx();
     for stage in stages {
         let plan_proto = serialize_physical_plan(stage.plan)?;
+        // Encode can succeed while decode fails (a codec gap). The first decode otherwise
+        // happens in a worker, where failure is a hard query error instead of the serial
+        // fallback this Result feeds. One extra decode per stage at init buys the fallback.
+        deserialize_physical_plan_with_runtime(
+            &plan_proto,
+            &decode_ctx,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )?;
         dispatched.push(DispatchedStage {
             stage_num: stage.stage_num,
             task_count: stage.task_count,
@@ -194,6 +220,13 @@ fn expand_to_assignments(
     let stages = read_dispatch_blob(body)?;
     let mut out = Vec::new();
     for stage in stages {
+        // Decode opens index readers, so skip stages this proc owns no tasks of (broadcast
+        // stages put all work on task 0, leaving the other procs with nothing).
+        let owns_any = (0..stage.task_count)
+            .any(|task_idx| proc_for_task(n_workers, task_idx as u32) == this_proc);
+        if !owns_any {
+            continue;
+        }
         let plan = deserialize_physical_plan_with_runtime(
             &stage.plan_proto,
             decode_ctx,
@@ -239,8 +272,9 @@ pub fn fragments_for_worker(
         )));
     }
     let session = build_mpp_session_context(seed, Some(mesh));
-    // Decode against the full session task context so functions resolve through the registry
-    // (the composed physical codec can shadow UDF/UDAF decode at position 0 otherwise).
+    // Decode against the full session task context: by-name functions (DataFusion built-ins)
+    // resolve through its registry, while pg_search UDFs travel with their definition and
+    // decode through the codec.
     let fragments = expand_to_assignments(
         body,
         this_proc,

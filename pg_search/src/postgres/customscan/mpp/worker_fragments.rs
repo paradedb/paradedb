@@ -38,6 +38,7 @@
 
 use std::sync::Arc;
 
+use datafusion::common::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
@@ -117,10 +118,13 @@ pub struct StageEntry {
 /// leader runs this (replacing the worker-side re-plan): it classifies routing from the boundary
 /// type and captures each stage's `local_plan` for serialization. Not filtered by proc; the blob
 /// is shared and each worker selects its own `(stage, task)` slots.
-pub fn collect_dispatched_stages(root: &Arc<dyn ExecutionPlan>, n_workers: u32) -> Vec<StageEntry> {
+pub fn collect_dispatched_stages(
+    root: &Arc<dyn ExecutionPlan>,
+    n_workers: u32,
+) -> Result<Vec<StageEntry>, DataFusionError> {
     let mut out = Vec::new();
-    collect_stages(root, n_workers, /* nested = */ false, &mut out);
-    out
+    collect_stages(root, n_workers, /* nested = */ false, &mut out)?;
+    Ok(out)
 }
 
 fn collect_stages(
@@ -128,7 +132,7 @@ fn collect_stages(
     n_workers: u32,
     nested: bool,
     out: &mut Vec<StageEntry>,
-) {
+) -> Result<(), DataFusionError> {
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
@@ -140,13 +144,13 @@ fn collect_stages(
         let p_c = nb.partitions_per_consumer_task();
         // `route_partition(q).consumer_task` for every producer output partition. Used by the
         // hash-partitioned boundaries (Shuffle / Broadcast) only; Coalesce routes by task instead.
-        let route_consumer_tasks = || {
+        let route_consumer_tasks = || -> Result<Vec<u32>, DataFusionError> {
             let n_out = stage
                 .local_plan()
                 .map_or(0, |p| p.properties().partitioning.partition_count());
             (0..n_out)
-                .map(|q| nb.route_partition(q).consumer_task as u32)
-                .collect::<Vec<u32>>()
+                .map(|q| Ok(nb.route_partition(q)?.consumer_task as u32))
+                .collect()
         };
         let plan_any = plan.as_ref().as_any();
 
@@ -173,7 +177,7 @@ fn collect_stages(
                 // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
                 // to the consumer task `route_partition(q)` selects.
                 FragmentRouting::Hashed {
-                    consumer_task: route_consumer_tasks(),
+                    consumer_task: route_consumer_tasks()?,
                     broadcast: false,
                 }
             } else {
@@ -194,7 +198,7 @@ fn collect_stages(
                 // `route_partition`), but the dispatcher only runs the producer plan on task 0 to
                 // avoid the canonical-replica duplication described on `FragmentRouting::Hashed`.
                 FragmentRouting::Hashed {
-                    consumer_task: route_consumer_tasks(),
+                    consumer_task: route_consumer_tasks()?,
                     broadcast: true,
                 }
             } else {
@@ -240,14 +244,15 @@ fn collect_stages(
             // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
             // returns `[stage.plan]`, so descending through it would double-process every nested
             // stage. Return here to keep visit counts exact.
-            collect_stages(stage_plan, n_workers, true, out);
+            collect_stages(stage_plan, n_workers, true, out)?;
         }
-        return;
+        return Ok(());
     }
     // Non-boundary nodes recurse through plan children.
     for child in plan.children() {
-        collect_stages(child, n_workers, nested, out);
+        collect_stages(child, n_workers, nested, out)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -260,7 +265,7 @@ mod tests {
     fn boundary_free_plan_yields_no_stages() {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
-        let out = collect_dispatched_stages(&plan, 3);
+        let out = collect_dispatched_stages(&plan, 3).unwrap();
         assert!(out.is_empty());
     }
 

@@ -222,7 +222,10 @@ impl SegmentedTopKExec {
 
     /// Serialize for coordinator dispatch. The `ffhelper` is live and doesn't travel; the worker
     /// pulls it from the scan in its decoded subtree. The `dynamic_filter` is internal and is
-    /// recreated fresh by `new` on decode. `decoders`/`properties` are derived.
+    /// recreated fresh by `new` on decode; the leader-side `FilterPushdown` wiring of that filter
+    /// into the scans' `PreFilter` does not travel, so a dispatched fragment scans without the
+    /// runtime top-k pruning (correct, just slower). Rewiring on decode is an open follow-up.
+    /// `decoders`/`properties` are derived.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
         let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
         let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};

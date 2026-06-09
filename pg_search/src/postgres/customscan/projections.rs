@@ -287,7 +287,7 @@ unsafe fn make_placeholder_const_from_funcexpr(
 }
 
 /// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
-/// when it encounters a [`pg_sys::JoinExpr`] node.
+/// when it encounters a join context.
 #[pg_guard]
 unsafe extern "C-unwind" fn find_join_expr_walker(
     node: *mut pg_sys::Node,
@@ -298,6 +298,15 @@ unsafe extern "C-unwind" fn find_join_expr_walker(
     }
     if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
         return true;
+    }
+    // Comma joins are a `FromExpr` with multiple fromlist entries and no
+    // `JoinExpr`. Without this, placeholder functions (score/snippet) used in a
+    // comma-join query are not wrapped in a PlaceHolderVar and get re-evaluated
+    // above the Gather Merge, panicking with "Unsupported query shape" (#5108).
+    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node) {
+        if PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1 {
+            return true;
+        }
     }
     expression_tree_walker(node, Some(find_join_expr_walker), _context)
 }

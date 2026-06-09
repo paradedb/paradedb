@@ -187,6 +187,7 @@ SELECT i.id,
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
 WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i, o)
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Hash Join
@@ -217,6 +218,7 @@ SELECT i.id,
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
 WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i, o)
  id | item_score | order_id | order_score 
 ----+------------+----------+-------------
   1 |   1.112579 |        1 |   0.9808292

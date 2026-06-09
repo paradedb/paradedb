@@ -100,6 +100,7 @@ title = "Index Scan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_custom_scan = off;
+SET paradedb.enable_aggregate_custom_scan = off;
 SELECT assert_plan_contains(
     $q$ SELECT count(*) FROM test where message ||| 'cheese' $q$,
     'Index Only Scan'
@@ -114,6 +115,7 @@ refresh_ms = 5
 title = "Normal Scan"
 log_tps = true
 on_connect = """
+SET paradedb.enable_aggregate_custom_scan = off;
 SELECT assert_plan_contains(
     $q$ SELECT count(*) FROM test where message ||| 'wine' $q$,
     'NormalScanExecState'

@@ -128,6 +128,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -142,6 +143,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -156,6 +158,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -170,6 +173,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -184,6 +188,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -198,6 +203,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -212,6 +218,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -228,6 +235,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -242,6 +250,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -256,6 +265,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -274,30 +284,35 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) <= $6;
 -- Execute multiple times to trigger generic plan after 5 executions
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -305,6 +320,7 @@ EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt'
 
 -- 6th execution uses generic plan
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20
@@ -336,6 +352,7 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     20

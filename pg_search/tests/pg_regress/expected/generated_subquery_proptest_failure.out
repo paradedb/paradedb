@@ -82,12 +82,14 @@ ANALYZE;
 --
 -- these two queries should return the same count:  3
 SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age  =  '20') ORDER BY orders.id LIMIT 9) AND (products.name  =  'bob') AND (products.name  =  'bob');
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans (table: join)
  count 
 -------
      3
 (1 row)
 
 SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age @@@ '20') ORDER BY orders.id LIMIT 9) AND (products.name @@@ 'bob') AND (products.name @@@ 'bob');
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans (table: join)
  count 
 -------
      3

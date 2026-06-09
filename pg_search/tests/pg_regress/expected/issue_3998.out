@@ -33,6 +33,7 @@ WITH scores AS (
     WHERE content @@@ 'test'
 )
 SELECT (MAX(s) - MIN(s)) < 0.00001 as scores_are_identical FROM scores;
+WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.check_aggregate_scan = false (table: fieldnorms_test)
  scores_are_identical 
 ----------------------
  t

@@ -128,6 +128,7 @@ SELECT count(*) FROM (
                SELECT id FROM lp_categories
                WHERE name = 'rare_category'))
 ) sub;
+WARNING:  Aggregate Scan not used: could not extract search query from quals. To disable this warning: SET paradedb.check_aggregate_scan = false (table: lp_items)
  count 
 -------
    150

@@ -325,9 +325,13 @@ impl BaseScan {
 
         // Finally, decide whether we can actually use the extracted quals.
         // We allow custom scan if:
-        // 1. The query uses @@@ operator, OR
+        // 1. The query uses one of our operators -- i.e. `@@@`. Plain PostgreSQL
+        //    operators we can lower into a Tantivy predicate (such as
+        //    `path <@ 'Top.Science'::ltree`) do NOT count here: they get pushed
+        //    down once the scan is chosen, but they don't justify the scan on
+        //    their own, OR
         // 2. enable_custom_scan_without_operator is true, OR
-        // 3. The query has window aggregates (pdb.agg()) that we must handle
+        // 3. The query has window aggregates (pdb.agg()) that we must handle.
         let has_window_aggs = query_has_window_agg_functions(root);
         if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
         {

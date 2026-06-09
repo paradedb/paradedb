@@ -5,9 +5,8 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/digitalocean
 ---
 
 <Note>
-  Cloud platform deployments run ParadeDB Community, which does not include WAL
-  support. This makes them suitable for hobby, development, and staging
-  environments. For production, we recommend [ParadeDB
+  Cloud platform deployments run ParadeDB Community, which do not support high
+  availability or read replicas. If these matter to you, we recommend [ParadeDB
   Enterprise](/deploy/enterprise) deployed via
   [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
 </Note>
@@ -39,7 +38,7 @@ curl -fsSL https://get.docker.com | sh
 The `tag` query parameter pins the ParadeDB version. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
 
 ```bash
-curl -fsSL "https://paradedb.com/install.sh?tag=0.23.5-pg18" | sh
+curl -fsSL "https://paradedb.com/install.sh?tag=0.24.0-pg18" | sh
 ```
 
 Once the install completes, note the password printed to the terminal — you will need it for the `psql` connection string below.

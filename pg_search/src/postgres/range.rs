@@ -16,58 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::numeric::{bytes_to_hex, hex_to_decimal};
-use crate::schema::range::TantivyRangeBuilder;
+use crate::query::numeric::bytes_to_hex;
+use crate::schema::range::{TantivyRange, TantivyRangeBuilder};
 use decimal_bytes::Decimal;
-use pgrx::datum::{Date, DateTimeConversionError, RangeBound, Timestamp, TimestampWithTimeZone};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use pgrx::datum::{Date, RangeBound, Timestamp, TimestampWithTimeZone};
 use std::str::FromStr;
 
-// When Tantivy reads JSON objects, it only recognizes RFC 3339 formatted strings as DateTime values.
-// Dates like "2021-01-01" or ISO formatted strings like "2021-01-01T00:00:00" are not recognized.
-// To work around this, we convert Date and Timestamp values to TimestampWithTimeZone values with the UTC timezone,
-// which gets serialized to RFC 3339 ie "2021-01-01T00:00:00Z".
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(transparent)]
-pub(crate) struct TimestampWithTimeZoneUtc(pub TimestampWithTimeZone);
-
-impl TryFrom<Date> for TimestampWithTimeZoneUtc {
-    type Error = DateTimeConversionError;
-
-    fn try_from(val: Date) -> Result<Self, Self::Error> {
-        let tstz = TimestampWithTimeZone::from(val);
-        Ok(TimestampWithTimeZoneUtc(
-            TimestampWithTimeZone::with_timezone(
-                tstz.year(),
-                tstz.month(),
-                tstz.day(),
-                0,
-                0,
-                0.0,
-                "UTC",
-            )?,
-        ))
-    }
-}
-
-impl TryFrom<Timestamp> for TimestampWithTimeZoneUtc {
-    type Error = DateTimeConversionError;
-
-    fn try_from(val: Timestamp) -> Result<Self, Self::Error> {
-        let tstz = TimestampWithTimeZone::from(val);
-        Ok(TimestampWithTimeZoneUtc(
-            TimestampWithTimeZone::with_timezone(
-                tstz.year(),
-                tstz.month(),
-                tstz.day(),
-                tstz.hour(),
-                tstz.minute(),
-                tstz.second(),
-                "UTC",
-            )?,
-        ))
-    }
-}
+use super::pdb_owned_value::PdbOwnedValue;
 
 /// A wrapper around `Decimal` that serializes to hex-encoded lexicographically sortable bytes.
 /// This allows string comparison in Tantivy's JSON fields to give correct numeric ordering.
@@ -86,42 +41,31 @@ impl TryFrom<pgrx::AnyNumeric> for SortableDecimal {
     }
 }
 
-impl Serialize for SortableDecimal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Serialize as hex-encoded sortable bytes.
+impl TryFrom<SortableDecimal> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(value: SortableDecimal) -> Result<Self, Self::Error> {
+        // "Serialize" as hex-encoded sortable bytes.
         // Hex encoding preserves lexicographic ordering since:
         // - Each byte maps to exactly 2 hex chars
         // - Hex chars compare in the same order as byte values
-        serializer.serialize_str(&bytes_to_hex(self.0.as_bytes()))
-    }
-}
-
-impl<'de> Deserialize<'de> for SortableDecimal {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_str = String::deserialize(deserializer)?;
-        let decimal = hex_to_decimal(&hex_str)
-            .ok_or_else(|| serde::de::Error::custom("invalid hex string"))?;
-        Ok(SortableDecimal(decimal))
+        let hex_str = bytes_to_hex(value.0.as_bytes());
+        Ok(TantivyValue(PdbOwnedValue::Str(hex_str)))
     }
 }
 
 pub(crate) trait RangeToTantivyValue<T, S>
 where
-    T: Serialize + pgrx::datum::RangeSubType,
-    S: TryFrom<T> + Serialize + Clone,
+    T: pgrx::datum::RangeSubType,
+    S: TryFrom<T> + Clone,
     <S as TryFrom<T>>::Error: std::fmt::Debug,
+    TantivyValue: TryFrom<S, Error = TantivyValueError>,
 {
     fn from_range(val: pgrx::Range<T>) -> Result<TantivyValue, TantivyValueError> {
         match val.is_empty() {
-            true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(TantivyRangeBuilder::<T>::new().empty(true).build())?,
-            ))),
+            true => Ok(<TantivyValue as TryFrom<TantivyRange<S>>>::try_from(
+                TantivyRangeBuilder::<S>::new().empty(true).build(),
+            )?),
             false => {
                 let lower = match val.lower() {
                     Some(RangeBound::Inclusive(val)) => Some(S::try_from(val.clone()).unwrap()),
@@ -139,18 +83,16 @@ where
                 let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
                 let upper_unbounded = matches!(val.upper(), Some(RangeBound::Infinite) | None);
 
-                Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                    serde_json::to_value(
-                        TantivyRangeBuilder::new()
-                            .lower(lower)
-                            .upper(upper)
-                            .lower_inclusive(lower_inclusive)
-                            .upper_inclusive(upper_inclusive)
-                            .lower_unbounded(lower_unbounded)
-                            .upper_unbounded(upper_unbounded)
-                            .build(),
-                    )?,
-                )))
+                Ok(<TantivyValue as TryFrom<TantivyRange<S>>>::try_from(
+                    TantivyRangeBuilder::new()
+                        .lower(lower)
+                        .upper(upper)
+                        .lower_inclusive(lower_inclusive)
+                        .upper_inclusive(upper_inclusive)
+                        .lower_unbounded(lower_unbounded)
+                        .upper_unbounded(upper_unbounded)
+                        .build(),
+                )?)
             }
         }
     }
@@ -161,6 +103,6 @@ impl RangeToTantivyValue<i64, i64> for TantivyValue {}
 // numrange uses SortableDecimal which serializes as hex-encoded lexicographically sortable bytes.
 // This preserves full NUMERIC precision while allowing string comparison to give correct ordering.
 impl RangeToTantivyValue<pgrx::AnyNumeric, SortableDecimal> for TantivyValue {}
-impl RangeToTantivyValue<Date, TimestampWithTimeZoneUtc> for TantivyValue {}
-impl RangeToTantivyValue<Timestamp, TimestampWithTimeZoneUtc> for TantivyValue {}
+impl RangeToTantivyValue<Date, Date> for TantivyValue {}
+impl RangeToTantivyValue<Timestamp, Timestamp> for TantivyValue {}
 impl RangeToTantivyValue<TimestampWithTimeZone, TimestampWithTimeZone> for TantivyValue {}

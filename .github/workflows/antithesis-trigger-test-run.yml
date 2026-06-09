@@ -113,6 +113,7 @@ jobs:
       - ram=64
       - image=ubuntu24-full-x64
       - extras=s3-cache
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
       image: debian:13-slim
     if: |
@@ -367,7 +368,7 @@ jobs:
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
       # antithesis.source ensures Community and Enteprise have separate histories
       - name: Trigger Antithesis Test
-        uses: antithesishq/antithesis-trigger-action@v0.10
+        uses: antithesishq/antithesis-trigger-action@v0.11
         with:
           notebook_name: ${{ github.event.inputs.notebook || 'paradedb' }}
           tenant: paradedb

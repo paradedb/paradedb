@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.20.2'" to load this file. \quit
+
 /* pg_search::api::aggregate::pdb */
 /* </end connected objects> */
 /* <begin connected objects> */

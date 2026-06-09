@@ -95,8 +95,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM json_range_test
 WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
 ORDER BY id;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_range_test
@@ -105,7 +105,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.tstz","lower_bound":{"included":{"date":"2023-05-01T09:12:00Z"}},"upper_bound":null}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.tstz","lower_bound":{"included":{"$__pdb_date__":"2023-05-01T09:12:00Z"}},"upper_bound":null}}}}
 (9 rows)
 
 SELECT id FROM json_range_test
@@ -131,8 +131,8 @@ WHERE id @@@ '{
     }
 }'::jsonb
 ORDER BY id;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_range_test
@@ -141,7 +141,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.tstz","lower_bound":{"included":{"date":"2023-05-01T09:12:00Z"}},"upper_bound":null}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"metadata.attributes.tstz","lower_bound":{"included":"2023-05-01T09:12:00Z"},"upper_bound":null}}}}
 (9 rows)
 
 SELECT id FROM json_range_test

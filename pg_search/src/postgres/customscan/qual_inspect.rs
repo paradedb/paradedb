@@ -23,6 +23,7 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_build_pushdown_qual, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::VarContext;
 use crate::query::heap_field_filter::HeapFieldFilter;
@@ -31,7 +32,6 @@ use crate::query::SearchQueryInput;
 use pg_sys::BoolExprType;
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
-use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone)]
 pub enum Qual {
@@ -98,6 +98,19 @@ pub enum Qual {
     PushdownIsNotNull {
         field: PushdownField,
     },
+    /// Represents `ltree_column <@ 'ancestor.path'::ltree`.
+    ///
+    /// PostgreSQL semantics:
+    ///   lhs <@ rhs  means lhs is a descendant of rhs, or equal to rhs.
+    ///
+    /// ParadeDB stores ltree fields as Tantivy Facet fields, so this is lowered
+    /// into a fielded ParseWithField query. `parse_with_field()` has a special
+    /// FieldType::Facet branch that converts dotted ltree text into a Tantivy
+    /// Facet term, e.g. "Top.Science" -> /Top/Science.
+    PushdownLtreeDescendant {
+        field: PushdownField,
+        ancestor: String,
+    },
     ScoreExpr {
         opoid: pg_sys::Oid,
         value: *mut pg_sys::Node,
@@ -132,6 +145,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr {
                 search_query_input, ..
@@ -155,6 +169,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
@@ -176,6 +191,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr { expr_node, .. } => contains_correlated_param(root, *expr_node),
             Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
@@ -197,6 +213,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => true,
             Qual::PushdownVarIsFalse { .. } => true,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -218,6 +235,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => true,
             Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
@@ -323,30 +341,39 @@ impl From<&Qual> for SearchQueryInput {
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(true),
+                    value: PdbOwnedValue::Bool(true),
                 },
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(false),
+                    value: PdbOwnedValue::Bool(false),
                 },
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(true),
+                    value: PdbOwnedValue::Bool(true),
                 },
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(false),
+                    value: PdbOwnedValue::Bool(false),
                 },
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Exists,
+            },
+            Qual::PushdownLtreeDescendant { field, ancestor } => SearchQueryInput::FieldedQuery {
+                field: field.attname(),
+                query: pdb::Query::ParseWithField {
+                    query_string: ancestor.clone(),
+                    lenient: Some(false),
+                    conjunction_mode: None,
+                    fuzzy_data: None,
+                },
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -552,8 +579,23 @@ impl PlannerContext {
 
 #[derive(Default)]
 pub struct QualExtractState {
+    /// Set whenever a predicate is evaluated via Tantivy in any form — an indexed
+    /// pushdown, a search operator, or a heap-filtered expression that still rides
+    /// along on the Tantivy scan. It is a diagnostic/logic marker and, on its own,
+    /// does NOT justify choosing the Custom Scan.
     pub uses_tantivy_to_query: bool,
+
+    /// Set when the query contains a predicate that genuinely belongs to the
+    /// index: a search operator (`@@@`, `pdb.score()`, `pdb.snippet()`) or a plain
+    /// PostgreSQL operator we lower into a real indexed query (e.g. `ltree <@ ltree`
+    /// becoming a Tantivy facet subtree query). This is what enables the Custom
+    /// Scan and bypasses the heap-only rejection; it must not be set for predicates
+    /// that can only be evaluated as a heap filter (like `file_size > 500`).
     pub uses_our_operator: bool,
+
+    /// Set when a predicate against this relation could not be pushed down to the
+    /// index and must be evaluated as a PostgreSQL-side heap filter. Gated by the
+    /// `enable_filter_pushdown` GUC and only worthwhile alongside `uses_our_operator`.
     pub uses_heap_expr: bool,
 }
 
@@ -1232,6 +1274,15 @@ unsafe fn try_pushdown(
     } else {
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
         state.uses_tantivy_to_query = true;
+
+        // Note: plain PostgreSQL operators we can lower into a Tantivy query (e.g.
+        // `path <@ 'Top.Science'::ltree`, lowered to a facet subtree query) set
+        // `uses_tantivy_to_query`, but NOT `uses_our_operator`. They are not
+        // operators that only we can execute, so they should not force the Custom
+        // Scan on their own -- that's left to the planner's cost decision. To force
+        // pushdown of such an operator, use `pdb.all()` or enable
+        // `paradedb.enable_custom_scan_without_operator`.
+
         pushdown_result
     }
 }
@@ -1862,6 +1913,8 @@ unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
+
     use super::*;
     use pgrx::prelude::*;
     use proptest::prelude::*;
@@ -1889,7 +1942,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "foo".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(true),
+                value: PdbOwnedValue::Bool(true),
             },
         };
         assert_eq!(got, want);
@@ -1904,7 +1957,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "bar".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(false),
+                value: PdbOwnedValue::Bool(false),
             },
         };
         assert_eq!(got, want);
@@ -1919,7 +1972,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "baz".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(true),
+                value: PdbOwnedValue::Bool(true),
             },
         };
         assert_eq!(got, want);
@@ -1934,7 +1987,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "qux".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(false),
+                value: PdbOwnedValue::Bool(false),
             },
         };
         assert_eq!(got, want);
@@ -1996,7 +2049,7 @@ mod tests {
                     field: f,
                     query: pdb::Query::Term { value, .. },
                 },
-            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
+            ) => field.attname() == *f && matches!(value, PdbOwnedValue::Bool(true)),
 
             // Match boolean field FALSE cases
             (
@@ -2005,7 +2058,7 @@ mod tests {
                     field: f,
                     query: pdb::Query::Term { value, .. },
                 },
-            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
+            ) => field.attname() == *f && matches!(value, PdbOwnedValue::Bool(false)),
 
             // Match IS NOT NULL
             (
@@ -2053,7 +2106,7 @@ mod tests {
                     field: f,
                     query:
                         pdb::Query::Term {
-                            value: OwnedValue::Bool(false),
+                            value: PdbOwnedValue::Bool(false),
                             ..
                         },
                 },
@@ -2068,7 +2121,7 @@ mod tests {
                     field: f,
                     query:
                         pdb::Query::Term {
-                            value: OwnedValue::Bool(true),
+                            value: PdbOwnedValue::Bool(true),
                             ..
                         },
                 },

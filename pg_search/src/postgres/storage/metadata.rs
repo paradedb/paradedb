@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::{parse_version_component, Version};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
@@ -74,6 +75,14 @@ pub struct MetaPageData {
     /// This used to be for detecting concurrent background merges,
     /// now we use advisory locks
     _dead_space_4: [pg_sys::BlockNumber; 2],
+
+    /// pg_search version that created this index.
+    /// PageInit zeroes the page at creation, so bytes past the fields that exist at creation time
+    /// are zero forever. So we can reliably say:
+    /// All zeros = created before stamping was added.
+    created_by_version_major: u16,
+    created_by_version_minor: u16,
+    created_by_version_patch: u16,
 }
 
 /// Provides read access to the metadata page
@@ -111,6 +120,13 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+
+            metadata.created_by_version_major =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_MAJOR")) };
+            metadata.created_by_version_minor =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_MINOR")) };
+            metadata.created_by_version_patch =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
         }
     }
 
@@ -227,6 +243,25 @@ impl MetaPage {
     pub fn fsm(&self) -> pg_sys::BlockNumber {
         assert!(block_number_is_valid(self.data.v2_fsm));
         self.data.v2_fsm
+    }
+
+    /// The pg_search version that created this index. Returns `None` for indices created
+    /// before version stamping was added (the on-disk fields read as zero).
+    #[allow(dead_code)]
+    pub fn created_by_version(&self) -> Option<Version> {
+        let major = self.data.created_by_version_major;
+        let minor = self.data.created_by_version_minor;
+        let patch = self.data.created_by_version_patch;
+
+        if major == 0 && minor == 0 && patch == 0 {
+            None
+        } else {
+            Some(Version {
+                major,
+                minor,
+                patch,
+            })
+        }
     }
 
     ///
@@ -347,4 +382,35 @@ unsafe fn bgmerger_state(
 ) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
     pgrx::warning!("bgmerger_state has been deprecated");
     TableIterator::new(std::iter::empty())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn created_by_version_is_stamped_at_index_build() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id');").unwrap();
+
+        let index_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let stamped = MetaPage::open(&indexrel)
+            .created_by_version()
+            .expect("freshly built index should be version-stamped");
+
+        let expected = Version::new(
+            env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
+            env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
+            env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
+        );
+        assert_eq!(stamped, expected);
+    }
 }

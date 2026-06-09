@@ -210,6 +210,33 @@ fn text_term(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn datetime_shaped_string_term(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value TEXT
+    );
+
+    INSERT INTO test_table (value) VALUES
+        ('2023-04-15 13:27:09'), 
+        ('2019-08-02 07:52:43.123');
+
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, (value::pdb.literal)) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // TIMESTAMP
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => '2019-08-02 07:52:43.123')
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+}
+
+#[rstest]
 fn datetime_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (

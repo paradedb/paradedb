@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780973504682,
+  "lastUpdate": 1780973539558,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26872,6 +26872,108 @@ window.BENCHMARK_DATA = {
             "value": 163.26171875,
             "unit": "median mem",
             "extra": "avg mem: 182.13971506214614, max mem: 221.61328125, count: 56520"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "163ec0c8229c02a738ebdd7873b3ff1227332aed",
+          "message": "feat: Enable aggregate and join scans by default (#5252)\n\n# Ticket(s) Closed\n\n- Closes #5075\n\n## What\n\nEnable the `aggregate` and `join` custom scans by default.\n\n## Why\n\nThe aggregate and join scans have been equivalence tested against\nPostgres for a few releases now, and a variety of users have\nsuccessfully used them in production.\n\nFor queries that they support, the aggregate and join scans will either:\n1. accelerate a query (thanks to columnar access and late\nmaterialization)\n2. make it possible to run at all: avoiding an \"Unsupported plan shape\"\nerror (e.g. when using `pdb.score` in a join that might not otherwise be\nable to be recognized by the base scan)\n\nBut even for queries which are not yet supported by these scans, the\nwarnings that they render can give useful guidance around index\nmisconfiguration.\n\n## How\n\nEnable both scan GUCs by default, and improve the warnings that they\nrender in cases where they are combined.\n\nAdditionally, make a series of fixes identified by the existing tests\nfor the aggregate and join scans:\n* Skip the aggregate scan for obscure failures such as #5266.\n* Fix LTREE groupbys in the aggregate scan.\n* Disable the aggregate scan for partitioned tables.",
+          "timestamp": "2026-06-08T19:07:10-07:00",
+          "tree_id": "da21968b58a0f76cc6daa7529f14f68aeac8e76a",
+          "url": "https://github.com/paradedb/paradedb/commit/163ec0c8229c02a738ebdd7873b3ff1227332aed"
+        },
+        "date": 1780973507022,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.058009974885925505, max background_merging: 2.0, count: 56542"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.675180155293878, max cpu: 9.590409, count: 56542"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.407130844107037, max mem: 26.421875, count: 56542"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.990504679323965, max cpu: 28.290766, count: 56542"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 187.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 185.09715606871882, max mem: 191.796875, count: 56542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 60241,
+            "unit": "median block_count",
+            "extra": "avg block_count: 59995.716246330165, max block_count: 60241.0, count: 56542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.02845672243642, max segment_count: 57.0, count: 56542"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7393226489427205, max cpu: 28.042841, count: 56542"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 150.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.9161327254519, max mem: 163.5703125, count: 56542"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.244410300134866, max cpu: 32.621357, count: 56542"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 198.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 197.54657081516837, max mem: 218.8828125, count: 56542"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.08105503239278, max cpu: 33.267326, count: 56542"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.08231353462912, max mem: 221.1484375, count: 56542"
           }
         ]
       }

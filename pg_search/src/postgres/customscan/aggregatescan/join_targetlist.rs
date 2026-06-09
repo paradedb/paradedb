@@ -209,13 +209,7 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
 /// Handles aggregate functions whose OIDs aren't exposed as constants in pg_sys
 /// (e.g., STDDEV, VARIANCE and their variants).
 fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
-    let name = unsafe {
-        let name_ptr = pg_sys::get_func_name(pg_sys::Oid::from(aggfnoid));
-        if name_ptr.is_null() {
-            return None;
-        }
-        std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned()
-    };
+    let name = crate::postgres::catalog::lookup_func_name(pg_sys::Oid::from(aggfnoid))?;
     match name.as_str() {
         "stddev" | "stddev_samp" => Some(AggKind::StddevSamp),
         "stddev_pop" => Some(AggKind::StddevPop),
@@ -359,7 +353,15 @@ pub unsafe fn extract_aggregate_targetlist(
             }
 
             let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
-                .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
+                .ok_or_else(|| {
+                    if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
+                        pg_sys::Oid::from(aggfnoid),
+                    ) {
+                        format!("unsupported aggregate function: {}", n)
+                    } else {
+                        format!("unsupported aggregate function OID: {}", aggfnoid)
+                    }
+                })?;
 
             // For STRING_AGG, extract the separator from the second argument
             let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));

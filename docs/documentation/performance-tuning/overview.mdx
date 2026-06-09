@@ -20,6 +20,38 @@ These settings can be changed in several ways:
 SET maintenance_work_mem = '8GB'
 ```
 
+## Docker
+
+When running ParadeDB in Docker, sensible default parameters are automatically configured based on the resources available to the container. For example, running a container with 4 CPUs and 8GB memory will cause the following to be appended to `postgresql.conf`. Be sure to adjust these parameters as you tune your deployment.
+
+```postgresql.conf
+# Begin ParadeDB tuning recommendations
+# Parameters based on auto-detected 4 CPUs and 8192MB RAM
+shared_buffers = '2048MB'                     # 25% of RAM, capped at 16GB
+effective_cache_size = '6144MB'               # 75% of RAM
+maintenance_work_mem = '512MB'                # RAM / 16, capped at 2GB
+work_mem = '20MB'                             # (RAM - shared_buffers) / (3 * max_connections), at least 15MB
+max_parallel_workers = '20'                   # CPUs * 5
+max_worker_processes = '28'                   # max_parallel_workers + 8
+max_parallel_workers_per_gather = '2'         # CPUs / 2, at least 1
+max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
+# End ParadeDB tuning recommendations
+```
+
+To disable auto-tuning, set `PDB_TUNE=false` when you first run the container:
+
+```
+docker run \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=postgres \
+    -p 5432:5432 \
+    -e PDB_TUNE=false \
+    -d paradedb/paradedb:latest
+```
+
+## CloudNativePG
+
 If ParadeDB is deployed with [CloudNativePG](/deploy/self-hosted/kubernetes), these settings should be set in your
 `.tfvars` file.
 

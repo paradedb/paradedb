@@ -22,6 +22,41 @@ SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_2_idx');
 
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items_not_ready'
+);
+
+CREATE INDEX mock_items_not_ready_idx_ccnew ON mock_items_not_ready
+USING bm25 (id, description, category)
+WITH (key_field='id');
+
+SET allow_system_table_mods = on;
+UPDATE pg_index
+SET indisvalid = false,
+    indisready = false
+WHERE indexrelid = 'mock_items_not_ready_idx_ccnew'::regclass;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pdb.index_layer_info WHERE relname = 'mock_items_not_ready_idx_ccnew') THEN
+        RAISE EXCEPTION 'pdb.index_layer_info should skip indexes that are not valid and ready';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM paradedb.index_layer_info WHERE relname = 'mock_items_not_ready_idx_ccnew') THEN
+        RAISE EXCEPTION 'paradedb.index_layer_info should skip indexes that are not valid and ready';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM paradedb.index_info('mock_items_not_ready_idx_ccnew', true)) THEN
+        RAISE EXCEPTION 'paradedb.index_info should skip indexes that are not valid and ready';
+    END IF;
+END
+$$;
+UPDATE pg_index
+SET indisvalid = true,
+    indisready = true
+WHERE indexrelid = 'mock_items_not_ready_idx_ccnew'::regclass;
+SET allow_system_table_mods = off;
+
 ALTER INDEX mock_items_1_idx SET (layer_sizes = '0');
 ALTER INDEX mock_items_1_idx SET (background_layer_sizes = '10kb, 100kb, 1mb, 100mb');
 
@@ -36,3 +71,4 @@ SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
 
 DROP TABLE mock_items_1;
 DROP TABLE mock_items_2;
+DROP TABLE mock_items_not_ready;

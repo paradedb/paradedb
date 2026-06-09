@@ -1,11 +1,11 @@
 # workflows/antithesis-trigger-test-run.yml
 #
-# Antithesis - Trigger Test Run
+# Test pg_search (Antithesis)
 # Build the current commits of pg_search and the selected driver image(s) as
 # Docker images, push them to Antithesis, and trigger one Antithesis test run
 # per selected workload (stressgres and/or proptests).
 
-name: Antithesis - Trigger Test Run
+name: Test pg_search (Antithesis)
 
 on:
   # Scheduled runs are only executed on paradedb-enterprise; on paradedb/paradedb

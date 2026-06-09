@@ -133,6 +133,7 @@ pub fn build_dispatch_blob(
     seed: SessionContext,
     n_workers: u32,
     runtime: &tokio::runtime::Runtime,
+    non_partitioning_segments: &[HashSet<SegmentId>],
 ) -> Result<Vec<u8>> {
     let logical = deserialize_logical_plan_with_runtime(
         logical_bytes,
@@ -154,12 +155,17 @@ pub fn build_dispatch_blob(
         let plan_proto = serialize_physical_plan(stage.plan)?;
         // Encode can succeed while decode fails (a codec gap). The first decode otherwise
         // happens in a worker, where failure is a hard query error instead of the serial
-        // fallback this Result feeds. One extra decode per stage at init buys the fallback.
+        // fallback this Result feeds. One extra decode per stage at init buys the fallback
+        // (it re-opens the scans' readers, on top of the ones the physical planning above
+        // already opened; both are released with the init context). The canonical
+        // non-partitioning sets are the same ones DSM hands the workers, so a lazy scan with
+        // `source_idx` decodes here exactly as it will there; `index_segment_ids` stays empty,
+        // which skips the UDF segment injection without failing it.
         deserialize_physical_plan_with_runtime(
             &plan_proto,
             &decode_ctx,
             None,
-            Vec::new(),
+            non_partitioning_segments.to_vec(),
             Vec::new(),
         )?;
         dispatched.push(DispatchedStage {

@@ -755,6 +755,7 @@ impl ParallelQueryCapable for AggregateScan {
                 create_aggregate_session_context(),
                 producer_worker_count(),
                 &runtime,
+                &state.custom_state().non_partitioning_segments,
             ) {
                 Ok(b) => b,
                 Err(e) => {

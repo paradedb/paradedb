@@ -112,7 +112,7 @@ pub(crate) fn build_mpp_session_context(
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
     // The old `in_process_mode` knob is gone: the registered `ShmMqWorkerTransport` carries a
-    // no-op `dispatch()` (coordinator dispatch rides DSM, not gRPC), so there is no gRPC
+    // no-op dispatcher (coordinator dispatch rides DSM, not gRPC), so there is no gRPC
     // plan-send / metrics / work-unit-feed to skip.
     let cfg = seed
         .copied_config()
@@ -151,7 +151,7 @@ pub(crate) fn build_mpp_session_context(
         // Placeholder resolver. Our "workers" are PG parallel workers in the same backend tree,
         // not URL-addressed nodes, so the shm_mq transport routes by task index and never dials a
         // URL; the planner only needs `n_workers` of them to size stages. There is no
-        // `in_process_mode` flag anymore: the transport's no-op `dispatch()` is what skips the
+        // `in_process_mode` flag anymore: the transport's no-op dispatcher is what skips the
         // wire plan-send / metrics / work-unit-feed (see `ShmMqWorkerTransport::dispatch`).
         .with_distributed_worker_resolver(InProcessWorkerResolver::new(n_workers));
     // Install the shm_mq transport only for actual execution (mesh = Some). mesh = None is the
@@ -172,7 +172,7 @@ pub(crate) fn build_mpp_session_context(
         // No `with_distributed_user_codec(...)`: the leader serializes per-stage subplans through
         // a combined codec built explicitly in `scan::physical_codec` (the fork's `DistributedCodec`
         // plus the pg_search codec), and each worker decodes the same way. Nothing drives the
-        // session's user-codec slot, and the transport's `dispatch()` stays a no-op since
+        // session's user-codec slot, and the transport's dispatcher stays a no-op since
         // coordinator dispatch rides DSM, not the wire.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
@@ -281,7 +281,8 @@ pub(crate) fn run_mpp_worker(
                     FragmentRouting::Hashed { consumer_task, .. } => {
                         let Some(&task) = consumer_task.get(q) else {
                             return Err(datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: partition {q} outside routing table of                                  len {} (stage_id={} task_idx={})",
+                                "mpp worker dispatch: partition {q} outside routing table of len {} \
+                                 (stage_id={} task_idx={})",
                                 consumer_task.len(),
                                 fragment.stage_id,
                                 fragment.task_idx,

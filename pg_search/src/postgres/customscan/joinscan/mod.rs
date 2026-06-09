@@ -923,6 +923,7 @@ impl ParallelQueryCapable for JoinScan {
                 create_datafusion_session_context(SessionContextProfile::Join),
                 producer_worker_count(),
                 &runtime,
+                &state.custom_state().non_partitioning_segments,
             ) {
                 Ok(b) => b,
                 Err(e) => {

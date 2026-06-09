@@ -1,7 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- TODO: See https://github.com/paradedb/paradedb/issues/5266.
-SET paradedb.enable_aggregate_custom_scan TO off;
+
 
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS products;
@@ -144,6 +143,19 @@ VALUES (11, 'brandy', 'green', '92');
 
 
 ANALYZE;
+
+-- TODO: See https://github.com/paradedb/paradedb/issues/5266.
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT (SELECT COUNT(*)
+        FROM users
+                 LEFT JOIN products ON users.color = products.color
+        WHERE (users.name = 'bob') AND ((users.color = 'blue') AND (users.name = 'bob')) AND (products.name = 'bob')
+           OR (NOT (products.age = '20')) AND (users.name = 'bob')
+           OR ((users.color = 'blue') AND (users.name = 'bob')) AND (products.color = 'blue')
+           OR (NOT (products.name = 'bob')));
+
+-- TODO: See https://github.com/paradedb/paradedb/issues/5266.
+SET paradedb.enable_aggregate_custom_scan TO off;
 
 --
 -- each pair of queries should produce the same number of results

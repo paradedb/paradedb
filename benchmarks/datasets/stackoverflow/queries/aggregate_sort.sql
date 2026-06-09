@@ -5,7 +5,7 @@
 -- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'code' selectivity on stackoverflow_posts.body: ~75%
 
-SET paradedb.enable_aggregate_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT
     p.id,
     p.title,
     MAX(c.creation_date) as last_activity

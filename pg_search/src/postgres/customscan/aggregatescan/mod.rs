@@ -1116,6 +1116,12 @@ impl AggregateScan {
         // If it's not a plain relation (e.g. it's a partitioned table), we can't do Tantivy agg directly.
         // Parent partitioned tables are not yet supported for aggregate pushdown.
         let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
+            if has_paradedb_agg {
+                Self::add_planner_warning(
+                    "Aggregate Scan not used: unsupported relation type (e.g., partitioned table or view)",
+                    unsafe { rte_alias_or_unknown(heap_rte) },
+                );
+            }
             return Vec::new();
         };
 

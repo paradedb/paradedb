@@ -158,7 +158,6 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                                 );
                             }
 
-                            // We capture the original type OID of the fast field here.
                             // Because AggregateScan bypasses Postgres's ExecProject for grouping columns
                             // and maps them directly to INDEX_VARs pointing at the final scan slot,
                             // Postgres expects the slot to contain the Datum of the *cast* type (e.g. TEXTOID),

@@ -247,7 +247,10 @@ impl JoinDeclineReason {
 
     pub fn with_details(self, new_details: Vec<String>) -> Self {
         match self {
-            Self::ContainsAggregate => self,
+            Self::ContainsAggregate => {
+                debug_assert!(false, "Cannot add details to ContainsAggregate");
+                self
+            }
             Self::Message {
                 message,
                 details: _,
@@ -262,6 +265,11 @@ impl JoinDeclineReason {
         match self {
             Self::ContainsAggregate => {
                 if crate::gucs::enable_aggregate_custom_scan() {
+                    // We currently suppress this warning if the aggregate scan is enabled, assuming
+                    // it will handle the query. If the aggregate scan later declines it, the user
+                    // won't see a JoinScan warning.
+                    // TODO: https://github.com/paradedb/paradedb/issues/5285 will fix this by allowing
+                    // the joinscan to propose itself even when aggregates are present.
                     return;
                 }
                 JoinScan::add_planner_warning(

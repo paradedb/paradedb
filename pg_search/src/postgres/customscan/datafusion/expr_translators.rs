@@ -79,7 +79,7 @@ impl<'a> PredicateTranslator<'a> {
         let df_args = df_args?;
 
         let funcid = (*func).funcid;
-        let namespace_oid = crate::postgres::catalog::lookup_func_namespace(funcid);
+        let namespace_oid = pg_sys::get_func_namespace(funcid);
         let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
         let func_name = crate::postgres::catalog::lookup_func_name(funcid);
 
@@ -511,8 +511,7 @@ impl<'a> PredicateTranslator<'a> {
         // implementing function (`get_opcode` → `get_func_namespace`).
         let opno = (*op_expr).opno;
         let op_name_ptr = pg_sys::get_opname(opno);
-        let namespace_oid =
-            crate::postgres::catalog::lookup_func_namespace(pg_sys::get_opcode(opno));
+        let namespace_oid = pg_sys::get_func_namespace(pg_sys::get_opcode(opno));
         let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
         if op_name_ptr.is_null() || namespace_ptr.is_null() {
             pgrx::debug1!(

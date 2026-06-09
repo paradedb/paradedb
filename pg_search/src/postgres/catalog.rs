@@ -91,24 +91,21 @@ pub fn lookup_typoid(namespace: &CStr, typename: &CStr) -> Option<pg_sys::Oid> {
     }
 }
 
-/// Helper function to lookup a function's name by its OID
-pub fn lookup_func_name(funcid: pg_sys::Oid) -> Option<String> {
+/// Helper function to lookup a function's name by its OID as a CStr
+pub fn lookup_func_name_cstr<'a>(funcid: pg_sys::Oid) -> Option<&'a std::ffi::CStr> {
     unsafe {
         let name_ptr = pg_sys::get_func_name(funcid);
         if !name_ptr.is_null() {
-            std::ffi::CStr::from_ptr(name_ptr)
-                .to_str()
-                .ok()
-                .map(|s| s.to_string())
+            Some(std::ffi::CStr::from_ptr(name_ptr))
         } else {
             None
         }
     }
 }
 
-/// Helper function to lookup a function's namespace by its OID
-pub fn lookup_func_namespace(funcid: pg_sys::Oid) -> pg_sys::Oid {
-    unsafe { pg_sys::get_func_namespace(funcid) }
+/// Helper function to lookup a function's name by its OID
+pub fn lookup_func_name(funcid: pg_sys::Oid) -> Option<String> {
+    lookup_func_name_cstr(funcid).and_then(|cstr| cstr.to_str().ok().map(|s| s.to_string()))
 }
 
 /// Helper function to lookup a namespace's name by its OID
@@ -129,7 +126,7 @@ pub fn lookup_namespace_name(namespace_oid: pg_sys::Oid) -> Option<String> {
 /// Helper function to lookup a function's fully qualified name (schema.name) by its OID
 pub fn lookup_fully_qualified_func_name(funcid: pg_sys::Oid) -> Option<String> {
     let name = lookup_func_name(funcid)?;
-    let namespace_oid = lookup_func_namespace(funcid);
+    let namespace_oid = unsafe { pg_sys::get_func_namespace(funcid) };
     if namespace_oid != pg_sys::InvalidOid {
         if let Some(namespace) = lookup_namespace_name(namespace_oid) {
             if namespace != "pg_catalog" {

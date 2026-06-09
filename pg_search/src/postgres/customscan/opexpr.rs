@@ -376,10 +376,8 @@ unsafe fn is_type_cast_function(funcid: pg_sys::Oid) -> bool {
         return false;
     }
 
-    if let Some(func_name) = crate::postgres::catalog::lookup_func_name(funcid) {
-        if let Ok(cname) = std::ffi::CString::new(func_name) {
-            return pg_sys::TypenameGetTypid(cname.as_ptr()) != pg_sys::Oid::INVALID;
-        }
+    if let Some(func_name_cstr) = crate::postgres::catalog::lookup_func_name_cstr(funcid) {
+        return pg_sys::TypenameGetTypid(func_name_cstr.as_ptr()) != pg_sys::Oid::INVALID;
     }
 
     false
@@ -454,19 +452,19 @@ unsafe fn funcs_are_equivalent(funcid1: pg_sys::Oid, funcid2: pg_sys::Oid) -> bo
         return false;
     }
 
-    let name1 = crate::postgres::catalog::lookup_func_name(funcid1);
-    let name2 = crate::postgres::catalog::lookup_func_name(funcid2);
+    let name1 = crate::postgres::catalog::lookup_func_name_cstr(funcid1);
+    let name2 = crate::postgres::catalog::lookup_func_name_cstr(funcid2);
     if name1.is_none() || name2.is_none() {
         return false;
     }
 
-    let name1_str = name1.unwrap();
-    let name2_str = name2.unwrap();
+    let name1_str = name1.unwrap().to_str().unwrap_or("");
+    let name2_str = name2.unwrap().to_str().unwrap_or("");
 
     // Check if both are arithmetic operations that normalize to the same op
     match (
-        normalize_arithmetic_op(&name1_str),
-        normalize_arithmetic_op(&name2_str),
+        normalize_arithmetic_op(name1_str),
+        normalize_arithmetic_op(name2_str),
     ) {
         (Some(op1), Some(op2)) => op1 == op2,
         _ => false,

@@ -47,118 +47,89 @@ impl ParallelScanThresholdState {
     }
 }
 
-struct PgSharedThreshold<T, F, C> {
+struct PgSharedThreshold<T> {
     parallel_state: *mut ParallelScanState,
-    initial_value: T,
-    is_more_restrictive: F,
-    competitive_threshold: C,
     _phantom: PhantomData<T>,
 }
 
-unsafe impl<T, F, C> Send for PgSharedThreshold<T, F, C> {}
-unsafe impl<T, F, C> Sync for PgSharedThreshold<T, F, C> {}
+unsafe impl<T> Send for PgSharedThreshold<T> {}
+unsafe impl<T> Sync for PgSharedThreshold<T> {}
 
-impl<T, F, C> PgSharedThreshold<T, F, C>
+impl<T> PgSharedThreshold<T>
 where
     T: Copy + Send + Sync,
-    F: Fn(T, T) -> std::cmp::Ordering + Send + Sync,
-    C: Fn(T, u32, u32) -> T + Send + Sync,
 {
-    pub fn new(
-        parallel_state: *mut ParallelScanState,
-        initial_value: T,
-        is_more_restrictive: F,
-        competitive_threshold: C,
-    ) -> Self {
+    pub fn new(parallel_state: *mut ParallelScanState) -> Self {
         assert!(
             std::mem::size_of::<T>() <= 16,
             "SharedThreshold type T must be <= 16 bytes"
         );
         Self {
             parallel_state,
-            initial_value,
-            is_more_restrictive,
-            competitive_threshold,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<T, F, C> SharedThreshold<T> for PgSharedThreshold<T, F, C>
+impl<T> SharedThreshold<T> for PgSharedThreshold<T>
 where
-    T: Copy + Send + Sync,
-    F: Fn(T, T) -> std::cmp::Ordering + Send + Sync,
-    C: Fn(T, u32, u32) -> T + Send + Sync,
+    T: Copy + Send + Sync + PartialEq,
 {
-    fn load(&self) -> (T, u32) {
+    fn load(&self) -> Option<(T, u32)> {
         let state = unsafe { &mut *self.parallel_state };
         let mut _lock = state.shared_threshold.lock.acquire();
 
         if state.shared_threshold.initialized {
-            let mut value: T = self.initial_value;
+            let mut value: std::mem::MaybeUninit<T> = std::mem::MaybeUninit::uninit();
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     state.shared_threshold.value.as_ptr(),
-                    &mut value as *mut T as *mut u8,
+                    value.as_mut_ptr() as *mut u8,
                     std::mem::size_of::<T>(),
                 );
+                Some((value.assume_init(), state.shared_threshold.segment_ord))
             }
-            (value, state.shared_threshold.segment_ord)
         } else {
-            (self.initial_value, u32::MAX)
+            None
         }
     }
 
-    fn update(&self, new_threshold: T, segment_ord: u32) -> (T, u32) {
+    fn try_update(
+        &self,
+        expected_threshold: &Option<(T, u32)>,
+        new_threshold: (T, u32),
+    ) -> Result<(), Option<(T, u32)>> {
         let state = unsafe { &mut *self.parallel_state };
         let mut _lock = state.shared_threshold.lock.acquire();
 
-        if !state.shared_threshold.initialized {
+        let current = if state.shared_threshold.initialized {
+            let mut value: std::mem::MaybeUninit<T> = std::mem::MaybeUninit::uninit();
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    &new_threshold as *const T as *const u8,
+                    state.shared_threshold.value.as_ptr(),
+                    value.as_mut_ptr() as *mut u8,
+                    std::mem::size_of::<T>(),
+                );
+                Some((value.assume_init(), state.shared_threshold.segment_ord))
+            }
+        } else {
+            None
+        };
+
+        if current == *expected_threshold {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    &new_threshold.0 as *const T as *const u8,
                     state.shared_threshold.value.as_mut_ptr(),
                     std::mem::size_of::<T>(),
                 );
             }
-            state.shared_threshold.segment_ord = segment_ord;
+            state.shared_threshold.segment_ord = new_threshold.1;
             state.shared_threshold.initialized = true;
-            (new_threshold, segment_ord)
+            Ok(())
         } else {
-            let mut current_threshold: T = self.initial_value;
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    state.shared_threshold.value.as_ptr(),
-                    &mut current_threshold as *mut T as *mut u8,
-                    std::mem::size_of::<T>(),
-                );
-            }
-
-            let cmp = (self.is_more_restrictive)(new_threshold, current_threshold);
-            let is_better = match cmp {
-                std::cmp::Ordering::Greater => true,
-                std::cmp::Ordering::Less => false,
-                std::cmp::Ordering::Equal => segment_ord < state.shared_threshold.segment_ord,
-            };
-
-            if is_better {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        &new_threshold as *const T as *const u8,
-                        state.shared_threshold.value.as_mut_ptr(),
-                        std::mem::size_of::<T>(),
-                    );
-                }
-                state.shared_threshold.segment_ord = segment_ord;
-                (new_threshold, segment_ord)
-            } else {
-                (current_threshold, state.shared_threshold.segment_ord)
-            }
+            Err(current)
         }
-    }
-
-    fn competitive_threshold(&self, value: T, threshold_ord: u32, segment_ord: u32) -> T {
-        (self.competitive_threshold)(value, threshold_ord, segment_ord)
     }
 }
 
@@ -207,11 +178,6 @@ unsafe impl Sync for PgAtomicSharedScoreThreshold {}
 
 impl PgAtomicSharedScoreThreshold {
     // Initial packed value is Score::MIN with u32::MAX (worst possible ordinal)
-    // f32_to_ordered_u32(Score::MIN) == 0 (because MIN is negative infinity, which maps to 0 in this monotonic conversion)
-    // Wait, let's just use a constant. Since f32::MIN.to_bits() is 0xff800000.
-    // 0xff800000 & 0x8000_0000 != 0, so !0xff800000 = 0x007fffff.
-    // So top is 0x007fffff. bottom is !u32::MAX = 0.
-    // So INITIAL_PACKED_VALUE is (0x007fffff << 32) | 0.
     pub const INITIAL_PACKED_VALUE: u64 = 0x007fffff_00000000;
 
     /// Creates a SharedThreshold configured specifically for Tantivy BM25 Scores,
@@ -222,34 +188,49 @@ impl PgAtomicSharedScoreThreshold {
 }
 
 impl SharedThreshold<tantivy::Score> for PgAtomicSharedScoreThreshold {
-    fn load(&self) -> (tantivy::Score, u32) {
+    fn load(&self) -> Option<(tantivy::Score, u32)> {
         let state = unsafe { &*self.parallel_state };
-        unpack_score_and_ord(
-            state
-                .shared_threshold
-                .atomic_score_threshold
-                .load(Ordering::Relaxed),
-        )
-    }
-
-    fn update(&self, new_score: tantivy::Score, segment_ord: u32) -> (tantivy::Score, u32) {
-        let state = unsafe { &*self.parallel_state };
-        let new_packed = pack_score_and_ord(new_score, segment_ord);
-        let mut current = state
+        let packed = state
             .shared_threshold
             .atomic_score_threshold
             .load(Ordering::Relaxed);
-        loop {
-            if new_packed <= current {
-                return unpack_score_and_ord(current);
-            }
-            match state
-                .shared_threshold
-                .atomic_score_threshold
-                .compare_exchange_weak(current, new_packed, Ordering::Relaxed, Ordering::Relaxed)
-            {
-                Ok(_) => return (new_score, segment_ord),
-                Err(actual) => current = actual,
+
+        if packed == Self::INITIAL_PACKED_VALUE {
+            None
+        } else {
+            Some(unpack_score_and_ord(packed))
+        }
+    }
+
+    fn try_update(
+        &self,
+        expected_threshold: &Option<(tantivy::Score, u32)>,
+        new_threshold: (tantivy::Score, u32),
+    ) -> Result<(), Option<(tantivy::Score, u32)>> {
+        let state = unsafe { &*self.parallel_state };
+
+        let expected_packed = match expected_threshold {
+            Some((score, ord)) => pack_score_and_ord(*score, *ord),
+            None => Self::INITIAL_PACKED_VALUE,
+        };
+        let new_packed = pack_score_and_ord(new_threshold.0, new_threshold.1);
+
+        match state
+            .shared_threshold
+            .atomic_score_threshold
+            .compare_exchange_weak(
+                expected_packed,
+                new_packed,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+            Ok(_) => Ok(()),
+            Err(actual_packed) => {
+                if actual_packed == Self::INITIAL_PACKED_VALUE {
+                    Err(None)
+                } else {
+                    Err(Some(unpack_score_and_ord(actual_packed)))
+                }
             }
         }
     }
@@ -282,13 +263,7 @@ pub fn new_score_threshold(
 
 pub fn new_fast_value_threshold(
     parallel_state: *mut ParallelScanState,
-    order: tantivy::collector::sort_key::ComparatorEnum,
+    _order: tantivy::collector::sort_key::ComparatorEnum,
 ) -> impl SharedThreshold<Option<u64>> {
-    use tantivy::collector::sort_key::Comparator;
-    PgSharedThreshold::new(
-        parallel_state,
-        None,
-        move |new: Option<u64>, current: Option<u64>| order.compare(&new, &current),
-        |score: Option<u64>, _threshold_ord: u32, _segment_ord: u32| score,
-    )
+    PgSharedThreshold::new(parallel_state)
 }

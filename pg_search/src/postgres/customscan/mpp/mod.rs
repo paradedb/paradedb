@@ -21,9 +21,9 @@
 //! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
 //! Guarded by `paradedb.enable_mpp` (default off).
 //!
-//! Transport deadlock-avoidance relies on one dedicated drain thread per proc
-//! that reads all inbound queues into a spillable local buffer — this decouples
-//! consumer-side backpressure from producer-side backpressure.
+//! The transport lives in `datafusion_distributed::embedded`. Deadlock avoidance is a
+//! cooperative inline drain: a producer stalled on a full outbound pulls its own inbound
+//! before retrying, so every peer sending at once cannot wedge.
 
 pub mod dispatch;
 pub mod exec_worker;

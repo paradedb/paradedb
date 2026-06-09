@@ -345,11 +345,31 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          # Attempt every repo even if one fails (e.g. the ParadeDB GitHub App is
+          # not installed on it), so a single misconfigured repo doesn't block the
+          # rest. Collect failures and fail the step at the end to trigger the Slack
+          # alert below.
+          failed=()
           while IFS= read -r repo; do
             repo=$(echo "$repo" | xargs)
             [ -z "$repo" ] && continue
             echo "Dispatching to $repo..."
-            gh api "repos/$repo/dispatches" \
+            if ! gh api "repos/$repo/dispatches" \
               --field event_type=paradedb-release \
-              --field "client_payload[version]=${{ steps.version.outputs.version }}"
+              --field "client_payload[version]=${{ steps.version.outputs.version }}"; then
+              echo "::error::Failed to dispatch paradedb-release event to $repo"
+              failed+=("$repo")
+            fi
           done <<< "$ORM_REPOS"
+
+          if [ ${#failed[@]} -ne 0 ]; then
+            echo "Failed to notify the following ORM repos: ${failed[*]}"
+            exit 1
+          fi
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> Failed to notify ORM repos of the new \`pg_search\` release in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

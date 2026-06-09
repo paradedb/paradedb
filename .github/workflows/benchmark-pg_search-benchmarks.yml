@@ -1,9 +1,9 @@
 # workflows/benchmark-pg_search-benchmarks.yml
 #
-# Benchmark pg_search - Queries
+# Benchmark pg_search (Queries)
 # Run our queries benchmark suite against pg_search.
 
-name: Benchmark pg_search - Queries
+name: Benchmark pg_search (Queries)
 
 # We run benchmarks on `main`, and on `benchmark`-labeled PRs.
 on:

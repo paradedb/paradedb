@@ -1,9 +1,9 @@
 # workflows/test-pg_search-upgrade.yml
 #
-# Test pg_search Upgrade
+# Test pg_search (Upgrade)
 # Test that the pg_search extension can upgrade via ALTER EXTENSION.
 
-name: Test pg_search Upgrade
+name: Test pg_search (Upgrade)
 
 on:
   pull_request:

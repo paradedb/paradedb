@@ -1,9 +1,9 @@
 # workflows/test-docs.yml
 #
-# Test Docs
+# Test ParadeDB (Docs)
 # Test our documentation for broken links via Mintlify.
 
-name: Test Docs
+name: Test ParadeDB (Docs)
 
 on:
   pull_request:

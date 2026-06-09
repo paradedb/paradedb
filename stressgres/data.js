@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780972106744,
+  "lastUpdate": 1780972779210,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14350,6 +14350,42 @@ window.BENCHMARK_DATA = {
             "value": 5.479390751404411,
             "unit": "median tps",
             "extra": "avg tps: 4.91491871880731, max tps: 6.151765854715094, count: 57732"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "163ec0c8229c02a738ebdd7873b3ff1227332aed",
+          "message": "feat: Enable aggregate and join scans by default (#5252)\n\n# Ticket(s) Closed\n\n- Closes #5075\n\n## What\n\nEnable the `aggregate` and `join` custom scans by default.\n\n## Why\n\nThe aggregate and join scans have been equivalence tested against\nPostgres for a few releases now, and a variety of users have\nsuccessfully used them in production.\n\nFor queries that they support, the aggregate and join scans will either:\n1. accelerate a query (thanks to columnar access and late\nmaterialization)\n2. make it possible to run at all: avoiding an \"Unsupported plan shape\"\nerror (e.g. when using `pdb.score` in a join that might not otherwise be\nable to be recognized by the base scan)\n\nBut even for queries which are not yet supported by these scans, the\nwarnings that they render can give useful guidance around index\nmisconfiguration.\n\n## How\n\nEnable both scan GUCs by default, and improve the warnings that they\nrender in cases where they are combined.\n\nAdditionally, make a series of fixes identified by the existing tests\nfor the aggregate and join scans:\n* Skip the aggregate scan for obscure failures such as #5266.\n* Fix LTREE groupbys in the aggregate scan.\n* Disable the aggregate scan for partitioned tables.",
+          "timestamp": "2026-06-08T19:07:10-07:00",
+          "tree_id": "da21968b58a0f76cc6daa7529f14f68aeac8e76a",
+          "url": "https://github.com/paradedb/paradedb/commit/163ec0c8229c02a738ebdd7873b3ff1227332aed"
+        },
+        "date": 1780972746324,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.855594620945758,
+            "unit": "median tps",
+            "extra": "avg tps: 6.688381450297116, max tps: 10.225927195344767, count: 57959"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.230556704120515,
+            "unit": "median tps",
+            "extra": "avg tps: 4.63350477894505, max tps: 5.937748408949795, count: 57959"
           }
         ]
       }

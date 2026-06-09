@@ -2,6 +2,8 @@
 # shellcheck disable=SC2154
 
 # Executed at container start to bootstrap ParadeDB extensions and Postgres settings.
+# This file is NOT executed when running in CloudNativePG as it circumvents the normal
+# Postgres container entrypoint.
 
 # Exit on subcommand errors
 set -Eeuo pipefail

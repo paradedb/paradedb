@@ -25,7 +25,8 @@
 //! when we are certain that the query can be executed as a Top K query.
 
 use crate::api::FieldName;
-use crate::index::reader::index::MAX_TOPK_FEATURES;
+use crate::index::directory::mvcc::MvccSatisfies;
+use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
@@ -38,6 +39,7 @@ use crate::postgres::var::{
 };
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
+use std::cell::RefCell;
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +179,98 @@ pub struct IndexExpressionInfo<'a> {
     pub heap_rti: pg_sys::Index,
 }
 
+/// Lazy probe of Tantivy segments used during planning to verify that a JSON sub-path's
+/// fast-field leaf type matches the type that Postgres would use to evaluate an ORDER BY
+/// expression
+///
+/// Opening a [`SearchIndexReader`] is not free, so the reader is created on first use and
+/// reused across every sort key in the same query. Probes per JSON path are cached so that
+/// repeated checks across multiple pathkeys do not re-walk every segment
+pub struct JsonSortGate<'a> {
+    index_relation: &'a PgSearchRelation,
+    reader: RefCell<Option<Option<SearchIndexReader>>>,
+    probed: RefCell<std::collections::HashMap<String, Option<tantivy::schema::Type>>>,
+}
+
+impl<'a> JsonSortGate<'a> {
+    pub fn new(index_relation: &'a PgSearchRelation) -> Self {
+        Self {
+            index_relation,
+            reader: RefCell::new(None),
+            probed: RefCell::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn probe(&self, path: &str) -> Option<tantivy::schema::Type> {
+        if let Some(cached) = self.probed.borrow().get(path).copied() {
+            return cached;
+        }
+        let result = {
+            let mut slot = self.reader.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(
+                    SearchIndexReader::empty(self.index_relation, MvccSatisfies::Snapshot).ok(),
+                );
+            }
+            slot.as_ref()
+                .and_then(|inner| inner.as_ref())
+                .and_then(|r| r.probe_json_leaf_type(path))
+        };
+        self.probed.borrow_mut().insert(path.to_string(), result);
+        result
+    }
+}
+
+/// Map a Postgres type OID to the Tantivy schema [`Type`](tantivy::schema::Type) whose stored
+/// order matches Postgres' btree ordering for that type
+/// Returns `None` for OIDs that have no safe Tantivy counterpart
+/// LIMIT can hide cast or precision differences errors making some mappings unsafe to pushdown
+fn pg_type_to_tantivy_type(pg_type: pg_sys::Oid) -> Option<tantivy::schema::Type> {
+    use tantivy::schema::Type;
+    if pg_type == pg_sys::TEXTOID
+        || pg_type == pg_sys::VARCHAROID
+        || pg_type == pg_sys::BPCHAROID
+        || pg_type == pg_sys::NAMEOID
+    {
+        Some(Type::Str)
+    } else if pg_type == pg_sys::INT8OID {
+        Some(Type::I64)
+    } else if pg_type == pg_sys::FLOAT8OID {
+        Some(Type::F64)
+    } else if pg_type == pg_sys::BOOLOID {
+        Some(Type::Bool)
+    } else if pg_type == pg_sys::TIMESTAMPOID || pg_type == pg_sys::TIMESTAMPTZOID {
+        Some(Type::Date)
+    } else {
+        None
+    }
+}
+
+/// Determine whether a Raw sort on a JSON field is safe to push down.
+///
+/// Returns `true` only when:
+/// the resolved [`FieldName`] addresses a JSON sub-path (e.g. `metadata.price`)
+/// the ORDER BY expression's result type maps to a known Tantivy leaf type
+/// the fast-field leaf type stored in Tantivy agrees across all visible segments
+/// the probed leaf type matches the expression's expected type
+///
+/// When any check fails we return `false` and the caller leaves the sort to Postgres, which
+/// preserves the user's expected ordering semantics.
+pub unsafe fn json_sub_path_sort_pushable(
+    gate: &JsonSortGate,
+    field_name: &FieldName,
+    original_expr: *mut pg_sys::Node,
+) -> bool {
+    if field_name.path().is_none() {
+        return false;
+    }
+    let expected_oid = pg_sys::exprType(original_expr);
+    let Some(expected_type) = pg_type_to_tantivy_type(expected_oid) else {
+        return false;
+    };
+    matches!(gate.probe(field_name.as_ref()), Some(t) if t == expected_type)
+}
+
 /// Analyzes an ORDER BY expression to determine its type and extract the underlying variable.
 ///
 /// This function unifies the logic for identifying sort keys across the planner hook (validation)
@@ -302,6 +396,7 @@ pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     regular_sortability_check: F1,
     lower_sortability_check: F2,
     index_expressions: Option<&PgList<pg_sys::Expr>>,
+    json_sort_gate: Option<&JsonSortGate>,
 ) -> PathKeyInfo
 where
     F1: Fn(&SearchField) -> bool,
@@ -374,6 +469,20 @@ where
                         if let Some(field_name) = field_name_opt {
                             if let Some(search_field) = schema.search_field(field_name.root()) {
                                 if regular_sortability_check(&search_field) {
+                                    // For JSON sub-paths, gate pushdown on the probed leaf
+                                    // type matching the SQL expression's expected type
+                                    if search_field.is_json() {
+                                        let pushable = json_sort_gate.is_some_and(|gate| {
+                                            json_sub_path_sort_pushable(
+                                                gate,
+                                                &field_name,
+                                                expr_to_analyze.cast(),
+                                            )
+                                        });
+                                        if !pushable {
+                                            continue;
+                                        }
+                                    }
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
@@ -442,13 +551,15 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
     // We need to identify the single relation that this Top K query targets
-    // Tuple: (varno, relid, schema, index_expressions)
+    // Tuple: (varno, relid, bm25_index, schema, index_expressions)
     let mut target_relation_info: Option<(
         pg_sys::Index,
         pg_sys::Oid,
+        PgSearchRelation,
         SearchIndexSchema,
         PgList<pg_sys::Expr>,
     )> = None;
+    let mut json_sort_gate: Option<JsonSortGate> = None;
 
     for sort_clause in sort_list.iter_ptr() {
         let tle_ref = (*sort_clause).tleSortGroupRef;
@@ -461,7 +572,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         // Pass index expressions if we have them (after first sort clause identifies the relation)
         let index_info = target_relation_info
             .as_ref()
-            .map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
+            .map(|(_, _, _, schema, idx_exprs)| IndexExpressionInfo {
                 index_expressions: idx_exprs,
                 schema,
                 // TODO: heap_rti should use the actual varno from target_relation_info
@@ -482,7 +593,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             return false;
         }
 
-        if let Some((expected_varno, _, _, _)) = &target_relation_info {
+        if let Some((expected_varno, _, _, _, _)) = &target_relation_info {
             if varno != *expected_varno {
                 // Sorting by different relations
                 return false;
@@ -507,11 +618,11 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
             let index_expressions = bm25_index.index_expressions();
 
-            target_relation_info = Some((varno, relid, schema, index_expressions));
+            target_relation_info = Some((varno, relid, bm25_index, schema, index_expressions));
         }
 
         // Validate sortability
-        let (_, _, schema, _) = target_relation_info.as_ref().unwrap();
+        let (_, _, bm25_index, schema, _) = target_relation_info.as_ref().unwrap();
 
         match sort_type {
             SortExpressionType::Score => {
@@ -538,6 +649,21 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 };
                 if !search_field.is_raw_sortable() {
                     return false;
+                }
+                if search_field.is_json() {
+                    // Lazily build the gate the first time we hit a JSON sub-path sort
+                    // SAFETY: the gate borrows from `target_relation_info`, which lives for
+                    // the rest of this function
+                    let gate = json_sort_gate.get_or_insert_with(|| {
+                        JsonSortGate::new(
+                            // Re-borrow through a raw pointer to satisfy the borrow checker:
+                            // bm25_index lives in target_relation_info for the whole loop.
+                            &*(bm25_index as *const PgSearchRelation),
+                        )
+                    });
+                    if !json_sub_path_sort_pushable(gate, &field_name, expr) {
+                        return false;
+                    }
                 }
             }
             SortExpressionType::IndexedExpression => {

@@ -48,7 +48,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY metadata->>'key' ORDER BY metadata->>'key' LIMIT 5;
 SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY metadata->>'key' ORDER BY metadata->>'key' LIMIT 5;
 
--- Order by JSON not supported
+-- Order by JSON text sub-key is pushed down when the stored fast-field leaf type
+-- (Str) matches the expression's text type.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;

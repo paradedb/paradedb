@@ -271,6 +271,61 @@ pub struct TopKAuxiliaryCollector {
     pub vischeck: Option<VisibilityChecker>,
 }
 
+/// Probe a single segment for the fast-field leaf type at `path`.
+///
+/// Returns `Some(Type)` if the segment exposes a fast-field column for `path`, or `None`
+/// if the segment has no fast-field column for that path
+///
+/// If a single segment exposes more than one fast-field type for the same path
+/// (heterogeneous JSON values, e.g. some docs have `{"k": 1}` and others
+/// `{"k": "n/a"}`), the leaf type is ambiguous and we return `None` so the
+/// planner falls back to PG's sort.
+fn probe_segment_leaf_type(
+    reader: &SegmentReader,
+    path: &str,
+) -> Option<Result<tantivy::schema::Type, ()>> {
+    use tantivy::schema::Type;
+    let ffr = reader.fast_fields();
+
+    let mut found = None;
+
+    if ffr.i64(path).is_ok() {
+        found = Some(Type::I64);
+    }
+    if ffr.u64(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::U64);
+    }
+    if ffr.f64(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::F64);
+    }
+    if ffr.bool(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::Bool);
+    }
+    if ffr.date(path).is_ok() {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::Date);
+    }
+    if matches!(ffr.str(path), Ok(Some(_))) {
+        if found.is_some() {
+            return Some(Err(()));
+        }
+        found = Some(Type::Str);
+    }
+
+    found.map(Ok)
+}
+
 pub struct SearchIndexReader {
     index_rel: PgSearchRelation,
     searcher: Searcher,
@@ -457,6 +512,42 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
+    }
+
+    /// Probe ALL Tantivy segments for the leaf fast-field type of a JSON path.
+    ///
+    /// Returns `Some(Type)` only when every segment that exposes any fast-field column for
+    /// `path` resolves to the same leaf type. Returns `None` if no segment has a fast-field
+    /// column for `path`, or if segments disagree on the leaf type
+    pub fn probe_json_leaf_type(&self, path: &str) -> Option<tantivy::schema::Type> {
+        let mut resolved = None;
+        for reader in self.searcher.segment_readers() {
+            if let Some(res) = probe_segment_leaf_type(reader, path) {
+                let segment_type = res.ok()?;
+                if *resolved.get_or_insert(segment_type) != segment_type {
+                    return None;
+                }
+            }
+        }
+        resolved
+    }
+
+    /// If `value_type` is `Type::Json`, resolve `path` to its concrete leaf fast-field type
+    /// via [`probe_json_leaf_type`]. Otherwise return `value_type` unchanged
+    pub(crate) fn normalize_json_value_type(
+        &self,
+        value_type: tantivy::schema::Type,
+        path: &str,
+    ) -> tantivy::schema::Type {
+        match value_type {
+            tantivy::schema::Type::Json => self.probe_json_leaf_type(path).unwrap_or_else(|| {
+                panic!(
+                    "JSON path `{path}` has no fast-field leaf type that is consistent across \
+                     segments; this should have been rejected by the planner before Top K dispatch."
+                )
+            }),
+            other => other,
+        }
     }
 
     pub fn need_scores(&self) -> bool {
@@ -788,7 +879,11 @@ impl SearchIndexReader {
                     .search_field(sort_field)
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
-                match field.field_entry().field_type().value_type() {
+                let value_type = self.normalize_json_value_type(
+                    field.field_entry().field_type().value_type(),
+                    sort_field.as_ref(),
+                );
+                match value_type {
                     tantivy::schema::Type::Str => {
                         TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,

@@ -147,25 +147,24 @@ SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GRO
  the big cat     |     1
 (3 rows)
 
--- Order by JSON not supported
+-- Order by JSON text sub-key is pushed down when the stored fast-field leaf type
+-- (Str) matches the expression's text type.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: ((metadata ->> 'key'::text)), id
-         ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
-               Table: tokenizer_fast
-               Index: idxtokenizer_fast
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
+         Table: tokenizer_fast
+         Index: idxtokenizer_fast
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: metadata.key asc, id asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
  id |   t   |     t_long      |                metadata                
 ----+-------+-----------------+----------------------------------------
   3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}

@@ -24,7 +24,7 @@ emojis = "0.8.2"
 icu_properties = "2.2.0"
 unicode-segmentation = "1.13.2"
 icu_segmenter = "2.2.0"
-opencc-jieba-rs = "0.7.2"
+opencc-jieba-rs = "0.7"
 
 [dev-dependencies]
 rstest = "0.25.0"

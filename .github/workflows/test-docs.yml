@@ -33,6 +33,7 @@ jobs:
       - cpu=8
       - ram=16
       - image=ubuntu24-full-arm64
+      - volume=40gb # default runner ships with 30GB; see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       matrix:
@@ -41,6 +42,29 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+      # Cache notes:
+      # - Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      #   See test-pg_search.yml for rationale.
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "v2-rust-cache"
+          shared-key: pg${{ matrix.pg_version }}
+          cache-targets: true
+          cache-all-crates: true
+          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
+          save-if: false
 
       - name: Install System Dependencies
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
@@ -126,29 +150,6 @@ jobs:
           fi
 
           echo "🎉 All SEO checks passed!"
-
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-          rustflags: "" # Use .cargo/config.toml target-cpu flags
-
-      - name: Extract pgrx Version
-        id: pgrx
-        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
-      # Cache notes:
-      # - Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
-      #   See test-pg_search.yml for rationale.
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "v2-rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
-          cache-targets: true
-          cache-all-crates: true
-          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
-          save-if: false
 
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug

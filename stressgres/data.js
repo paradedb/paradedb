@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781041524772,
+  "lastUpdate": 1781041560177,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37190,6 +37190,114 @@ window.BENCHMARK_DATA = {
             "value": 173.140625,
             "unit": "median mem",
             "extra": "avg mem: 170.5744008013626, max mem: 174.0234375, count: 55702"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e27965f34cdf44550287d25aa87e59b7b804fe37",
+          "message": "perf: Use a shared threshold across index segments (#5210)\n\n# Ticket(s) Closed\n\n- Closes #4309\n\n## What\n\nAs described on #4309, incorporates Tantivy support for sharing a\nthreshold across segments during TopK. See\nhttps://github.com/paradedb/tantivy/pull/147 for the Tantivy side.\n\n## Why\n\nWithout threshold sharing, each segment computes a new score from\nscratch, and will take a while to begin effectively pruning documents\nusing Block-Max WAND or even avoiding putting things in the TopNComputer\nbuffer. Sharing the threshold allows threshold pruning to begin much\nmore quickly.\n\n## How\n\nExtended the `SharedThreshold` trait with an implementation backed by\n`ParallelScanState` using either an atomic or a spinlock depending on\nsize.\n\n## Tests\n\nBenchmarks show up to 50% speedup for some `ORDER BY pdb.score DESC`\nqueries (depending on selectivity and worker count).\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-09T13:47:43-07:00",
+          "tree_id": "1120f89986461c14a550250b1dbc1495ad543568",
+          "url": "https://github.com/paradedb/paradedb/commit/e27965f34cdf44550287d25aa87e59b7b804fe37"
+        },
+        "date": 1781041526777,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 14.007783,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.25086991254342, max cpu: 37.75811, count: 55585"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 175.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 165.10536699143205, max mem: 180.14453125, count: 55585"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.697283669502216, max cpu: 28.015566, count: 55585"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.13023283597194, max mem: 119.421875, count: 55585"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.367584623639096, max cpu: 23.645319, count: 55585"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 165.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 143.2468820275254, max mem: 179.34765625, count: 55585"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15800,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16010.228209049204, max block_count: 29691.0, count: 55585"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.211322840447764, max cpu: 4.669261, count: 55585"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 107.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 94.46038134163894, max mem: 136.9765625, count: 55585"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.83178915174957, max segment_count: 35.0, count: 55585"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.177951045567756, max cpu: 32.463768, count: 111170"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.5396981748111, max mem: 182.296875, count: 111170"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.72736,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.92171091572313, max cpu: 27.961164, count: 55585"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 170.70081940946298, max mem: 174.5078125, count: 55585"
           }
         ]
       }

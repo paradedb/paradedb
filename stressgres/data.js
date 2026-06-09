@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781047161773,
+  "lastUpdate": 1781047197008,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27772,6 +27772,108 @@ window.BENCHMARK_DATA = {
             "value": 163.875,
             "unit": "median mem",
             "extra": "avg mem: 181.49544285872946, max mem: 222.30078125, count: 56275"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a458e0afe3184139d9341ba65a4c818f74b22b08",
+          "message": "fix: wrap placeholder functions across comma joins (#5108) (#5289)\n\n## What\n\nFixes #5108. `pdb.score()`, `pdb.snippet()`, and\n`pdb.snippet_positions()` panic with `Unsupported query shape` in\nparallel plans that use **comma-join** syntax (`FROM a, b WHERE ...`).\n\n## Why\n\n`placeholder_support()` decides whether to wrap a placeholder call in a\n`PlaceHolderVar` so it is produced by the BaseScan and carried up,\ninstead of being re-evaluated above the Gather Merge. It only treated an\nexplicit `JOIN ... ON` (`T_JoinExpr`) as a join context. A comma join is\na `FromExpr` with more than one `fromlist` entry and **no** `JoinExpr`,\nso the placeholder was left unwrapped; the planner then scheduled it\nabove the Gather Merge, where it cannot run, and panicked.\n\n## How\n\nDetect comma joins in `find_join_expr_walker`: a `FromExpr` with\n`fromlist.len() > 1` is a join context. This is function-agnostic, so it\ncovers all three placeholder families with one change.\n\n## Testing\n\n`pg_search/tests/pg_regress/sql/issue_5108.sql` exercises score /\nsnippet / snippet_positions in both the comma-join and inlined-CTE +\n`JOIN ON` shapes, under forced parallelism (`debug_parallel_query = on`,\nhash/merge join disabled). Each comma-join query panics pre-fix and\nreturns rows post-fix; result rows carry primary-key tie-breakers so the\ngolden output is deterministic. The fix was confirmed load-bearing by\nreverting it (snippet/comma re-crashes).\n\n## Scope\n\nThe inlined-CTE + explicit `JOIN ON` case raised in the issue thread\ndoes **not** reproduce on current `main` (PG17/PG18): the planner uses\n`TopKScanExecState`, which produces the score inside the scan so the\nGather Merge carries it — see\nhttps://github.com/paradedb/paradedb/issues/5108#issuecomment-4662945052.\nThis PR fixes the reproducible comma-join path; the `JOIN ON` shape can\nbe revisited if a standalone repro surfaces.",
+          "timestamp": "2026-06-09T18:33:50-04:00",
+          "tree_id": "125afcd5e073ad2ca9b6272c0d2d4c858c19d74f",
+          "url": "https://github.com/paradedb/paradedb/commit/a458e0afe3184139d9341ba65a4c818f74b22b08"
+        },
+        "date": 1781047163819,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07638287117273253, max background_merging: 2.0, count: 55392"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.704365334691179, max cpu: 9.523809, count: 55392"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 29.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.172763694441436, max mem: 29.1875, count: 55392"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.022297642480003, max cpu: 27.692308, count: 55392"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 193.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 189.22097314650583, max mem: 193.29296875, count: 55392"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51178,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51040.69957755633, max block_count: 51178.0, count: 55392"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.68585716348931, max segment_count: 56.0, count: 55392"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7554207210883845, max cpu: 27.639154, count: 55392"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 156.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 144.72774046793762, max mem: 172.85546875, count: 55392"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.88076099438263, max cpu: 23.83317, count: 55392"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 172.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 174.30270814151862, max mem: 187.01953125, count: 55392"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.7379470251348, max cpu: 33.73494, count: 55392"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 182.76377215459814, max mem: 222.1875, count: 55392"
           }
         ]
       }

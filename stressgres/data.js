@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780973539558,
+  "lastUpdate": 1780974187404,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30156,6 +30156,60 @@ window.BENCHMARK_DATA = {
             "value": 15.473918981195123,
             "unit": "median tps",
             "extra": "avg tps: 15.351292209574778, max tps: 19.68232413922111, count: 55655"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "163ec0c8229c02a738ebdd7873b3ff1227332aed",
+          "message": "feat: Enable aggregate and join scans by default (#5252)\n\n# Ticket(s) Closed\n\n- Closes #5075\n\n## What\n\nEnable the `aggregate` and `join` custom scans by default.\n\n## Why\n\nThe aggregate and join scans have been equivalence tested against\nPostgres for a few releases now, and a variety of users have\nsuccessfully used them in production.\n\nFor queries that they support, the aggregate and join scans will either:\n1. accelerate a query (thanks to columnar access and late\nmaterialization)\n2. make it possible to run at all: avoiding an \"Unsupported plan shape\"\nerror (e.g. when using `pdb.score` in a join that might not otherwise be\nable to be recognized by the base scan)\n\nBut even for queries which are not yet supported by these scans, the\nwarnings that they render can give useful guidance around index\nmisconfiguration.\n\n## How\n\nEnable both scan GUCs by default, and improve the warnings that they\nrender in cases where they are combined.\n\nAdditionally, make a series of fixes identified by the existing tests\nfor the aggregate and join scans:\n* Skip the aggregate scan for obscure failures such as #5266.\n* Fix LTREE groupbys in the aggregate scan.\n* Disable the aggregate scan for partitioned tables.",
+          "timestamp": "2026-06-08T19:07:10-07:00",
+          "tree_id": "da21968b58a0f76cc6daa7529f14f68aeac8e76a",
+          "url": "https://github.com/paradedb/paradedb/commit/163ec0c8229c02a738ebdd7873b3ff1227332aed"
+        },
+        "date": 1780974154596,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 58.69118576112787,
+            "unit": "median tps",
+            "extra": "avg tps: 57.77227658872177, max tps: 63.61558912049425, count: 55702"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.18005481415685,
+            "unit": "median tps",
+            "extra": "avg tps: 276.3247414386791, max tps: 3019.8589143389772, count: 55702"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 584.1102162005498,
+            "unit": "median tps",
+            "extra": "avg tps: 568.8758494706608, max tps: 906.648398305873, count: 55702"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.7156089181288,
+            "unit": "median tps",
+            "extra": "avg tps: 181.9710897052042, max tps: 916.5313834914906, count: 111404"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.320575329083127,
+            "unit": "median tps",
+            "extra": "avg tps: 18.215989982857494, max tps: 19.782521639655315, count: 55702"
           }
         ]
       }

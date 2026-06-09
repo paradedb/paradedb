@@ -86,6 +86,7 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: nhfs_big)
                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -116,6 +117,7 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: nhfs_big)
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  11.528142
@@ -135,6 +137,7 @@ WHERE title &&& 'developer'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: nhfs_big)
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  2.5257165
@@ -153,6 +156,7 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: nhfs_big)
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  11.528142

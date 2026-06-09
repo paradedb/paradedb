@@ -236,7 +236,15 @@ impl AggregateType {
 
         let agg_type =
             create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
-                .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
+                .ok_or_else(|| {
+                    if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
+                        pg_sys::Oid::from(aggfnoid),
+                    ) {
+                        format!("unsupported aggregate function: {}", n)
+                    } else {
+                        format!("unsupported aggregate function OID: {}", aggfnoid)
+                    }
+                })?;
 
         Ok(agg_type)
     }

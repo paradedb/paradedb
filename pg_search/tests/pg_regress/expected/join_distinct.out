@@ -574,28 +574,23 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 10;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: (count(*))
-   ->  Aggregate
-         Output: count(*)
-         ->  Hash Join
-               Hash Cond: (s.id = p.supplier_id)
-               ->  Seq Scan on public.dist_suppliers s
-                     Output: s.id, s.name, s.contact_info, s.country
-               ->  Hash
-                     Output: p.supplier_id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
-                           Output: p.supplier_id
-                           Table: dist_products
-                           Index: dist_products_bm25_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: supplier_id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   Output: (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: pdb.agg_fn('COUNT(*)'::text)
+         Backend: DataFusion
+         Indexes: dist_products_bm25_idx (p), dist_suppliers_bm25_idx (s)
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 -- =============================================================================
 -- TEST 12: Aggregate correctness — COUNT not capped by LIMIT
@@ -608,7 +603,6 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, s)
  count 
 -------
      5

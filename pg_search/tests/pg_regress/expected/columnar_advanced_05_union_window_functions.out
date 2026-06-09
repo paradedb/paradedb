@@ -876,26 +876,23 @@ FROM union_test_a
 WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
-   Window: w2 AS (ORDER BY (avg(rating)) ROWS UNBOUNDED PRECEDING)
+   Window: w2 AS (ORDER BY (pdb.agg_fn('AVG'::text)) ROWS UNBOUNDED PRECEDING)
    ->  Sort
-         Sort Key: (avg(rating)) DESC
+         Sort Key: (pdb.agg_fn('AVG'::text)) DESC
          ->  WindowAgg
-               Window: w1 AS (ORDER BY (avg(price)) ROWS UNBOUNDED PRECEDING)
+               Window: w1 AS (ORDER BY (pdb.agg_fn('AVG'::text)) ROWS UNBOUNDED PRECEDING)
                ->  Sort
-                     Sort Key: (avg(price))
-                     ->  HashAggregate
-                           Group Key: author
-                           ->  Custom Scan (ParadeDB Base Scan) on union_test_a
-                                 Table: union_test_a
-                                 Index: union_test_a_idx
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: author, price, rating
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+                     Sort Key: (pdb.agg_fn('AVG'::text))
+                     ->  Custom Scan (ParadeDB Aggregate Scan) on union_test_a
+                           Index: union_test_a_idx
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
+                             Applies to Aggregates: AVG(rating), AVG(price), COUNT(*)
+                             Group By: author
+                             Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}},"1":{"avg":{"field":"price","missing":null}}},"terms":{"field":"author","segment_size":65000,"size":65000}}}
+(14 rows)
 
 SELECT author, 
        AVG(rating) as avg_rating,

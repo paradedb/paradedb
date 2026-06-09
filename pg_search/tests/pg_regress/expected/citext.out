@@ -375,6 +375,7 @@ SELECT category, COUNT(*) FROM citext_agg
 WHERE category ||| 'alpha beta gamma'
 GROUP BY category
 ORDER BY category;
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: citext_agg)
  category | count 
 ----------+-------
  Alpha    |     2
@@ -386,6 +387,7 @@ SELECT category, SUM(value) FROM citext_agg
 WHERE category ||| 'alpha beta'
 GROUP BY category
 ORDER BY category;
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: citext_agg)
  category | sum 
 ----------+-----
  Alpha    |  40

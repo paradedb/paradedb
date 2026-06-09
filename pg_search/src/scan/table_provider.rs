@@ -651,6 +651,7 @@ impl PgSearchTableProvider {
         let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
             parallel_state,
             source_idx: mpp_source_idx,
+            non_partitioning_index: self.non_partitioning_index,
             planner_estimated_rows,
             scanner_config,
         };

@@ -109,6 +109,11 @@ pub enum ScanRecipe {
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
         source_idx: Option<usize>,
+        /// Position in the compacted non-partitioning source list, the index space of the
+        /// codec-injected canonical segment sets. Sibling of `source_idx`, which is the
+        /// all-sources position; the two diverge for any source after the partitioning one.
+        /// Only consulted when decoding without a `ParallelScanState`.
+        non_partitioning_index: Option<usize>,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
@@ -309,20 +314,28 @@ impl PgSearchScanPlan {
         let state = states[0].as_ref().ok_or_else(|| {
             DataFusionError::Internal("PgSearchScan dispatch: partition already consumed".into())
         })?;
-        let (source_idx, planner_estimated_rows, scanner_config) = match &state.0.recipe {
-            ScanRecipe::Lazy {
-                source_idx,
-                planner_estimated_rows,
-                scanner_config,
-                ..
-            } => (*source_idx, *planner_estimated_rows, scanner_config.clone()),
-            _ => {
-                return Err(DataFusionError::NotImplemented(
-                    "PgSearchScan dispatch: only the lazy single-partition recipe is supported"
-                        .into(),
-                ))
-            }
-        };
+        let (source_idx, non_partitioning_index, planner_estimated_rows, scanner_config) =
+            match &state.0.recipe {
+                ScanRecipe::Lazy {
+                    source_idx,
+                    non_partitioning_index,
+                    planner_estimated_rows,
+                    scanner_config,
+                    ..
+                } => (
+                    *source_idx,
+                    *non_partitioning_index,
+                    *planner_estimated_rows,
+                    scanner_config.clone(),
+                ),
+                _ => {
+                    return Err(DataFusionError::NotImplemented(
+                        "PgSearchScan dispatch: only the lazy single-partition recipe is \
+                         supported"
+                            .into(),
+                    ))
+                }
+            };
 
         let schema = self.properties.eq_properties.schema().clone();
         let schema_proto: datafusion_proto::protobuf::Schema =
@@ -342,6 +355,7 @@ impl PgSearchScanPlan {
             heap_relid: scanner_config.heap_relid,
             batch_size_hint: scanner_config.batch_size_hint,
             source_idx,
+            non_partitioning_index,
             planner_estimated_rows,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
@@ -384,12 +398,20 @@ impl PgSearchScanPlan {
                 MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
             }
             (Some(idx), None) => {
+                // `idx` is the all-sources position, but the canonical sets are indexed by the
+                // compacted non-partitioning list; the descriptor carries that index separately.
+                let np_idx = descriptor.non_partitioning_index.ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "PgSearchScan dispatch: source {idx} has no non-partitioning index"
+                    ))
+                })?;
                 let ids = non_partitioning_segment_ids
-                    .get(idx)
+                    .get(np_idx)
                     .cloned()
                     .ok_or_else(|| {
                         DataFusionError::Internal(format!(
-                            "PgSearchScan dispatch: missing canonical segment ids for source {idx}"
+                            "PgSearchScan dispatch: missing canonical segment ids for \
+                             non-partitioning source {np_idx} (all-sources {idx})"
                         ))
                     })?;
                 MvccSatisfies::ParallelWorker(ids)
@@ -429,6 +451,7 @@ impl PgSearchScanPlan {
             recipe: ScanRecipe::Lazy {
                 parallel_state,
                 source_idx: descriptor.source_idx,
+                non_partitioning_index: descriptor.non_partitioning_index,
                 planner_estimated_rows: descriptor.planner_estimated_rows,
                 scanner_config,
             },
@@ -475,8 +498,11 @@ struct ScanDispatchDescriptor {
     heap_relid: u32,
     batch_size_hint: Option<usize>,
     /// `Some(i)` for an MPP non-partitioning source (claims from source `i`'s pool); `None` for
-    /// the partitioning source / single-counter checkout.
+    /// the partitioning source / single-counter checkout. All-sources position.
     source_idx: Option<usize>,
+    /// Position in the compacted non-partitioning source list, the index space of the canonical
+    /// segment sets a decode without `ParallelScanState` looks up.
+    non_partitioning_index: Option<usize>,
     planner_estimated_rows: u64,
 }
 
@@ -694,6 +720,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                         ScanRecipe::Lazy {
                             parallel_state,
                             source_idx,
+                            non_partitioning_index: _,
                             planner_estimated_rows,
                             scanner_config,
                         } => {

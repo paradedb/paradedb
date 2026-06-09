@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780974907807,
+  "lastUpdate": 1781039409695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4314,6 +4314,78 @@ window.BENCHMARK_DATA = {
             "value": 44.70248224811181,
             "unit": "median tps",
             "extra": "avg tps: 49.2640415064984, max tps: 134.98605459070023, count: 55241"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e27965f34cdf44550287d25aa87e59b7b804fe37",
+          "message": "perf: Use a shared threshold across index segments (#5210)\n\n# Ticket(s) Closed\n\n- Closes #4309\n\n## What\n\nAs described on #4309, incorporates Tantivy support for sharing a\nthreshold across segments during TopK. See\nhttps://github.com/paradedb/tantivy/pull/147 for the Tantivy side.\n\n## Why\n\nWithout threshold sharing, each segment computes a new score from\nscratch, and will take a while to begin effectively pruning documents\nusing Block-Max WAND or even avoiding putting things in the TopNComputer\nbuffer. Sharing the threshold allows threshold pruning to begin much\nmore quickly.\n\n## How\n\nExtended the `SharedThreshold` trait with an implementation backed by\n`ParallelScanState` using either an atomic or a spinlock depending on\nsize.\n\n## Tests\n\nBenchmarks show up to 50% speedup for some `ORDER BY pdb.score DESC`\nqueries (depending on selectivity and worker count).\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-09T13:47:43-07:00",
+          "tree_id": "1120f89986461c14a550250b1dbc1495ad543568",
+          "url": "https://github.com/paradedb/paradedb/commit/e27965f34cdf44550287d25aa87e59b7b804fe37"
+        },
+        "date": 1781039377274,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.32445475233985,
+            "unit": "median tps",
+            "extra": "avg tps: 128.16498189439596, max tps: 137.24326588467284, count: 55160"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 128.04176557298626,
+            "unit": "median tps",
+            "extra": "avg tps: 127.98653108763511, max tps: 137.78704425913725, count: 55160"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3199.593158569763,
+            "unit": "median tps",
+            "extra": "avg tps: 3179.5839494822135, max tps: 3209.759274462853, count: 55160"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 403.8424791481264,
+            "unit": "median tps",
+            "extra": "avg tps: 404.21928046262946, max tps: 485.3200730947495, count: 55160"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2676.3069385572817,
+            "unit": "median tps",
+            "extra": "avg tps: 2670.3334013401786, max tps: 2713.0421050685977, count: 110320"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 500.61782343252617,
+            "unit": "median tps",
+            "extra": "avg tps: 497.2254200954653, max tps: 559.592184138658, count: 55160"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1813.540691025929,
+            "unit": "median tps",
+            "extra": "avg tps: 1804.0602735177645, max tps: 1819.4639353661898, count: 55160"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 26.59855576462283,
+            "unit": "median tps",
+            "extra": "avg tps: 37.01315787095702, max tps: 203.41306786571892, count: 55160"
           }
         ]
       }

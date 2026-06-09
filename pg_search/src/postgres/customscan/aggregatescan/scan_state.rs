@@ -91,6 +91,10 @@ pub struct DataFusionAggState {
 pub enum MppExecState {
     Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
     Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
+    /// The leader disabled MPP before setup (serial fallback). A parallel worker must emit
+    /// nothing: the leader computes the whole result, and a parallel aggregate worker has no
+    /// partitioned non-MPP path to fall into.
+    Disabled,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

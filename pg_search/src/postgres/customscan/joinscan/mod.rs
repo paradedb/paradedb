@@ -186,6 +186,7 @@ use crate::postgres::customscan::mpp::dispatch::{
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
+    MPP_DISABLED_OFFSET,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -901,6 +902,19 @@ impl ParallelQueryCapable for JoinScan {
             )
         };
 
+        // On any failure past this point the leader falls back to serial, but the parallel
+        // workers are already planned and will still launch. Stamp the disabled marker so they
+        // skip the MPP region instead of attaching to one that was never initialized.
+        let write_disabled_header = || unsafe {
+            write_custom_scan_header(
+                coordinate,
+                CustomScanMppHeader {
+                    mpp_offset: MPP_DISABLED_OFFSET,
+                    partitioning_source_idx: partitioning_idx as u64,
+                },
+            )
+        };
+
         // Build the coordinator dispatch payload (Tier 2): the leader slices the physical plan and
         // ships the per-stage subplans. Any failure (codec gap, oversized blob) falls back to
         // serial, which is correct, just slower.
@@ -915,6 +929,7 @@ impl ParallelQueryCapable for JoinScan {
                     pgrx::warning!(
                         "mpp join: dispatch runtime build failed: {e}; falling back to serial"
                     );
+                    write_disabled_header();
                     return;
                 }
             };
@@ -930,6 +945,7 @@ impl ParallelQueryCapable for JoinScan {
                     pgrx::warning!(
                         "mpp join: build_dispatch_blob failed: {e}; falling back to serial"
                     );
+                    write_disabled_header();
                     return;
                 }
             };
@@ -937,6 +953,7 @@ impl ParallelQueryCapable for JoinScan {
                 Ok(p) => p,
                 Err(e) => {
                     pgrx::warning!("mpp join: {e}; falling back to serial");
+                    write_disabled_header();
                     return;
                 }
             }
@@ -949,6 +966,7 @@ impl ParallelQueryCapable for JoinScan {
             }
             Err(e) => {
                 pgrx::warning!("mpp join: leader_setup failed: {e}; falling back to serial");
+                write_disabled_header();
             }
         }
     }
@@ -994,6 +1012,12 @@ impl ParallelQueryCapable for JoinScan {
         // MPP worker: read the header to find where the MPP region starts + which source we're
         // partitioning over. Hand the MPP region to `worker_setup`.
         let header = unsafe { read_custom_scan_header(coordinate) };
+        if header.mpp_offset == MPP_DISABLED_OFFSET {
+            // The leader disabled MPP before initializing the region (serial fallback). With
+            // `mpp` unset this worker runs the plain parallel join path, which claims segments
+            // from the shared pool like any non-MPP parallel scan.
+            return;
+        }
         let mpp_offset = header.mpp_offset as usize;
         state.custom_state_mut().mpp_partitioning_source_idx =
             Some(header.partitioning_source_idx as usize);
@@ -1008,7 +1032,10 @@ impl ParallelQueryCapable for JoinScan {
                 state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
             }
             Err(e) => {
-                pgrx::warning!("mpp join: worker_setup failed: {e}; falling back to serial");
+                // No disabled marker, so the leader initialized the region and will wait for
+                // this worker's EOFs. Producing rows through the plain parallel path here
+                // would mix protocols; fail the query instead.
+                pgrx::error!("mpp join: worker_setup failed: {e}");
             }
         }
     }

@@ -38,7 +38,17 @@ max_parallel_maintenance_workers = '2'        # CPUs / 2, at least 2, at most 8
 # End ParadeDB tuning recommendations
 ```
 
-To disable auto-tuning, set `PG_TUNE=false` in the container.
+To disable auto-tuning, set `PDB_TUNE=false` when you first run the container:
+
+```
+docker run \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=postgres \
+    -p 5432:5432 \
+    -e PDB_TUNE=false \
+    -d paradedb/paradedb:latest
+```
 
 ## CloudNativePG
 

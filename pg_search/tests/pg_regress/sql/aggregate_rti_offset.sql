@@ -1,16 +1,17 @@
 -- =====================================================================
 -- RTI offset fix for AggregateScan (issue #5266)
 -- =====================================================================
--- Tests that the RTI namespace mismatch between outer-query range-table
--- indices (written by setrefs into custom_scan_tlist) and inner-plan
--- heap_rti values in JoinSource is correctly detected and compensated.
+-- Tests INDEX_VAR resolution in cross-table custom_exprs when an
+-- AggregateScan on a JOIN is nested as a scalar subquery inside a larger
+-- outer query.
 --
--- When an AggregateScan on a JOIN is nested as a scalar subquery inside a
--- larger outer query, PostgreSQL's setrefs phase rewrites Var nodes in
+-- In that shape, PostgreSQL's setrefs phase rewrites Var nodes in
 -- custom_scan_tlist with outer-context RTIs (e.g. 2, 3) while the sources
--- were planned with inner RTIs (e.g. 1, 2). The fix: PredicateTranslator
--- computes rtoffset = outer_rti − inner_rti from the tlist at construction
--- time and applies it when resolving INDEX_VAR references.
+-- were planned with inner RTIs (e.g. 1, 2), so execution-time RTI lookups
+-- fail. The fix: build_tlist_col_map precomputes, at plan_custom_path time
+-- (before setrefs, while inner RTIs are still valid), a tlist-position →
+-- DataFusion column name map that is stored in PrivateData; execution
+-- resolves INDEX_VAR references through it with no RTI arithmetic at all.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -36,9 +37,9 @@ WITH (key_field='id', text_fields='{"name": {"fast": true}}');
 -- =====================================================================
 -- Section 1: Baseline — direct query, no RTI offset
 --
--- Inner RTIs match outer RTIs (no scalar-subquery nesting), so
--- rtoffset=0. Verifies the cross-table OR custom_expr path works
--- correctly before any offset is introduced.
+-- Inner RTIs match outer RTIs (no scalar-subquery nesting, so setrefs
+-- does not renumber). Verifies the cross-table OR custom_expr path works
+-- correctly before any RTI shift is introduced.
 --
 -- Cross-table OR: (o.id = 1 OR p.id = 2) cannot be pushed to either
 -- individual scan → becomes a custom_expr in the AggregateScan.
@@ -64,7 +65,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- A single-table scalar subquery precedes the agg-on-join subquery.
 -- The first subquery adds rti_p (RTI 1) to the outer range table, so
 -- setrefs rewrites the second subquery's tlist Vars to outer RTIs 2
--- and 3, while sources have inner heap_rtis 1 and 2. rtoffset = 1.
+-- and 3, while sources have inner heap_rtis 1 and 2 (shift of 1).
 -- =====================================================================
 
 SELECT
@@ -85,7 +86,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 --
 -- The first scalar subquery is itself a join (adds rti_p + rti_o = 2
 -- RTI slots). The second join's inner RTIs (1, 2) become outer RTIs
--- (3, 4). rtoffset = 2.
+-- (3, 4) — a shift of 2.
 -- =====================================================================
 
 SELECT
@@ -106,7 +107,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 --
 -- Two single-table subqueries precede the join subquery. Each adds one
 -- RTI slot to the outer range table, so the join subquery's inner RTIs
--- (1, 2) become outer RTIs (3, 4). rtoffset = 2.
+-- (1, 2) become outer RTIs (3, 4) — a shift of 2.
 -- =====================================================================
 
 SELECT
@@ -262,5 +263,73 @@ SELECT (SELECT COUNT(*)
         WHERE (NOT (products.id @@@ '3'))
            OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
 
+CREATE OR REPLACE FUNCTION explain_sanitize_oid(query text) RETURNS SETOF text AS $$
+DECLARE
+    plan_line text;
+BEGIN
+    FOR plan_line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+        -- Replace volatile "oid":123456 with a static "oid":000000 placeholder
+        RETURN NEXT regexp_replace(plan_line, '"oid":\d+', '"oid":000000', 'g');
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Check if custom AggregateScan is being used.
+SELECT explain_sanitize_oid($$
+SELECT (SELECT COUNT(*)
+        FROM products
+                 JOIN orders ON products.name = orders.name
+        WHERE (NOT (products.id = '3'))
+           OR ((products.name = 'bob') AND (orders.id = '3'))),
+       (SELECT COUNT(*)
+        FROM products
+                 JOIN orders ON products.name = orders.name
+        WHERE (NOT (products.id @@@ '3'))
+           OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
+$$);
+
 DROP TABLE orders;
 DROP TABLE products;
+
+-- =====================================================================
+-- Section 8: Self-join — same relation on both sides
+--
+-- build_tlist_col_map must distinguish the two instances of the same
+-- relation by RTI, not just relation OID: both sources share a heaprelid
+-- but have distinct execution aliases. An OID-only lookup always picks
+-- plan position 0, silently resolving b.id to a's column.
+--
+-- Data is asymmetric so a misresolved mapping changes the count:
+--   rti_s: (1,'red'), (2,'red'), (3,'red'), (4,'blue')
+--   self-join on name → 9 'red' pairs + 1 'blue' pair
+--   (b.id = 1 OR a.id = 2): {(1,1),(2,1),(3,1)} ∪ {(2,1),(2,2),(2,3)} = 5
+--   misresolved (a.id = 1 OR a.id = 2): 3 + 3 = 6
+--
+-- The join is deliberately on name while the OR predicate is on id;
+-- joining on id would force a.id = b.id and mask the misresolution.
+-- =====================================================================
+
+CREATE TABLE rti_s (id INT PRIMARY KEY, name TEXT NOT NULL);
+INSERT INTO rti_s VALUES (1, 'red'), (2, 'red'), (3, 'red'), (4, 'blue');
+
+CREATE INDEX rti_s_idx ON rti_s
+USING bm25 (id, name)
+WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+
+SELECT COUNT(*) FROM rti_s a JOIN rti_s b ON a.name = b.name
+WHERE a.name @@@ 'red OR blue' AND (b.id = 1 OR a.id = 2);
+
+-- Parity: native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*) FROM rti_s a JOIN rti_s b ON a.name = b.name
+WHERE a.name IN ('red', 'blue') AND (b.id = 1 OR a.id = 2);
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Self-join nested behind a preceding scalar subquery: combines the RTI
+-- shift (setrefs renumbering) with the same-OID source ambiguity.
+SELECT
+  (SELECT COUNT(*) FROM rti_s WHERE name = 'blue') AS sentinel,
+  (SELECT COUNT(*) FROM rti_s a JOIN rti_s b ON a.name = b.name
+   WHERE a.name @@@ 'red OR blue' AND (b.id = 1 OR a.id = 2)) AS self_join;
+
+DROP TABLE rti_s;

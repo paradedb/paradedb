@@ -178,8 +178,9 @@ pub enum PrivateData {
         /// - `None` — tlist[i] is not a plain Var (AggRef, function call, etc.).
         ///
         /// Using the precomputed string eliminates all execution-time source lookups.
-        /// `#[serde(default)]` ensures old cached plans deserialize to an empty Vec
-        /// and fail fast (forcing a re-plan that populates the map correctly).
+        /// `#[serde(default)]` lets plans serialized before this field existed
+        /// deserialize to an empty Vec; INDEX_VAR resolution then returns `None`
+        /// and translation errors out rather than misresolving columns.
         #[serde(default)]
         tlist_col_map: Vec<Option<String>>,
     },

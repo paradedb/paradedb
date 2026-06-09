@@ -2029,12 +2029,17 @@ unsafe fn detect_join_aggregate_topk(
 /// DataFusion column name `"<exec_alias>.<field>"` ready for `col()`.
 /// Non-Var entries (AggRefs, function calls, etc.) produce `None`.
 ///
-/// Source lookup uses `heaprelid` (relation OID, globally unique) rather than
-/// `heap_rti` (RTI, query-scoped) to avoid false matches when outer and inner
-/// PlannerInfo RTI namespaces collide (anti-join / sublink-pullup shapes).
+/// Source lookup matches on both `heap_rti` and `heaprelid`. RTI alone is
+/// ambiguous when the plan contains sources collected from sublink subplans
+/// (their inner PlannerInfo has its own RTI numbering that can collide with
+/// the outer one); OID alone is ambiguous for self-joins (the same relation
+/// appears as two sources with distinct execution aliases). Together they
+/// uniquely identify the source: tlist Vars only reference outer-namespace
+/// relations, where (rti, relid) pairs are unique.
 ///
-/// Must be called **before** PostgreSQL's `setrefs` pass so that `varno` still
-/// holds the inner heap RTI that `simple_rte_array` can resolve to a relid.
+/// Must be called **before** PostgreSQL's `setrefs` pass, so that `varno` is
+/// still an inner-plan RTI — the same namespace the sources were built with —
+/// and resolvable to a relid via `simple_rte_array`.
 unsafe fn build_tlist_col_map(
     custom_scan_tlist: *mut pg_sys::List,
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
@@ -2061,14 +2066,14 @@ unsafe fn build_tlist_col_map(
             let varno = (*var).varno as pg_sys::Index;
             let varattno = (*var).varattno;
 
-            // Resolve RTI → relation OID via the planner's range table.
-            // Using heaprelid (globally unique OID) instead of heap_rti avoids
-            // RTI namespace collisions between the outer and inner PlannerInfos
-            // that arise in anti-join / sublink-pullup shapes.
+            // Resolve RTI → relation OID via the planner's range table, then
+            // require the source to match on both RTI and OID (see doc comment).
             let rte = get_rte(rt_size, rt, varno)?;
             let relid = (*rte).relid;
 
-            let source = sources.iter().find(|s| s.scan_info.heaprelid == relid)?;
+            let source = sources
+                .iter()
+                .find(|s| s.contains_rti(varno) && s.scan_info.heaprelid == relid)?;
             let field_name = source.column_name(varattno)?;
 
             // Precompute the full DataFusion column name.  execution_alias() uses

@@ -111,3 +111,6 @@ FROM (SELECT relname,
       ORDER BY relname , low DESC ) AS x ;
 
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
+
+DROP FUNCTION IF EXISTS pdb.more_like_this(document text, min_doc_frequency pg_catalog.int4, max_doc_frequency pg_catalog.int4, min_term_frequency pg_catalog.int4, max_query_terms pg_catalog.int4, min_word_length pg_catalog.int4, max_word_length pg_catalog.int4, boost_factor pg_catalog.float4, stopwords text[]);
+CREATE OR REPLACE FUNCTION pdb.more_like_this(document text, fields text[] DEFAULT NULL, min_doc_frequency pg_catalog.int4 DEFAULT NULL, max_doc_frequency pg_catalog.int4 DEFAULT NULL, min_term_frequency pg_catalog.int4 DEFAULT NULL, max_query_terms pg_catalog.int4 DEFAULT NULL, min_word_length pg_catalog.int4 DEFAULT NULL, max_word_length pg_catalog.int4 DEFAULT NULL, boost_factor pg_catalog.float4 DEFAULT NULL, stopwords text[] DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'more_like_this_fields_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;

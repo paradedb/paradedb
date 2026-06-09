@@ -1,0 +1,782 @@
+-- Regression test for #5108: placeholder functions (score / snippet /
+-- snippet_positions) panicked with "Unsupported query shape" in parallel plans
+-- using comma-join syntax (FROM a, b WHERE ...). placeholder_support only
+-- treated an explicit JOIN ... ON (T_JoinExpr) as a join context; a comma join
+-- is a FromExpr with >1 fromlist entries and no JoinExpr, so the placeholder was
+-- left unwrapped and re-evaluated above the Gather Merge.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS issue_5108_chunks CASCADE;
+DROP TABLE IF EXISTS issue_5108_docs CASCADE;
+CREATE TABLE issue_5108_docs (
+    id bigserial PRIMARY KEY,
+    filename text
+);
+CREATE TABLE issue_5108_chunks (
+    id bigserial PRIMARY KEY,
+    doc_id bigint REFERENCES issue_5108_docs(id),
+    body text
+);
+INSERT INTO issue_5108_docs (filename)
+SELECT 'doc_' || g || '.pdf' FROM generate_series(1, 10) g;
+CREATE INDEX issue_5108_chunks_bm25 ON issue_5108_chunks
+USING bm25 (id, body) WITH (key_field = 'id');
+INSERT INTO issue_5108_chunks (doc_id, body)
+SELECT ((g - 1) % 10) + 1,
+       CASE WHEN g % 3 = 0 THEN 'healthcare notes ' || g ELSE 'unrelated ' || g END
+FROM generate_series(1, 6000) g;
+ANALYZE issue_5108_docs;
+ANALYZE issue_5108_chunks;
+SET max_parallel_workers_per_gather = 2;
+SET debug_parallel_query = on;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET enable_hashjoin = off;
+SET enable_mergejoin = off;
+-- Comma join: every placeholder family must plan the dangerous shape and
+-- execute without panicking. VERBOSE captures output lists through Gather Merge;
+-- the following SELECT executes the same query.
+EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
+SELECT c.body, d.filename, pdb.score(c.id) AS s
+FROM issue_5108_chunks c, issue_5108_docs d
+WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+ORDER BY s DESC, c.id LIMIT 100;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.body, d.filename, (pdb.score(c.id)), c.id
+   ->  Nested Loop
+         Output: c.body, d.filename, (pdb.score(c.id)), c.id
+         Inner Unique: true
+         ->  Gather Merge
+               Output: c.body, c.id, c.doc_id, (pdb.score(c.id))
+               Workers Planned: 1
+               ->  Sort
+                     Output: c.body, c.id, c.doc_id, (pdb.score(c.id)), (pdb.score(c.id))
+                     Sort Key: (pdb.score(c.id)) DESC, c.id
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks c
+                           Output: c.body, c.id, c.doc_id, pdb.score(c.id), pdb.score(c.id)
+                           Table: issue_5108_chunks
+                           Index: issue_5108_chunks_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         ->  Memoize
+               Output: d.filename, d.id
+               Cache Key: c.doc_id
+               Cache Mode: logical
+               ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
+                     Output: d.filename, d.id
+                     Index Cond: (d.id = c.doc_id)
+(25 rows)
+
+SELECT c.body, d.filename, pdb.score(c.id) AS s
+FROM issue_5108_chunks c, issue_5108_docs d
+WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+ORDER BY s DESC, c.id LIMIT 100;
+         body         |  filename  |     s     
+----------------------+------------+-----------
+ healthcare notes 3   | doc_3.pdf  | 0.9835667
+ healthcare notes 6   | doc_6.pdf  | 0.9835667
+ healthcare notes 9   | doc_9.pdf  | 0.9835667
+ healthcare notes 12  | doc_2.pdf  | 0.9835667
+ healthcare notes 15  | doc_5.pdf  | 0.9835667
+ healthcare notes 18  | doc_8.pdf  | 0.9835667
+ healthcare notes 21  | doc_1.pdf  | 0.9835667
+ healthcare notes 24  | doc_4.pdf  | 0.9835667
+ healthcare notes 27  | doc_7.pdf  | 0.9835667
+ healthcare notes 30  | doc_10.pdf | 0.9835667
+ healthcare notes 33  | doc_3.pdf  | 0.9835667
+ healthcare notes 36  | doc_6.pdf  | 0.9835667
+ healthcare notes 39  | doc_9.pdf  | 0.9835667
+ healthcare notes 42  | doc_2.pdf  | 0.9835667
+ healthcare notes 45  | doc_5.pdf  | 0.9835667
+ healthcare notes 48  | doc_8.pdf  | 0.9835667
+ healthcare notes 51  | doc_1.pdf  | 0.9835667
+ healthcare notes 54  | doc_4.pdf  | 0.9835667
+ healthcare notes 57  | doc_7.pdf  | 0.9835667
+ healthcare notes 60  | doc_10.pdf | 0.9835667
+ healthcare notes 63  | doc_3.pdf  | 0.9835667
+ healthcare notes 66  | doc_6.pdf  | 0.9835667
+ healthcare notes 69  | doc_9.pdf  | 0.9835667
+ healthcare notes 72  | doc_2.pdf  | 0.9835667
+ healthcare notes 75  | doc_5.pdf  | 0.9835667
+ healthcare notes 78  | doc_8.pdf  | 0.9835667
+ healthcare notes 81  | doc_1.pdf  | 0.9835667
+ healthcare notes 84  | doc_4.pdf  | 0.9835667
+ healthcare notes 87  | doc_7.pdf  | 0.9835667
+ healthcare notes 90  | doc_10.pdf | 0.9835667
+ healthcare notes 93  | doc_3.pdf  | 0.9835667
+ healthcare notes 96  | doc_6.pdf  | 0.9835667
+ healthcare notes 99  | doc_9.pdf  | 0.9835667
+ healthcare notes 102 | doc_2.pdf  | 0.9835667
+ healthcare notes 105 | doc_5.pdf  | 0.9835667
+ healthcare notes 108 | doc_8.pdf  | 0.9835667
+ healthcare notes 111 | doc_1.pdf  | 0.9835667
+ healthcare notes 114 | doc_4.pdf  | 0.9835667
+ healthcare notes 117 | doc_7.pdf  | 0.9835667
+ healthcare notes 120 | doc_10.pdf | 0.9835667
+ healthcare notes 123 | doc_3.pdf  | 0.9835667
+ healthcare notes 126 | doc_6.pdf  | 0.9835667
+ healthcare notes 129 | doc_9.pdf  | 0.9835667
+ healthcare notes 132 | doc_2.pdf  | 0.9835667
+ healthcare notes 135 | doc_5.pdf  | 0.9835667
+ healthcare notes 138 | doc_8.pdf  | 0.9835667
+ healthcare notes 141 | doc_1.pdf  | 0.9835667
+ healthcare notes 144 | doc_4.pdf  | 0.9835667
+ healthcare notes 147 | doc_7.pdf  | 0.9835667
+ healthcare notes 150 | doc_10.pdf | 0.9835667
+ healthcare notes 153 | doc_3.pdf  | 0.9835667
+ healthcare notes 156 | doc_6.pdf  | 0.9835667
+ healthcare notes 159 | doc_9.pdf  | 0.9835667
+ healthcare notes 162 | doc_2.pdf  | 0.9835667
+ healthcare notes 165 | doc_5.pdf  | 0.9835667
+ healthcare notes 168 | doc_8.pdf  | 0.9835667
+ healthcare notes 171 | doc_1.pdf  | 0.9835667
+ healthcare notes 174 | doc_4.pdf  | 0.9835667
+ healthcare notes 177 | doc_7.pdf  | 0.9835667
+ healthcare notes 180 | doc_10.pdf | 0.9835667
+ healthcare notes 183 | doc_3.pdf  | 0.9835667
+ healthcare notes 186 | doc_6.pdf  | 0.9835667
+ healthcare notes 189 | doc_9.pdf  | 0.9835667
+ healthcare notes 192 | doc_2.pdf  | 0.9835667
+ healthcare notes 195 | doc_5.pdf  | 0.9835667
+ healthcare notes 198 | doc_8.pdf  | 0.9835667
+ healthcare notes 201 | doc_1.pdf  | 0.9835667
+ healthcare notes 204 | doc_4.pdf  | 0.9835667
+ healthcare notes 207 | doc_7.pdf  | 0.9835667
+ healthcare notes 210 | doc_10.pdf | 0.9835667
+ healthcare notes 213 | doc_3.pdf  | 0.9835667
+ healthcare notes 216 | doc_6.pdf  | 0.9835667
+ healthcare notes 219 | doc_9.pdf  | 0.9835667
+ healthcare notes 222 | doc_2.pdf  | 0.9835667
+ healthcare notes 225 | doc_5.pdf  | 0.9835667
+ healthcare notes 228 | doc_8.pdf  | 0.9835667
+ healthcare notes 231 | doc_1.pdf  | 0.9835667
+ healthcare notes 234 | doc_4.pdf  | 0.9835667
+ healthcare notes 237 | doc_7.pdf  | 0.9835667
+ healthcare notes 240 | doc_10.pdf | 0.9835667
+ healthcare notes 243 | doc_3.pdf  | 0.9835667
+ healthcare notes 246 | doc_6.pdf  | 0.9835667
+ healthcare notes 249 | doc_9.pdf  | 0.9835667
+ healthcare notes 252 | doc_2.pdf  | 0.9835667
+ healthcare notes 255 | doc_5.pdf  | 0.9835667
+ healthcare notes 258 | doc_8.pdf  | 0.9835667
+ healthcare notes 261 | doc_1.pdf  | 0.9835667
+ healthcare notes 264 | doc_4.pdf  | 0.9835667
+ healthcare notes 267 | doc_7.pdf  | 0.9835667
+ healthcare notes 270 | doc_10.pdf | 0.9835667
+ healthcare notes 273 | doc_3.pdf  | 0.9835667
+ healthcare notes 276 | doc_6.pdf  | 0.9835667
+ healthcare notes 279 | doc_9.pdf  | 0.9835667
+ healthcare notes 282 | doc_2.pdf  | 0.9835667
+ healthcare notes 285 | doc_5.pdf  | 0.9835667
+ healthcare notes 288 | doc_8.pdf  | 0.9835667
+ healthcare notes 291 | doc_1.pdf  | 0.9835667
+ healthcare notes 294 | doc_4.pdf  | 0.9835667
+ healthcare notes 297 | doc_7.pdf  | 0.9835667
+ healthcare notes 300 | doc_10.pdf | 0.9835667
+(100 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
+SELECT pdb.snippet(c.body) AS snip, d.filename
+FROM issue_5108_chunks c, issue_5108_docs d
+WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+ORDER BY snip DESC, c.id LIMIT 100;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: (pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)), d.filename, c.id
+   ->  Nested Loop
+         Output: (pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)), d.filename, c.id
+         Inner Unique: true
+         ->  Gather Merge
+               Output: c.id, c.doc_id, (pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+               Workers Planned: 1
+               ->  Sort
+                     Output: c.id, c.doc_id, (pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)), (pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+                     Sort Key: (pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)) DESC, c.id
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks c
+                           Output: c.id, c.doc_id, pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer), pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+                           Table: issue_5108_chunks
+                           Index: issue_5108_chunks_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         ->  Memoize
+               Output: d.filename, d.id
+               Cache Key: c.doc_id
+               Cache Mode: logical
+               ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
+                     Output: d.filename, d.id
+                     Index Cond: (d.id = c.doc_id)
+(25 rows)
+
+SELECT pdb.snippet(c.body) AS snip, d.filename
+FROM issue_5108_chunks c, issue_5108_docs d
+WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+ORDER BY snip DESC, c.id LIMIT 100;
+            snip             |  filename  
+-----------------------------+------------
+ <b>healthcare</b> notes 999 | doc_9.pdf
+ <b>healthcare</b> notes 996 | doc_6.pdf
+ <b>healthcare</b> notes 993 | doc_3.pdf
+ <b>healthcare</b> notes 990 | doc_10.pdf
+ <b>healthcare</b> notes 99  | doc_9.pdf
+ <b>healthcare</b> notes 987 | doc_7.pdf
+ <b>healthcare</b> notes 984 | doc_4.pdf
+ <b>healthcare</b> notes 981 | doc_1.pdf
+ <b>healthcare</b> notes 978 | doc_8.pdf
+ <b>healthcare</b> notes 975 | doc_5.pdf
+ <b>healthcare</b> notes 972 | doc_2.pdf
+ <b>healthcare</b> notes 969 | doc_9.pdf
+ <b>healthcare</b> notes 966 | doc_6.pdf
+ <b>healthcare</b> notes 963 | doc_3.pdf
+ <b>healthcare</b> notes 960 | doc_10.pdf
+ <b>healthcare</b> notes 96  | doc_6.pdf
+ <b>healthcare</b> notes 957 | doc_7.pdf
+ <b>healthcare</b> notes 954 | doc_4.pdf
+ <b>healthcare</b> notes 951 | doc_1.pdf
+ <b>healthcare</b> notes 948 | doc_8.pdf
+ <b>healthcare</b> notes 945 | doc_5.pdf
+ <b>healthcare</b> notes 942 | doc_2.pdf
+ <b>healthcare</b> notes 939 | doc_9.pdf
+ <b>healthcare</b> notes 936 | doc_6.pdf
+ <b>healthcare</b> notes 933 | doc_3.pdf
+ <b>healthcare</b> notes 930 | doc_10.pdf
+ <b>healthcare</b> notes 93  | doc_3.pdf
+ <b>healthcare</b> notes 927 | doc_7.pdf
+ <b>healthcare</b> notes 924 | doc_4.pdf
+ <b>healthcare</b> notes 921 | doc_1.pdf
+ <b>healthcare</b> notes 918 | doc_8.pdf
+ <b>healthcare</b> notes 915 | doc_5.pdf
+ <b>healthcare</b> notes 912 | doc_2.pdf
+ <b>healthcare</b> notes 909 | doc_9.pdf
+ <b>healthcare</b> notes 906 | doc_6.pdf
+ <b>healthcare</b> notes 903 | doc_3.pdf
+ <b>healthcare</b> notes 900 | doc_10.pdf
+ <b>healthcare</b> notes 90  | doc_10.pdf
+ <b>healthcare</b> notes 9   | doc_9.pdf
+ <b>healthcare</b> notes 897 | doc_7.pdf
+ <b>healthcare</b> notes 894 | doc_4.pdf
+ <b>healthcare</b> notes 891 | doc_1.pdf
+ <b>healthcare</b> notes 888 | doc_8.pdf
+ <b>healthcare</b> notes 885 | doc_5.pdf
+ <b>healthcare</b> notes 882 | doc_2.pdf
+ <b>healthcare</b> notes 879 | doc_9.pdf
+ <b>healthcare</b> notes 876 | doc_6.pdf
+ <b>healthcare</b> notes 873 | doc_3.pdf
+ <b>healthcare</b> notes 870 | doc_10.pdf
+ <b>healthcare</b> notes 87  | doc_7.pdf
+ <b>healthcare</b> notes 867 | doc_7.pdf
+ <b>healthcare</b> notes 864 | doc_4.pdf
+ <b>healthcare</b> notes 861 | doc_1.pdf
+ <b>healthcare</b> notes 858 | doc_8.pdf
+ <b>healthcare</b> notes 855 | doc_5.pdf
+ <b>healthcare</b> notes 852 | doc_2.pdf
+ <b>healthcare</b> notes 849 | doc_9.pdf
+ <b>healthcare</b> notes 846 | doc_6.pdf
+ <b>healthcare</b> notes 843 | doc_3.pdf
+ <b>healthcare</b> notes 840 | doc_10.pdf
+ <b>healthcare</b> notes 84  | doc_4.pdf
+ <b>healthcare</b> notes 837 | doc_7.pdf
+ <b>healthcare</b> notes 834 | doc_4.pdf
+ <b>healthcare</b> notes 831 | doc_1.pdf
+ <b>healthcare</b> notes 828 | doc_8.pdf
+ <b>healthcare</b> notes 825 | doc_5.pdf
+ <b>healthcare</b> notes 822 | doc_2.pdf
+ <b>healthcare</b> notes 819 | doc_9.pdf
+ <b>healthcare</b> notes 816 | doc_6.pdf
+ <b>healthcare</b> notes 813 | doc_3.pdf
+ <b>healthcare</b> notes 810 | doc_10.pdf
+ <b>healthcare</b> notes 81  | doc_1.pdf
+ <b>healthcare</b> notes 807 | doc_7.pdf
+ <b>healthcare</b> notes 804 | doc_4.pdf
+ <b>healthcare</b> notes 801 | doc_1.pdf
+ <b>healthcare</b> notes 798 | doc_8.pdf
+ <b>healthcare</b> notes 795 | doc_5.pdf
+ <b>healthcare</b> notes 792 | doc_2.pdf
+ <b>healthcare</b> notes 789 | doc_9.pdf
+ <b>healthcare</b> notes 786 | doc_6.pdf
+ <b>healthcare</b> notes 783 | doc_3.pdf
+ <b>healthcare</b> notes 780 | doc_10.pdf
+ <b>healthcare</b> notes 78  | doc_8.pdf
+ <b>healthcare</b> notes 777 | doc_7.pdf
+ <b>healthcare</b> notes 774 | doc_4.pdf
+ <b>healthcare</b> notes 771 | doc_1.pdf
+ <b>healthcare</b> notes 768 | doc_8.pdf
+ <b>healthcare</b> notes 765 | doc_5.pdf
+ <b>healthcare</b> notes 762 | doc_2.pdf
+ <b>healthcare</b> notes 759 | doc_9.pdf
+ <b>healthcare</b> notes 756 | doc_6.pdf
+ <b>healthcare</b> notes 753 | doc_3.pdf
+ <b>healthcare</b> notes 750 | doc_10.pdf
+ <b>healthcare</b> notes 75  | doc_5.pdf
+ <b>healthcare</b> notes 747 | doc_7.pdf
+ <b>healthcare</b> notes 744 | doc_4.pdf
+ <b>healthcare</b> notes 741 | doc_1.pdf
+ <b>healthcare</b> notes 738 | doc_8.pdf
+ <b>healthcare</b> notes 735 | doc_5.pdf
+ <b>healthcare</b> notes 732 | doc_2.pdf
+(100 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
+SELECT pdb.snippet_positions(c.body) AS pos, d.filename
+FROM issue_5108_chunks c, issue_5108_docs d
+WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+ORDER BY pos DESC, c.id LIMIT 100;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: (pdb.snippet_positions(c.body, NULL::integer, NULL::integer)), d.filename, c.id
+   ->  Nested Loop
+         Output: (pdb.snippet_positions(c.body, NULL::integer, NULL::integer)), d.filename, c.id
+         Inner Unique: true
+         ->  Gather Merge
+               Output: c.id, c.doc_id, (pdb.snippet_positions(c.body, NULL::integer, NULL::integer))
+               Workers Planned: 1
+               ->  Sort
+                     Output: c.id, c.doc_id, (pdb.snippet_positions(c.body, NULL::integer, NULL::integer)), (pdb.snippet_positions(c.body, NULL::integer, NULL::integer))
+                     Sort Key: (pdb.snippet_positions(c.body, NULL::integer, NULL::integer)) DESC, c.id
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks c
+                           Output: c.id, c.doc_id, pdb.snippet_positions(c.body, NULL::integer, NULL::integer), pdb.snippet_positions(c.body, NULL::integer, NULL::integer)
+                           Table: issue_5108_chunks
+                           Index: issue_5108_chunks_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         ->  Memoize
+               Output: d.filename, d.id
+               Cache Key: c.doc_id
+               Cache Mode: logical
+               ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
+                     Output: d.filename, d.id
+                     Index Cond: (d.id = c.doc_id)
+(25 rows)
+
+SELECT pdb.snippet_positions(c.body) AS pos, d.filename
+FROM issue_5108_chunks c, issue_5108_docs d
+WHERE d.id = c.doc_id AND c.id @@@ paradedb.match('body', 'healthcare')
+ORDER BY pos DESC, c.id LIMIT 100;
+   pos    |  filename  
+----------+------------
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+ {{0,10}} | doc_3.pdf
+ {{0,10}} | doc_6.pdf
+ {{0,10}} | doc_9.pdf
+ {{0,10}} | doc_2.pdf
+ {{0,10}} | doc_5.pdf
+ {{0,10}} | doc_8.pdf
+ {{0,10}} | doc_1.pdf
+ {{0,10}} | doc_4.pdf
+ {{0,10}} | doc_7.pdf
+ {{0,10}} | doc_10.pdf
+(100 rows)
+
+-- Explicit JOIN ON via an inlined single-use CTE (the placeholder is planned in
+-- a single-table level before the parent join consumes it).
+EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
+WITH matched AS (
+    SELECT id, body, doc_id, pdb.score(id) AS s
+    FROM issue_5108_chunks
+    WHERE id @@@ paradedb.match('body', 'healthcare')
+    ORDER BY s DESC, id LIMIT 100
+)
+SELECT m.body, d.filename, m.s
+FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
+ORDER BY m.s DESC, m.id;
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop
+   Output: issue_5108_chunks.body, d.filename, (pdb.score(issue_5108_chunks.id)), issue_5108_chunks.id
+   Inner Unique: true
+   ->  Limit
+         Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, (pdb.score(issue_5108_chunks.id))
+         ->  Gather Merge
+               Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, (pdb.score(issue_5108_chunks.id))
+               Workers Planned: 1
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks
+                     Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, pdb.score(issue_5108_chunks.id)
+                     Table: issue_5108_chunks
+                     Index: issue_5108_chunks_bm25
+                     Exec Method: TopKScanExecState
+                     Scores: true
+                        TopK Order By: pdb.score() desc, id asc
+                        TopK Limit: 100
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+   ->  Memoize
+         Output: d.filename, d.id
+         Cache Key: issue_5108_chunks.doc_id
+         Cache Mode: logical
+         ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
+               Output: d.filename, d.id
+               Index Cond: (d.id = issue_5108_chunks.doc_id)
+(24 rows)
+
+WITH matched AS (
+    SELECT id, body, doc_id, pdb.score(id) AS s
+    FROM issue_5108_chunks
+    WHERE id @@@ paradedb.match('body', 'healthcare')
+    ORDER BY s DESC, id LIMIT 100
+)
+SELECT m.body, d.filename, m.s
+FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
+ORDER BY m.s DESC, m.id;
+         body         |  filename  |     s     
+----------------------+------------+-----------
+ healthcare notes 3   | doc_3.pdf  | 0.9835667
+ healthcare notes 6   | doc_6.pdf  | 0.9835667
+ healthcare notes 9   | doc_9.pdf  | 0.9835667
+ healthcare notes 12  | doc_2.pdf  | 0.9835667
+ healthcare notes 15  | doc_5.pdf  | 0.9835667
+ healthcare notes 18  | doc_8.pdf  | 0.9835667
+ healthcare notes 21  | doc_1.pdf  | 0.9835667
+ healthcare notes 24  | doc_4.pdf  | 0.9835667
+ healthcare notes 27  | doc_7.pdf  | 0.9835667
+ healthcare notes 30  | doc_10.pdf | 0.9835667
+ healthcare notes 33  | doc_3.pdf  | 0.9835667
+ healthcare notes 36  | doc_6.pdf  | 0.9835667
+ healthcare notes 39  | doc_9.pdf  | 0.9835667
+ healthcare notes 42  | doc_2.pdf  | 0.9835667
+ healthcare notes 45  | doc_5.pdf  | 0.9835667
+ healthcare notes 48  | doc_8.pdf  | 0.9835667
+ healthcare notes 51  | doc_1.pdf  | 0.9835667
+ healthcare notes 54  | doc_4.pdf  | 0.9835667
+ healthcare notes 57  | doc_7.pdf  | 0.9835667
+ healthcare notes 60  | doc_10.pdf | 0.9835667
+ healthcare notes 63  | doc_3.pdf  | 0.9835667
+ healthcare notes 66  | doc_6.pdf  | 0.9835667
+ healthcare notes 69  | doc_9.pdf  | 0.9835667
+ healthcare notes 72  | doc_2.pdf  | 0.9835667
+ healthcare notes 75  | doc_5.pdf  | 0.9835667
+ healthcare notes 78  | doc_8.pdf  | 0.9835667
+ healthcare notes 81  | doc_1.pdf  | 0.9835667
+ healthcare notes 84  | doc_4.pdf  | 0.9835667
+ healthcare notes 87  | doc_7.pdf  | 0.9835667
+ healthcare notes 90  | doc_10.pdf | 0.9835667
+ healthcare notes 93  | doc_3.pdf  | 0.9835667
+ healthcare notes 96  | doc_6.pdf  | 0.9835667
+ healthcare notes 99  | doc_9.pdf  | 0.9835667
+ healthcare notes 102 | doc_2.pdf  | 0.9835667
+ healthcare notes 105 | doc_5.pdf  | 0.9835667
+ healthcare notes 108 | doc_8.pdf  | 0.9835667
+ healthcare notes 111 | doc_1.pdf  | 0.9835667
+ healthcare notes 114 | doc_4.pdf  | 0.9835667
+ healthcare notes 117 | doc_7.pdf  | 0.9835667
+ healthcare notes 120 | doc_10.pdf | 0.9835667
+ healthcare notes 123 | doc_3.pdf  | 0.9835667
+ healthcare notes 126 | doc_6.pdf  | 0.9835667
+ healthcare notes 129 | doc_9.pdf  | 0.9835667
+ healthcare notes 132 | doc_2.pdf  | 0.9835667
+ healthcare notes 135 | doc_5.pdf  | 0.9835667
+ healthcare notes 138 | doc_8.pdf  | 0.9835667
+ healthcare notes 141 | doc_1.pdf  | 0.9835667
+ healthcare notes 144 | doc_4.pdf  | 0.9835667
+ healthcare notes 147 | doc_7.pdf  | 0.9835667
+ healthcare notes 150 | doc_10.pdf | 0.9835667
+ healthcare notes 153 | doc_3.pdf  | 0.9835667
+ healthcare notes 156 | doc_6.pdf  | 0.9835667
+ healthcare notes 159 | doc_9.pdf  | 0.9835667
+ healthcare notes 162 | doc_2.pdf  | 0.9835667
+ healthcare notes 165 | doc_5.pdf  | 0.9835667
+ healthcare notes 168 | doc_8.pdf  | 0.9835667
+ healthcare notes 171 | doc_1.pdf  | 0.9835667
+ healthcare notes 174 | doc_4.pdf  | 0.9835667
+ healthcare notes 177 | doc_7.pdf  | 0.9835667
+ healthcare notes 180 | doc_10.pdf | 0.9835667
+ healthcare notes 183 | doc_3.pdf  | 0.9835667
+ healthcare notes 186 | doc_6.pdf  | 0.9835667
+ healthcare notes 189 | doc_9.pdf  | 0.9835667
+ healthcare notes 192 | doc_2.pdf  | 0.9835667
+ healthcare notes 195 | doc_5.pdf  | 0.9835667
+ healthcare notes 198 | doc_8.pdf  | 0.9835667
+ healthcare notes 201 | doc_1.pdf  | 0.9835667
+ healthcare notes 204 | doc_4.pdf  | 0.9835667
+ healthcare notes 207 | doc_7.pdf  | 0.9835667
+ healthcare notes 210 | doc_10.pdf | 0.9835667
+ healthcare notes 213 | doc_3.pdf  | 0.9835667
+ healthcare notes 216 | doc_6.pdf  | 0.9835667
+ healthcare notes 219 | doc_9.pdf  | 0.9835667
+ healthcare notes 222 | doc_2.pdf  | 0.9835667
+ healthcare notes 225 | doc_5.pdf  | 0.9835667
+ healthcare notes 228 | doc_8.pdf  | 0.9835667
+ healthcare notes 231 | doc_1.pdf  | 0.9835667
+ healthcare notes 234 | doc_4.pdf  | 0.9835667
+ healthcare notes 237 | doc_7.pdf  | 0.9835667
+ healthcare notes 240 | doc_10.pdf | 0.9835667
+ healthcare notes 243 | doc_3.pdf  | 0.9835667
+ healthcare notes 246 | doc_6.pdf  | 0.9835667
+ healthcare notes 249 | doc_9.pdf  | 0.9835667
+ healthcare notes 252 | doc_2.pdf  | 0.9835667
+ healthcare notes 255 | doc_5.pdf  | 0.9835667
+ healthcare notes 258 | doc_8.pdf  | 0.9835667
+ healthcare notes 261 | doc_1.pdf  | 0.9835667
+ healthcare notes 264 | doc_4.pdf  | 0.9835667
+ healthcare notes 267 | doc_7.pdf  | 0.9835667
+ healthcare notes 270 | doc_10.pdf | 0.9835667
+ healthcare notes 273 | doc_3.pdf  | 0.9835667
+ healthcare notes 276 | doc_6.pdf  | 0.9835667
+ healthcare notes 279 | doc_9.pdf  | 0.9835667
+ healthcare notes 282 | doc_2.pdf  | 0.9835667
+ healthcare notes 285 | doc_5.pdf  | 0.9835667
+ healthcare notes 288 | doc_8.pdf  | 0.9835667
+ healthcare notes 291 | doc_1.pdf  | 0.9835667
+ healthcare notes 294 | doc_4.pdf  | 0.9835667
+ healthcare notes 297 | doc_7.pdf  | 0.9835667
+ healthcare notes 300 | doc_10.pdf | 0.9835667
+(100 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
+WITH matched AS (
+    SELECT id, doc_id, pdb.snippet(body) AS snip
+    FROM issue_5108_chunks
+    WHERE id @@@ paradedb.match('body', 'healthcare')
+    ORDER BY snip DESC, id LIMIT 100
+)
+SELECT m.snip, d.filename
+FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
+ORDER BY m.snip DESC, m.id;
+WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5108_chunks)
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop
+   Output: (pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)), d.filename, issue_5108_chunks.id
+   Inner Unique: true
+   ->  Limit
+         Output: issue_5108_chunks.id, issue_5108_chunks.doc_id, (pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+         ->  Gather Merge
+               Output: issue_5108_chunks.id, issue_5108_chunks.doc_id, (pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+               Workers Planned: 1
+               ->  Sort
+                     Output: issue_5108_chunks.id, issue_5108_chunks.doc_id, (pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+                     Sort Key: (pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)) DESC, issue_5108_chunks.id
+                     ->  Parallel Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks
+                           Output: issue_5108_chunks.id, issue_5108_chunks.doc_id, pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+                           Table: issue_5108_chunks
+                           Index: issue_5108_chunks_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+   ->  Memoize
+         Output: d.filename, d.id
+         Cache Key: issue_5108_chunks.doc_id
+         Cache Mode: logical
+         ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
+               Output: d.filename, d.id
+               Index Cond: (d.id = issue_5108_chunks.doc_id)
+(25 rows)
+
+WITH matched AS (
+    SELECT id, doc_id, pdb.snippet(body) AS snip
+    FROM issue_5108_chunks
+    WHERE id @@@ paradedb.match('body', 'healthcare')
+    ORDER BY snip DESC, id LIMIT 100
+)
+SELECT m.snip, d.filename
+FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
+ORDER BY m.snip DESC, m.id;
+WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5108_chunks)
+            snip             |  filename  
+-----------------------------+------------
+ <b>healthcare</b> notes 999 | doc_9.pdf
+ <b>healthcare</b> notes 996 | doc_6.pdf
+ <b>healthcare</b> notes 993 | doc_3.pdf
+ <b>healthcare</b> notes 990 | doc_10.pdf
+ <b>healthcare</b> notes 99  | doc_9.pdf
+ <b>healthcare</b> notes 987 | doc_7.pdf
+ <b>healthcare</b> notes 984 | doc_4.pdf
+ <b>healthcare</b> notes 981 | doc_1.pdf
+ <b>healthcare</b> notes 978 | doc_8.pdf
+ <b>healthcare</b> notes 975 | doc_5.pdf
+ <b>healthcare</b> notes 972 | doc_2.pdf
+ <b>healthcare</b> notes 969 | doc_9.pdf
+ <b>healthcare</b> notes 966 | doc_6.pdf
+ <b>healthcare</b> notes 963 | doc_3.pdf
+ <b>healthcare</b> notes 960 | doc_10.pdf
+ <b>healthcare</b> notes 96  | doc_6.pdf
+ <b>healthcare</b> notes 957 | doc_7.pdf
+ <b>healthcare</b> notes 954 | doc_4.pdf
+ <b>healthcare</b> notes 951 | doc_1.pdf
+ <b>healthcare</b> notes 948 | doc_8.pdf
+ <b>healthcare</b> notes 945 | doc_5.pdf
+ <b>healthcare</b> notes 942 | doc_2.pdf
+ <b>healthcare</b> notes 939 | doc_9.pdf
+ <b>healthcare</b> notes 936 | doc_6.pdf
+ <b>healthcare</b> notes 933 | doc_3.pdf
+ <b>healthcare</b> notes 930 | doc_10.pdf
+ <b>healthcare</b> notes 93  | doc_3.pdf
+ <b>healthcare</b> notes 927 | doc_7.pdf
+ <b>healthcare</b> notes 924 | doc_4.pdf
+ <b>healthcare</b> notes 921 | doc_1.pdf
+ <b>healthcare</b> notes 918 | doc_8.pdf
+ <b>healthcare</b> notes 915 | doc_5.pdf
+ <b>healthcare</b> notes 912 | doc_2.pdf
+ <b>healthcare</b> notes 909 | doc_9.pdf
+ <b>healthcare</b> notes 906 | doc_6.pdf
+ <b>healthcare</b> notes 903 | doc_3.pdf
+ <b>healthcare</b> notes 900 | doc_10.pdf
+ <b>healthcare</b> notes 90  | doc_10.pdf
+ <b>healthcare</b> notes 9   | doc_9.pdf
+ <b>healthcare</b> notes 897 | doc_7.pdf
+ <b>healthcare</b> notes 894 | doc_4.pdf
+ <b>healthcare</b> notes 891 | doc_1.pdf
+ <b>healthcare</b> notes 888 | doc_8.pdf
+ <b>healthcare</b> notes 885 | doc_5.pdf
+ <b>healthcare</b> notes 882 | doc_2.pdf
+ <b>healthcare</b> notes 879 | doc_9.pdf
+ <b>healthcare</b> notes 876 | doc_6.pdf
+ <b>healthcare</b> notes 873 | doc_3.pdf
+ <b>healthcare</b> notes 870 | doc_10.pdf
+ <b>healthcare</b> notes 87  | doc_7.pdf
+ <b>healthcare</b> notes 867 | doc_7.pdf
+ <b>healthcare</b> notes 864 | doc_4.pdf
+ <b>healthcare</b> notes 861 | doc_1.pdf
+ <b>healthcare</b> notes 858 | doc_8.pdf
+ <b>healthcare</b> notes 855 | doc_5.pdf
+ <b>healthcare</b> notes 852 | doc_2.pdf
+ <b>healthcare</b> notes 849 | doc_9.pdf
+ <b>healthcare</b> notes 846 | doc_6.pdf
+ <b>healthcare</b> notes 843 | doc_3.pdf
+ <b>healthcare</b> notes 840 | doc_10.pdf
+ <b>healthcare</b> notes 84  | doc_4.pdf
+ <b>healthcare</b> notes 837 | doc_7.pdf
+ <b>healthcare</b> notes 834 | doc_4.pdf
+ <b>healthcare</b> notes 831 | doc_1.pdf
+ <b>healthcare</b> notes 828 | doc_8.pdf
+ <b>healthcare</b> notes 825 | doc_5.pdf
+ <b>healthcare</b> notes 822 | doc_2.pdf
+ <b>healthcare</b> notes 819 | doc_9.pdf
+ <b>healthcare</b> notes 816 | doc_6.pdf
+ <b>healthcare</b> notes 813 | doc_3.pdf
+ <b>healthcare</b> notes 810 | doc_10.pdf
+ <b>healthcare</b> notes 81  | doc_1.pdf
+ <b>healthcare</b> notes 807 | doc_7.pdf
+ <b>healthcare</b> notes 804 | doc_4.pdf
+ <b>healthcare</b> notes 801 | doc_1.pdf
+ <b>healthcare</b> notes 798 | doc_8.pdf
+ <b>healthcare</b> notes 795 | doc_5.pdf
+ <b>healthcare</b> notes 792 | doc_2.pdf
+ <b>healthcare</b> notes 789 | doc_9.pdf
+ <b>healthcare</b> notes 786 | doc_6.pdf
+ <b>healthcare</b> notes 783 | doc_3.pdf
+ <b>healthcare</b> notes 780 | doc_10.pdf
+ <b>healthcare</b> notes 78  | doc_8.pdf
+ <b>healthcare</b> notes 777 | doc_7.pdf
+ <b>healthcare</b> notes 774 | doc_4.pdf
+ <b>healthcare</b> notes 771 | doc_1.pdf
+ <b>healthcare</b> notes 768 | doc_8.pdf
+ <b>healthcare</b> notes 765 | doc_5.pdf
+ <b>healthcare</b> notes 762 | doc_2.pdf
+ <b>healthcare</b> notes 759 | doc_9.pdf
+ <b>healthcare</b> notes 756 | doc_6.pdf
+ <b>healthcare</b> notes 753 | doc_3.pdf
+ <b>healthcare</b> notes 750 | doc_10.pdf
+ <b>healthcare</b> notes 75  | doc_5.pdf
+ <b>healthcare</b> notes 747 | doc_7.pdf
+ <b>healthcare</b> notes 744 | doc_4.pdf
+ <b>healthcare</b> notes 741 | doc_1.pdf
+ <b>healthcare</b> notes 738 | doc_8.pdf
+ <b>healthcare</b> notes 735 | doc_5.pdf
+ <b>healthcare</b> notes 732 | doc_2.pdf
+(100 rows)
+
+RESET max_parallel_workers_per_gather;
+RESET debug_parallel_query;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
+RESET min_parallel_index_scan_size;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+DROP TABLE IF EXISTS issue_5108_chunks CASCADE;
+DROP TABLE IF EXISTS issue_5108_docs CASCADE;

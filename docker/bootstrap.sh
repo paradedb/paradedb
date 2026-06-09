@@ -128,6 +128,8 @@ for DB in template1 paradedb "$POSTGRES_DB"; do
   psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;"
 done
 
+
+# Tune postgresql.conf settings for the available hardware
 tune
 
 echo "ParadeDB bootstrap completed!"

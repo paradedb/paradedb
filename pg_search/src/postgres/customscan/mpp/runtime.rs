@@ -40,8 +40,8 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
 use datafusion_distributed::{
-    CooperativeScheduler, RemoteStage, WorkerConnection, WorkerDispatch, WorkerDispatchRequest,
-    WorkerResolver, WorkerTransport,
+    RemoteStage, WorkerConnection, WorkerDispatch, WorkerDispatchRequest, WorkerResolver,
+    WorkerTransport,
 };
 use futures::stream::BoxStream;
 use url::Url;
@@ -134,15 +134,6 @@ impl CooperativeDrainSet for MppMesh {
     }
 }
 
-/// The mesh is also the fork's [`CooperativeScheduler`], advertised via
-/// [`WorkerTransport::scheduler`]. One `poll_progress` pulls every inbound drain, which is how a
-/// producer stalled on a full outbound queue makes room without blocking the backend thread.
-impl CooperativeScheduler for MppMesh {
-    fn poll_progress(&self) -> Result<(), DataFusionError> {
-        self.drain_all_inbound()
-    }
-}
-
 /// Implements the DF-D fork's [`WorkerTransport`] over the leader's [`MppMesh`].
 ///
 /// `open(input_stage, target_task)` translates the DF-D `(stage, task)`
@@ -167,7 +158,7 @@ impl WorkerTransport for ShmMqWorkerTransport {
         target_task: usize,
         _ctx: &Arc<TaskContext>,
         _metrics: &ExecutionPlanMetricsSet,
-    ) -> Result<Box<dyn WorkerConnection + Send + Sync>> {
+    ) -> Result<Box<dyn WorkerConnection>> {
         let target_task_u32 = u32::try_from(target_task).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerTransport: target_task={target_task} > u32::MAX"
@@ -199,24 +190,20 @@ impl WorkerTransport for ShmMqWorkerTransport {
         }))
     }
 
-    /// The leader never pushes plans to workers: PG parallel workers self-plan from the DSM
-    /// logical plan and run their own fragments. By the time the leader's DataFusion plan reaches
-    /// dispatch, the workers are already producing, so dispatch is a no-op. This is what replaces
-    /// the old `in_process_mode` flag.
-    fn dispatch(&self) -> &dyn WorkerDispatch {
-        self
-    }
-
-    /// The mesh drains its inbound queues cooperatively. Advertise it so the crate can pump
-    /// progress at its own block points, instead of ParadeDB threading the drain by hand.
-    fn scheduler(&self) -> Option<Arc<dyn CooperativeScheduler>> {
-        Some(Arc::clone(&self.mesh) as Arc<dyn CooperativeScheduler>)
+    /// The plan rides DSM at parallel-context init: the leader writes per-stage physical
+    /// subplans, and workers decode their fragments before the leader's plan reaches dispatch.
+    /// Nothing is left to deliver here, so the dispatcher is a no-op. This is what replaces the
+    /// old `in_process_mode` flag.
+    fn dispatcher(&self) -> Box<dyn WorkerDispatch> {
+        Box::new(NoOpDispatch)
     }
 }
 
-impl WorkerDispatch for ShmMqWorkerTransport {
-    /// No-op, see [`ShmMqWorkerTransport::dispatch`]. The workers already hold the plan (shipped
-    /// via DSM) and run their fragments, so there is nothing to deliver.
+struct NoOpDispatch;
+
+impl WorkerDispatch for NoOpDispatch {
+    /// No-op, see [`ShmMqWorkerTransport::dispatcher`]. The workers already hold their decoded
+    /// fragments, so there is nothing to deliver.
     fn dispatch(&self, _request: WorkerDispatchRequest<'_>) -> Result<()> {
         Ok(())
     }

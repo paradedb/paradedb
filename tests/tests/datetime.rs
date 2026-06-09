@@ -209,3 +209,71 @@ fn datetime_overflow_reports_error(
         "expected error for {col_type} value {val} beyond Tantivy nanosecond range"
     );
 }
+
+#[rstest]
+#[case::future_date("DATE", "'57439-03-01'")]
+#[case::ancient_date("DATE", "'0001-01-01'")]
+#[case::future_timestamp("TIMESTAMP", "'57439-03-01 00:00:00'")]
+#[case::ancient_timestamp("TIMESTAMP", "'0001-01-01 00:00:00'")]
+fn mutable_segment_rejects_out_of_range_datetime_at_insert(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE mutable_overflow (id SERIAL, v {col_type});
+        CREATE INDEX mutable_overflow_idx ON mutable_overflow USING bm25 (id, v)
+            WITH (key_field = 'id', mutable_segment_rows = 1000);
+        INSERT INTO mutable_overflow (v) VALUES ('2000-01-01');
+        "#
+    )
+    .execute(&mut conn);
+
+    let result =
+        format!("INSERT INTO mutable_overflow (v) VALUES ({val})").execute_result(&mut conn);
+    assert!(
+        result.is_err(),
+        "expected INSERT to fail for {col_type} value {val} beyond Tantivy nanosecond range"
+    );
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mutable_overflow WHERE id @@@ paradedb.all() ORDER BY id".fetch(&mut conn);
+    assert_eq!(
+        rows.len(),
+        1,
+        "valid rows should still be searchable after rejected insert"
+    );
+}
+
+#[rstest]
+#[case::date("DATE", "'1700-01-01'", "'1980-07-04'", "'2200-06-15'")]
+#[case::timestamp(
+    "TIMESTAMP",
+    "'1700-01-01 00:00:00'",
+    "'1980-07-04 12:30:00'",
+    "'2200-06-15 12:00:00'"
+)]
+fn mutable_segment_accepts_valid_wide_range_datetime(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] val1: &str,
+    #[case] val2: &str,
+    #[case] val3: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE mutable_valid (id SERIAL, v {col_type});
+        CREATE INDEX mutable_valid_idx ON mutable_valid USING bm25 (id, v)
+            WITH (key_field = 'id', mutable_segment_rows = 1000);
+        INSERT INTO mutable_valid (v) VALUES ({val1});
+        INSERT INTO mutable_valid (v) VALUES ({val2});
+        INSERT INTO mutable_valid (v) VALUES ({val3});
+        "#
+    )
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mutable_valid WHERE id @@@ paradedb.all() ORDER BY id".fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+}

@@ -17,6 +17,8 @@
 
 use std::panic::{catch_unwind, resume_unwind};
 
+use crate::api::tokenizers::definitions::pdb::DatumWithType;
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer};
 use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
@@ -28,10 +30,12 @@ use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
 };
 use crate::postgres::IsLogicalWorker;
+use crate::schema::FieldSource::{self};
 use crate::schema::{CategorizedFieldData, SearchField};
 
 use pgrx::{pg_guard, pg_sys, PgBuiltInOids, PgMemoryContexts, PgOid};
@@ -69,7 +73,7 @@ pub struct InsertModeMutable {
     key_field_name: FieldName,
     key_field_attno: usize,
     row_limit: usize,
-    datetime_fields: Vec<(usize, PgOid)>, // attnos & type OIDs of columns that are dates, so we can validate they're in range at insert-time instead of read-time
+    datetime_fields: Vec<CategorizedFieldData>, // For validation of datetime fields to ensure they're in range at insert-time instead of read-time
 }
 
 pub enum InsertMode {
@@ -122,6 +126,9 @@ impl InsertState {
                 .iter()
                 .filter(|(_, field)| {
                     matches!(
+                        field.source,
+                        FieldSource::Heap { .. } | FieldSource::Expression { .. }
+                    ) && matches!(
                         field.base_oid,
                         PgOid::BuiltIn(
                             PgBuiltInOids::DATEOID
@@ -135,7 +142,7 @@ impl InsertState {
                         )
                     )
                 })
-                .map(|(_, field)| (field.attno, field.base_oid, field.is_array))
+                .map(|(_, field)| field.clone())
                 .collect();
 
             InsertMode::Mutable(InsertModeMutable {
@@ -340,9 +347,24 @@ unsafe fn insert(
                 panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
             }
 
-            for (attno, typeoid) in mode.datetime_fields.iter() {
-                if *attno == 1 || typeoid.value() == pg_sys::Oid::INVALID {
-                    panic!("idk");
+            // Validating the datetime fields are in range
+            for categorized in mode.datetime_fields.iter() {
+                if !*isnull.add(categorized.attno) {
+                    let datum = if type_is_alias(categorized.pg_type.value())
+                        || type_is_tokenizer(categorized.pg_type.value())
+                    {
+                        DatumWithType::get_underlying_type(*values.add(categorized.attno)).0
+                    } else {
+                        *values.add(categorized.attno)
+                    };
+
+                    if categorized.is_array {
+                        TantivyValue::try_from_datum_array(datum, categorized.base_oid)
+                            .unwrap_or_else(|e| panic!("could not parse field: {e}"));
+                    } else {
+                        TantivyValue::try_from_datum(datum, categorized.base_oid)
+                            .unwrap_or_else(|e| panic!("could not parse field: {e}"));
+                    }
                 }
             }
 

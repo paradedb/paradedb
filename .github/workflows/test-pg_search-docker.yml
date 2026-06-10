@@ -125,7 +125,7 @@ jobs:
           docker buildx build \
             --platform ${{ matrix.platform }} \
             --file docker/Dockerfile.${{ matrix.flavor }}-${{ env.PG_VERSION }} \
-            --tag paradedb/paradedb:latest \
+            --tag paradedb-ci \
             --cache-from type=gha,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
             --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
             --load \
@@ -133,12 +133,12 @@ jobs:
 
       - name: Verify PGDG apt packages are available
         if: steps.release_gate.outputs.skip != 'true'
-        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${{ env.PG_VERSION }}-partman'
+        run: docker run --rm paradedb-ci bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${{ env.PG_VERSION }}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.
       # The `docker run` command uses the local ParadeDB image that we just built and loaded
-      # under the `paradedb/paradedb:latest` tag.
+      # under the `paradedb-ci` tag.
       - name: Start the ParadeDB Docker Image via Docker Run
         if: steps.release_gate.outputs.skip != 'true'
         run: |
@@ -149,7 +149,7 @@ jobs:
             -e POSTGRES_DB=mydatabase \
             -p 5432:5432 \
             --tmpfs /var/lib/postgresql:size=1G \
-            paradedb/paradedb:latest
+            paradedb-ci
 
       - name: Wait for PostgreSQL to be ready
         if: steps.release_gate.outputs.skip != 'true'
@@ -199,6 +199,7 @@ jobs:
       - name: Test Postgres Auto-tuning
         if: steps.release_gate.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           assert_not_tuned() {
             local name="$1"
             local log_message="$2"
@@ -280,7 +281,7 @@ jobs:
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
             -e PDB_TUNE=false \
-            paradedb/paradedb:latest
+            paradedb-ci
           wait_for_bootstrap paradedb-autotune-disabled
           assert_not_tuned paradedb-autotune-disabled "Auto-tuning is disabled, skipping."
           docker rm -f paradedb-autotune-disabled
@@ -294,7 +295,7 @@ jobs:
             -e POSTGRES_USER=myuser \
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
-            paradedb/paradedb:latest
+            paradedb-ci
           wait_for_bootstrap paradedb-autotune-low-memory
           assert_not_tuned paradedb-autotune-low-memory "Available memory is less than 512mb, skipping auto tuning."
           docker rm -f paradedb-autotune-low-memory
@@ -306,7 +307,7 @@ jobs:
             -e POSTGRES_USER=myuser \
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
-            paradedb/paradedb:latest
+            paradedb-ci
           wait_for_bootstrap paradedb-autotune-default-resources
           tuning_block="$(docker exec paradedb-autotune-default-resources bash -c 'awk "/# Begin ParadeDB tuning recommendations/ {show=1} show {print} /# End ParadeDB tuning recommendations/ {show=0}" "$PGDATA/postgresql.conf"')"
           echo "$tuning_block"
@@ -326,7 +327,7 @@ jobs:
             -e POSTGRES_USER=myuser \
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
-            paradedb/paradedb:latest
+            paradedb-ci
           wait_for_bootstrap paradedb-autotune-fractional-cpu
           assert_tuned paradedb-autotune-fractional-cpu <<'EOF'
           # Begin ParadeDB tuning recommendations
@@ -352,7 +353,7 @@ jobs:
             -e POSTGRES_USER=myuser \
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
-            paradedb/paradedb:latest
+            paradedb-ci
           wait_for_bootstrap paradedb-autotune-1cpu-1gb
           assert_tuned paradedb-autotune-1cpu-1gb <<'EOF'
           # Begin ParadeDB tuning recommendations
@@ -378,7 +379,7 @@ jobs:
             -e POSTGRES_USER=myuser \
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
-            paradedb/paradedb:latest
+            paradedb-ci
           wait_for_bootstrap paradedb-autotune-4cpu-8gb
           assert_tuned paradedb-autotune-4cpu-8gb <<'EOF'
           # Begin ParadeDB tuning recommendations
@@ -399,10 +400,10 @@ jobs:
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History
         if: steps.release_gate.outputs.skip != 'true'
-        run: docker history paradedb/paradedb:latest
+        run: docker history paradedb-ci
 
       - name: Print the ParadeDB Docker Image Permissions
         if: steps.release_gate.outputs.skip != 'true'
         run: |
-          docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
+          docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb-ci -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb

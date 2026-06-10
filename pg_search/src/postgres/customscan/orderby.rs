@@ -291,40 +291,39 @@ unsafe fn find_target_entry_by_ref(
         .find(|&te| (*te).ressortgroupref == ref_id)
 }
 
+/// Normalizes a collation name for case and hyphen-insensitive comparison
+/// for example: "C.utf8", "C.UTF-8", "C.UTF8" all normalize to "C.UTF8".
+fn normalize_collation_name(mut collation_name: String) -> String {
+    collation_name.retain(|c| c != '-');
+    collation_name.make_ascii_uppercase();
+    collation_name
+}
+
 // This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
 // If a field does not have a collation (ex: integers, non-text data), it's considered safe
 // Otherwise, for collatable fields, if the collation is C-like it's safe
 pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
-    const SAFE_COLLATION_NAMES: &[&str] = &[
-        "C",
-        "POSIX",
-        "C.UTF-8",
-        "POSIX.UTF-8",
-        "C.utf8",
-        "POSIX.utf8",
-    ];
+    const NORMALIZED_SAFE_COLLATION_NAMES: &[&str] = &["C", "POSIX", "C.UTF8", "POSIX.UTF8"];
 
     match collation {
         pg_sys::Oid::INVALID => true,
         pg_sys::C_COLLATION_OID => true,
         // for default collation - if using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check LC_COLLATE
         pg_sys::DEFAULT_COLLATION_OID => match lookup_database_datcollate_and_provider() {
-            #[cfg(any(feature = "pg15", feature = "pg16"))]
-            Some((_, 98)) => true,
             #[cfg(any(feature = "pg17", feature = "pg18"))]
             Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
             Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((datcollate, _)) => SAFE_COLLATION_NAMES.contains(&datcollate.as_str()),
-            None => false,
+            Some((datcollate, pg_sys::COLLPROVIDER_LIBC)) => NORMALIZED_SAFE_COLLATION_NAMES
+                .contains(&normalize_collation_name(datcollate).as_str()),
+            _ => false,
         },
         // for all other collations, same as above
         _ => match lookup_collation_collcollate_and_provider(collation) {
-            #[cfg(any(feature = "pg15", feature = "pg16"))]
-            Some((_, 98)) => true,
             #[cfg(any(feature = "pg17", feature = "pg18"))]
             Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
             Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((Some(collcollate), _)) => SAFE_COLLATION_NAMES.contains(&collcollate.as_str()),
+            Some((Some(collcollate), pg_sys::COLLPROVIDER_LIBC)) => NORMALIZED_SAFE_COLLATION_NAMES
+                .contains(&normalize_collation_name(collcollate).as_str()),
             _ => false,
         },
     }

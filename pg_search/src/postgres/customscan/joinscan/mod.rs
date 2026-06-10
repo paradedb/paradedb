@@ -180,9 +180,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::dispatch::{
-    build_dispatch_blob, dispatch_plan_capacity, frame_dispatch_payload,
-};
+use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
@@ -918,44 +916,19 @@ impl ParallelQueryCapable for JoinScan {
         // Build the coordinator dispatch payload (Tier 2): the leader slices the physical plan and
         // ships the per-stage subplans. Any failure (codec gap, oversized blob) falls back to
         // serial, which is correct, just slower.
-        let capacity = dispatch_plan_capacity(plan_bytes.len());
-        let payload = {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    pgrx::warning!(
-                        "mpp join: dispatch runtime build failed: {e}; falling back to serial"
-                    );
-                    write_disabled_header();
-                    return;
-                }
-            };
-            let blob = match build_dispatch_blob(
-                &plan_bytes,
-                create_datafusion_session_context(SessionContextProfile::Join),
-                producer_worker_count(),
-                &runtime,
-                &state.custom_state().non_partitioning_segments,
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    pgrx::warning!(
-                        "mpp join: build_dispatch_blob failed: {e}; falling back to serial"
-                    );
-                    write_disabled_header();
-                    return;
-                }
-            };
-            match frame_dispatch_payload(&blob, capacity) {
-                Ok(p) => p,
-                Err(e) => {
-                    pgrx::warning!("mpp join: {e}; falling back to serial");
-                    write_disabled_header();
-                    return;
-                }
+        let payload = match build_dispatch_payload(
+            &plan_bytes,
+            create_datafusion_session_context(SessionContextProfile::Join),
+            producer_worker_count(),
+            &state.custom_state().non_partitioning_segments,
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                pgrx::warning!(
+                    "mpp join: dispatch payload build failed: {e}; falling back to serial"
+                );
+                write_disabled_header();
+                return;
             }
         };
 

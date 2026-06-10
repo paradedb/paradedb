@@ -45,9 +45,7 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
-use crate::postgres::customscan::mpp::dispatch::{
-    build_dispatch_blob, dispatch_plan_capacity, frame_dispatch_payload,
-};
+use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
@@ -751,42 +749,17 @@ impl ParallelQueryCapable for AggregateScan {
         // generously at estimate time; the payload is the blob behind a length prefix, padded to
         // capacity. Any failure (build error, or blob over capacity) falls back to serial, which
         // is correct, just slower.
-        let capacity = dispatch_plan_capacity(plan_bytes.len());
-        let payload = {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    pgrx::warning!(
-                        "mpp: dispatch runtime build failed: {e}; falling back to serial"
-                    );
-                    write_disabled_header();
-                    return;
-                }
-            };
-            let blob = match build_dispatch_blob(
-                &plan_bytes,
-                create_aggregate_session_context(),
-                producer_worker_count(),
-                &runtime,
-                &state.custom_state().non_partitioning_segments,
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    pgrx::warning!("mpp: build_dispatch_blob failed: {e}; falling back to serial");
-                    write_disabled_header();
-                    return;
-                }
-            };
-            match frame_dispatch_payload(&blob, capacity) {
-                Ok(p) => p,
-                Err(e) => {
-                    pgrx::warning!("mpp: {e}; falling back to serial");
-                    write_disabled_header();
-                    return;
-                }
+        let payload = match build_dispatch_payload(
+            &plan_bytes,
+            create_aggregate_session_context(),
+            producer_worker_count(),
+            &state.custom_state().non_partitioning_segments,
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                pgrx::warning!("mpp: dispatch payload build failed: {e}; falling back to serial");
+                write_disabled_header();
+                return;
             }
         };
 

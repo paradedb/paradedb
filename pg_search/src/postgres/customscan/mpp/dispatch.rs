@@ -210,6 +210,30 @@ fn push_owned_tasks(
     }
 }
 
+/// Builds and frames the dispatch payload for the DSM plan region: a single-thread runtime for
+/// the planning pass, the per-stage blob, then the fixed-capacity frame. One `Err` covers the
+/// whole pipeline so a caller warns once and falls back to serial. Capacity is derived from
+/// `logical_bytes.len()`, the same input `estimate_dsm` sized the region with.
+pub fn build_dispatch_payload(
+    logical_bytes: &[u8],
+    seed: SessionContext,
+    n_workers: u32,
+    non_partitioning_segments: &[HashSet<SegmentId>],
+) -> Result<Vec<u8>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: runtime build: {e}")))?;
+    let blob = build_dispatch_blob(
+        logical_bytes,
+        seed,
+        n_workers,
+        &runtime,
+        non_partitioning_segments,
+    )?;
+    frame_dispatch_payload(&blob, dispatch_plan_capacity(logical_bytes.len()))
+}
+
 /// Expand the dispatch blob body into this worker's fragment assignments. Each stage's subplan is
 /// decoded once (injecting the worker's runtime context) and fanned out to the `task_idx` slots
 /// this proc owns.

@@ -266,6 +266,86 @@ impl Qual {
     }
 }
 
+fn generic_negation(input: SearchQueryInput) -> SearchQueryInput {
+    SearchQueryInput::Boolean {
+        must: vec![SearchQueryInput::All],
+        should: Default::default(),
+        must_not: vec![input],
+    }
+}
+
+fn negate_fielded_input(input: SearchQueryInput) -> SearchQueryInput {
+    match input {
+        SearchQueryInput::WithIndex { oid, query } => SearchQueryInput::WithIndex {
+            oid,
+            query: Box::new(negate_fielded_input(*query)),
+        },
+        SearchQueryInput::FieldedQuery { field, query } => SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::FieldedQuery {
+                field: field.clone(),
+                query: pdb::Query::Exists,
+            }],
+            should: Default::default(),
+            must_not: vec![SearchQueryInput::FieldedQuery { field, query }],
+        },
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+        } if must_not.is_empty() => {
+            if should.is_empty() {
+                SearchQueryInput::Boolean {
+                    must: Default::default(),
+                    should: must.into_iter().map(negate_fielded_input).collect(),
+                    must_not: Default::default(),
+                }
+            } else if must.is_empty() {
+                SearchQueryInput::Boolean {
+                    must: should.into_iter().map(negate_fielded_input).collect(),
+                    should: Default::default(),
+                    must_not: Default::default(),
+                }
+            } else {
+                generic_negation(SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                })
+            }
+        }
+        other => generic_negation(other),
+    }
+}
+
+fn negated_search_query_input(qual: &Qual) -> SearchQueryInput {
+    match qual {
+        Qual::PushdownVarEqTrue { field } => SearchQueryInput::from(&Qual::PushdownVarEqFalse {
+            field: field.clone(),
+        }),
+        Qual::PushdownVarEqFalse { field } => SearchQueryInput::from(&Qual::PushdownVarEqTrue {
+            field: field.clone(),
+        }),
+        Qual::ExternalVar | Qual::ExternalExpr => SearchQueryInput::All,
+        Qual::Not(inner) => SearchQueryInput::from(inner.as_ref()),
+        Qual::And(quals) if !qual.contains_external_var() && !qual.contains_heap_expr() => {
+            SearchQueryInput::Boolean {
+                must: Default::default(),
+                should: quals.iter().map(negated_search_query_input).collect(),
+                must_not: Default::default(),
+            }
+        }
+        Qual::Or(quals) if !qual.contains_external_var() && !qual.contains_heap_expr() => {
+            SearchQueryInput::Boolean {
+                must: quals.iter().map(negated_search_query_input).collect(),
+                should: Default::default(),
+                must_not: Default::default(),
+            }
+        }
+        Qual::OpExpr { .. } => negate_fielded_input(SearchQueryInput::from(qual)),
+        _ => generic_negation(SearchQueryInput::from(qual)),
+    }
+}
+
 impl From<&Qual> for SearchQueryInput {
     #[track_caller]
     fn from(value: &Qual) -> Self {
@@ -492,47 +572,7 @@ impl From<&Qual> for SearchQueryInput {
                     },
                 }
             }
-            Qual::Not(qual) => {
-                // Special handling for boolean fields to correctly handle NULL values
-                match qual.as_ref() {
-                    // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
-                    // rather than using must_not, to avoid including NULLs
-                    // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqTrue { field } => Self::from(&Qual::PushdownVarEqFalse {
-                        field: field.clone(),
-                    }),
-                    // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
-                    // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
-                        field: field.clone(),
-                    }),
-
-                    // If the Qual represents a placeholder to another Var elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalVar => SearchQueryInput::All,
-
-                    // If the Qual represents a placeholder to another Expr elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalExpr => SearchQueryInput::All,
-
-                    // For other types of negation, use the standard Boolean query with must_not
-                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
-                    // NULL values differently than when negating equality operators
-                    _ => {
-                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
-
-                        SearchQueryInput::Boolean {
-                            must: vec![SearchQueryInput::All],
-                            should: Default::default(),
-                            must_not,
-                        }
-                    }
-                }
-            }
+            Qual::Not(qual) => negated_search_query_input(qual.as_ref()),
         }
     }
 }
@@ -2006,6 +2046,88 @@ mod tests {
         assert_eq!(got, want);
     }
 
+    #[pg_test]
+    fn test_negated_fielded_query_adds_exists_guard() {
+        let const_value = SearchQueryInput::FieldedQuery {
+            field: "color".into(),
+            query: pdb::Query::Term {
+                value: PdbOwnedValue::Str("blue".into()),
+            },
+        }
+        .into_datum()
+        .unwrap();
+
+        let qual = Qual::Not(Box::new(Qual::OpExpr {
+            lhs: std::ptr::null_mut(),
+            opno: pg_sys::Oid::INVALID,
+            val: unsafe {
+                pg_sys::makeConst(
+                    searchqueryinput_typoid(),
+                    -1,
+                    pg_sys::Oid::INVALID,
+                    -1,
+                    const_value,
+                    false,
+                    false,
+                )
+            },
+            scalar_array_use_or: None,
+        }));
+
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::FieldedQuery {
+                field: "color".into(),
+                query: pdb::Query::Exists,
+            }],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: "color".into(),
+                query: pdb::Query::Term {
+                    value: PdbOwnedValue::Str("blue".into()),
+                },
+            }],
+        };
+        assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_negated_and_uses_de_morgan() {
+        let qual = Qual::Not(Box::new(Qual::And(vec![
+            Qual::PushdownVarEqTrue {
+                field: PushdownField::new("a"),
+            },
+            Qual::PushdownVarIsTrue {
+                field: PushdownField::new("b"),
+            },
+        ])));
+
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![
+                SearchQueryInput::FieldedQuery {
+                    field: "a".into(),
+                    query: pdb::Query::Term {
+                        value: PdbOwnedValue::Bool(false),
+                    },
+                },
+                SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: vec![],
+                    must_not: vec![SearchQueryInput::FieldedQuery {
+                        field: "b".into(),
+                        query: pdb::Query::Term {
+                            value: PdbOwnedValue::Bool(true),
+                        },
+                    }],
+                },
+            ],
+            must_not: vec![],
+        };
+        assert_eq!(got, want);
+    }
+
     fn arb_leaf() -> impl Strategy<Value = Qual> {
         prop_oneof![
             Just(Qual::All),
@@ -2099,6 +2221,21 @@ mod tests {
                 },
             ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 
+            // Match negation of OR via De Morgan
+            (
+                Qual::Not(inner),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                },
+            ) if matches!(inner.as_ref(), Qual::Or(_)) => {
+                let Qual::Or(quals) = inner.as_ref() else {
+                    unreachable!()
+                };
+                should.is_empty() && must_not.is_empty() == false && false
+            }
+
             // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
             (
                 Qual::Not(inner),
@@ -2127,6 +2264,21 @@ mod tests {
                 },
             ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == *f) => {
                 true
+            }
+
+            // Match negation of OR via De Morgan
+            (
+                Qual::Not(inner),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                },
+            ) if matches!(inner.as_ref(), Qual::Or(_)) => {
+                let Qual::Or(quals) = inner.as_ref() else {
+                    unreachable!()
+                };
+                should.is_empty() && must_not.is_empty() && must.len() == quals.len()
             }
 
             _ => false,

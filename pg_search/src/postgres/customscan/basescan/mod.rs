@@ -128,7 +128,7 @@ impl BaseScan {
         let needs_tokenizer_manager =
             search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
-        let search_reader = SearchIndexReader::open_with_context(
+        let (search_reader, prepared_query) = SearchIndexReader::open_with_prepared_query(
             indexrel,
             search_query_input.clone(),
             need_scores,
@@ -154,6 +154,9 @@ impl BaseScan {
             needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
+        state
+            .custom_state_mut()
+            .set_search_query_input(prepared_query);
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -1379,6 +1382,13 @@ impl CustomScan for BaseScan {
             } else {
                 // Regular display without estimates
                 explainer.add_query(base_query);
+            }
+
+            if explainer.is_analyze() {
+                let execution_query = state.custom_state().search_query_input();
+                if execution_query != base_query {
+                    explainer.add_explainable("Prepared Tantivy Query", execution_query);
+                }
             }
         } else {
             explainer.add_text("Tantivy Query", "(query not yet initialized)");

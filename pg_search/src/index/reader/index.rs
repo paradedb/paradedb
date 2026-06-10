@@ -398,6 +398,27 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
+        let (reader, _) = Self::open_with_prepared_query(
+            index_relation,
+            search_query_input,
+            need_scores,
+            mvcc_style,
+            expr_context,
+            planstate,
+            needs_tokenizer_manager,
+        )?;
+        Ok(reader)
+    }
+
+    pub fn open_with_prepared_query(
+        index_relation: &PgSearchRelation,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        mvcc_style: MvccSatisfies,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        needs_tokenizer_manager: bool,
+    ) -> Result<(Self, SearchQueryInput)> {
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
         let IndexComponents {
@@ -410,9 +431,12 @@ impl SearchIndexReader {
             schema,
         } = components;
 
+        let search_query_input =
+            search_query_input.pretokenize_match_queries(&schema, &searcher)?;
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
             search_query_input
+                .clone()
                 .into_tantivy_query(
                     &schema,
                     &|| {
@@ -436,19 +460,22 @@ impl SearchIndexReader {
             .map(|(ord, reader)| (reader.segment_id(), ord as SegmentOrdinal))
             .collect();
 
-        Ok(Self {
-            index_rel: index_relation.clone(),
-            searcher,
-            schema,
-            underlying_reader: reader,
-            underlying_index: index,
-            query,
-            need_scores,
-            total_segment_count,
-            total_docs,
-            segment_ordinal_by_id: segment_ord_by_id,
-            _cleanup_lock: cleanup_lock,
-        })
+        Ok((
+            Self {
+                index_rel: index_relation.clone(),
+                searcher,
+                schema,
+                underlying_reader: reader,
+                underlying_index: index,
+                query,
+                need_scores,
+                total_segment_count,
+                total_docs,
+                segment_ordinal_by_id: segment_ord_by_id,
+                _cleanup_lock: cleanup_lock,
+            },
+            search_query_input,
+        ))
     }
 
     pub fn segment_ids(&self) -> Vec<SegmentId> {

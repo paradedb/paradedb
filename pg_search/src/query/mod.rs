@@ -362,6 +362,72 @@ impl SearchQueryInput {
         }
     }
 
+    pub fn pretokenize_match_queries(
+        self,
+        schema: &SearchIndexSchema,
+        searcher: &Searcher,
+    ) -> Result<Self> {
+        let recurse = |query: SearchQueryInput| query.pretokenize_match_queries(schema, searcher);
+
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => Ok(SearchQueryInput::Boolean {
+                must: must.into_iter().map(recurse).collect::<Result<Vec<_>>>()?,
+                should: should
+                    .into_iter()
+                    .map(recurse)
+                    .collect::<Result<Vec<_>>>()?,
+                must_not: must_not
+                    .into_iter()
+                    .map(recurse)
+                    .collect::<Result<Vec<_>>>()?,
+            }),
+            SearchQueryInput::Boost { query, factor } => Ok(SearchQueryInput::Boost {
+                query: Box::new(recurse(*query)?),
+                factor,
+            }),
+            SearchQueryInput::ConstScore { query, score } => Ok(SearchQueryInput::ConstScore {
+                query: Box::new(recurse(*query)?),
+                score,
+            }),
+            SearchQueryInput::ScoreFilter { bounds, query } => Ok(SearchQueryInput::ScoreFilter {
+                bounds,
+                query: query
+                    .map(|query| recurse(*query).map(Box::new))
+                    .transpose()?,
+            }),
+            SearchQueryInput::DisjunctionMax {
+                disjuncts,
+                tie_breaker,
+            } => Ok(SearchQueryInput::DisjunctionMax {
+                disjuncts: disjuncts
+                    .into_iter()
+                    .map(recurse)
+                    .collect::<Result<Vec<_>>>()?,
+                tie_breaker,
+            }),
+            SearchQueryInput::WithIndex { oid, query } => Ok(SearchQueryInput::WithIndex {
+                oid,
+                query: Box::new(recurse(*query)?),
+            }),
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => Ok(SearchQueryInput::HeapFilter {
+                indexed_query: Box::new(recurse(*indexed_query)?),
+                field_filters,
+            }),
+            SearchQueryInput::FieldedQuery { field, query } => Ok(SearchQueryInput::FieldedQuery {
+                query: query.pretokenize_match_queries(&field, schema, searcher)?,
+                field,
+            }),
+            other => Ok(other),
+        }
+    }
+
     /// Returns `true` if constructing a Tantivy Scorer for this query would be expensive.
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {

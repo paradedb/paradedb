@@ -134,6 +134,10 @@ impl BaseScanState {
         self.base_search_query_input = input;
     }
 
+    pub fn set_search_query_input(&mut self, input: SearchQueryInput) {
+        self.search_query_input = input;
+    }
+
     pub fn search_query_input(&self) -> &SearchQueryInput {
         if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");

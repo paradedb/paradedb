@@ -346,6 +346,38 @@ impl pdb::Query {
         }
     }
 
+    pub(crate) fn pretokenize_match_queries(
+        self,
+        field: &FieldName,
+        schema: &SearchIndexSchema,
+        searcher: &Searcher,
+    ) -> anyhow::Result<Self> {
+        match self {
+            pdb::Query::Match {
+                value,
+                tokenizer,
+                distance,
+                transposition_cost_one,
+                prefix,
+                conjunction_mode,
+            } => Ok(pdb::Query::MatchArray {
+                tokens: tokenize_match_value(field, schema, searcher, &value, tokenizer)?,
+                distance,
+                transposition_cost_one,
+                prefix,
+                conjunction_mode,
+            }),
+            pdb::Query::ScoreAdjusted { query, score } => {
+                let query = query.pretokenize_match_queries(field, schema, searcher)?;
+                Ok(pdb::Query::ScoreAdjusted {
+                    query: Box::new(query),
+                    score,
+                })
+            }
+            other => Ok(other),
+        }
+    }
+
     pub fn apply_fuzzy_data(&mut self, new_fuzzy_data: Option<FuzzyData>) {
         if new_fuzzy_data.is_none() {
             return;
@@ -1499,7 +1531,7 @@ fn range(
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
 }
 
-fn resolve_search_tokenizer(
+pub(crate) fn resolve_search_tokenizer(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     searcher: &Searcher,
@@ -1515,6 +1547,32 @@ fn resolve_search_tokenizer(
             .expect("index-level search_tokenizer should be a valid tantivy tokenizer"));
     }
     Ok(searcher.index().tokenizer_for_field(search_field.field())?)
+}
+
+fn tokenize_match_value(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    searcher: &Searcher,
+    value: &str,
+    tokenizer: Option<Value>,
+) -> anyhow::Result<Vec<String>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    let mut analyzer = match tokenizer {
+        Some(ref tokenizer) => SearchTokenizer::from_json_value(tokenizer)?
+            .to_tantivy_tokenizer()
+            .expect("tantivy should support tokenizer {tokenizer:?}"),
+        None => resolve_search_tokenizer(&search_field, schema, searcher)?,
+    };
+
+    let mut stream = analyzer.token_stream(value);
+    let mut tokens = Vec::new();
+    while stream.advance() {
+        tokens.push(stream.token().text.clone());
+    }
+    Ok(tokens)
 }
 
 fn tokenized_phrase(

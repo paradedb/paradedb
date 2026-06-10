@@ -1,9 +1,7 @@
 DROP SCHEMA IF EXISTS app CASCADE;
-NOTICE:  schema "app" does not exist, skipping
 CREATE SCHEMA IF NOT EXISTS app;
 -- search index for contacts_search
 CREATE EXTENSION IF NOT EXISTS pg_search;
-NOTICE:  extension "pg_search" already exists, skipping
 DO $$
     BEGIN
         -- create app_user role if it doesn't exist

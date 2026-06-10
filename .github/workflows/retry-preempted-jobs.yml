@@ -1,0 +1,73 @@
+# workflows/retry-preempted-jobs.yml
+#
+# Retry Preempted Jobs
+# Our CI jobs run on RunsOn spot instances, which AWS can reclaim at any time.
+# RunsOn only auto-retries an interrupted job when it concludes "failure", but
+# a graceful reclamation (the instance gets the two-minute interruption notice)
+# marks the job "cancelled" instead, and those runs are never retried. This
+# workflow closes that gap by re-running jobs whose runner logged a shutdown
+# signal, which happens when the instance is being terminated, never when a
+# human or a concurrency group cancels the run.
+
+name: Retry Preempted Jobs
+
+on:
+  workflow_run:
+    workflows:
+      - Test pg_search
+      - Test pg_search (Upgrade)
+      - Test pg_search (Docker)
+      - Test Stressgres (Docker)
+      - Test ParadeDB (Docs)
+      - Lint Rust
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry-preempted-jobs:
+    name: Retry Preempted Jobs
+    # Retry attempt 1 only, to bound the cost when spot capacity is being
+    # reclaimed repeatedly.
+    if: github.event.workflow_run.conclusion == 'cancelled' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Re-run Jobs Cancelled by a Spot Reclamation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          set -euo pipefail
+
+          # A re-run joins the same concurrency group as the run for the newer
+          # commit and would cancel it, so only retry runs that are still the
+          # branch head.
+          CURRENT_SHA=$(gh api "repos/$HEAD_REPO/branches/$HEAD_BRANCH" --jq '.commit.sha' 2>/dev/null || true)
+          if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+            echo "Run $RUN_ID is no longer the head of $HEAD_BRANCH, skipping"
+            exit 0
+          fi
+
+          PREEMPTED=false
+          LOG_FILE=$(mktemp)
+          for JOB_ID in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[] | select(.conclusion == "cancelled") | .id'); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JOB_ID/logs" > "$LOG_FILE" 2>/dev/null || true
+            if grep -q "The runner has received a shutdown signal" "$LOG_FILE"; then
+              echo "Job $JOB_ID lost its runner"
+              PREEMPTED=true
+              break
+            fi
+          done
+          if [ "$PREEMPTED" != "true" ]; then
+            echo "No cancelled job in run $RUN_ID lost its runner, skipping"
+            exit 0
+          fi
+
+          echo "Re-running preempted jobs of run $RUN_ID"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/rerun-failed-jobs"

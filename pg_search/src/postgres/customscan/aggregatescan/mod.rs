@@ -653,11 +653,9 @@ impl ParallelQueryCapable for AggregateScan {
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let mpp_offset = mpp_align(pscan_offset() + pscan_size);
 
-        // Size the plan region for the worst-case dispatch payload: the physical plan (and so
-        // the real blob size) can't be built until `ParallelScanState` exists at init time, so
-        // size generously here from the logical-plan length. `initialize_dsm` uses the same
-        // `dispatch_plan_capacity(plan_bytes_len)` so the DSM layout matches; an oversized blob
-        // falls back to serial there.
+        // Size the plan region before the physical plan (and so the real blob size) can exist;
+        // `initialize_dsm` derives the same capacity from the same length, and an oversized
+        // blob falls back to serial there.
         let mpp_size = match estimate_dsm_size(dispatch_plan_capacity(plan_bytes_len)) {
             Ok(sz) => sz,
             Err(e) => {
@@ -744,11 +742,9 @@ impl ParallelQueryCapable for AggregateScan {
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
         state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
 
-        // Build the coordinator dispatch payload. The leader serializes the distributed physical
-        // plan once so workers run their fragments without re-planning. The region was sized
-        // generously at estimate time; the payload is the blob behind a length prefix, padded to
-        // capacity. Any failure (build error, or blob over capacity) falls back to serial, which
-        // is correct, just slower.
+        // Build the coordinator dispatch payload: per-stage physical subplans, serialized once
+        // so workers run their fragments without re-planning. Any failure falls back to serial,
+        // correct but slower.
         let payload = match build_dispatch_payload(
             &plan_bytes,
             create_aggregate_session_context(),
@@ -809,9 +805,8 @@ impl ParallelQueryCapable for AggregateScan {
         // DSM header.
         let header = unsafe { read_custom_scan_header(coordinate) };
         if header.mpp_offset == MPP_DISABLED_OFFSET {
-            // The leader disabled MPP before initializing the region (serial fallback) and
-            // computes the whole aggregate itself. A parallel aggregate worker has no
-            // partitioned non-MPP path, so emit nothing rather than a duplicate result set.
+            // The leader fell back to serial before initializing the region; emit nothing
+            // (see [`scan_state::MppExecState::Disabled`]).
             let df_state = state
                 .custom_state_mut()
                 .datafusion_state

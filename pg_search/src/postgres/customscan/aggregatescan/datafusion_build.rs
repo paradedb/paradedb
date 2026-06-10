@@ -404,10 +404,9 @@ unsafe fn build_scan_node(
         )
     })?;
 
-    // Under MPP a pre-sorted scan lowers to a multi-partition scan that coordinator dispatch
-    // can't encode (it only ships a single-partition lazy leaf), so the leader's
-    // `build_dispatch_blob` fails and the query falls back to serial. Results stay correct; the
-    // trade-off is losing MPP for sorted-source queries.
+    // Under MPP a pre-sorted scan lowers to a multi-partition scan the dispatch codec
+    // declines (it ships only the single-partition lazy leaf), so the query falls back to
+    // serial. Correct, just slower for sorted sources.
     let sort_order = if crate::gucs::is_columnar_sort_enabled() {
         bm25_index.options().sort_by().into_iter().next()
     } else {

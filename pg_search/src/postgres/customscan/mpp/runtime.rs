@@ -29,8 +29,7 @@
 //!
 //! [`InProcessWorkerResolver`] hands the planner `n_workers` placeholder URLs. The transport
 //! routes by task index, not URL, so the URLs are never dialed; the resolver exists only because
-//! the planner sizes stages from the URL count. It replaces the placeholder URL the fork used to
-//! substitute internally under the old `in_process_mode` flag.
+//! the planner sizes stages from the URL count.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -192,8 +191,7 @@ impl WorkerTransport for ShmMqWorkerTransport {
 
     /// The plan rides DSM at parallel-context init: the leader writes per-stage physical
     /// subplans, and workers decode their fragments before the leader's plan reaches dispatch.
-    /// Nothing is left to deliver here, so the dispatcher is a no-op. This is what replaces the
-    /// old `in_process_mode` flag.
+    /// Nothing is left to deliver here, so the dispatcher is a no-op.
     fn dispatcher(&self) -> Box<dyn WorkerDispatch> {
         Box::new(NoOpDispatch)
     }
@@ -202,19 +200,15 @@ impl WorkerTransport for ShmMqWorkerTransport {
 struct NoOpDispatch;
 
 impl WorkerDispatch for NoOpDispatch {
-    /// No-op, see [`ShmMqWorkerTransport::dispatcher`]. The workers already hold their decoded
-    /// fragments, so there is nothing to deliver.
+    /// No-op, see [`ShmMqWorkerTransport::dispatcher`].
     fn dispatch(&self, _request: WorkerDispatchRequest<'_>) -> Result<()> {
         Ok(())
     }
 }
 
-/// Placeholder worker resolver for the in-process MPP transport.
-///
-/// The shm_mq transport routes by `target_task` (proc index), never by URL, so these URLs are
-/// never dialed. The distributed planner still needs a resolver: it sizes stages and assigns
-/// tasks from the URL count. `n_workers` placeholder URLs is exactly what the planner needs. This
-/// replaces the placeholder URL the fork used to substitute internally under `in_process_mode`.
+/// Placeholder worker resolver for the in-process MPP transport: the planner sizes stages from
+/// the URL count, and the shm_mq transport routes by `target_task`, so the URLs are never
+/// dialed.
 pub struct InProcessWorkerResolver {
     n_workers: usize,
 }

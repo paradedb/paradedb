@@ -136,10 +136,8 @@ fn collect_stages(
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        // Per-consumer-task partition count, kept for the trace below. Routing itself reads the
-        // crate's `route_partition` so the producer side follows the receive-side formula the
-        // crate owns, rather than re-deriving `q / P_c`. Only the `mpp_log!` trace reads it, so it
-        // is gated to non-test builds to avoid an unused-variable warning under the test cfg.
+        // Only the `mpp_log!` trace reads `p_c` (routing reads the crate's `route_partition`),
+        // so it's gated to non-test builds to avoid the unused-variable warning.
         #[cfg(not(test))]
         let p_c = nb.partitions_per_consumer_task();
         // `route_partition(q).consumer_task` for every producer output partition. Used by the

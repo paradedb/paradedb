@@ -913,9 +913,9 @@ impl ParallelQueryCapable for JoinScan {
             )
         };
 
-        // Build the coordinator dispatch payload (Tier 2): the leader slices the physical plan and
-        // ships the per-stage subplans. Any failure (codec gap, oversized blob) falls back to
-        // serial, which is correct, just slower.
+        // Build the coordinator dispatch payload: per-stage physical subplans, serialized once
+        // so workers run their fragments without re-planning. Any failure falls back to serial,
+        // correct but slower.
         let payload = match build_dispatch_payload(
             &plan_bytes,
             create_datafusion_session_context(SessionContextProfile::Join),

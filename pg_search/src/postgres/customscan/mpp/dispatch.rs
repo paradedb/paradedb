@@ -155,12 +155,10 @@ pub fn build_dispatch_blob(
         let plan_proto = serialize_physical_plan(stage.plan)?;
         // Encode can succeed while decode fails (a codec gap). The first decode otherwise
         // happens in a worker, where failure is a hard query error instead of the serial
-        // fallback this Result feeds. One extra decode per stage at init buys the fallback
-        // (it re-opens the scans' readers, on top of the ones the physical planning above
-        // already opened; both are released with the init context). With no ParallelScanState
-        // here, a non-partitioning scan resolves its MVCC view from these canonical sets (by
-        // its compacted `non_partitioning_index`); `index_segment_ids` stays empty, which
-        // skips the UDF segment injection without failing it.
+        // fallback this Result feeds; one extra decode per stage (readers released with the
+        // init context) buys the fallback. With no ParallelScanState, a non-partitioning scan
+        // resolves its MVCC view from these canonical sets by its `non_partitioning_index`;
+        // `index_segment_ids` stays empty, which skips the UDF injection without failing it.
         deserialize_physical_plan_with_runtime(
             &plan_proto,
             &decode_ctx,

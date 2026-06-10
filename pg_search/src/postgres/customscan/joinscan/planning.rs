@@ -224,10 +224,9 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         // Read the sort order from the index's relation options so DataFusion can use the
         // physical sort order (SortPreservingMergeExec, sort-merge joins).
         //
-        // Under MPP a pre-sorted scan lowers to a multi-partition scan that coordinator dispatch
-        // can't encode (it only ships a single-partition lazy leaf), so the leader's
-        // `build_dispatch_blob` fails and the query falls back to serial. Results stay correct;
-        // the trade-off is losing MPP for sorted-source queries.
+        // Under MPP a pre-sorted scan lowers to a multi-partition scan the dispatch codec
+        // declines (it ships only the single-partition lazy leaf), so the query falls back to
+        // serial. Correct, just slower for sorted sources.
         let sort_order = if crate::gucs::is_columnar_sort_enabled() {
             let sort_by = bm25_index.options().sort_by();
             sort_by.into_iter().next()

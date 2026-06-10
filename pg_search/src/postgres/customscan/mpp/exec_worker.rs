@@ -111,9 +111,6 @@ pub(crate) fn build_mpp_session_context(
     //      `_distribute_plan` elides every shuffle.
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
-    // The old `in_process_mode` knob is gone: the registered `ShmMqWorkerTransport` carries a
-    // no-op dispatcher (coordinator dispatch rides DSM, not gRPC), so there is no gRPC
-    // plan-send / metrics / work-unit-feed to skip.
     let cfg = seed
         .copied_config()
         .with_target_partitions(n_workers.max(2));
@@ -128,8 +125,8 @@ pub(crate) fn build_mpp_session_context(
     // Both seeds ship without a `DistributedConfig` extension. The bootstrap below would
     // clobber one if a future change started adding `with_distributed_*` calls on the
     // seed, so guard explicitly. Debug-only; release builds silently let the bootstrap
-    // win, which would surface as missing `in_process_mode` / `broadcast_joins` knobs at
-    // execute time and trip the regress suite.
+    // win, which would surface as missing distributed knobs at execute time and trip the
+    // regress suite.
     debug_assert!(
         seed.state()
             .config()
@@ -143,16 +140,12 @@ pub(crate) fn build_mpp_session_context(
     let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
         // Explicit `DistributedConfig` bootstrap so the downstream `with_distributed_*`
-        // setters have something to mutate. `with_distributed_worker_transport` used to
-        // bootstrap this implicitly when it was first in the chain; with the transport
-        // now optional (EXPLAIN passes mesh = None) we install the extension explicitly
-        // so order doesn't matter.
+        // setters have something to mutate regardless of order; the transport setter is
+        // optional (EXPLAIN passes mesh = None), so nothing else is guaranteed to run first.
         .with_distributed_option_extension(DistributedConfig::default())
         // Placeholder resolver. Our "workers" are PG parallel workers in the same backend tree,
         // not URL-addressed nodes, so the shm_mq transport routes by task index and never dials a
-        // URL; the planner only needs `n_workers` of them to size stages. There is no
-        // `in_process_mode` flag anymore: the transport's no-op dispatcher is what skips the
-        // wire plan-send / metrics / work-unit-feed (see `ShmMqWorkerTransport::dispatch`).
+        // URL; the planner only needs `n_workers` of them to size stages.
         .with_distributed_worker_resolver(InProcessWorkerResolver::new(n_workers));
     // Install the shm_mq transport only for actual execution (mesh = Some). mesh = None is the
     // structure-only path: EXPLAIN, and the leader serializing the plan for dispatch. Neither
@@ -170,10 +163,8 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
         // No `with_distributed_user_codec(...)`: the leader serializes per-stage subplans through
-        // a combined codec built explicitly in `scan::physical_codec` (the fork's `DistributedCodec`
-        // plus the pg_search codec), and each worker decodes the same way. Nothing drives the
-        // session's user-codec slot, and the transport's dispatcher stays a no-op since
-        // coordinator dispatch rides DSM, not the wire.
+        // a combined codec built explicitly in `scan::physical_codec`, and each worker decodes
+        // the same way. Nothing drives the session's user-codec slot.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }
@@ -273,11 +264,9 @@ pub(crate) fn run_mpp_worker(
             for q in 0..n_out {
                 let dest_proc = match &fragment.routing {
                     FragmentRouting::Coalesce { dest_proc } => *dest_proc,
-                    // Output partition q routes to the consumer task the crate's
-                    // `route_partition` picked (precomputed in `worker_fragments`), hosted on
-                    // `proc_for_task`. A partition outside the table means the decoded plan's
-                    // partitioning drifted from the blob the leader routed; name it instead of
-                    // panicking on the index.
+                    // A partition outside the table means the decoded plan's partitioning
+                    // drifted from the blob the leader routed; name it instead of panicking
+                    // on the index.
                     FragmentRouting::Hashed { consumer_task, .. } => {
                         let Some(&task) = consumer_task.get(q) else {
                             return Err(datafusion::common::DataFusionError::Internal(format!(

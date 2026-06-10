@@ -108,6 +108,61 @@ helm upgrade --atomic --install paradedb \
 paradedb/paradedb
 ```
 
+## Use the Extension Image with CloudNativePG
+
+If you already run a CloudNativePG cluster and want to add ParadeDB to an
+existing Postgres image, use the ParadeDB extension image instead of the full
+`paradedb/paradedb` image. Extension images require Postgres 18+ because they
+depend on `extension_control_path`.
+
+Add the `pg_search` extension image to the `postgresql.extensions` section of
+your CloudNativePG `Cluster` resource:
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: paradedb
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+  instances: 1
+
+  storage:
+    size: 1Gi
+
+  postgresql:
+    shared_preload_libraries:
+      - "pg_search"
+    extensions:
+      - name: pg_search
+        image:
+          reference: docker.io/paradedb/paradedb-extension:0.24.0-18-trixie
+        extension_control_path:
+          - /share
+        dynamic_library_path:
+          - /lib
+```
+
+Then enable the extension in a database:
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: paradedb-app
+spec:
+  name: app
+  owner: app
+  cluster:
+    name: paradedb
+  extensions:
+    - name: pg_search
+      version: "0.24.0"
+```
+
+The extension image tag format is `<paradedb-version>-<postgres-major>-trixie`.
+For example, use `0.24.0-18-trixie` for ParadeDB `0.24.0` on Postgres 18.
+
 ## Connect to the Cluster
 
 The command to connect to the primary instance of the cluster will be printed in your terminal. If you do not modify any settings, it will be:

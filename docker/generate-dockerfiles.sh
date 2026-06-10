@@ -5,7 +5,7 @@
 # Postgres version we support. Our normal Dockerfile includes Barman cloud which is specific to our deployment approach
 # and thus cannot be included in the official images. We also have a version of the file for use in Antithesis.
 #
-# This script downloads the .debs for the specified version from GitHub Releases in order to compute checksusm and embed
+# This script downloads the .debs for the specified version from GitHub Releases in order to compute checksums and embed
 # them in the Dockerfiles.
 #
 # To make a change, update the template, rerun the script with the desired version, and commit the generated Dockerfiles.
@@ -14,7 +14,7 @@ set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
   echo "Error: PG_SEARCH_VERSION is required"
-  echo "Usage: $0 0.23.4"
+  echo "Usage: $0 0.24.0"
   exit 1
 fi
 

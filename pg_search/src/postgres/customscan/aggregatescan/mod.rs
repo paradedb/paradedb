@@ -35,7 +35,6 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
-use pgrx::pg_sys::exprCollation;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
@@ -1934,7 +1933,7 @@ unsafe fn detect_join_aggregate_topk(
         }
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
-        let collation = exprCollation(sort_expr);
+        let collation = pg_sys::exprCollation(sort_expr);
         if !is_collation_pushdown_safe(collation) {
             return None;
         }

@@ -1462,6 +1462,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
+
         if pathkey_is_outer_only(equivclass, &source_rtis) {
             continue;
         }

@@ -454,6 +454,7 @@ where
                 }
             }
         }
+
         // If we couldn't find any valid member for this pathkey, then we can't handle this series
         // of pathkeys.
         if !found_valid_member {

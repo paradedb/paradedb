@@ -406,3 +406,116 @@ jobs:
         run: |
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb
+
+  # Smoke-test that docker/Dockerfile.extension (the non-runnable, FROM scratch
+  # paradedb/paradedb-extension payload) builds for PostgreSQL 18 on each arch.
+  # This image is only built at release time in publish-paradedb-docker.yml, so
+  # without this job a break in the .deb layout or the COPY paths would not surface
+  # until a publish fails. Building per arch natively keeps it consistent with the
+  # runnable-image job above.
+  test-extension-image:
+    name: Test Extension Image Build (${{ matrix.arch }})
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=4
+      - ram=16
+      - image=${{ matrix.runner_image }}
+      - volume=40gb
+      - extras=s3-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+        include:
+          - arch: amd64
+            runner_family: m7a+m7i
+            runner_image: ubuntu24-full-x64
+            platform: linux/amd64
+            deb_sha_arg: PG_SEARCH_DEB_AMD64_SHA256
+          - arch: arm64
+            runner_family: m7g+m8g
+            runner_image: ubuntu24-full-arm64
+            platform: linux/arm64
+            deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # The extension image installs pg_search from the same GitHub Release .deb as
+      # the runnable images. Resolve that version from the committed Dockerfile and
+      # skip if the release isn't published yet — same pre-release gate as the
+      # runnable-image job above (matters for the enterprise rebase).
+      - name: Check whether the referenced pg_search release is published
+        id: release_gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dockerfile="docker/Dockerfile.paradedb-${{ env.PG_VERSION }}"
+          url="$(grep -oE 'https://(api\.)?github\.com/[^"]*releases/(download|tags)/v[0-9][^"/]*' "$dockerfile" | head -1)"
+          if [[ -z "$url" ]]; then
+            echo "No pg_search release URL found in ${dockerfile}; building the extension image."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          repo="$(sed -E 's#https://(api\.)?github\.com/(repos/)?([^/]+/[^/]+)/releases/.*#\3#' <<< "$url")"
+          tag="$(grep -oE 'v[0-9][^"/]*' <<< "$url" | head -1)"
+          echo "Dockerfile ${dockerfile} installs pg_search from ${repo}@${tag}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "Release ${repo}@${tag} is published — building the extension image."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Release ${repo}@${tag} is not published yet — skipping the extension image build. It will run once the release exists."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve pg_search .deb Checksum
+        id: checksum
+        if: steps.release_gate.outputs.skip != 'true'
+        run: |
+          asset="postgresql-${{ env.PG_VERSION }}-pg-search_${{ steps.release_gate.outputs.version }}-1PARADEDB-trixie_${{ matrix.arch }}.deb"
+          url="https://github.com/paradedb/paradedb/releases/download/v${{ steps.release_gate.outputs.version }}/${asset}"
+          echo "Fetching ${asset}"
+          curl -fsSL -o /tmp/pg_search.deb "$url"
+          echo "sha256=$(sha256sum /tmp/pg_search.deb | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
+
+      # A successful `FROM scratch` build already proves the .deb installs and every
+      # COPY glob (library, control file, SQL, license) matched at least one file —
+      # an empty glob fails the build. We export the payload and additionally assert
+      # the key files are present. Scoped per-arch so amd64 and arm64 don't evict
+      # each other in the BuildKit gha/S3 cache.
+      - name: Build and Verify the Extension Image
+        if: steps.release_gate.outputs.skip != 'true'
+        run: |
+          docker buildx build \
+            --platform ${{ matrix.platform }} \
+            --file docker/Dockerfile.extension \
+            --build-arg BASE=ghcr.io/cloudnative-pg/postgresql:${{ env.PG_VERSION }}-minimal-trixie \
+            --build-arg PG_VERSION_MAJOR=${{ env.PG_VERSION }} \
+            --build-arg PG_SEARCH_VERSION=${{ steps.release_gate.outputs.version }} \
+            --build-arg ${{ matrix.deb_sha_arg }}=${{ steps.checksum.outputs.sha256 }} \
+            --cache-from type=gha,scope=paradedb-extension-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-extension-${{ matrix.arch }} \
+            --output type=local,dest=/tmp/extension-payload \
+            docker
+
+          echo "Payload contents:"
+          find /tmp/extension-payload -type f | sort
+
+          for required in lib/pg_search.so share/extension/pg_search.control; do
+            if [[ ! -f "/tmp/extension-payload/${required}" ]]; then
+              echo "Error: extension payload is missing ${required}"
+              exit 1
+            fi
+          done
+          echo "Extension payload built successfully and contains the expected library and control file."

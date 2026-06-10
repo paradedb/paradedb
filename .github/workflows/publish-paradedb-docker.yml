@@ -4,10 +4,11 @@
 # Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub after
 # the pg_search .deb has been published to GitHub Releases. Stable releases publish Docker images for
 # all of our supported PostgreSQL versions, while beta releases only publish the default PostgreSQL
-# version we run as default (currently 18). Once all Docker images are published, notify ORM wrapper
-# repositories via repository_dispatch so they can run compatibility checks against the new version.
-# This is done in `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker
-# image.
+# version we run as default (currently 18). This workflow also publishes the non-runnable
+# paradedb/paradedb-extension image for Postgres 18+ deployments that mount Postgres extension images.
+# Once the runnable Docker images are published, notify ORM wrapper repositories via repository_dispatch
+# so they can run compatibility checks against the new version. This is done in
+# `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
 
 name: Publish ParadeDB (Docker)
 
@@ -239,6 +240,98 @@ jobs:
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
 
+  publish-extension-image:
+    name: Publish ParadeDB Extension Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    needs:
+      - generate-dockerfiles
+      - test-generated-dockerfiles
+    strategy:
+      matrix:
+        # Mounted extension images require PostgreSQL 18+ because
+        # extension_control_path was introduced in PG 18. Older PG majors cannot
+        # see a mounted /share/extension directory.
+        pg_version: [18]
+    env:
+      image_name: paradedb/paradedb-extension
+      image_os: trixie
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+
+      - name: Resolve pg_search .deb Checksums
+        id: checksums
+        env:
+          PG_VERSION: ${{ matrix.pg_version }}
+          PG_SEARCH_VERSION: ${{ needs.generate-dockerfiles.outputs.version }}
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+
+          fetch_checksum() {
+            local arch="$1"
+            local release_asset_name="postgresql-${PG_VERSION}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-trixie_${arch}.deb"
+            local deb="${tmp_dir}/${release_asset_name}"
+
+            echo "Fetching ${release_asset_name}" >&2
+            curl -fsSL -o "$deb" "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/${release_asset_name}"
+            sha256sum "$deb" | awk '{ print $1 }'
+          }
+
+          echo "amd64=$(fetch_checksum amd64)" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(fetch_checksum arm64)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Setup Docker Image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.image_name }}
+          # Extension payloads are version-pinned to a Postgres major, mirroring the
+          # cloudnative-pg/postgres-extensions-containers `<version>-<pg-major>-<distro>`
+          # convention.
+          tags: |
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.version }}-${{ matrix.pg_version }}-${{ env.image_os }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      - name: Build and Push Docker Image to Docker Hub
+        id: build-push
+        uses: docker/build-push-action@v7
+        with:
+          context: docker
+          platforms: linux/amd64,linux/arm64
+          file: docker/Dockerfile.extension
+          build-args: |
+            BASE=ghcr.io/cloudnative-pg/postgresql:${{ matrix.pg_version }}-minimal-trixie
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
+            PG_SEARCH_VERSION=${{ needs.generate-dockerfiles.outputs.version }}
+            PG_SEARCH_DEB_AMD64_SHA256=${{ steps.checksums.outputs.amd64 }}
+            PG_SEARCH_DEB_ARM64_SHA256=${{ steps.checksums.outputs.arm64 }}
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: index.docker.io/${{ env.image_name }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
+
   open-dockerfile-prs:
     name: Open Dockerfile Update PRs
     runs-on: ubuntu-latest
@@ -347,8 +440,8 @@ jobs:
         run: |
           # Attempt every repo even if one fails (e.g. the ParadeDB GitHub App is
           # not installed on it), so a single misconfigured repo doesn't block the
-          # rest. Collect failures and fail the step at the end to trigger the Slack
-          # alert below.
+          # rest. Collect failures and fail the step at the end, which trips the
+          # notify-slack-on-failure job.
           failed=()
           while IFS= read -r repo; do
             repo=$(echo "$repo" | xargs)
@@ -367,9 +460,24 @@ jobs:
             exit 1
           fi
 
+  # Single failure sink for the whole workflow: if any publishing job (including
+  # the regular image, the extension image, Dockerfile generation/testing, or the
+  # ORM dispatch) fails, alert Slack once with a link to the run.
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    runs-on: ubuntu-latest
+    needs:
+      - set-matrix
+      - generate-dockerfiles
+      - test-generated-dockerfiles
+      - publish-paradedb-docker-image
+      - publish-extension-image
+      - open-dockerfile-prs
+      - notify-orm-repos
+    if: ${{ always() && (needs.set-matrix.result == 'failure' || needs.generate-dockerfiles.result == 'failure' || needs.test-generated-dockerfiles.result == 'failure' || needs.publish-paradedb-docker-image.result == 'failure' || needs.publish-extension-image.result == 'failure' || needs.open-dockerfile-prs.result == 'failure' || needs.notify-orm-repos.result == 'failure') }}
+    steps:
       - name: Notify Slack on Failure
-        if: failure()
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> Failed to notify ORM repos of the new \`pg_search\` release in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`publish-paradedb-docker\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

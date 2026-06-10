@@ -398,7 +398,7 @@ impl SearchIndexReader {
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
     ) -> Result<Self> {
-        let (reader, _) = Self::open_with_prepared_query(
+        Self::open_with_optional_prepared_query(
             index_relation,
             search_query_input,
             need_scores,
@@ -406,8 +406,9 @@ impl SearchIndexReader {
             expr_context,
             planstate,
             needs_tokenizer_manager,
-        )?;
-        Ok(reader)
+            false,
+        )
+        .map(|(reader, _)| reader)
     }
 
     pub fn open_with_prepared_query(
@@ -418,6 +419,28 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
         needs_tokenizer_manager: bool,
+    ) -> Result<(Self, SearchQueryInput)> {
+        Self::open_with_optional_prepared_query(
+            index_relation,
+            search_query_input,
+            need_scores,
+            mvcc_style,
+            expr_context,
+            planstate,
+            needs_tokenizer_manager,
+            true,
+        )
+    }
+
+    fn open_with_optional_prepared_query(
+        index_relation: &PgSearchRelation,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        mvcc_style: MvccSatisfies,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        needs_tokenizer_manager: bool,
+        pretokenize_match_queries: bool,
     ) -> Result<(Self, SearchQueryInput)> {
         let components =
             Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
@@ -431,8 +454,11 @@ impl SearchIndexReader {
             schema,
         } = components;
 
-        let search_query_input =
-            search_query_input.pretokenize_match_queries(&schema, &searcher)?;
+        let search_query_input = if pretokenize_match_queries {
+            search_query_input.pretokenize_match_queries(&schema, &searcher)?
+        } else {
+            search_query_input
+        };
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
             search_query_input

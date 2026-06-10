@@ -411,20 +411,24 @@ impl SearchIndexReader {
         } = components;
 
         let need_scores = need_scores || search_query_input.need_scores();
-        let query = search_query_input.into_tantivy_query(
-            &schema,
-            &|| {
-                QueryParser::for_index(
-                    &index,
-                    schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+        let query = {
+            search_query_input
+                .into_tantivy_query(
+                    &schema,
+                    &|| {
+                        QueryParser::for_index(
+                            &index,
+                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                        )
+                    },
+                    &searcher,
+                    index_relation.oid(),
+                    index_relation.rel_oid(),
+                    expr_context,
+                    planstate,
                 )
-            },
-            &searcher,
-            index_relation.oid(),
-            index_relation.rel_oid(),
-            expr_context,
-            planstate,
-        )?;
+                .unwrap_or_else(|e| panic!("{e}"))
+        };
         let segment_ord_by_id = searcher
             .segment_readers()
             .iter()
@@ -460,7 +464,7 @@ impl SearchIndexReader {
     }
 
     pub fn query(&self) -> &dyn Query {
-        self.query.as_ref()
+        &self.query
     }
 
     pub fn and_query(&mut self, additional_query: Box<dyn Query>) {
@@ -512,9 +516,7 @@ impl SearchIndexReader {
                 expr_context,
                 None, // no planstate
             )
-            .unwrap_or_else(|e| {
-                panic!("SearchIndexReader::make_query: should build Tantivy query: {e}")
-            })
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {

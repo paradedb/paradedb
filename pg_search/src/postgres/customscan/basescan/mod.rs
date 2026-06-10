@@ -150,9 +150,8 @@ impl WorkerDecision {
 /// `can_prune` is true when the ORDER BY is exactly `score DESC` — the one case
 /// where Block-WAND can make a single posting list sublinear. The per-query-type
 /// expense model (`SearchQueryInput::expense`) then decides whether that pruning
-/// actually applies for the given query shape, so this is derived purely from
-/// the method + ORDER BY with no reader opened (PR #5150 review: derivable from
-/// ORDER BY + SearchQueryInput).
+/// actually applies for the given query shape. Both are derived purely from the
+/// method + ORDER BY + `SearchQueryInput`, so no reader is opened at plan time.
 unsafe fn topk_can_prune_for_method(
     method: &ExecMethodType,
     root: *mut pg_sys::PlannerInfo,
@@ -192,15 +191,13 @@ unsafe fn topk_can_prune_for_method(
 }
 
 /// Worker decision for an ordered TopK, driven entirely by the query-expense
-/// estimate (PR #5150 review: "make it much simpler", "switch on whether the
-/// query is more or less expensive").
+/// estimate.
 ///
 /// Estimated scoring work is `matches * per_match`, where `per_match` comes from
 /// [`SearchQueryInput::expense`]: ~0 for a Block-WAND-pruned single term under
 /// score-DESC, `log2(terms)` for a term union, ~2 for regex/fuzzy, ~16 for
 /// phrase. We parallelize only when splitting that work across workers beats the
-/// fixed cost of starting them (PostgreSQL's `parallel_setup_cost`). This
-/// replaces the previous reader-based cost model.
+/// fixed cost of starting them (PostgreSQL's `parallel_setup_cost`).
 ///
 /// # Safety
 ///
@@ -239,7 +236,7 @@ unsafe fn decide_topk_workers(
     };
 
     let comparison_cost = 2.0 * pg_sys::cpu_operator_cost;
-    let work = matches * query.expense(can_prune).per_match * comparison_cost;
+    let work = matches * query.expense(can_prune) * comparison_cost;
 
     // Parallelize only when dividing the work beats PostgreSQL's Gather overhead.
     let divisor = candidate.divisor(parallel_leader_participates);
@@ -377,9 +374,7 @@ impl BaseScan {
             std::ptr::NonNull::new(planstate),
             needs_tokenizer_manager,
         )
-        .unwrap_or_else(|e| {
-            panic!("BaseScan::init_search_reader: should be able to open a SearchIndexReader: {e}")
-        });
+        .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -1159,20 +1154,16 @@ impl CustomScan for BaseScan {
                     path_builder = path_builder.set_parallel_safe(true);
                 }
 
-                // Decide worker count and path cost. Ordered TopK gets an
-                // explicit serial-vs-parallel comparison driven by the
-                // query-expense cost model; everything else (columnar, normal,
-                // unordered) uses the established worker-selection heuristic.
-                // The path cost comes from the general estimator for every
-                // method. For ordered TopK we then override only the worker
-                // decision with the compact query-expense threshold: parallelize
-                // only when estimated scoring work (matches x per-match expense)
-                // outweighs the fixed cost of starting workers. A Block-WAND-
-                // pruned single term has ~0 work -> serial; heavy unions,
-                // non-prunable, and high-match shapes exceed the threshold ->
-                // parallel. This replaces the per-segment cost model (PR #5150
-                // review: "make it much simpler") while keeping per-query-type
-                // cost awareness.
+                // Decide worker count and path cost. The path cost comes from
+                // the general estimator for every method; everything but
+                // ordered TopK (columnar, normal, unordered) also takes its
+                // worker count from the established heuristic. For ordered TopK
+                // we then override only the worker decision with the
+                // query-expense threshold: parallelize only when estimated
+                // scoring work (matches x per-match expense) outweighs the
+                // fixed cost of starting workers. A Block-WAND-pruned single
+                // term has ~0 work -> serial; heavy unions, non-prunable, and
+                // high-match shapes exceed the threshold -> parallel.
                 let mut cost_basis = cost_general_path(GeneralPathCostParams {
                     method: &method,
                     is_sorted,
@@ -1632,22 +1623,21 @@ impl CustomScan for BaseScan {
                 // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
                 // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
                 //   reader using MvccSatisfies::LargestSegment for estimation purposes only
-                let query_tree = if let Some(search_reader) =
-                    state.custom_state().search_reader.as_ref()
-                {
-                    // EXPLAIN ANALYZE: use the existing search reader
-                    search_reader
-                        .build_query_tree_with_estimates(base_query.clone())
-                        .expect("building query tree with estimates should not fail")
-                } else {
-                    // EXPLAIN (without ANALYZE): create a temporary reader for estimates
-                    let indexrel = state
-                        .custom_state()
-                        .indexrel
-                        .as_ref()
-                        .expect("indexrel should be open");
+                let query_tree =
+                    if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
+                        // EXPLAIN ANALYZE: use the existing search reader
+                        search_reader
+                            .build_query_tree_with_estimates(base_query.clone())
+                            .expect("building query tree with estimates should not fail")
+                    } else {
+                        // EXPLAIN (without ANALYZE): create a temporary reader for estimates
+                        let indexrel = state
+                            .custom_state()
+                            .indexrel
+                            .as_ref()
+                            .expect("indexrel should be open");
 
-                    let temp_reader = SearchIndexReader::open_with_context(
+                        let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
                             base_query.clone(),
                             false,                         // don't need scores for estimates
@@ -1656,16 +1646,12 @@ impl CustomScan for BaseScan {
                             None,                          // No planstate needed for estimates
                             base_query.needs_tokenizer(),
                         )
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "BaseScan::build_query_tree_with_estimates: opening temporary SearchIndexReader should not fail: {e}"
-                            )
-                        });
+                        .expect("opening temporary search reader for estimates should not fail");
 
-                    temp_reader
-                        .build_query_tree_with_estimates(base_query.clone())
-                        .expect("building query tree with estimates should not fail")
-                };
+                        temp_reader
+                            .build_query_tree_with_estimates(base_query.clone())
+                            .expect("building query tree with estimates should not fail")
+                    };
 
                 explainer.add_query_with_estimates(&query_tree);
             } else {

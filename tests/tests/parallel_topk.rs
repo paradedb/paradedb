@@ -325,6 +325,26 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     LIMIT 10",
             expected_workers: None,
         },
+        // Same, but with the window aggregate nested inside a function call: the
+        // planner hook's replacement pass descends into FuncExpr arguments, so
+        // the window_agg() placeholder ends up nested inside jsonb_pretty()
+        // rather than at the top of the target entry. Only a recursive
+        // target-list walk detects it, and it must route to the general path
+        // exactly like the top-level form above.
+        PlanCase {
+            name: "nested_window_aggregate_routes_to_general_path_serial_on_small_data",
+            query: "SELECT id,
+                           paradedb.score(id),
+                           jsonb_pretty(
+                               pdb.agg('{\"terms\": {\"field\": \"body\", \"size\": 5}}', false)
+                                 OVER ()
+                           ) AS body_facets
+                    FROM topk_desc_large
+                    WHERE body @@@ 'alpha'
+                    ORDER BY paradedb.score(id) DESC
+                    LIMIT 10",
+            expected_workers: None,
+        },
         PlanCase {
             name: "unanalyzed_small_limit_is_serial",
             query: "SELECT id FROM topk_unanalyzed WHERE body @@@ 'alpha'

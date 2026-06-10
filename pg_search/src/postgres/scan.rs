@@ -189,9 +189,7 @@ pub extern "C-unwind" fn amrescan(
                 false,
                 MvccSatisfies::ParallelWorker(segment_ids),
             )
-            .unwrap_or_else(|e| {
-                panic!("amrescan: worker should be able to open a SearchIndexReader: {e}")
-            })
+            .expect("amrescan: worker should be able to open a SearchIndexReader")
         } else {
             // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
             // visibility to see all currently snapshot-visible segments.
@@ -201,9 +199,7 @@ pub extern "C-unwind" fn amrescan(
                 false,
                 MvccSatisfies::Snapshot,
             )
-            .unwrap_or_else(|e| {
-                panic!("amrescan: should be able to open a SearchIndexReader: {e}")
-            });
+            .expect("amrescan: should be able to open a SearchIndexReader");
 
             // For parallel scans, leader initializes shared state with its segment list
             if is_parallel {

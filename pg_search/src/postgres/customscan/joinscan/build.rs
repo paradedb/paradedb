@@ -446,9 +446,7 @@ impl JoinSourceCandidate {
             None,
             needs_tokenizer_manager,
         )
-        .unwrap_or_else(|e| {
-            panic!("JoinScan build: should be able to open a SearchIndexReader for estimates: {e}")
-        });
+        .expect("Failed to open index reader for estimation");
 
         self.segment_count = Some(reader.total_segment_count());
 

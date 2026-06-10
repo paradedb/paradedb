@@ -447,14 +447,12 @@ impl SearchQueryInput {
         }
     }
 
-    /// Cost characteristics for the TopK serial-vs-parallel decision. Generalizes
-    /// the score-DESC cost branch to any query shape (PR #5150 review: switch on
-    /// "this `SearchQueryInput` + ORDER BY is more or less expensive"). `can_prune`
-    /// is true only when the ORDER BY is score-DESC.
-    pub fn expense(&self, can_prune: bool) -> crate::query::pdb_query::QueryExpense {
-        use crate::query::pdb_query::{
-            union_per_match, QueryExpense, EXPENSE_AUTOMATON, EXPENSE_POSTING,
-        };
+    /// Per-matched-document traversal cost, in multiples of `cpu_operator_cost`,
+    /// for the TopK serial-vs-parallel decision: the decision switches on how
+    /// expensive this query shape is to score, not on score-DESC in particular.
+    /// `can_prune` is true only when the ORDER BY is score-DESC.
+    pub fn expense(&self, can_prune: bool) -> f64 {
+        use crate::query::pdb_query::{union_per_match, EXPENSE_AUTOMATON, EXPENSE_POSTING};
 
         // A SHOULD clause that is a bare single term keeps the union Block-WAND-prunable.
         fn is_bare_term(q: &SearchQueryInput) -> bool {
@@ -484,41 +482,24 @@ impl SearchQueryInput {
             } => {
                 if must.is_empty() && must_not.is_empty() && should.iter().all(is_bare_term) {
                     // Pure SHOULD union of terms: Block-WAND union, traversal ~ log2(n).
-                    QueryExpense {
-                        per_match: union_per_match(should.len(), can_prune),
-                        per_candidate: EXPENSE_POSTING,
-                    }
+                    union_per_match(should.len(), can_prune)
                 } else {
                     // Conjunction / mixed: intersection scorer bounded by the rarest
                     // term, never WAND score-pruned.
-                    QueryExpense {
-                        per_match: EXPENSE_POSTING,
-                        per_candidate: EXPENSE_POSTING,
-                    }
+                    EXPENSE_POSTING
                 }
             }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => QueryExpense {
-                per_match: union_per_match(disjuncts.len(), false),
-                per_candidate: EXPENSE_POSTING,
-            },
-            SearchQueryInput::Parse { query_string, .. } => QueryExpense {
-                per_match: union_per_match(
-                    query_string.split_whitespace().count().max(1),
-                    can_prune,
-                ),
-                per_candidate: EXPENSE_POSTING,
-            },
-            SearchQueryInput::All | SearchQueryInput::Empty => QueryExpense {
-                per_match: 0.0,
-                per_candidate: EXPENSE_POSTING,
-            },
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                union_per_match(disjuncts.len(), false)
+            }
+            SearchQueryInput::Parse { query_string, .. } => {
+                union_per_match(query_string.split_whitespace().count().max(1), can_prune)
+            }
+            SearchQueryInput::All | SearchQueryInput::Empty => 0.0,
 
             // TermSet, MoreLikeThis, PostgresExpression, Uninitialized, and
             // ScoreFilter without an inner query → conservatively non-prunable.
-            _ => QueryExpense {
-                per_match: EXPENSE_AUTOMATON,
-                per_candidate: EXPENSE_POSTING,
-            },
+            _ => EXPENSE_AUTOMATON,
         }
     }
 

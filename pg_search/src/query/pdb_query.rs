@@ -680,13 +680,13 @@ impl pdb::Query {
         }
     }
 
-    /// Cost characteristics of this query for the TopK serial-vs-parallel decision.
+    /// Per-matched-document traversal cost of this query, in multiples of
+    /// `cpu_operator_cost`, for the TopK serial-vs-parallel decision.
     ///
-    /// Generalizes the score-DESC-specific cost branch (PR #5150) per review
-    /// feedback: switch on "this `SearchQueryInput` + ORDER BY is more or less
-    /// expensive" rather than on score-DESC in particular, in a framework where a
-    /// range query is more expensive than a pure posting-list query. Derived purely
-    /// from the query shape — no reader/scorer is constructed.
+    /// The decision switches on "this query + ORDER BY is more or less expensive"
+    /// rather than on score-DESC in particular: a range query is more expensive
+    /// than a pure posting-list query, a phrase query more expensive still.
+    /// Derived purely from the query shape — no reader/scorer is constructed.
     ///
     /// `can_prune` must be true only when the ORDER BY is score-DESC: that is the
     /// one case where Block-WAND makes a single posting list sublinear.
@@ -694,8 +694,8 @@ impl pdb::Query {
     /// Coefficients are anchored by measured ns/match on a ~20M corpus (term <
     /// fast-field-range < regex ≈ fuzzy ≪ phrase) and are calibration knobs; the
     /// relative ordering is what the cost model relies on.
-    pub fn expense(&self, can_prune: bool) -> QueryExpense {
-        let per_match = match self {
+    pub fn expense(&self, can_prune: bool) -> f64 {
+        match self {
             pdb::Query::All | pdb::Query::Empty => 0.0,
 
             // A single posting list — the only shape Block-WAND fully prunes under
@@ -747,7 +747,7 @@ impl pdb::Query {
             }
 
             // Wrappers: recurse (mirrors is_expensive_to_estimate).
-            pdb::Query::ScoreAdjusted { query, .. } => return query.expense(can_prune),
+            pdb::Query::ScoreAdjusted { query, .. } => query.expense(can_prune),
 
             // Query-string / unresolved forms: approximate term count by whitespace
             // tokenization (no reader needed).
@@ -759,23 +759,8 @@ impl pdb::Query {
                 union_per_match(estimate_term_count(string), can_prune)
             }
             pdb::Query::UnclassifiedArray { array, .. } => union_per_match(array.len(), can_prune),
-        };
-        QueryExpense {
-            per_match,
-            per_candidate: EXPENSE_POSTING,
         }
     }
-}
-
-/// Cost characteristics of a query for the TopK serial-vs-parallel decision.
-/// See [`pdb::Query::expense`] and `SearchQueryInput::expense`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct QueryExpense {
-    /// Per-matched-document traversal cost, in multiples of `cpu_operator_cost`.
-    /// Scales with the full match count and is the dominant factor in the decision.
-    pub per_match: f64,
-    /// Per-locally-collected-candidate heap cost (work is bounded by `LIMIT * segments`).
-    pub per_candidate: f64,
 }
 
 /// One posting-list advance: single term or fast-field scan.
@@ -2115,7 +2100,7 @@ mod tests {
     use std::collections::Bound;
 
     fn per_match(q: &Query, can_prune: bool) -> f64 {
-        q.expense(can_prune).per_match
+        q.expense(can_prune)
     }
 
     fn match_query(value: &str) -> Query {

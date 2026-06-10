@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781134382158,
+  "lastUpdate": 1781135053922,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15310,6 +15310,42 @@ window.BENCHMARK_DATA = {
             "value": 5.109098764920356,
             "unit": "median tps",
             "extra": "avg tps: 4.523117338950932, max tps: 5.872000144000461, count: 57852"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14a548a50795cac8c5951ae71c1bc21e55fd48f7",
+          "message": "chore: June 2026 Tantivy Rebase (#5294)\n\nIncorporates\nhttps://github.com/paradedb/tantivy/commits/stuhood.tantivy-rebase-june-2026\n\nCloses #5302\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T16:09:54-07:00",
+          "tree_id": "4c028153d20f21d3934f77e21cfbc4f0b09e36e4",
+          "url": "https://github.com/paradedb/paradedb/commit/14a548a50795cac8c5951ae71c1bc21e55fd48f7"
+        },
+        "date": 1781135020429,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.746072609974636,
+            "unit": "median tps",
+            "extra": "avg tps: 6.601159741318587, max tps: 10.014386833698207, count: 57690"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.151413356668459,
+            "unit": "median tps",
+            "extra": "avg tps: 4.551566543620294, max tps: 5.9150889274076395, count: 57690"
           }
         ]
       }

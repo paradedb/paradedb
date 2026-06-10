@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781052406713,
+  "lastUpdate": 1781052441233,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38414,6 +38414,114 @@ window.BENCHMARK_DATA = {
             "value": 173.6328125,
             "unit": "median mem",
             "extra": "avg mem: 171.07162203385064, max mem: 174.5703125, count: 55575"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a795be300d5b1b78acde29d3925e02d9bce62cb4",
+          "message": "fix: clean up stale merge-list entries in ambulkdelete instead of asserting (#5238)\n\n## What\n\n`ambulkdelete` no longer crashes when a leftover entry remains in the\nmerge\nlist after garbage collection. The faulty assertion is removed;\n`garbage_collect`\nstays the sole remover of merge-list entries, and the stale leftover is\ntolerated\n(it is reclaimed by a later `garbage_collect`).\n\n## Why\n\nAn autovacuum worker can crash with:\n\n```\nERROR: ambulkdelete cannot run concurrently with an active merge operation\ncontext: while vacuuming index \"idxtest\" of relation \"public.test\"\n         automatic vacuum of table \"public.test\"\n\n  9: core::panicking::panic_fmt\n 10: pg_search::postgres::delete::ambulkdelete::ambulkdelete_inner\n       at pg_search/src/postgres/delete.rs:145:5\n 18: pg_search::postgres::delete::ambulkdelete\n 19: vac_bulkdel_one_index\n 21: heap_vacuum_rel\n 23: vacuum\n 25: AutoVacWorkerMain\n```\n\nThe panic is the `assert!` at `delete.rs:145`.\n\n### Root cause\n\nThe assertion treated a non-empty merge list as proof that a merge is\nrunning.\nThat is not true. `garbage_collect` (called just above the assert) only\nreclaims\nentries that are *recyclable* — `xmin_done || pid_dead`:\n\n```rust\nlet xmin_done = self.xmin != InvalidTransactionId && !TransactionIdIsInProgress(self.xmin);\nlet pid_dead  = !IsBackendPid(self.pid);\nxmin_done || pid_dead\n```\n\nA merge that errored after writing its `MergeEntry` but before removing\nit\n(an ERROR/panic cannot reliably remove it mid-unwind — that requires\nbuffer\nlocks, which Postgres refuses while unwinding) leaves an entry that is\n**not\nyet recyclable** while its backend is still alive and its `xmin` still\nin\nprogress. Such an entry survives `garbage_collect` and trips the\nassertion,\ncrashing VACUUM.\n\n### Why the leftover is harmless\n\n`ambulkdelete` holds the **CLEANUP_LOCK exclusively**, and a live merge\nholds\nit *shared* for its whole duration (removing its `MergeEntry` before\nreleasing).\nSo a surviving entry is provably **not** a concurrent merge — it is\nstale debris.\nIt does not affect the vacuum, and a later `garbage_collect` reclaims it\nonce\nits backend exits or its transaction ends.\n\n### Fix\n\nRemove the assertion and tolerate the leftover; `garbage_collect`\nremains the\nonly place that removes merge-list entries. Also drops the now-unused\n`MergeList::is_empty`, whose only caller was the deleted assertion.\n\n## Verification\n\nReproduced on a local PG17 cluster:\n\n- Injected the exact crash condition — a non-recyclable merge entry\n  (alive pid + in-progress xmin, no cleanup lock held), which survives\n`garbage_collect` — then ran `VACUUM` with dead tuples so `ambulkdelete`\nruns.\n- **Before:** `assert!` fires -> `ERROR: ambulkdelete cannot run\nconcurrently\n  with an active merge operation`.\n- **After:** VACUUM succeeds; the stale entry is left in place and\nreclaimed by\n  a subsequent `garbage_collect` once it becomes recyclable.",
+          "timestamp": "2026-06-09T19:51:10-04:00",
+          "tree_id": "54c8735289f1de8ec5d043f63c2cbd796973b157",
+          "url": "https://github.com/paradedb/paradedb/commit/a795be300d5b1b78acde29d3925e02d9bce62cb4"
+        },
+        "date": 1781052408672,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 13.994169,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.056200067217713, max cpu: 37.029896, count: 55536"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 173.52526718311094, max mem: 180.03125, count: 55536"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.597762054336992, max cpu: 36.852203, count: 55536"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.68318797435447, max mem: 120.15234375, count: 55536"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.210528786000334, max cpu: 23.30097, count: 55536"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 169.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.57279442051103, max mem: 179.84375, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16261,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16566.110090751943, max block_count: 30710.0, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.132105676592833, max cpu: 4.7197638, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 108.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.64019418429037, max mem: 137.0703125, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.719731345433594, max segment_count: 35.0, count: 55536"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.12390493738515, max cpu: 36.852203, count: 111072"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.21522332501667, max mem: 182.5390625, count: 111072"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.766731,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.217881313466348, max cpu: 27.853, count: 55536"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.22322633348188, max mem: 174.30859375, count: 55536"
           }
         ]
       }

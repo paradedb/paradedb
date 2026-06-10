@@ -284,10 +284,6 @@ impl MergeList {
         Self { entries, bman }
     }
 
-    pub unsafe fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     pub unsafe fn list(&self) -> Vec<MergeEntry> {
         self.entries.list(None)
     }

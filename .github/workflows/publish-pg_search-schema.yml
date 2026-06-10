@@ -1,10 +1,10 @@
 # workflows/publish-pg_search-schema.yml
 #
-# Publish pg_search Schema
+# Publish pg_search (Schema)
 # Generates the full pg_search SQL schema via `cargo pgrx schema` and uploads it as a
 # release asset.
 
-name: Publish pg_search Schema
+name: Publish pg_search (Schema)
 
 on:
   push:
@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   publish-pg_search-schema:
-    name: Publish pg_search Schema
+    name: Publish pg_search (Schema)
     runs-on:
       # Compute-optimized c-family — Rust schema generation is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.

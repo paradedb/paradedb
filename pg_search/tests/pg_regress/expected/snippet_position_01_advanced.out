@@ -69,6 +69,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+-----------+---------------------+------------------+--------------+------------
        1 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |          0
@@ -90,6 +91,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' OR NOT(a.name @@@ 'Rowling')
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+-----------+---------------------+------------------+--------------+------------
        1 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |            0 |          0
@@ -111,6 +113,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') OR a.name @@@ 'Rowling'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+-----------+---------------------+------------------+--------------+------------
        1 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |          0
@@ -128,6 +131,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id | author_snippet | author_positions | author_score | book_score 
 ---------+-----------+----------------+------------------+--------------+------------
        1 |         2 |                |                  |            0 |          0
@@ -147,6 +151,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+-----------+---------------------+------------------+--------------+------------
        3 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |  0.4624617
@@ -163,6 +168,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id | author_snippet | author_positions | author_score | book_score 
 ---------+-----------+----------------+------------------+--------------+------------
        1 |         2 |                |                  |            0 | 0.45681813
@@ -182,6 +188,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+-----------+---------------------+------------------+--------------+------------
        1 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |          0
@@ -198,6 +205,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
 ORDER BY b.id, a.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id | author_snippet | author_positions | author_score | book_score 
 ---------+-----------+----------------+------------------+--------------+------------
 (0 rows)
@@ -223,6 +231,7 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
  book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |    review_positions     | review_score 
 ---------+---------------------+------------------+--------------+------------+--------------------------------------------------------------+-----------------------------------------------------------------------------------+-------------------------+--------------
        3 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |  0.4624617 | test review of the snippet function with multiple test words | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words | {{0,4},{19,26},{50,54}} |    0.5505729
@@ -247,6 +256,7 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b, r)
  book_id |                                                                       book_snippet                                                                       |         book_positions          |   author_snippet    | author_positions |                                               review_snippet                                                |         review_positions         | book_score | author_score | review_score 
 ---------+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------+---------------------+------------------+-------------------------------------------------------------------------------------------------------------+----------------------------------+------------+--------------+--------------
        1 |                                                                                                                                                          |                                 | J.K. <b>Rowling</b> | {{5,12}}         | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {{10,14},{29,36},{60,64}}        |          0 |    1.5404451 |     0.494645

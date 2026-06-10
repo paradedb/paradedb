@@ -1648,6 +1648,7 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1684,6 +1685,7 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
+WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
  category | avg_price | total_count 
 ----------+-----------+-------------
  Laptops  |      1849 |           1
@@ -1713,6 +1715,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
+WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1748,6 +1751,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
+WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
  id |    name     | rating |       category_desc        | total_count 
 ----+-------------+--------+----------------------------+-------------
   1 | MacBook Pro |    4.8 | Portable computing devices |           4
@@ -1905,6 +1909,7 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
+WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1948,6 +1953,7 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
+WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
  category |        description         | avg_price | total_count 
 ----------+----------------------------+-----------+-------------
  Laptops  | Portable computing devices |      1849 |           1

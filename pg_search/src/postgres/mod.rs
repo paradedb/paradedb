@@ -63,6 +63,7 @@ pub mod locks;
 mod parallel;
 pub mod pdb_owned_value;
 pub mod planner_warnings;
+mod raw;
 pub mod rel;
 pub mod storage;
 pub mod types;

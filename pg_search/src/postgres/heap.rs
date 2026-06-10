@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::raw;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
@@ -41,6 +42,9 @@ pub struct VisibilityChecker {
     bman: BufferManager,
 
     vmbuff: pg_sys::Buffer,
+    /// Which VM-relation mapBlock `vmbuff` currently holds, or `None` if `vmbuff` is
+    /// `InvalidBuffer`.
+    vmbuff_block_number: Option<pg_sys::BlockNumber>,
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
 
@@ -84,6 +88,7 @@ impl VisibilityChecker {
                 heaprel: Clone::clone(heaprel),
                 bman: BufferManager::new(heaprel),
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
+                vmbuff_block_number: None,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
                 nblocks,
                 heap_tuple_check_count: 0,
@@ -169,9 +174,28 @@ impl VisibilityChecker {
             return self.blockvis.1;
         }
         self.blockvis.0 = blockno;
+
+        let map_block_number = blockno / raw::HEAPBLOCKS_PER_PAGE;
         unsafe {
-            let status =
-                pg_sys::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff);
+            let status = if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
+                && self.vmbuff_block_number == Some(map_block_number)
+            {
+                // Fast path: `vmbuff` already holds the right VM page. The C function
+                // will reuse it and only do bit math (no `vm_readbuf`, so no elog),
+                // so we can bypass the pgrx wrapper.
+                raw::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff)
+            } else {
+                // Slow path: `vmbuff` is either invalid or holds a different VM page.
+                // The C function will call `vm_readbuf`, which can elog so keep the guarded call.
+                let s = pg_sys::visibilitymap_get_status(
+                    self.heaprel.as_ptr(),
+                    blockno,
+                    &mut self.vmbuff,
+                );
+                self.vmbuff_block_number = (self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer)
+                    .then_some(map_block_number);
+                s
+            };
             self.blockvis.1 = status != 0;
         }
         self.blockvis.1

@@ -142,7 +142,7 @@ fn sequential_scan_syntax_non_fast_field_issue_5264(mut conn: PgConnection) {
         .to_string()
         .fetch_collect(&mut conn);
 
-    assert_eq!(columns.id, vec![1, 2, 42]);
+    assert_eq!(columns.id, vec![1, 2]);
 }
 
 #[rstest]

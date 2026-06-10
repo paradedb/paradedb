@@ -224,6 +224,19 @@ pub fn search_with_query_input(
                 .into_iter()
                 .next()
                 .expect("field_names should contain exactly one field");
+
+            let supports_exists = schema
+                .search_field(&field)
+                .is_some_and(|search_field| search_field.is_fast());
+
+            if !supports_exists {
+                return QueryCacheEntry {
+                    element_oid,
+                    matches,
+                    existing_values: None,
+                };
+            }
+
             let exists_query = SearchQueryInput::WithIndex {
                 oid: index_oid,
                 query: Box::new(SearchQueryInput::FieldedQuery {

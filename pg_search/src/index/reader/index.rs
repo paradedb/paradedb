@@ -403,8 +403,7 @@ impl SearchIndexReader {
             search_query_input,
             need_scores,
             mvcc_style,
-            expr_context,
-            planstate,
+            (expr_context, planstate),
             needs_tokenizer_manager,
             false,
         )
@@ -425,8 +424,7 @@ impl SearchIndexReader {
             search_query_input,
             need_scores,
             mvcc_style,
-            expr_context,
-            planstate,
+            (expr_context, planstate),
             needs_tokenizer_manager,
             true,
         )
@@ -437,8 +435,10 @@ impl SearchIndexReader {
         search_query_input: SearchQueryInput,
         need_scores: bool,
         mvcc_style: MvccSatisfies,
-        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
-        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        postgres_context: (
+            Option<NonNull<pgrx::pg_sys::ExprContext>>,
+            Option<NonNull<pgrx::pg_sys::PlanState>>,
+        ),
         needs_tokenizer_manager: bool,
         pretokenize_match_queries: bool,
     ) -> Result<(Self, SearchQueryInput)> {
@@ -474,8 +474,8 @@ impl SearchIndexReader {
                     &searcher,
                     index_relation.oid(),
                     index_relation.rel_oid(),
-                    expr_context,
-                    planstate,
+                    postgres_context.0,
+                    postgres_context.1,
                 )
                 .unwrap_or_else(|e| panic!("{e}"))
         };

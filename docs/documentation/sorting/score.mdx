@@ -198,18 +198,46 @@ Next, let's compute a "combined BM25 score" over a join across both tables.
 The recommended approach for combining scores from multiple tables is to use [Reciprocal Rank Fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion). RRF combines the ranked results from separate queries into a single unified ranking.
 
 <CodeGroup>
-  ```sql SQL WITH order_search AS ( SELECT order_id, RANK() OVER (ORDER BY score
-  DESC) AS rank FROM ( SELECT order_id, pdb.score(order_id) AS score FROM orders
-  WHERE customer_name ||| 'Johnson' ORDER BY pdb.score(order_id) DESC LIMIT 20 )
-  ), product_search AS ( SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS
-  rank FROM ( SELECT id, pdb.score(id) AS score FROM mock_items WHERE
-  description ||| 'running shoes' ORDER BY pdb.score(id) DESC LIMIT 20 ) m JOIN
-  orders o ON o.product_id = m.id ), rrf AS ( SELECT order_id, 1.0 / (60 + rank)
-  AS s FROM order_search UNION ALL SELECT order_id, 1.0 / (60 + rank) AS s FROM
-  product_search ) SELECT o.order_id, o.customer_name, m.description, sum(rrf.s)
-  AS score FROM rrf JOIN orders o USING (order_id) JOIN mock_items m ON
-  o.product_id = m.id GROUP BY o.order_id, o.customer_name, m.description ORDER
-  BY score DESC, o.order_id LIMIT 5; ```
+```sql SQL
+WITH order_search AS (
+  SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT order_id, pdb.score(order_id) AS score
+    FROM orders
+    WHERE customer_name ||| 'Johnson'
+    ORDER BY pdb.score(order_id) DESC
+    LIMIT 20
+  )
+),
+product_search AS (
+  SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT id, pdb.score(id) AS score
+    FROM mock_items
+    WHERE description ||| 'running shoes'
+    ORDER BY pdb.score(id) DESC
+    LIMIT 20
+  ) m
+  JOIN orders o ON o.product_id = m.id
+),
+rrf AS (
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+  UNION ALL
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+)
+SELECT
+  o.order_id,
+  o.customer_name,
+  m.description,
+  sum(rrf.s) AS score
+FROM rrf
+JOIN orders o USING (order_id)
+JOIN mock_items m ON o.product_id = m.id
+GROUP BY o.order_id, o.customer_name, m.description
+ORDER BY score DESC, o.order_id
+LIMIT 5;
+```
+
 </CodeGroup>
 
 ## Score Refresh

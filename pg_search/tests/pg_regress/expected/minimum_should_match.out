@@ -1,6 +1,5 @@
 -- Tests for minimum_should_match parameter in paradedb.boolean()
 CREATE EXTENSION IF NOT EXISTS pg_search;
-NOTICE:  extension "pg_search" already exists, skipping
 DROP TABLE IF EXISTS docs CASCADE;
 CREATE TABLE docs (
     id SERIAL PRIMARY KEY,

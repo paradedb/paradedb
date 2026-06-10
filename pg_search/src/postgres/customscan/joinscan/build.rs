@@ -264,6 +264,16 @@ impl JoinKeyPair {
             None
         }
     }
+
+    /// Flip the outer/inner orientation of this key. Used when a join node's
+    /// two children are swapped (e.g. canonicalizing `RightSemi` to `Semi` in
+    /// [`JoinNode::canonicalize_orientation`]); the key still describes the same
+    /// equality, just from the mirrored side. `type_oid`/`typlen`/`typbyval`
+    /// describe the (single) key type and are unaffected by which side is outer.
+    pub fn swap_sides(&mut self) {
+        std::mem::swap(&mut self.outer_rti, &mut self.inner_rti);
+        std::mem::swap(&mut self.outer_attno, &mut self.inner_attno);
+    }
 }
 
 /// A join-level search predicate - a search query that applies to a specific relation.
@@ -707,6 +717,36 @@ pub struct JoinNode {
     /// planning pass and never reach the serialized plan.
     #[serde(skip)]
     pub absorbed_search_clauses: Vec<*mut pg_sys::RestrictInfo>,
+}
+
+impl JoinNode {
+    /// Rewrite a right-oriented semi/anti join into its left-oriented twin in
+    /// place: swap the children, flip each equi-key, relabel (`RightSemi` ->
+    /// `Semi`, `RightAnti` -> `Anti`). Non-recursive, so the children must
+    /// already be canonical (reconstruction calls this per level, child-first).
+    ///
+    /// PG emits the right-oriented form (joinrels.c) when its hash-join cost
+    /// model prefers to hash the preserved side -- a physical choice JoinScan
+    /// discards, since it joins BM25 indexes in DataFusion rather than via PG's
+    /// hash table. A right-semi is just a left-semi with the inputs swapped
+    /// (same rows, same key). The swap restores the `left == preserved side`
+    /// invariant that [`RelNode::output_sources`], visibility filtering, and
+    /// parallel partitioning (forced to index 0) assume; without it the
+    /// reconstructed join is rejected by [`RelNode::unsupported_join_types`].
+    /// `RightMark` is left as-is -- it comes from disjunctive decorrelation,
+    /// not a hash-orientation choice. See issue #4779.
+    pub(crate) fn canonicalize_orientation(&mut self) {
+        let canonical = match self.join_type {
+            JoinType::RightSemi => JoinType::Semi,
+            JoinType::RightAnti => JoinType::Anti { null_aware: false },
+            _ => return,
+        };
+        std::mem::swap(&mut self.left, &mut self.right);
+        for key in &mut self.equi_keys {
+            key.swap_sides();
+        }
+        self.join_type = canonical;
+    }
 }
 
 /// A filter node in the relational plan tree.
@@ -1576,4 +1616,141 @@ pub unsafe fn lookup_base_rel_info(
     let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
 
     Some((relid, alias, bm25_index))
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::scan::info::ScanInfo;
+    use pgrx::prelude::*;
+
+    /// A bare base-relation scan identified only by its RTI; enough to verify
+    /// child ordering after a swap.
+    fn scan(rti: pg_sys::Index) -> RelNode {
+        RelNode::Scan(Box::new(JoinSource {
+            plan_position: rti as usize,
+            root_id: None,
+            scan_info: ScanInfo {
+                heap_rti: rti,
+                ..Default::default()
+            },
+        }))
+    }
+
+    /// An equi-key `outer.attno1 == inner.attno2` (distinct attnos so the
+    /// orientation flip is observable).
+    fn key(outer_rti: pg_sys::Index, inner_rti: pg_sys::Index) -> JoinKeyPair {
+        JoinKeyPair {
+            outer_rti,
+            outer_attno: 1,
+            inner_rti,
+            inner_attno: 2,
+            type_oid: pg_sys::Oid::INVALID,
+            typlen: 4,
+            typbyval: true,
+        }
+    }
+
+    /// Build a `JoinNode` directly -- canonicalization operates per node, the
+    /// same primitive reconstruction calls bottom-up.
+    fn jnode(jt: JoinType, left: RelNode, right: RelNode, keys: Vec<JoinKeyPair>) -> JoinNode {
+        JoinNode {
+            join_type: jt,
+            left,
+            right,
+            equi_keys: keys,
+            filter: None,
+            subplan_id: None,
+            absorbed_search_clauses: Vec::new(),
+        }
+    }
+
+    fn rti_of(node: &RelNode) -> pg_sys::Index {
+        match node {
+            RelNode::Scan(s) => s.scan_info.heap_rti,
+            _ => panic!("expected a Scan node"),
+        }
+    }
+
+    #[pg_test]
+    fn swap_sides_flips_only_orientation() {
+        let mut k = key(2, 1);
+        k.swap_sides();
+        assert_eq!(k.outer_rti, 1);
+        assert_eq!(k.outer_attno, 2);
+        assert_eq!(k.inner_rti, 2);
+        assert_eq!(k.inner_attno, 1);
+        // Type metadata is a property of the key, not of which side is outer.
+        assert_eq!(k.typlen, 4);
+        assert!(k.typbyval);
+    }
+
+    #[pg_test]
+    fn right_semi_becomes_semi_with_preserved_side_on_left() {
+        // PG hands us RightSemi(outer=a/rti2, inner=m/rti1); the preserved side
+        // (the rows that survive) is m, on the *right*.
+        let mut j = jnode(JoinType::RightSemi, scan(2), scan(1), vec![key(2, 1)]);
+        j.canonicalize_orientation();
+        assert!(matches!(j.join_type, JoinType::Semi));
+        assert_eq!(rti_of(&j.left), 1); // preserved side (m) now on the left
+        assert_eq!(rti_of(&j.right), 2);
+        // equi-key orientation flipped to match the swap
+        let k = &j.equi_keys[0];
+        assert_eq!((k.outer_rti, k.outer_attno), (1, 2));
+        assert_eq!((k.inner_rti, k.inner_attno), (2, 1));
+    }
+
+    #[pg_test]
+    fn right_anti_becomes_non_null_aware_anti() {
+        let mut j = jnode(JoinType::RightAnti, scan(2), scan(1), vec![key(2, 1)]);
+        j.canonicalize_orientation();
+        assert!(matches!(j.join_type, JoinType::Anti { null_aware: false }));
+        assert_eq!(rti_of(&j.left), 1);
+        assert_eq!(rti_of(&j.right), 2);
+        let k = &j.equi_keys[0];
+        assert_eq!((k.outer_rti, k.outer_attno), (1, 2));
+        assert_eq!((k.inner_rti, k.inner_attno), (2, 1));
+    }
+
+    #[pg_test]
+    fn canonicalizes_a_nested_right_semi_child_bottom_up() {
+        // Mirror how reconstruction canonicalizes: each level as it is built,
+        // children first. Semi( RightSemi(a, m), b ) must become
+        // Semi( Semi(m, a), b ) so the whole tree is left-preserved.
+        let mut inner = jnode(JoinType::RightSemi, scan(2), scan(1), vec![key(2, 1)]);
+        inner.canonicalize_orientation();
+        let mut top = jnode(
+            JoinType::Semi,
+            RelNode::Join(Box::new(inner)),
+            scan(3),
+            vec![key(1, 3)],
+        );
+        top.canonicalize_orientation();
+        let plan = RelNode::Join(Box::new(top));
+
+        let RelNode::Join(t) = &plan else {
+            panic!("expected top Join")
+        };
+        assert!(matches!(t.join_type, JoinType::Semi));
+        assert_eq!(rti_of(&t.right), 3);
+        let RelNode::Join(child) = &t.left else {
+            panic!("expected inner Join")
+        };
+        assert!(matches!(child.join_type, JoinType::Semi));
+        assert_eq!(rti_of(&child.left), 1);
+        assert_eq!(rti_of(&child.right), 2);
+        // No right-oriented join may survive anywhere in the tree.
+        assert!(plan.unsupported_join_types().is_empty());
+    }
+
+    #[pg_test]
+    fn leaves_left_oriented_joins_untouched() {
+        let mut j = jnode(JoinType::Semi, scan(1), scan(2), vec![key(1, 2)]);
+        j.canonicalize_orientation();
+        assert!(matches!(j.join_type, JoinType::Semi));
+        assert_eq!(rti_of(&j.left), 1);
+        assert_eq!(rti_of(&j.right), 2);
+        assert_eq!((j.equi_keys[0].outer_rti, j.equi_keys[0].inner_rti), (1, 2));
+    }
 }

@@ -563,7 +563,7 @@ impl JoinScan {
 
         if order_by_columns_have_unsafe_collation(root) {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must have C collation",
+                "JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation",
             ));
         }
 

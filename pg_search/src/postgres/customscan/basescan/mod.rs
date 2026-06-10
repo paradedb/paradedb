@@ -1384,7 +1384,7 @@ impl CustomScan for BaseScan {
                 explainer.add_query(base_query);
             }
 
-            if explainer.is_analyze() {
+            if explainer.is_analyze() && state.custom_state().search_reader.is_some() {
                 let execution_query = state.custom_state().search_query_input();
                 if execution_query != base_query {
                     explainer.add_explainable("Prepared Tantivy Query", execution_query);

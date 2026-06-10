@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781135053922,
+  "lastUpdate": 1781135088578,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19122,6 +19122,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.14386710917513, max segment_count: 131.0, count: 57852"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14a548a50795cac8c5951ae71c1bc21e55fd48f7",
+          "message": "chore: June 2026 Tantivy Rebase (#5294)\n\nIncorporates\nhttps://github.com/paradedb/tantivy/commits/stuhood.tantivy-rebase-june-2026\n\nCloses #5302\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T16:09:54-07:00",
+          "tree_id": "4c028153d20f21d3934f77e21cfbc4f0b09e36e4",
+          "url": "https://github.com/paradedb/paradedb/commit/14a548a50795cac8c5951ae71c1bc21e55fd48f7"
+        },
+        "date": 1781135055783,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.857237825186083, max cpu: 43.417088, count: 57690"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 234.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 234.10936552045416, max mem: 235.89453125, count: 57690"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.751427048130054, max cpu: 33.73494, count: 57690"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.1970495590657, max mem: 178.22265625, count: 57690"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34484,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33664.56921476859, max block_count: 36201.0, count: 57690"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.46605997573236, max segment_count: 128.0, count: 57690"
           }
         ]
       }

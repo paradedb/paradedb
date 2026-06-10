@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781135088578,
+  "lastUpdate": 1781135778989,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22202,6 +22202,54 @@ window.BENCHMARK_DATA = {
             "value": 5.550525289621464,
             "unit": "median tps",
             "extra": "avg tps: 5.580890995736435, max tps: 6.886378579961663, count: 56296"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14a548a50795cac8c5951ae71c1bc21e55fd48f7",
+          "message": "chore: June 2026 Tantivy Rebase (#5294)\n\nIncorporates\nhttps://github.com/paradedb/tantivy/commits/stuhood.tantivy-rebase-june-2026\n\nCloses #5302\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T16:09:54-07:00",
+          "tree_id": "4c028153d20f21d3934f77e21cfbc4f0b09e36e4",
+          "url": "https://github.com/paradedb/paradedb/commit/14a548a50795cac8c5951ae71c1bc21e55fd48f7"
+        },
+        "date": 1781135746433,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 697.7315205744565,
+            "unit": "median tps",
+            "extra": "avg tps: 639.6868632733261, max tps: 837.6496386157514, count: 56125"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1321.8002041533312,
+            "unit": "median tps",
+            "extra": "avg tps: 1291.2991885268698, max tps: 1330.5481274299123, count: 56125"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1541.0522138477056,
+            "unit": "median tps",
+            "extra": "avg tps: 1508.7303696717647, max tps: 1626.8700747811909, count: 56125"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.274058520806184,
+            "unit": "median tps",
+            "extra": "avg tps: 5.317576042987657, max tps: 6.478863728586335, count: 56125"
           }
         ]
       }

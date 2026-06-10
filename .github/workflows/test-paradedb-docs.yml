@@ -1,4 +1,4 @@
-# workflows/test-docs.yml
+# workflows/test-paradedb-docs.yml
 #
 # Test ParadeDB (Docs)
 # Test our documentation for broken links via Mintlify.
@@ -13,17 +13,17 @@ on:
       - 0.*.x # Release branches
       - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
-      - ".github/workflows/test-docs.yml"
+      - ".github/workflows/test-paradedb-docs.yml"
       - ".github/scripts/**"
       - "docs/**"
   workflow_dispatch:
 
 concurrency:
-  group: test-docs-${{ github.head_ref || github.ref }}
+  group: test-paradedb-docs-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-docs:
+  test-paradedb-docs:
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on:
       # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.

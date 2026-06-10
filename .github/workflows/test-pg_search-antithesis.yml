@@ -1,4 +1,4 @@
-# workflows/antithesis-trigger-test-run.yml
+# workflows/test-pg_search-antithesis.yml
 #
 # Test pg_search (Antithesis)
 # Build the current commits of pg_search and the selected driver image(s) as

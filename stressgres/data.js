@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781052441233,
+  "lastUpdate": 1781053093718,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41494,6 +41494,54 @@ window.BENCHMARK_DATA = {
             "value": 265.02501971556694,
             "unit": "median tps",
             "extra": "avg tps: 257.36107369616354, max tps: 547.454622613444, count: 107686"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a795be300d5b1b78acde29d3925e02d9bce62cb4",
+          "message": "fix: clean up stale merge-list entries in ambulkdelete instead of asserting (#5238)\n\n## What\n\n`ambulkdelete` no longer crashes when a leftover entry remains in the\nmerge\nlist after garbage collection. The faulty assertion is removed;\n`garbage_collect`\nstays the sole remover of merge-list entries, and the stale leftover is\ntolerated\n(it is reclaimed by a later `garbage_collect`).\n\n## Why\n\nAn autovacuum worker can crash with:\n\n```\nERROR: ambulkdelete cannot run concurrently with an active merge operation\ncontext: while vacuuming index \"idxtest\" of relation \"public.test\"\n         automatic vacuum of table \"public.test\"\n\n  9: core::panicking::panic_fmt\n 10: pg_search::postgres::delete::ambulkdelete::ambulkdelete_inner\n       at pg_search/src/postgres/delete.rs:145:5\n 18: pg_search::postgres::delete::ambulkdelete\n 19: vac_bulkdel_one_index\n 21: heap_vacuum_rel\n 23: vacuum\n 25: AutoVacWorkerMain\n```\n\nThe panic is the `assert!` at `delete.rs:145`.\n\n### Root cause\n\nThe assertion treated a non-empty merge list as proof that a merge is\nrunning.\nThat is not true. `garbage_collect` (called just above the assert) only\nreclaims\nentries that are *recyclable* — `xmin_done || pid_dead`:\n\n```rust\nlet xmin_done = self.xmin != InvalidTransactionId && !TransactionIdIsInProgress(self.xmin);\nlet pid_dead  = !IsBackendPid(self.pid);\nxmin_done || pid_dead\n```\n\nA merge that errored after writing its `MergeEntry` but before removing\nit\n(an ERROR/panic cannot reliably remove it mid-unwind — that requires\nbuffer\nlocks, which Postgres refuses while unwinding) leaves an entry that is\n**not\nyet recyclable** while its backend is still alive and its `xmin` still\nin\nprogress. Such an entry survives `garbage_collect` and trips the\nassertion,\ncrashing VACUUM.\n\n### Why the leftover is harmless\n\n`ambulkdelete` holds the **CLEANUP_LOCK exclusively**, and a live merge\nholds\nit *shared* for its whole duration (removing its `MergeEntry` before\nreleasing).\nSo a surviving entry is provably **not** a concurrent merge — it is\nstale debris.\nIt does not affect the vacuum, and a later `garbage_collect` reclaims it\nonce\nits backend exits or its transaction ends.\n\n### Fix\n\nRemove the assertion and tolerate the leftover; `garbage_collect`\nremains the\nonly place that removes merge-list entries. Also drops the now-unused\n`MergeList::is_empty`, whose only caller was the deleted assertion.\n\n## Verification\n\nReproduced on a local PG17 cluster:\n\n- Injected the exact crash condition — a non-recyclable merge entry\n  (alive pid + in-progress xmin, no cleanup lock held), which survives\n`garbage_collect` — then ran `VACUUM` with dead tuples so `ambulkdelete`\nruns.\n- **Before:** `assert!` fires -> `ERROR: ambulkdelete cannot run\nconcurrently\n  with an active merge operation`.\n- **After:** VACUUM succeeds; the stale entry is left in place and\nreclaimed by\n  a subsequent `garbage_collect` once it becomes recyclable.",
+          "timestamp": "2026-06-09T19:51:10-04:00",
+          "tree_id": "54c8735289f1de8ec5d043f63c2cbd796973b157",
+          "url": "https://github.com/paradedb/paradedb/commit/a795be300d5b1b78acde29d3925e02d9bce62cb4"
+        },
+        "date": 1781053058810,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 134.3596054061688,
+            "unit": "median tps",
+            "extra": "avg tps: 134.32973985899747, max tps: 153.19417883026946, count: 53855"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 513.0802429983715,
+            "unit": "median tps",
+            "extra": "avg tps: 513.9095197840081, max tps: 654.2891920716376, count: 53855"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 140.6889418013443,
+            "unit": "median tps",
+            "extra": "avg tps: 140.63549165310732, max tps: 152.13358904352668, count: 53855"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 269.2367761513749,
+            "unit": "median tps",
+            "extra": "avg tps: 262.11658138556055, max tps: 538.0475889152071, count: 107710"
           }
         ]
       }

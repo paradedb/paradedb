@@ -5377,13 +5377,13 @@ checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
 name = "opencc-jieba-rs"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "308cd7989cf31f1fe9260e8fdc005d588142543a03abadbea3aeadc7cb0151a9"
+version = "0.7.6"
+source = "git+https://github.com/paradedb/opencc-jieba-rs?branch=paradedb.no-msrv#36bb03c052f087b603a483e01cdaac260e36898f"
 dependencies = [
+ "include-flate",
  "jieba-rs 0.7.4",
- "once_cell",
  "rayon",
+ "rayon-core",
  "regex",
  "serde",
  "serde_json",

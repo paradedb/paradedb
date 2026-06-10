@@ -24,7 +24,9 @@ emojis = "0.8.2"
 icu_properties = "2.2.0"
 unicode-segmentation = "1.13.2"
 icu_segmenter = "2.2.0"
-opencc-jieba-rs = "0.7.2"
+# We use a fork of opencc-jieba-rs to remove the exact-version dependency pins (e.g., include-flate = "=0.3.0")
+# that were introduced for MSRV reasons, which otherwise conflict with our newer dependencies.
+opencc-jieba-rs = { git = "https://github.com/paradedb/opencc-jieba-rs", branch = "paradedb.no-msrv" }
 
 [dev-dependencies]
 rstest = "0.25.0"

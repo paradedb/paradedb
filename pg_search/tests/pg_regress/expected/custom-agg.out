@@ -322,7 +322,7 @@ SELECT *, pdb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  Failed to deserialize custom aggregate: unknown variant `invalid_agg_type`, expected one of `range`, `histogram`, `date_histogram`, `terms`, `filter`, `avg`, `value_count`, `max`, `min`, `stats`, `extended_stats`, `sum`, `percentiles`, `top_hits`, `cardinality`
+ERROR:  Failed to deserialize custom aggregate: unknown variant `invalid_agg_type`, expected one of `range`, `histogram`, `date_histogram`, `terms`, `filter`, `composite`, `avg`, `value_count`, `max`, `min`, `stats`, `extended_stats`, `sum`, `percentiles`, `top_hits`, `cardinality`
 -- Test 12: Error handling - pdb.agg() with FILTER clause (should fail at planner hook)
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
@@ -1530,6 +1530,55 @@ LIMIT 1;
  id |        description        |                                                                                                            agg                                                                                                             
 ----+---------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- =====================================================================
+-- SECTION 16: pdb.agg() with Composite Aggregation
+-- =====================================================================
+-- Test 70: Simple composite aggregation with one source
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"composite": {"size": 10, "sources": [{"my_category": {"terms": {"field": "category"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"composite":{"size":10,"sources":[{"my_category":{"terms":{"field":"category"}}}]}})
+     Aggregate Definition: {"0":{"composite":{"size":10,"sources":[{"my_category":{"terms":{"field":"category","missing_bucket":false,"missing_order":"default","order":"asc"}}}]}}}
+(6 rows)
+
+SELECT pdb.agg('{"composite": {"size": 10, "sources": [{"my_category": {"terms": {"field": "category"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                                                                                       agg                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": {"my_category": "api"}, "doc_count": 1}, {"key": {"my_category": "application"}, "doc_count": 2}, {"key": {"my_category": "database"}, "doc_count": 3}, {"key": {"my_category": "network"}, "doc_count": 1}], "after_key": {"my_category": "str:network"}}
+(1 row)
+
+-- Test 71: Composite aggregation with multiple sources and pagination size
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"composite": {"size": 2, "sources": [{"my_category": {"terms": {"field": "category"}}}, {"my_severity": {"terms": {"field": "severity"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"composite":{"size":2,"sources":[{"my_category":{"terms":{"field":"category"}}},{"my_severity":{"terms":{"field":"severity"}}}]}})
+     Aggregate Definition: {"0":{"composite":{"size":2,"sources":[{"my_category":{"terms":{"field":"category","missing_bucket":false,"missing_order":"default","order":"asc"}}},{"my_severity":{"terms":{"field":"severity","missing_bucket":false,"missing_order":"default","order":"asc"}}}]}}}
+(6 rows)
+
+SELECT pdb.agg('{"composite": {"size": 2, "sources": [{"my_category": {"terms": {"field": "category"}}}, {"my_severity": {"terms": {"field": "severity"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                                                                              agg                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": {"my_category": "api", "my_severity": "critical"}, "doc_count": 1}, {"key": {"my_category": "application", "my_severity": "critical"}, "doc_count": 2}], "after_key": {"my_category": "str:application", "my_severity": "str:critical"}}
 (1 row)
 
 -- Cleanup

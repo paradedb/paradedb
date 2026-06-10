@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781048565605,
+  "lastUpdate": 1781050293140,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4458,6 +4458,78 @@ window.BENCHMARK_DATA = {
             "value": 19.31865534289955,
             "unit": "median tps",
             "extra": "avg tps: 25.637411135616507, max tps: 259.5174230265917, count: 55142"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a795be300d5b1b78acde29d3925e02d9bce62cb4",
+          "message": "fix: clean up stale merge-list entries in ambulkdelete instead of asserting (#5238)\n\n## What\n\n`ambulkdelete` no longer crashes when a leftover entry remains in the\nmerge\nlist after garbage collection. The faulty assertion is removed;\n`garbage_collect`\nstays the sole remover of merge-list entries, and the stale leftover is\ntolerated\n(it is reclaimed by a later `garbage_collect`).\n\n## Why\n\nAn autovacuum worker can crash with:\n\n```\nERROR: ambulkdelete cannot run concurrently with an active merge operation\ncontext: while vacuuming index \"idxtest\" of relation \"public.test\"\n         automatic vacuum of table \"public.test\"\n\n  9: core::panicking::panic_fmt\n 10: pg_search::postgres::delete::ambulkdelete::ambulkdelete_inner\n       at pg_search/src/postgres/delete.rs:145:5\n 18: pg_search::postgres::delete::ambulkdelete\n 19: vac_bulkdel_one_index\n 21: heap_vacuum_rel\n 23: vacuum\n 25: AutoVacWorkerMain\n```\n\nThe panic is the `assert!` at `delete.rs:145`.\n\n### Root cause\n\nThe assertion treated a non-empty merge list as proof that a merge is\nrunning.\nThat is not true. `garbage_collect` (called just above the assert) only\nreclaims\nentries that are *recyclable* — `xmin_done || pid_dead`:\n\n```rust\nlet xmin_done = self.xmin != InvalidTransactionId && !TransactionIdIsInProgress(self.xmin);\nlet pid_dead  = !IsBackendPid(self.pid);\nxmin_done || pid_dead\n```\n\nA merge that errored after writing its `MergeEntry` but before removing\nit\n(an ERROR/panic cannot reliably remove it mid-unwind — that requires\nbuffer\nlocks, which Postgres refuses while unwinding) leaves an entry that is\n**not\nyet recyclable** while its backend is still alive and its `xmin` still\nin\nprogress. Such an entry survives `garbage_collect` and trips the\nassertion,\ncrashing VACUUM.\n\n### Why the leftover is harmless\n\n`ambulkdelete` holds the **CLEANUP_LOCK exclusively**, and a live merge\nholds\nit *shared* for its whole duration (removing its `MergeEntry` before\nreleasing).\nSo a surviving entry is provably **not** a concurrent merge — it is\nstale debris.\nIt does not affect the vacuum, and a later `garbage_collect` reclaims it\nonce\nits backend exits or its transaction ends.\n\n### Fix\n\nRemove the assertion and tolerate the leftover; `garbage_collect`\nremains the\nonly place that removes merge-list entries. Also drops the now-unused\n`MergeList::is_empty`, whose only caller was the deleted assertion.\n\n## Verification\n\nReproduced on a local PG17 cluster:\n\n- Injected the exact crash condition — a non-recyclable merge entry\n  (alive pid + in-progress xmin, no cleanup lock held), which survives\n`garbage_collect` — then ran `VACUUM` with dead tuples so `ambulkdelete`\nruns.\n- **Before:** `assert!` fires -> `ERROR: ambulkdelete cannot run\nconcurrently\n  with an active merge operation`.\n- **After:** VACUUM succeeds; the stale entry is left in place and\nreclaimed by\n  a subsequent `garbage_collect` once it becomes recyclable.",
+          "timestamp": "2026-06-09T19:51:10-04:00",
+          "tree_id": "54c8735289f1de8ec5d043f63c2cbd796973b157",
+          "url": "https://github.com/paradedb/paradedb/commit/a795be300d5b1b78acde29d3925e02d9bce62cb4"
+        },
+        "date": 1781050261000,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 122.73325204976686,
+            "unit": "median tps",
+            "extra": "avg tps: 123.87601890950786, max tps: 134.8496959894514, count: 54786"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 123.25790582170916,
+            "unit": "median tps",
+            "extra": "avg tps: 124.47561309356168, max tps: 136.36966113490217, count: 54786"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3259.9262389102,
+            "unit": "median tps",
+            "extra": "avg tps: 3252.8203889092065, max tps: 3288.0594374266507, count: 54786"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 382.8676778054746,
+            "unit": "median tps",
+            "extra": "avg tps: 393.33970993711415, max tps: 449.22462225824574, count: 54786"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2815.693174756567,
+            "unit": "median tps",
+            "extra": "avg tps: 2811.7654071019197, max tps: 2877.7848662770825, count: 109572"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 438.9371207276099,
+            "unit": "median tps",
+            "extra": "avg tps: 448.7257985972655, max tps: 571.9599993074381, count: 54786"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1789.0002893201524,
+            "unit": "median tps",
+            "extra": "avg tps: 1782.2004816362858, max tps: 1793.2658733238907, count: 54786"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 25.575326985535497,
+            "unit": "median tps",
+            "extra": "avg tps: 34.566274715521246, max tps: 231.30930240429828, count: 54786"
           }
         ]
       }

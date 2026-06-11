@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781151325097,
+  "lastUpdate": 1781151361490,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13118,6 +13118,138 @@ window.BENCHMARK_DATA = {
             "value": 55.1875,
             "unit": "median mem",
             "extra": "avg mem: 54.65645036228107, max mem: 67.63671875, count: 55154"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57c7e6e0898455d43b953b70f77d2b3d473c5575",
+          "message": "fix(joinscan): canonicalize JOIN_RIGHT_SEMI/ANTI in multi-way reconstruction (#4779) (#5298)\n\n## What\n\nFixes #4779. Multi-way semi/anti joins (two or more `EXISTS` / `NOT\nEXISTS`) failed to produce a `ParadeDB Join Scan` in **serial** mode on\nPG18 — the query fell back to native `Hash (Right) Semi Join` chains.\n\n## Why\n\nFor a 2-way semijoin, PostgreSQL's `make_join_rel` calls\n`add_paths_to_joinrel` in **both** orientations — `JOIN_SEMI` and\n`JOIN_RIGHT_SEMI` (`joinrels.c`). When the *preserved* side is the\nsmaller relation, the serial hash-join cost model picks the\n`JOIN_RIGHT_SEMI` shape as the child's `cheapest_total_path`. JoinScan's\nmulti-way reconstruction read that jointype and, because `RightSemi`\nwasn't in its supported set, **declined**.\n\n`JOIN_RIGHT_SEMI` is a PG18 plan shape, so this only reproduces on pg18.\nParallel mode was unaffected because partial hash joins exclude\n`JOIN_RIGHT_SEMI` (which is why #4910 did not close this).\n\n## How\n\n`JoinNode::canonicalize_orientation` rewrites a right-oriented sub-join\ninto its left twin (`RightSemi` → `Semi`, `RightAnti` →\n`Anti{null_aware:false}`) — swapping the children and flipping each\nequi-key's orientation. A right-semi is exactly a left-semi with the\ninputs swapped (same output rows, same equi-key); PG only distinguishes\nthem to choose which side to hash, a physical detail JoinScan discards\n(it joins the BM25 indexes in DataFusion). The rewrite restores the\n`left == preserved side` invariant the rest of JoinScan relies on\n(`output_sources`, visibility filtering, parallel partitioning at index\n0).\n\nIt is applied in **reconstruction only**: the direct\n`set_join_pathlist_hook` invocation for a right-oriented join is always\nredundant with the sibling `JOIN_SEMI`/`JOIN_ANTI` invocation PG also\nemits, so canonicalizing there would only add a duplicate path.\n\n## Tests\n\n- 5 `pg_test` units for the swap (`swap_sides`, RightSemi→Semi,\nRightAnti→Anti, nested bottom-up, left-untouched).\n- `issue_4779` regress covering serial two-`EXISTS`, `EXISTS`+`NOT\nEXISTS`, and parallel.\n- Full `pg_regress` suite: **282 passed, 0 failed**.\n\nOne adjacent, pre-existing bug surfaced during testing —\n`JOIN_UNIQUE_INNER` reconstruction drops the dedup and can duplicate the\npreserved side — is **out of scope** here and will be filed separately.\n\n### Note on `or_exists_join_bug.out`\nOne decline-warning line gains a relation (`u`). The query still\ncorrectly declines (no `LIMIT`) with the identical native plan and rows;\nthe warning lists the relations of the candidate plan, and the fix lets\nreconstruction assemble the full plan before the `LIMIT` gate rejects it\n— a more complete, still-accurate message.",
+          "timestamp": "2026-06-11T09:25:01+05:30",
+          "tree_id": "ff4e4bfec6558bccfeb289964e58a49df2e5c2a3",
+          "url": "https://github.com/paradedb/paradedb/commit/57c7e6e0898455d43b953b70f77d2b3d473c5575"
+        },
+        "date": 1781151327509,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.374215223159638, max cpu: 18.916256, count: 55238"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 64.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.71060838440023, max mem: 75.328125, count: 55238"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.395820099456659, max cpu: 19.161678, count: 55238"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.55588678479941, max mem: 75.1015625, count: 55238"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6557172902178685, max cpu: 9.239654, count: 55238"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 34.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.69294844015895, max mem: 36.65625, count: 55238"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.529231288145818, max cpu: 4.6875, count: 55238"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.04120125638148, max mem: 72.171875, count: 55238"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.656544932420089, max cpu: 9.495549, count: 110476"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 61.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.12160722408034, max mem: 72.2265625, count: 110476"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1733,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1737.6725442630072, max block_count: 3017.0, count: 55238"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 16.05639233860748, max segment_count: 30.0, count: 55238"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6704602302493035, max cpu: 14.187191, count: 55238"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 63.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.10331238515605, max mem: 73.6953125, count: 55238"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.599622252248026, max cpu: 9.338522, count: 55238"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.38255395968355, max mem: 62.93359375, count: 55238"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.080065997757195, max cpu: 4.673807, count: 55238"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.50170314140628, max mem: 68.0234375, count: 55238"
           }
         ]
       }

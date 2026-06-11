@@ -234,9 +234,14 @@ pub unsafe fn leader_setup(
             wakeup,
             token,
             interrupt,
+            // No leader-to-worker control frames yet: the dispatch payload travels through the
+            // DSM plan area. Attaching senders here is the dynamic-filters follow-up, and they
+            // must then outlive every worker's attach.
+            /* attach_senders */ false,
         )
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?
+    .mesh;
     if let Some(t) = t_setup {
         pgrx::warning!(
             "mpp trace: leader_setup (ring create + self attach) took {:.3} ms",

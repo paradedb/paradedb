@@ -109,6 +109,19 @@ jobs:
       # A regress failure (output diff or crash) fails the job here; the always()
       # scan step below still runs so we also surface any Valgrind memory errors.
       - name: Run pg_search Regression Tests under Valgrind
+        # pgrx hardcodes its Valgrind args (--trace-children, --leak-check=no, the
+        # error markers our scan parses), but Valgrind merges in $VALGRIND_OPTS, so
+        # we augment without patching pgrx:
+        #   --track-origins: report where an uninitialised value was allocated, not
+        #     just where it's read — turns the typical "Conditional jump..." report
+        #     into a pointer at the offending allocation. ~2x slower, fine weekly.
+        #   --num-callers=30: deeper stacks across the Rust<->C FFI boundary (12 default).
+        #   --keep-debuginfo=yes: pg_search is a dlopen'd .so; keep its symbols if the
+        #     library/backend unloads so stacks stay readable.
+        #   --expensive-definedness-checks=yes: fewer spurious uninitialised reports
+        #     from compiler optimizations (recommended by Postgres' Valgrind docs).
+        env:
+          VALGRIND_OPTS: "--track-origins=yes --num-callers=30 --keep-debuginfo=yes --expensive-definedness-checks=yes"
         run: |
           set -e
           if ! cargo pgrx regress --valgrind --resetdb --package pg_search pg${{ matrix.pg_version }} --auto; then

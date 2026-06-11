@@ -57,6 +57,14 @@
 //! payload, store `seq = H + ring_size` (next round's empty marker), then `head = H+1`.
 //! The single consumer owns `head` without CAS; producers contend only on `tail`.
 //!
+//! **Why one MPSC ring per inbox and not N-1 SPSC subqueues?** Each receiver still has
+//! N-1 producers feeding it. The SPSC variant would need N-1 dedicated queues per
+//! receiver, which is `N*(N-1)` total: the same grid the inbox layout is supposed to
+//! collapse, just packed into one DSM segment. One MPSC ring also pools the slot budget
+//! across producers, so a slow producer can't sit on dedicated capacity while peers
+//! stall on full subqueues. The cost is producer contention on `tail` via CAS, which
+//! Vyukov's per-slot phase counters keep wait-free under load.
+//!
 //! **Safety**: public methods on `DsmMpscSender` / `DsmMpscReceiver` are type-safe once
 //! constructed. The constructors are `unsafe` because the DSM region must be correctly
 //! sized and not aliased (one process calls `create_at`, everyone else `attach_at`).
@@ -244,6 +252,9 @@ unsafe fn wake_receiver(header: &DsmMpscRingHeader) {
     }
 }
 
+// Gate rationale lives at the call site in `wake_receiver` above: macOS flat-namespace
+// linkers abort at load on unresolved extern statics, so `pg_sys::ProcGlobal` can't
+// appear in the unit-test binary even behind an unreachable runtime branch.
 #[cfg(not(test))]
 unsafe fn wake_receiver_via_pg_sys(pgprocno: i32, expected_pid: i32) {
     let proc_global = unsafe { pg_sys::ProcGlobal };

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /* pg_search::api::admin::pdb */
 /* </end connected objects> */
 
@@ -74,3 +75,6 @@ CREATE  FUNCTION pdb."verify_index"(
 )
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'verify_index_wrapper';
+=======
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.21.5'" to load this file. \quit
+>>>>>>> 7a6dc90e0 (fix(pg_search): repair incomplete ALTER EXTENSION UPDATE migrations + add schema-parity CI guard (#5310))

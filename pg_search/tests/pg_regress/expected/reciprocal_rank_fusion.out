@@ -67,7 +67,6 @@ ORDER BY score DESC, o.order_id
 LIMIT 5;
 EXPLAIN (COSTS OFF)
 EXECUTE rrf_query('Johnson', 'running shoes');
-WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources (table: join)
                                                                                                                                              QUERY PLAN                                                                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -121,7 +120,6 @@ WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources 
 (48 rows)
 
 EXECUTE rrf_query('Johnson', 'running shoes');
-WARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources (table: join)
  order_id | customer_name |     description     |         score          
 ----------+---------------+---------------------+------------------------
         3 | Alice Johnson | Sleek running shoes | 0.03278688524590163934

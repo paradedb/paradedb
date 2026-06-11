@@ -951,6 +951,7 @@ impl Drop for DsmMpscSender {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering as O};
     use std::sync::Arc;
 
@@ -1392,71 +1393,82 @@ mod tests {
     /// frames; consumer verifies every frame's contents and per-producer ordering.
     /// Catches interleave bugs (a multi-slot run getting mixed with another
     /// producer's fragments) and missing wake-ups under high contention.
-    #[test]
-    fn multi_slot_stress_mixed_with_singles() {
-        const K_PRODUCERS: usize = 6;
-        const M_PER_PRODUCER: u32 = 300;
-        let slot_cap = 128;
-        let payload_cap = slot_cap - SLOT_HEADER_BYTES;
-        let (_region, rx, tx_template) = make_ring(16, slot_cap as u32);
-        let ring_nn = SharedRing(tx_template.ring);
-        let mut handles = Vec::with_capacity(K_PRODUCERS);
-        for producer_id in 0..K_PRODUCERS {
-            let tx = unsafe { DsmMpscSender::new(ring_nn.0) };
-            handles.push(std::thread::spawn(move || {
-                let mut sent = 0u32;
-                while sent < M_PER_PRODUCER {
-                    // Alternate single, 2-slot, 4-slot, single, ... so the consumer
-                    // sees every fragment-kind combination.
-                    let n_payload = match sent % 3 {
-                        0 => 8,               // single-slot
-                        1 => 2 * payload_cap, // 2-slot
-                        _ => 4 * payload_cap, // 4-slot
-                    };
-                    let mut payload = vec![0u8; n_payload + 8];
-                    payload[0..4].copy_from_slice(&(producer_id as u32).to_le_bytes());
-                    payload[4..8].copy_from_slice(&sent.to_le_bytes());
-                    for (i, b) in payload[8..].iter_mut().enumerate() {
-                        *b = ((producer_id ^ sent as usize ^ i) & 0xFF) as u8;
+    // Randomizing per-producer fragment-kind sequences catches bugs the strict
+    // `sent % 3` rotation misses, like back-to-back multi-slot bursts that fill the
+    // ring before a single-slot frees one.
+    fn fragment_plan() -> impl Strategy<Value = Vec<u8>> {
+        proptest::collection::vec(0u8..3, 40..120)
+    }
+
+    proptest! {
+        // Each case spawns producer threads, so keep `cases` low.
+        #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
+
+        #[test]
+        fn multi_slot_stress_mixed_with_singles(
+            producer_plans in proptest::collection::vec(fragment_plan(), 2..=6),
+        ) {
+            let slot_cap: u32 = 128;
+            let payload_cap = slot_cap as usize - SLOT_HEADER_BYTES;
+            let n_producers = producer_plans.len();
+            let total_target: usize = producer_plans.iter().map(Vec::len).sum();
+            let (_region, rx, tx_template) = make_ring(16, slot_cap);
+            let ring_nn = SharedRing(tx_template.ring);
+            let mut handles = Vec::with_capacity(n_producers);
+            for (producer_id, plan) in producer_plans.into_iter().enumerate() {
+                let tx = unsafe { DsmMpscSender::new(ring_nn.0) };
+                handles.push(std::thread::spawn(move || {
+                    for (sent, kind) in plan.iter().enumerate() {
+                        let n_payload = match *kind {
+                            0 => 8,
+                            1 => 2 * payload_cap,
+                            _ => 4 * payload_cap,
+                        };
+                        let mut payload = vec![0u8; n_payload + 8];
+                        payload[0..4].copy_from_slice(&(producer_id as u32).to_le_bytes());
+                        payload[4..8].copy_from_slice(&(sent as u32).to_le_bytes());
+                        for (i, b) in payload[8..].iter_mut().enumerate() {
+                            *b = ((producer_id ^ sent ^ i) & 0xFF) as u8;
+                        }
+                        loop {
+                            match tx.try_send(&payload) {
+                                Ok(_) => break,
+                                Err(SendError::Full) => std::thread::yield_now(),
+                                Err(e) => panic!("unexpected send error: {e:?}"),
+                            }
+                        }
                     }
-                    match tx.try_send(&payload) {
-                        Ok(_) => sent += 1,
-                        Err(SendError::Full) => std::thread::yield_now(),
-                        Err(e) => panic!("unexpected send error: {e:?}"),
-                    }
-                }
-            }));
-        }
-        let mut last_seq: Vec<i64> = vec![-1; K_PRODUCERS];
-        let mut buf = Vec::new();
-        let mut total = 0usize;
-        let target = K_PRODUCERS * M_PER_PRODUCER as usize;
-        while total < target {
-            match rx.try_recv(&mut buf) {
-                RecvOutcome::Bytes => {
-                    assert!(buf.len() >= 8, "frame too short: {}", buf.len());
-                    let producer_id = u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize;
-                    let sent_idx = i64::from(u32::from_le_bytes(buf[4..8].try_into().unwrap()));
-                    assert!(producer_id < K_PRODUCERS, "bad producer id");
-                    assert_eq!(
-                        sent_idx,
-                        last_seq[producer_id] + 1,
-                        "out-of-order frame from producer {producer_id}"
-                    );
-                    // Verify payload bytes (catches fragment interleave / partial reads).
-                    for (i, b) in buf[8..].iter().enumerate() {
-                        let expected = ((producer_id ^ sent_idx as usize ^ i) & 0xFF) as u8;
-                        assert_eq!(*b, expected, "payload mismatch at byte {i}");
-                    }
-                    last_seq[producer_id] = sent_idx;
-                    total += 1;
-                }
-                RecvOutcome::Empty => std::thread::yield_now(),
-                RecvOutcome::Detached => panic!("unexpected detach"),
+                }));
             }
-        }
-        for h in handles {
-            h.join().unwrap();
+            let mut last_seq: Vec<i64> = vec![-1; n_producers];
+            let mut buf = Vec::new();
+            let mut total = 0usize;
+            while total < total_target {
+                match rx.try_recv(&mut buf) {
+                    RecvOutcome::Bytes => {
+                        assert!(buf.len() >= 8, "frame too short: {}", buf.len());
+                        let producer_id = u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize;
+                        let sent_idx = i64::from(u32::from_le_bytes(buf[4..8].try_into().unwrap()));
+                        assert!(producer_id < n_producers, "bad producer id");
+                        assert_eq!(
+                            sent_idx,
+                            last_seq[producer_id] + 1,
+                            "out-of-order frame from producer {producer_id}"
+                        );
+                        for (i, b) in buf[8..].iter().enumerate() {
+                            let expected = ((producer_id ^ sent_idx as usize ^ i) & 0xFF) as u8;
+                            assert_eq!(*b, expected, "payload mismatch at byte {i}");
+                        }
+                        last_seq[producer_id] = sent_idx;
+                        total += 1;
+                    }
+                    RecvOutcome::Empty => std::thread::yield_now(),
+                    RecvOutcome::Detached => panic!("unexpected detach"),
+                }
+            }
+            for h in handles {
+                h.join().unwrap();
+            }
         }
     }
 }

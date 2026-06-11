@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781173752134,
+  "lastUpdate": 1781173787219,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40250,6 +40250,114 @@ window.BENCHMARK_DATA = {
             "value": 172.828125,
             "unit": "median mem",
             "extra": "avg mem: 169.9615341577072, max mem: 173.40625, count: 55714"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24a2aa26f330aad5577c66bb824f59bdb7b1478b",
+          "message": "feat(mpp): collapsed N×(N-1) shm_mq grid to N MPSC inboxes. (#5169)\n\n## What\n\nThis PR collapses the MPP transport's `N × (N-1)` per-pair `shm_mq` grid\ninto `N` per-receiver MPSC inboxes, and lets a single frame span\nmultiple ring slots so payloads aren't capped at `slot_capacity`.\n\n## Why\n\nJoin + groupby wall-time was tracking `N²` because mesh edges scaled\nwith peer count.\n\nThe per-pair drain also treated any peer detach as registry-wide EOF.\nOnce a single `HashJoinExec` probe input finalized, that fired on\nchannels still expecting data and the upstream hung.\n\nCapping a frame at one slot worked while frames were small headers. The\nmoment a partition emitted a batch larger than `slot_capacity` it failed\nwith `MessageTooLarge`. Bumping `slot_capacity` for every batch wastes\nDSM; fragmentation lets the existing ring stretch.\n\n## How\n\n`DsmMpscRing` is a Vyukov lock-free MPSC primitive over DSM, with\n`Latch` wake. Frames carry a `sender_proc` field so the receiver demuxes\nthem into the same channel-buffer registry used by the prior `shm_mq`\ngrid.\n\nMulti-slot fragmentation lets a single frame span N consecutive ring\nslots. The producer reserves the slots via the same `tail` CAS,\nfragments the payload, and the consumer reassembles before handing the\nbytes up. Partial reads aren't visible to higher layers.\n\nPer-channel EOF rides the demuxed `Eof` frame instead of peer detach.\nTeardown unblock comes from `DrainHandle::Drop` setting the shared\n`detached` flag.\n\nZero-copy in-proc shuffle still ships separately.\n\n## Tests\n\nUnit tests cover the ring's SPSC round trip, MPSC contention,\nper-producer ordering, attach-time magic/version checks, multi-slot\nwraparound, and a proptest that randomizes per-producer fragment-kind\nsequences under contention.",
+          "timestamp": "2026-06-11T02:33:23-07:00",
+          "tree_id": "8cf553ed83345de52d9318139507c65b6c7c2c7e",
+          "url": "https://github.com/paradedb/paradedb/commit/24a2aa26f330aad5577c66bb824f59bdb7b1478b"
+        },
+        "date": 1781173754439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 13.994169,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.120707893105592, max cpu: 46.153847, count: 55579"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 172.55355629767988, max mem: 179.4921875, count: 55579"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.66586112663138, max cpu: 28.042841, count: 55579"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.0967974639702, max mem: 119.3828125, count: 55579"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3602350021955685, max cpu: 23.076923, count: 55579"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 175.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 146.3690290509905, max mem: 178.59375, count: 55579"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16044,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16480.584483348026, max block_count: 30441.0, count: 55579"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8381097456432594, max cpu: 4.669261, count: 55579"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 113.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.38376581645046, max mem: 138.359375, count: 55579"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.87128231886144, max segment_count: 35.0, count: 55579"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.879959852468197, max cpu: 32.40116, count: 111158"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 179.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.443959836449, max mem: 180.83984375, count: 111158"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.806328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.002196158913952, max cpu: 23.645319, count: 55579"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 172.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.3745216549866, max mem: 173.8046875, count: 55579"
           }
         ]
       }

@@ -1,4 +1,4 @@
-# workflows/benchmark-pg_search-benchmarks.yml
+# workflows/benchmark-pg_search-queries.yml
 #
 # Benchmark pg_search (Queries)
 # Run our queries benchmark suite against pg_search.
@@ -42,7 +42,7 @@ permissions:
 # We don't specify a concurrency group here, as we want all jobs to complete.
 
 jobs:
-  benchmark-pg_search-benchmarks:
+  benchmark-pg_search-queries:
     name: Run Benchmark Jobs
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
@@ -342,5 +342,5 @@ jobs:
         if: failure() && github.event_name == 'push'
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`benchmark-pg_search-queries\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

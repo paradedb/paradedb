@@ -815,6 +815,30 @@ WHERE description @@@ 'error'
 ORDER BY timestamp DESC
 LIMIT 1;
 
+-- =====================================================================
+-- SECTION 16: pdb.agg() with Composite Aggregation
+-- =====================================================================
+
+-- Test 70: Simple composite aggregation with one source
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"composite": {"size": 10, "sources": [{"my_category": {"terms": {"field": "category"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"composite": {"size": 10, "sources": [{"my_category": {"terms": {"field": "category"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 71: Composite aggregation with multiple sources and pagination size
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"composite": {"size": 2, "sources": [{"my_category": {"terms": {"field": "category"}}}, {"my_severity": {"terms": {"field": "severity"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"composite": {"size": 2, "sources": [{"my_category": {"terms": {"field": "category"}}}, {"my_severity": {"terms": {"field": "severity"}}}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
 -- Cleanup
 DROP TABLE logs CASCADE;
 RESET paradedb.enable_filter_pushdown;

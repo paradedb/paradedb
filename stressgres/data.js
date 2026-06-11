@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781152067634,
+  "lastUpdate": 1781152758333,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22550,6 +22550,54 @@ window.BENCHMARK_DATA = {
             "value": 5.274058520806184,
             "unit": "median tps",
             "extra": "avg tps: 5.317576042987657, max tps: 6.478863728586335, count: 56125"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57c7e6e0898455d43b953b70f77d2b3d473c5575",
+          "message": "fix(joinscan): canonicalize JOIN_RIGHT_SEMI/ANTI in multi-way reconstruction (#4779) (#5298)\n\n## What\n\nFixes #4779. Multi-way semi/anti joins (two or more `EXISTS` / `NOT\nEXISTS`) failed to produce a `ParadeDB Join Scan` in **serial** mode on\nPG18 — the query fell back to native `Hash (Right) Semi Join` chains.\n\n## Why\n\nFor a 2-way semijoin, PostgreSQL's `make_join_rel` calls\n`add_paths_to_joinrel` in **both** orientations — `JOIN_SEMI` and\n`JOIN_RIGHT_SEMI` (`joinrels.c`). When the *preserved* side is the\nsmaller relation, the serial hash-join cost model picks the\n`JOIN_RIGHT_SEMI` shape as the child's `cheapest_total_path`. JoinScan's\nmulti-way reconstruction read that jointype and, because `RightSemi`\nwasn't in its supported set, **declined**.\n\n`JOIN_RIGHT_SEMI` is a PG18 plan shape, so this only reproduces on pg18.\nParallel mode was unaffected because partial hash joins exclude\n`JOIN_RIGHT_SEMI` (which is why #4910 did not close this).\n\n## How\n\n`JoinNode::canonicalize_orientation` rewrites a right-oriented sub-join\ninto its left twin (`RightSemi` → `Semi`, `RightAnti` →\n`Anti{null_aware:false}`) — swapping the children and flipping each\nequi-key's orientation. A right-semi is exactly a left-semi with the\ninputs swapped (same output rows, same equi-key); PG only distinguishes\nthem to choose which side to hash, a physical detail JoinScan discards\n(it joins the BM25 indexes in DataFusion). The rewrite restores the\n`left == preserved side` invariant the rest of JoinScan relies on\n(`output_sources`, visibility filtering, parallel partitioning at index\n0).\n\nIt is applied in **reconstruction only**: the direct\n`set_join_pathlist_hook` invocation for a right-oriented join is always\nredundant with the sibling `JOIN_SEMI`/`JOIN_ANTI` invocation PG also\nemits, so canonicalizing there would only add a duplicate path.\n\n## Tests\n\n- 5 `pg_test` units for the swap (`swap_sides`, RightSemi→Semi,\nRightAnti→Anti, nested bottom-up, left-untouched).\n- `issue_4779` regress covering serial two-`EXISTS`, `EXISTS`+`NOT\nEXISTS`, and parallel.\n- Full `pg_regress` suite: **282 passed, 0 failed**.\n\nOne adjacent, pre-existing bug surfaced during testing —\n`JOIN_UNIQUE_INNER` reconstruction drops the dedup and can duplicate the\npreserved side — is **out of scope** here and will be filed separately.\n\n### Note on `or_exists_join_bug.out`\nOne decline-warning line gains a relation (`u`). The query still\ncorrectly declines (no `LIMIT`) with the identical native plan and rows;\nthe warning lists the relations of the candidate plan, and the fix lets\nreconstruction assemble the full plan before the `LIMIT` gate rejects it\n— a more complete, still-accurate message.",
+          "timestamp": "2026-06-11T09:25:01+05:30",
+          "tree_id": "ff4e4bfec6558bccfeb289964e58a49df2e5c2a3",
+          "url": "https://github.com/paradedb/paradedb/commit/57c7e6e0898455d43b953b70f77d2b3d473c5575"
+        },
+        "date": 1781152726048,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 989.6941958730256,
+            "unit": "median tps",
+            "extra": "avg tps: 986.8572611199622, max tps: 1042.4805005032283, count: 56014"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1182.7891854601803,
+            "unit": "median tps",
+            "extra": "avg tps: 1157.8325064365672, max tps: 1210.5561214936695, count: 56014"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1533.8262607701263,
+            "unit": "median tps",
+            "extra": "avg tps: 1502.179113674044, max tps: 1652.1852331848704, count: 56014"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.384122170493322,
+            "unit": "median tps",
+            "extra": "avg tps: 5.41894863668027, max tps: 7.134246235048693, count: 56014"
           }
         ]
       }

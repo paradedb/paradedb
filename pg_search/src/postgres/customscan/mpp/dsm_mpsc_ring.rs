@@ -253,7 +253,7 @@ unsafe fn wake_receiver(header: &DsmMpscRingHeader) {
 }
 
 // Gate rationale lives at the call site in `wake_receiver` above: macOS flat-namespace
-// linkers abort at load on unresolved extern statics, so `pg_sys::ProcGlobal` can't
+// linkers abort at load on unresolved extern symbols, so `pg_sys::ProcGlobal` can't
 // appear in the unit-test binary even behind an unreachable runtime branch.
 #[cfg(not(test))]
 unsafe fn wake_receiver_via_pg_sys(pgprocno: i32, expected_pid: i32) {

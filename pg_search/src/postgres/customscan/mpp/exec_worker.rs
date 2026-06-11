@@ -45,9 +45,11 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::embedded::{
-    proc_for_task, run_worker_fragment, CooperativeDrainSet, InProcessWorkerResolver,
-    MppFrameHeader, MppMesh, MppPartitionSink, MppSender, ShmMqWorkerTransport,
+    collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
+    InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, MppSender,
+    ShmMqWorkerTransport,
 };
 use datafusion_distributed::PartitionSink;
 
@@ -319,6 +321,8 @@ pub(crate) fn run_mpp_worker(
     >;
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
+        let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
+            Vec::with_capacity(fragments.len());
         for (fragment, frag_plan) in fragments.iter().zip(&plans) {
             let n_out = frag_plan
                 .properties()
@@ -463,12 +467,27 @@ pub(crate) fn run_mpp_worker(
                     }
                 }
             };
+            // Kept for the post-run metrics frame: the executed nodes (and their metrics)
+            // live in this prepared plan.
+            executed_fragments.push((
+                fragment.stage_id,
+                fragment.task_idx,
+                fragment.task_count,
+                Arc::clone(&plan),
+            ));
             futures.push(Box::pin(run_worker_fragment(
                 plan,
                 per_partition_sinks,
                 task_ctx,
             )));
         }
+        // The metrics frames go to the leader after the fragments finish; the clone keeps one
+        // sender on the leader's inbox alive past the drop below, which only delays that ring's
+        // detach observation, never a per-channel EOF.
+        let metrics_sender_base = outbound_senders
+            .first()
+            .and_then(|s| s.as_ref())
+            .map(|s| s.clone_with_header(MppFrameHeader::task_metrics(0, 0, this_proc)));
         // Drop the original outbound_senders so the only remaining Arcs to each shm_mq queue /
         // in-proc channel are the per-partition clones owned by the spawned fragments. Without
         // this, the originals would outlive the futures, the consumer-side drains would never
@@ -511,6 +530,21 @@ pub(crate) fn run_mpp_worker(
                 .collect::<Result<Vec<_>, _>>()
                 .map(|_| ())
         };
+
+        // Report each fragment's metrics to the leader, even after a fragment error: partial
+        // metrics still tell the user where the time went. Best-effort like every transport's
+        // metrics path; the bounded send drops the frame if the leader already went away.
+        if let Some(base) = metrics_sender_base {
+            for (stage_id, task_idx, task_count, plan) in &executed_fragments {
+                let frame = collect_task_metrics(plan, *task_idx, *task_count);
+                let sender = base.clone_with_header(MppFrameHeader::task_metrics(
+                    *stage_id,
+                    *task_idx as u32,
+                    this_proc,
+                ));
+                let _ = sender.send_task_metrics_best_effort(&frame).await;
+            }
+        }
         outcome
     });
     if let Err(e) = result {

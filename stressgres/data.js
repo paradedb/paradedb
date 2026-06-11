@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781153441037,
+  "lastUpdate": 1781153478081,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39638,6 +39638,114 @@ window.BENCHMARK_DATA = {
             "value": 172.4375,
             "unit": "median mem",
             "extra": "avg mem: 169.55977258043785, max mem: 173.09765625, count: 55431"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57c7e6e0898455d43b953b70f77d2b3d473c5575",
+          "message": "fix(joinscan): canonicalize JOIN_RIGHT_SEMI/ANTI in multi-way reconstruction (#4779) (#5298)\n\n## What\n\nFixes #4779. Multi-way semi/anti joins (two or more `EXISTS` / `NOT\nEXISTS`) failed to produce a `ParadeDB Join Scan` in **serial** mode on\nPG18 — the query fell back to native `Hash (Right) Semi Join` chains.\n\n## Why\n\nFor a 2-way semijoin, PostgreSQL's `make_join_rel` calls\n`add_paths_to_joinrel` in **both** orientations — `JOIN_SEMI` and\n`JOIN_RIGHT_SEMI` (`joinrels.c`). When the *preserved* side is the\nsmaller relation, the serial hash-join cost model picks the\n`JOIN_RIGHT_SEMI` shape as the child's `cheapest_total_path`. JoinScan's\nmulti-way reconstruction read that jointype and, because `RightSemi`\nwasn't in its supported set, **declined**.\n\n`JOIN_RIGHT_SEMI` is a PG18 plan shape, so this only reproduces on pg18.\nParallel mode was unaffected because partial hash joins exclude\n`JOIN_RIGHT_SEMI` (which is why #4910 did not close this).\n\n## How\n\n`JoinNode::canonicalize_orientation` rewrites a right-oriented sub-join\ninto its left twin (`RightSemi` → `Semi`, `RightAnti` →\n`Anti{null_aware:false}`) — swapping the children and flipping each\nequi-key's orientation. A right-semi is exactly a left-semi with the\ninputs swapped (same output rows, same equi-key); PG only distinguishes\nthem to choose which side to hash, a physical detail JoinScan discards\n(it joins the BM25 indexes in DataFusion). The rewrite restores the\n`left == preserved side` invariant the rest of JoinScan relies on\n(`output_sources`, visibility filtering, parallel partitioning at index\n0).\n\nIt is applied in **reconstruction only**: the direct\n`set_join_pathlist_hook` invocation for a right-oriented join is always\nredundant with the sibling `JOIN_SEMI`/`JOIN_ANTI` invocation PG also\nemits, so canonicalizing there would only add a duplicate path.\n\n## Tests\n\n- 5 `pg_test` units for the swap (`swap_sides`, RightSemi→Semi,\nRightAnti→Anti, nested bottom-up, left-untouched).\n- `issue_4779` regress covering serial two-`EXISTS`, `EXISTS`+`NOT\nEXISTS`, and parallel.\n- Full `pg_regress` suite: **282 passed, 0 failed**.\n\nOne adjacent, pre-existing bug surfaced during testing —\n`JOIN_UNIQUE_INNER` reconstruction drops the dedup and can duplicate the\npreserved side — is **out of scope** here and will be filed separately.\n\n### Note on `or_exists_join_bug.out`\nOne decline-warning line gains a relation (`u`). The query still\ncorrectly declines (no `LIMIT`) with the identical native plan and rows;\nthe warning lists the relations of the candidate plan, and the fix lets\nreconstruction assemble the full plan before the `LIMIT` gate rejects it\n— a more complete, still-accurate message.",
+          "timestamp": "2026-06-11T09:25:01+05:30",
+          "tree_id": "ff4e4bfec6558bccfeb289964e58a49df2e5c2a3",
+          "url": "https://github.com/paradedb/paradedb/commit/57c7e6e0898455d43b953b70f77d2b3d473c5575"
+        },
+        "date": 1781153443177,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 13.980582,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.894305431609938, max cpu: 33.23442, count: 55714"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 175.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.350971591521, max mem: 179.49609375, count: 55714"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.615806007627637, max cpu: 28.070175, count: 55714"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 118.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 117.73165189909628, max mem: 118.97265625, count: 55714"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.342688298511518, max cpu: 18.695229, count: 55714"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 158.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 142.36665646762933, max mem: 178.3828125, count: 55714"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15911,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16233.935491976881, max block_count: 30168.0, count: 55714"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.535697720570144, max cpu: 4.7244096, count: 55714"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 104.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 94.92142172243511, max mem: 136.46875, count: 55714"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.96867932656065, max segment_count: 34.0, count: 55714"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.271805068564596, max cpu: 28.290766, count: 111428"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 180.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.0205188552249, max mem: 181.26953125, count: 111428"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.753581,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.771861992050026, max cpu: 27.961164, count: 55714"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 172.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 169.9615341577072, max mem: 173.40625, count: 55714"
           }
         ]
       }

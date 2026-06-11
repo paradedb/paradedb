@@ -64,6 +64,8 @@ pub enum UnusableReason {
     PrefixOnly { matched: usize },
     /// Columns are not indexed with fast=true or not sortable
     NotSortable,
+    /// We cannot pushdown collations that are not byte-ordered (C-like)
+    UnsafeCollation,
 }
 
 #[derive(Debug, Clone)]
@@ -365,7 +367,7 @@ where
         let collation = (*equivclass).ec_collation;
         if !is_collation_pushdown_safe(collation) {
             if pathkey_styles.is_empty() {
-                return PathKeyInfo::Unusable(UnusableReason::NotSortable);
+                return PathKeyInfo::Unusable(UnusableReason::UnsafeCollation);
             } else {
                 return PathKeyInfo::UsablePrefix(pathkey_styles);
             }

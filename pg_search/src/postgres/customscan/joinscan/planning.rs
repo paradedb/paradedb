@@ -1446,8 +1446,9 @@ unsafe fn pathkey_is_outer_only(
 /// Returns true if:
 /// - No ORDER BY clause exists
 /// - All relevant ORDER BY columns are fast fields or score functions
+/// - All relevant ORDER BY columns have a byte-ordered (C-like) collation
 ///
-/// Returns false if any relevant ORDER BY column is not a fast field.
+/// Returns false if any relevant ORDER BY column is not a fast field or uses a non C-like collation.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -1468,6 +1469,11 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         }
 
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let collation = (*equivclass).ec_collation;
+        if !is_collation_pushdown_safe(collation) {
+            return false;
+        }
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
@@ -1539,26 +1545,6 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     }
 
     true
-}
-
-// If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
-pub(super) unsafe fn order_by_columns_have_unsafe_collation(
-    root: *mut pg_sys::PlannerInfo,
-) -> bool {
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).sort_pathkeys);
-    if pathkeys.is_empty() {
-        return false;
-    }
-
-    for pathkey_ptr in pathkeys.iter_ptr() {
-        let equivclass = (*pathkey_ptr).pk_eclass;
-        let collation = (*equivclass).ec_collation;
-        if !is_collation_pushdown_safe(collation) {
-            return true;
-        }
-    }
-
-    false
 }
 
 /// Check if all Var dependencies of an expression are fast fields in any source.

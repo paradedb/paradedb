@@ -177,9 +177,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::planning::{
-    distinct_columns_are_fast_fields, order_by_columns_have_unsafe_collation,
-};
+use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
@@ -557,13 +555,7 @@ impl JoinScan {
 
         if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields",
-            ));
-        }
-
-        if order_by_columns_have_unsafe_collation(root) {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation",
+                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
             ));
         }
 

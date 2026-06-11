@@ -27,6 +27,7 @@ pub mod join_targetlist;
 pub mod limit_offset;
 pub mod mpp;
 pub mod orderby;
+use crate::postgres::customscan::orderby::validate_topk_compatibility;
 pub mod privdat;
 pub mod scan_state;
 pub mod searchquery;
@@ -1195,6 +1196,53 @@ impl AggregateScan {
         // Below this line every Err carries a planner warning.
         let warn = |reason| AggregatePathDecline::Warn(reason);
 
+        // Check if any RTI was dropped by collect_join_agg_sources (e.g., subqueries)
+        let expected_rtis = unsafe { pgrx::pg_sys::bms_num_members(input_rel.relids) } as usize;
+        if sources.len() != expected_rtis {
+            let rtis: Vec<pgrx::pg_sys::Index> = unsafe {
+                crate::postgres::customscan::range_table::bms_iter(input_rel.relids).collect()
+            };
+            for rti in rtis {
+                if !sources.iter().any(|s| s.rti == rti) {
+                    let rte = unsafe {
+                        crate::postgres::customscan::range_table::get_rte(
+                            (*root).simple_rel_array_size as usize,
+                            (*root).simple_rte_array,
+                            rti,
+                        )
+                    };
+                    if let Some(rte_ptr) = rte {
+                        let rtekind = unsafe { (*rte_ptr).rtekind };
+                        // RTE_JOIN represents the join itself, not a base table we'd scan
+                        if rtekind == pgrx::pg_sys::RTEKind::RTE_JOIN {
+                            continue;
+                        }
+
+                        // Silent decline for subqueries with limits, as they are
+                        // handled efficiently by the BaseScan TopK pushdown natively.
+                        // We check recursively because the limit might be nested inside CTEs
+                        // or UNION arms within the subquery.
+                        if rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY {
+                            let subquery = unsafe { (*rte_ptr).subquery };
+                            if !subquery.is_null() && unsafe { query_will_use_topk(subquery) } {
+                                return Err(AggregatePathDecline::Quiet);
+                            }
+                        }
+
+                        return Err(warn(AggregateDeclineReason::Other(format!(
+                            "RTI {} is not a plain relation (rtekind: {:?}), which is not supported",
+                            rti, rtekind
+                        ))));
+                    } else {
+                        return Err(warn(AggregateDeclineReason::Other(format!(
+                            "RTI {} not found in simple_rte_array",
+                            rti
+                        ))));
+                    }
+                }
+            }
+        }
+
         // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).
         if !all_have_bm25_index(&sources) {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
@@ -2197,4 +2245,56 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
     } else {
         name_str.to_uppercase()
     }
+}
+
+/// Check if the query (or any subquery/CTE within it) will trigger TopK pushdown.
+///
+/// AggregateScan currently does not support extracting `RTE_SUBQUERY` nodes and will typically
+/// emit a WARNING when it encounters one. However, if a subquery is a TopK query (has a `LIMIT`
+/// and an `ORDER BY` on a BM25 index), we want to silently decline it instead. This is because
+/// `BaseScan` will natively optimize the subquery, meaning we can safely step aside without
+/// bothering the user with a planner warning.
+unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
+    if parse.is_null() {
+        return false;
+    }
+
+    // If there is an explicit LIMIT, check if TopK pushdown will natively optimize it
+    if !(*parse).limitCount.is_null()
+        && crate::gucs::enable_custom_scan()
+        && validate_topk_compatibility(parse)
+    {
+        return true;
+    }
+
+    // Check subqueries in RTEs
+    if !(*parse).rtable.is_null() {
+        let rtable = pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        for rte in rtable.iter_ptr() {
+            if (*rte).rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_will_use_topk((*rte).subquery)
+            {
+                return true;
+            }
+        }
+    }
+
+    // Check CTEs (Common Table Expressions)
+    if !(*parse).cteList.is_null() {
+        let ctelist =
+            pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+        for cte in ctelist.iter_ptr() {
+            if !(*cte).ctequery.is_null() && query_will_use_topk((*cte).ctequery.cast()) {
+                return true;
+            }
+        }
+    }
+
+    // Check setOperations (UNION/INTERSECT/EXCEPT arms)
+    // The query block for the set operations usually references the arms in rtable,
+    // but just in case, we can also descend into the setOperations tree if we needed,
+    // but since they are in rtable as RTE_SUBQUERY, iterating rtable is sufficient.
+
+    false
 }

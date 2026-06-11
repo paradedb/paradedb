@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781154128291,
+  "lastUpdate": 1781154162784,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -54378,6 +54378,186 @@ window.BENCHMARK_DATA = {
             "value": 30.0078125,
             "unit": "median mem",
             "extra": "avg mem: 29.284867029730307, max mem: 30.0390625, count: 53876"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57c7e6e0898455d43b953b70f77d2b3d473c5575",
+          "message": "fix(joinscan): canonicalize JOIN_RIGHT_SEMI/ANTI in multi-way reconstruction (#4779) (#5298)\n\n## What\n\nFixes #4779. Multi-way semi/anti joins (two or more `EXISTS` / `NOT\nEXISTS`) failed to produce a `ParadeDB Join Scan` in **serial** mode on\nPG18 — the query fell back to native `Hash (Right) Semi Join` chains.\n\n## Why\n\nFor a 2-way semijoin, PostgreSQL's `make_join_rel` calls\n`add_paths_to_joinrel` in **both** orientations — `JOIN_SEMI` and\n`JOIN_RIGHT_SEMI` (`joinrels.c`). When the *preserved* side is the\nsmaller relation, the serial hash-join cost model picks the\n`JOIN_RIGHT_SEMI` shape as the child's `cheapest_total_path`. JoinScan's\nmulti-way reconstruction read that jointype and, because `RightSemi`\nwasn't in its supported set, **declined**.\n\n`JOIN_RIGHT_SEMI` is a PG18 plan shape, so this only reproduces on pg18.\nParallel mode was unaffected because partial hash joins exclude\n`JOIN_RIGHT_SEMI` (which is why #4910 did not close this).\n\n## How\n\n`JoinNode::canonicalize_orientation` rewrites a right-oriented sub-join\ninto its left twin (`RightSemi` → `Semi`, `RightAnti` →\n`Anti{null_aware:false}`) — swapping the children and flipping each\nequi-key's orientation. A right-semi is exactly a left-semi with the\ninputs swapped (same output rows, same equi-key); PG only distinguishes\nthem to choose which side to hash, a physical detail JoinScan discards\n(it joins the BM25 indexes in DataFusion). The rewrite restores the\n`left == preserved side` invariant the rest of JoinScan relies on\n(`output_sources`, visibility filtering, parallel partitioning at index\n0).\n\nIt is applied in **reconstruction only**: the direct\n`set_join_pathlist_hook` invocation for a right-oriented join is always\nredundant with the sibling `JOIN_SEMI`/`JOIN_ANTI` invocation PG also\nemits, so canonicalizing there would only add a duplicate path.\n\n## Tests\n\n- 5 `pg_test` units for the swap (`swap_sides`, RightSemi→Semi,\nRightAnti→Anti, nested bottom-up, left-untouched).\n- `issue_4779` regress covering serial two-`EXISTS`, `EXISTS`+`NOT\nEXISTS`, and parallel.\n- Full `pg_regress` suite: **282 passed, 0 failed**.\n\nOne adjacent, pre-existing bug surfaced during testing —\n`JOIN_UNIQUE_INNER` reconstruction drops the dedup and can duplicate the\npreserved side — is **out of scope** here and will be filed separately.\n\n### Note on `or_exists_join_bug.out`\nOne decline-warning line gains a relation (`u`). The query still\ncorrectly declines (no `LIMIT`) with the identical native plan and rows;\nthe warning lists the relations of the candidate plan, and the fix lets\nreconstruction assemble the full plan before the `LIMIT` gate rejects it\n— a more complete, still-accurate message.",
+          "timestamp": "2026-06-11T09:25:01+05:30",
+          "tree_id": "ff4e4bfec6558bccfeb289964e58a49df2e5c2a3",
+          "url": "https://github.com/paradedb/paradedb/commit/57c7e6e0898455d43b953b70f77d2b3d473c5575"
+        },
+        "date": 1781154130370,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.937382680699566, max cpu: 13.93998, count: 53798"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.867009969585304, max mem: 58.72265625, count: 53798"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5532243644406796, max cpu: 4.628737, count: 53798"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.75038330595468, max mem: 30.1328125, count: 53798"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.723316739230844, max cpu: 18.479307, count: 53798"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 54.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.02887639294212, max mem: 60.1484375, count: 53798"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.115890255154699, max cpu: 13.806328, count: 53798"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.7156979290587, max mem: 58.609375, count: 53798"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6576782933336265, max cpu: 9.213051, count: 53798"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.751094734585855, max mem: 37.9140625, count: 53798"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1096,
+            "unit": "median pages",
+            "extra": "avg pages: 1099.110245734042, max pages: 1829.0, count: 53798"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.586798940016358, max relation_size:MB: 14.2890625, count: 53798"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.838618536005056, max segment_count: 21.0, count: 53798"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.028579097331772, max cpu: 4.6153846, count: 53798"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 28.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.682507873782484, max mem: 28.80859375, count: 53798"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.111020790597897, max cpu: 4.6021094, count: 53798"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 28.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.664875799867094, max mem: 28.8359375, count: 53798"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.622962903237586, max cpu: 13.88621, count: 53798"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.416680438283024, max mem: 56.29296875, count: 53798"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003054948663032606, max replication_lag:MB: 0.21288299560546875, count: 53798"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.29092429404433, max cpu: 13.832853, count: 107596"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 50.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.447263228883976, max mem: 56.9296875, count: 107596"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6286270687391875, max cpu: 9.073725, count: 53798"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 29.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.045933399011115, max mem: 29.7265625, count: 53798"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.056890549443177, max cpu: 4.597701, count: 53798"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.52630078604223, max mem: 30.625, count: 53798"
           }
         ]
       }

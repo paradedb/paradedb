@@ -2,6 +2,12 @@
 -- Ensures that ParadeDB correctly refuses to push down ORDER BY when a non-C collation
 -- is in use, since Tantivy sorts by raw byte order (equivalent to C/POSIX/C.UTF-8 only).
 --
+-- ASSUMPTION: This test file assumes the database's default collation (datcollate) is
+-- byte-ordered (one of: C, POSIX, C.UTF-8, C.utf8, POSIX.UTF-8, POSIX.utf8). CI runs
+-- against C.UTF-8 so these tests pass there. On a local dev box whose `initdb` locale
+-- defaults to a non byte-ordered collation (e.g. en_US.UTF-8), Sections 7 and 8 will
+-- fail because the "default collation -> pushdown safe" expectations no longer hold.
+--
 -- Tests cover:
 -- 1. TopK (base scan ORDER BY ... LIMIT) with C vs non-C collation
 -- 2. Aggregate scan ORDER BY with C vs non-C collation
@@ -20,9 +26,13 @@
 -- =============================================================================
 
 -- Create an ICU collation for testing non-C ordering (always available in PG15+)
-CREATE COLLATION IF NOT EXISTS test_icu (provider = icu, locale = 'en-US');
+CREATE COLLATION IF NOT EXISTS test_icu (
+    provider = icu,
+    locale = 'en-US'
+);
 
 DROP TABLE IF EXISTS collation_test CASCADE;
+
 CREATE TABLE collation_test (
     id SERIAL PRIMARY KEY,
     name_c TEXT COLLATE "C",
@@ -31,26 +41,53 @@ CREATE TABLE collation_test (
     priority INTEGER
 );
 
-INSERT INTO collation_test (name_c, name_icu, name_default, priority) VALUES
-    ('apple', 'apple', 'apple', 10),
-    ('Banana', 'Banana', 'Banana', 20),
-    ('cherry', 'cherry', 'cherry', 30),
+INSERT INTO
+    collation_test (
+        name_c,
+        name_icu,
+        name_default,
+        priority
+    )
+VALUES ('apple', 'apple', 'apple', 10),
+    (
+        'Banana',
+        'Banana',
+        'Banana',
+        20
+    ),
+    (
+        'cherry',
+        'cherry',
+        'cherry',
+        30
+    ),
     ('Date', 'Date', 'Date', 40),
-    ('elderberry', 'elderberry', 'elderberry', 50);
+    (
+        'elderberry',
+        'elderberry',
+        'elderberry',
+        50
+    );
 
-CREATE INDEX collation_test_idx ON collation_test
-USING bm25 (id, name_c, name_icu, name_default, priority)
+CREATE INDEX collation_test_idx ON collation_test USING bm25 (
+    id,
+    name_c,
+    name_icu,
+    name_default,
+    priority
+)
 WITH (
-    key_field = 'id',
-    text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
-    numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
-);
+        key_field = 'id',
+        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
+        numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
+    );
 
 ANALYZE collation_test;
 
 -- =============================================================================
 -- SECTION 1: TopK (Base Scan ORDER BY ... LIMIT)
 -- =============================================================================
+
 
 \echo '=== SECTION 1: TopK Base Scan ORDER BY ... LIMIT ==='
 
@@ -95,6 +132,7 @@ LIMIT 5;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+
 \echo '=== SECTION 2: Aggregate Scan ORDER BY ==='
 
 \echo 'Test 2.1: GROUP BY + ORDER BY C-collation text -> aggregate pushdown (no Sort node)'
@@ -129,27 +167,28 @@ RESET paradedb.enable_aggregate_custom_scan;
 SET paradedb.enable_columnar_sort = true;
 
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+
 CREATE TABLE collation_sortby_test (
     id SERIAL PRIMARY KEY,
     city TEXT COLLATE "C",
     population INTEGER
 );
 
-INSERT INTO collation_sortby_test (city, population) VALUES
-    ('berlin', 3600000),
+INSERT INTO
+    collation_sortby_test (city, population)
+VALUES ('berlin', 3600000),
     ('Amsterdam', 900000),
     ('chicago', 2700000),
     ('Delhi', 32000000),
     ('edmonton', 1000000);
 
-CREATE INDEX collation_sortby_test_idx ON collation_sortby_test
-USING bm25 (id, city, population)
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING bm25 (id, city, population)
 WITH (
-    key_field = 'id',
-    text_fields = '{"city": {"indexed": true, "fast": true}}',
-    numeric_fields = '{"population": {"indexed": true, "fast": true}}',
-    sort_by = 'city ASC NULLS FIRST'
-);
+        key_field = 'id',
+        text_fields = '{"city": {"indexed": true, "fast": true}}',
+        numeric_fields = '{"population": {"indexed": true, "fast": true}}',
+        sort_by = 'city ASC NULLS FIRST'
+    );
 
 ANALYZE collation_sortby_test;
 
@@ -168,6 +207,7 @@ ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 -- =============================================================================
 -- SECTION 4: Result Correctness
 -- =============================================================================
+
 
 \echo '=== SECTION 4: Result Correctness ==='
 
@@ -190,6 +230,7 @@ ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 SET paradedb.enable_join_custom_scan = on;
 
 DROP TABLE IF EXISTS collation_join_products CASCADE;
+
 DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
 
 CREATE TABLE collation_join_products (
@@ -205,36 +246,72 @@ CREATE TABLE collation_join_suppliers (
     supplier_name TEXT COLLATE "C" NOT NULL
 );
 
-INSERT INTO collation_join_products (id, name_c, name_icu, description) VALUES
-    (1, 'Wireless Mouse', 'Wireless Mouse', 'ergonomic wireless mouse'),
-    (2, 'USB Cable', 'USB Cable', 'high-speed cable'),
-    (3, 'Keyboard', 'Keyboard', 'mechanical keyboard wireless'),
-    (4, 'Monitor Stand', 'Monitor Stand', 'adjustable monitor stand'),
-    (5, 'Webcam', 'Webcam', 'HD webcam wireless');
+INSERT INTO
+    collation_join_products (
+        id,
+        name_c,
+        name_icu,
+        description
+    )
+VALUES (
+        1,
+        'Wireless Mouse',
+        'Wireless Mouse',
+        'ergonomic wireless mouse'
+    ),
+    (
+        2,
+        'USB Cable',
+        'USB Cable',
+        'high-speed cable'
+    ),
+    (
+        3,
+        'Keyboard',
+        'Keyboard',
+        'mechanical keyboard wireless'
+    ),
+    (
+        4,
+        'Monitor Stand',
+        'Monitor Stand',
+        'adjustable monitor stand'
+    ),
+    (
+        5,
+        'Webcam',
+        'Webcam',
+        'HD webcam wireless'
+    );
 
-INSERT INTO collation_join_suppliers (id, product_id, supplier_name) VALUES
-    (1, 1, 'TechCorp'),
+INSERT INTO
+    collation_join_suppliers (id, product_id, supplier_name)
+VALUES (1, 1, 'TechCorp'),
     (2, 2, 'CableCo'),
     (3, 3, 'TechCorp'),
     (4, 4, 'FurniPro'),
     (5, 5, 'TechCorp');
 
-CREATE INDEX collation_join_products_idx ON collation_join_products
-USING bm25 (id, name_c, name_icu, description)
+CREATE INDEX collation_join_products_idx ON collation_join_products USING bm25 (
+    id,
+    name_c,
+    name_icu,
+    description
+)
 WITH (
-    key_field = 'id',
-    text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
-);
+        key_field = 'id',
+        text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
+    );
 
-CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers
-USING bm25 (id, product_id, supplier_name)
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING bm25 (id, product_id, supplier_name)
 WITH (
-    key_field = 'id',
-    text_fields = '{"supplier_name": {"fast": true}}',
-    numeric_fields = '{"product_id": {"fast": true}}'
-);
+        key_field = 'id',
+        text_fields = '{"supplier_name": {"fast": true}}',
+        numeric_fields = '{"product_id": {"fast": true}}'
+    );
 
 ANALYZE collation_join_products;
+
 ANALYZE collation_join_suppliers;
 
 \echo 'Test 5.1: JoinScan ORDER BY C-collation column -> JoinScan used'
@@ -305,6 +382,7 @@ RESET paradedb.enable_aggregate_custom_scan;
 -- The database default is C.UTF-8 (safe for byte-order pushdown)
 -- =============================================================================
 
+
 \echo '=== SECTION 7: Default Database Collation (C.UTF-8) ==='
 
 \echo 'Test 7.1: ORDER BY default-collation text column -> TopK pushdown (default is C.UTF-8, safe)'
@@ -336,6 +414,7 @@ RESET paradedb.enable_aggregate_custom_scan;
 -- =============================================================================
 -- SECTION 8: Mixed ORDER BY with safe and unsafe columns
 -- =============================================================================
+
 
 \echo '=== SECTION 8: Mixed ORDER BY (safe + unsafe) ==='
 
@@ -374,9 +453,13 @@ LIMIT 5;
 RESET paradedb.enable_columnar_sort;
 
 DROP TABLE IF EXISTS collation_test CASCADE;
+
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+
 DROP TABLE IF EXISTS collation_join_products CASCADE;
+
 DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
+
 DROP COLLATION IF EXISTS test_icu;
 
 \i common/common_cleanup.sql

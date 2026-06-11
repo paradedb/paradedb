@@ -1,6 +1,7 @@
 # workflows/test-pg_search-valgrind.yml
 #
 # Test pg_search (Valgrind)
+# Run the pg_regress suite under Valgrind to catch memory corruption.
 
 name: Test pg_search (Valgrind)
 

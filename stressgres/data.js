@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781173102922,
+  "lastUpdate": 1781173752134,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33180,6 +33180,60 @@ window.BENCHMARK_DATA = {
             "value": 17.7468003632768,
             "unit": "median tps",
             "extra": "avg tps: 17.590726990056528, max tps: 20.632301784496722, count: 55714"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24a2aa26f330aad5577c66bb824f59bdb7b1478b",
+          "message": "feat(mpp): collapsed N×(N-1) shm_mq grid to N MPSC inboxes. (#5169)\n\n## What\n\nThis PR collapses the MPP transport's `N × (N-1)` per-pair `shm_mq` grid\ninto `N` per-receiver MPSC inboxes, and lets a single frame span\nmultiple ring slots so payloads aren't capped at `slot_capacity`.\n\n## Why\n\nJoin + groupby wall-time was tracking `N²` because mesh edges scaled\nwith peer count.\n\nThe per-pair drain also treated any peer detach as registry-wide EOF.\nOnce a single `HashJoinExec` probe input finalized, that fired on\nchannels still expecting data and the upstream hung.\n\nCapping a frame at one slot worked while frames were small headers. The\nmoment a partition emitted a batch larger than `slot_capacity` it failed\nwith `MessageTooLarge`. Bumping `slot_capacity` for every batch wastes\nDSM; fragmentation lets the existing ring stretch.\n\n## How\n\n`DsmMpscRing` is a Vyukov lock-free MPSC primitive over DSM, with\n`Latch` wake. Frames carry a `sender_proc` field so the receiver demuxes\nthem into the same channel-buffer registry used by the prior `shm_mq`\ngrid.\n\nMulti-slot fragmentation lets a single frame span N consecutive ring\nslots. The producer reserves the slots via the same `tail` CAS,\nfragments the payload, and the consumer reassembles before handing the\nbytes up. Partial reads aren't visible to higher layers.\n\nPer-channel EOF rides the demuxed `Eof` frame instead of peer detach.\nTeardown unblock comes from `DrainHandle::Drop` setting the shared\n`detached` flag.\n\nZero-copy in-proc shuffle still ships separately.\n\n## Tests\n\nUnit tests cover the ring's SPSC round trip, MPSC contention,\nper-producer ordering, attach-time magic/version checks, multi-slot\nwraparound, and a proptest that randomizes per-producer fragment-kind\nsequences under contention.",
+          "timestamp": "2026-06-11T02:33:23-07:00",
+          "tree_id": "8cf553ed83345de52d9318139507c65b6c7c2c7e",
+          "url": "https://github.com/paradedb/paradedb/commit/24a2aa26f330aad5577c66bb824f59bdb7b1478b"
+        },
+        "date": 1781173717860,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 58.996662809135564,
+            "unit": "median tps",
+            "extra": "avg tps: 57.947593757581494, max tps: 63.19434335316765, count: 55579"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.2570876644109,
+            "unit": "median tps",
+            "extra": "avg tps: 277.46893472989706, max tps: 2949.655802861081, count: 55579"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 568.7563249296346,
+            "unit": "median tps",
+            "extra": "avg tps: 554.3078182416544, max tps: 1024.6226033180765, count: 55579"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 172.49111222284515,
+            "unit": "median tps",
+            "extra": "avg tps: 190.96776819178928, max tps: 1737.9592232954442, count: 111158"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.79659101714274,
+            "unit": "median tps",
+            "extra": "avg tps: 17.583368145753433, max tps: 21.155346352686067, count: 55579"
           }
         ]
       }

@@ -771,7 +771,7 @@ impl VisibilityFilterExec {
         &self.plan_pos_oids
     }
 
-    /// Serialize for coordinator dispatch. The `ctid_resolvers` are live `FFHelper`s wired by an
+    /// Serialize for leader dispatch. The `ctid_resolvers` are live `FFHelper`s wired by an
     /// optimizer rule, so they don't travel; the receiving worker re-wires them from the scans in
     /// its decoded subtree.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {

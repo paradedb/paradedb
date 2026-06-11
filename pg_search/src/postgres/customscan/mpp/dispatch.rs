@@ -15,12 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Coordinator-dispatch blob: the leader serializes the distributed physical plan once and ships
+//! Leader-dispatch blob: the leader serializes the distributed physical plan once and ships
 //! per-stage subplans to the workers, so workers run their fragments without re-planning.
 //!
 //! The blob is one shared buffer in DSM. Every worker reads it and selects the `(stage, task)`
 //! slots it owns under [`proc_for_task`]. The fork's `DistributedCodec` serializes the
 //! `Network*Exec` boundaries; [`crate::scan::physical_codec`] serializes the `pg_search` execs.
+//!
+//! The blob rides DSM rather than the mesh rings: workers read it while setting up, before they
+//! attach to the mesh, so startup needs no receive loop; one read-only copy serves every worker;
+//! and the rings stay sized for row traffic (`paradedb.mpp_queue_size`), not plan payloads.
 
 use std::sync::Arc;
 

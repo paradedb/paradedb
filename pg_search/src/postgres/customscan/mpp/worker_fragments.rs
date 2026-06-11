@@ -15,13 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Leader-side producer-stage discovery for coordinator dispatch.
+//! Leader-side producer-stage discovery for dispatch. "Fragment" here means a plan fragment
+//! (one task of a producer stage), not the frame fragmentation the ring does for oversized
+//! messages.
 //!
 //! [`collect_dispatched_stages`] walks the distributed physical plan, visits every
 //! [`datafusion_distributed::NetworkBoundary`], and collects one [`StageEntry`]
 //! (`input_stage.num`, `task_count`, `routing`, `plan`) per boundary. The leader serializes each
 //! stage's plan and ships it; each worker later expands a stage into one [`FragmentAssignment`]
 //! per `task_idx` it owns under `proc_for_task`.
+//!
+//! The fork's coordinator has no equivalent of this walk: it dispatches one boundary at a time,
+//! when the consumer's `execute` opens connections, so routing is implicit in who pulls. These
+//! workers launch exactly once and the mesh is push-driven, so the leader enumerates every
+//! producer stage and precomputes destinations before any worker exists.
 //!
 //! Routing classification (which proc an output partition `q` is sent to) depends on the
 //! boundary's position:

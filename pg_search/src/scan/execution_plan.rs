@@ -89,7 +89,7 @@ pub struct ScannerConfig {
     pub which_fast_fields: Vec<WhichFastField>,
     pub heap_relid: u32,
     pub batch_size_hint: Option<usize>,
-    /// `need_scores` the index reader was opened with. Carried so a coordinator-dispatched worker
+    /// `need_scores` the index reader was opened with. Carried so a leader-dispatched worker
     /// re-opens its reader with the same scoring behavior (the reader itself can't travel).
     pub score_needed: bool,
 }
@@ -112,7 +112,8 @@ pub enum ScanRecipe {
         /// Position in the compacted non-partitioning source list, the index space of the
         /// codec-injected canonical segment sets. Sibling of `source_idx`, which is the
         /// all-sources position; the two diverge for any source after the partitioning one.
-        /// Only consulted when decoding without a `ParallelScanState`.
+        /// Only consulted when decoding without a `ParallelScanState`, i.e. the leader's
+        /// build-time validation round-trip of the dispatch blob.
         non_partitioning_index: Option<usize>,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
@@ -161,7 +162,7 @@ pub struct PgSearchScanPlan {
     /// the states have been consumed.
     partition_row_counts: Vec<u64>,
     properties: Arc<PlanProperties>,
-    query_for_display: SearchQueryInput,
+    resolved_query: SearchQueryInput,
     /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
     /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
     /// by the scanner is filtered against all of these expressions so that rows
@@ -210,13 +211,14 @@ impl PgSearchScanPlan {
     ///
     /// * `states` - The list of pre-opened segments (one per partition)
     /// * `schema` - Arrow schema for the output
-    /// * `query_for_display` - Search query for EXPLAIN
+    /// * `resolved_query` - The filter-combined, param-solved query the readers were opened
+    ///   with. Used for EXPLAIN and shipped on dispatch.
     /// * `sort_order` - Optional sort order declaration for equivalence properties
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         states: Vec<ScanState>,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
         ffhelper: Option<Arc<FFHelper>>,
@@ -267,7 +269,7 @@ impl PgSearchScanPlan {
             states: Mutex::new(wrapped_states),
             partition_row_counts,
             properties,
-            query_for_display,
+            resolved_query,
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
@@ -292,11 +294,11 @@ impl PgSearchScanPlan {
         self.deferred_ctid_plan_position
     }
 
-    /// Serialize this scan into a transport-neutral descriptor for coordinator dispatch.
+    /// Serialize this scan into a transport-neutral descriptor for leader dispatch.
     ///
     /// Only the recipe and the reader-rebuild inputs travel; the live `ScanState` (tantivy
     /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
-    /// from its own `ParallelScanState`. `query_for_display` is the filter-combined,
+    /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
         let states = self
@@ -345,7 +347,7 @@ impl PgSearchScanPlan {
 
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
-            query: self.query_for_display.clone(),
+            query: self.resolved_query.clone(),
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
@@ -481,7 +483,7 @@ impl PgSearchScanPlan {
     }
 }
 
-/// Transport-neutral description of a `PgSearchScanPlan` for coordinator dispatch. Carries the
+/// Transport-neutral description of a `PgSearchScanPlan` for leader dispatch. Carries the
 /// recipe plus the inputs needed to re-open the reader on the receiving worker; the live tantivy
 /// state is rebuilt there from the worker's own `ParallelScanState`.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -587,7 +589,7 @@ impl DisplayAs for PgSearchScanPlan {
                 write!(f, ", dynamic_filter_pushdown={}", strategy_name(strategy))?;
             }
         }
-        write!(f, ", query={}", self.query_for_display.explain_format())
+        write!(f, ", query={}", self.resolved_query.explain_format())
     }
 }
 
@@ -845,13 +847,13 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .drain(..)
                 .collect();
 
-            let query_for_display = self.query_for_display.clone();
+            let resolved_query = self.resolved_query.clone();
 
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
                 partition_row_counts: self.partition_row_counts.clone(),
                 properties: self.properties.clone(),
-                query_for_display,
+                resolved_query,
                 dynamic_filters,
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
@@ -947,7 +949,7 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
 pub fn create_sorted_scan(
     states: Vec<ScanState>,
     schema: SchemaRef,
-    query_for_display: SearchQueryInput,
+    resolved_query: SearchQueryInput,
     sort_order: &SortByField,
     indexrelid: u32,
 ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -968,7 +970,7 @@ pub fn create_sorted_scan(
     let segment_scan = Arc::new(PgSearchScanPlan::new(
         states,
         schema.clone(),
-        query_for_display,
+        resolved_query,
         Some(sort_order),
         Vec::new(),
         None,

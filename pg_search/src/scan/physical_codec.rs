@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Physical-plan codec for coordinator-dispatched MPP fragments.
+//! Physical-plan codec for leader-dispatched MPP fragments.
 //!
 //! The leader builds the distributed physical plan once and ships each stage's subplan to the
 //! workers; the workers run their fragments without re-planning. DataFusion's `Network*Exec`

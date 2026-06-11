@@ -220,7 +220,7 @@ impl SegmentedTopKExec {
         Ok(RowConverter::new(materialized_sort_fields)?)
     }
 
-    /// Serialize for coordinator dispatch. The `ffhelper` is live and doesn't travel; the worker
+    /// Serialize for leader dispatch. The `ffhelper` is live and doesn't travel; the worker
     /// pulls it from the scan in its decoded subtree. The `dynamic_filter` is internal and is
     /// recreated fresh by `new` on decode; the leader-side `FilterPushdown` wiring of that filter
     /// into the scans' `PreFilter` does not travel, so a dispatched fragment scans without the

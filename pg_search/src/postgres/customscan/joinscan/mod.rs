@@ -913,7 +913,7 @@ impl ParallelQueryCapable for JoinScan {
             )
         };
 
-        // Build the coordinator dispatch payload: per-stage physical subplans, serialized once
+        // Build the leader dispatch payload: per-stage physical subplans, serialized once
         // so workers run their fragments without re-planning. Any failure falls back to serial,
         // correct but slower.
         let payload = match build_dispatch_payload(

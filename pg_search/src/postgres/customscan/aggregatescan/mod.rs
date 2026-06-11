@@ -742,7 +742,7 @@ impl ParallelQueryCapable for AggregateScan {
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
         state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
 
-        // Build the coordinator dispatch payload: per-stage physical subplans, serialized once
+        // Build the leader dispatch payload: per-stage physical subplans, serialized once
         // so workers run their fragments without re-planning. Any failure falls back to serial,
         // correct but slower.
         let payload = match build_dispatch_payload(

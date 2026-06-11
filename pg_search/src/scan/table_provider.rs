@@ -466,7 +466,7 @@ impl PgSearchTableProvider {
         &self,
         segments: Vec<ScanState>,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
         ffhelper: Arc<FFHelper>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -495,7 +495,7 @@ impl PgSearchTableProvider {
         Ok(Arc::new(PgSearchScanPlan::new(
             segments,
             schema,
-            query_for_display,
+            resolved_query,
             actual_sort_order,
             deferred,
             ffhelper_arg,
@@ -527,7 +527,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let mut segments = Vec::new();
@@ -562,7 +562,7 @@ impl PgSearchTableProvider {
             segments.push(partition);
         }
 
-        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+        self.create_scan(segments, schema, resolved_query, sort_order, ffhelper)
     }
 
     /// Creates a multi-partition `PgSearchScanPlan` for eager scans.
@@ -585,7 +585,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
@@ -609,7 +609,7 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+        self.create_scan(segments, schema, resolved_query, sort_order, ffhelper)
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
@@ -637,7 +637,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         planner_estimated_rows: u64,
         mpp_source_idx: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -665,7 +665,7 @@ impl PgSearchTableProvider {
         self.create_scan(
             vec![state],
             schema,
-            query_for_display,
+            resolved_query,
             None, // no sort order
             ffhelper,
         )

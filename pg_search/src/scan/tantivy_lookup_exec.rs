@@ -139,7 +139,7 @@ impl TantivyLookupExec {
         self.ffhelpers.get(&indexrelid)
     }
 
-    /// Serialize for coordinator dispatch. The `ffhelpers` are live and don't travel; the worker
+    /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
     /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
     /// derived from `deferred_fields`, so it's recomputed on decode.
     pub(crate) fn encode_for_dispatch(&self) -> datafusion::common::Result<Vec<u8>> {

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! High-level glue between PostgreSQL parallel-query callbacks and the
-//! coordinator/worker MPP architecture.
+//! leader/worker MPP architecture.
 //!
 //! Customscan code calls into this module from four hooks; everything else
 //! (DSM math, shm_mq FFI, DF-D fork's `WorkerTransport` plumbing) is hidden

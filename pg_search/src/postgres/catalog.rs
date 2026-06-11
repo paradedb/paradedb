@@ -19,6 +19,37 @@ use pgrx::{pg_sys, FromDatum, IntoDatum};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
+/// Pins a syscache entry for the lifetime of the guard; the pin is
+/// released on drop, on every exit path including panics.
+/// Note: holds a raw pointer and is therefore !Send — required, since
+/// the catcache refcount is a plain non-atomic decrement on
+/// backend-private memory.
+struct SysCacheEntry {
+    cache: pg_sys::SysCacheIdentifier::Type,
+    tuple: pg_sys::HeapTuple,
+}
+
+impl SysCacheEntry {
+    unsafe fn search1(cache: pg_sys::SysCacheIdentifier::Type, key: pg_sys::Datum) -> Option<Self> {
+        let tuple = pg_sys::SearchSysCache1(cache as _, key);
+        (!tuple.is_null()).then_some(Self { cache, tuple })
+    }
+
+    unsafe fn attr<T: FromDatum>(&self, attno: u32) -> Option<T> {
+        let mut is_null = false;
+        let datum = pg_sys::SysCacheGetAttr(self.cache as _, self.tuple, attno as _, &mut is_null);
+        T::from_datum(datum, is_null)
+    }
+}
+
+impl Drop for SysCacheEntry {
+    fn drop(&mut self) {
+        unsafe {
+            pg_sys::ReleaseSysCache(self.tuple);
+        }
+    }
+}
+
 /// Helper function to lookup a namespace's [`pg_sys::Oid`] (SQL schema) by name
 pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
     unsafe {
@@ -30,49 +61,21 @@ pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
 /// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
 pub fn lookup_type_category(typoid: pg_sys::Oid) -> Option<u8> {
     unsafe {
-        let entry = pg_sys::SearchSysCache1(
-            pg_sys::SysCacheIdentifier::TYPEOID as _,
-            typoid.into_datum().unwrap(),
-        );
-        if entry.is_null() {
-            return None;
-        }
-
-        let mut is_null = false;
-        let category_datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::TYPEOID as _,
-            entry,
-            pg_sys::Anum_pg_type_typcategory as _,
-            &mut is_null,
-        );
-        let category = i8::from_datum(category_datum, is_null);
-        pg_sys::ReleaseSysCache(entry);
-        category.map(|c| c as u8)
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::TYPEOID, typoid.into_datum()?)?;
+        let category = entry.attr::<i8>(pg_sys::Anum_pg_type_typcategory)?;
+        Some(category as u8)
     }
 }
 
 /// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
 pub fn lookup_type_name(typoid: pg_sys::Oid) -> Option<String> {
     unsafe {
-        let entry = pg_sys::SearchSysCache1(
-            pg_sys::SysCacheIdentifier::TYPEOID as _,
-            typoid.into_datum().unwrap(),
-        );
-        if entry.is_null() {
-            return None;
-        }
-
-        let mut is_null = false;
-        let name_datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::TYPEOID as _,
-            entry,
-            pg_sys::Anum_pg_type_typname as _,
-            &mut is_null,
-        );
-        let name =
-            <&CStr>::from_datum(name_datum, is_null).map(|s| s.to_string_lossy().to_string());
-        pg_sys::ReleaseSysCache(entry);
-        name
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::TYPEOID, typoid.into_datum()?)?;
+        entry
+            .attr::<&CStr>(pg_sys::Anum_pg_type_typname)
+            .map(|s| s.to_string_lossy().to_string())
     }
 }
 
@@ -188,77 +191,28 @@ pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
 /// Helper function to lookup the database's `datcollate` and `datlocprovider` settings from `pg_database`
 pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
     unsafe {
-        let entry = pg_sys::SearchSysCache1(
-            pg_sys::SysCacheIdentifier::DATABASEOID as _,
-            pg_sys::MyDatabaseId.into_datum().unwrap(),
-        );
-        if entry.is_null() {
-            return None;
-        }
+        let entry = SysCacheEntry::search1(
+            pg_sys::SysCacheIdentifier::DATABASEOID,
+            pg_sys::MyDatabaseId.into_datum()?,
+        )?;
 
-        let mut is_datcollate_null = false;
-        let datcollate_datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::DATABASEOID as _,
-            entry,
-            pg_sys::Anum_pg_database_datcollate as _,
-            &mut is_datcollate_null,
-        );
-
-        let datcollate = String::from_datum(datcollate_datum, is_datcollate_null);
-
-        let mut is_datlocprovider_null: bool = false;
-        let datlocprovider_datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::DATABASEOID as _,
-            entry,
-            pg_sys::Anum_pg_database_datlocprovider as _,
-            &mut is_datlocprovider_null,
-        );
-
-        let datlocprovider =
-            i8::from_datum(datlocprovider_datum, is_datlocprovider_null).map(|c| c as u8);
-
-        pg_sys::ReleaseSysCache(entry);
-
-        datcollate.zip(datlocprovider)
+        let datcollate = entry.attr::<String>(pg_sys::Anum_pg_database_datcollate)?;
+        let datlocprovider = entry.attr::<i8>(pg_sys::Anum_pg_database_datlocprovider)?;
+        Some((datcollate, datlocprovider as u8))
     }
 }
 
 /// Helper function to lookup the `collcollate` and `collprovider` fields for a collation object in `pg_collation`
+/// Note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: https://www.postgresql.org/docs/current/catalog-pg-collation.html
 pub fn lookup_collation_collcollate_and_provider(
     collation: pg_sys::Oid,
 ) -> Option<(Option<String>, u8)> {
     unsafe {
-        let entry = pg_sys::SearchSysCache1(
-            pg_sys::SysCacheIdentifier::COLLOID as _,
-            collation.into_datum().unwrap(),
-        );
-        if entry.is_null() {
-            return None;
-        }
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::COLLOID, collation.into_datum()?)?;
 
-        let mut is_collcollate_null = false;
-        let collcollate_datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::COLLOID as _,
-            entry,
-            pg_sys::Anum_pg_collation_collcollate as _,
-            &mut is_collcollate_null,
-        );
-
-        // note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: https://www.postgresql.org/docs/current/catalog-pg-collation.html
-        let collcollate = String::from_datum(collcollate_datum, is_collcollate_null);
-
-        let mut is_collprovider_null = false;
-        let collprovider_datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::COLLOID as _,
-            entry,
-            pg_sys::Anum_pg_collation_collprovider as _,
-            &mut is_collprovider_null,
-        );
-
-        let collprovider =
-            i8::from_datum(collprovider_datum, is_collprovider_null).map(|c| c as u8);
-
-        pg_sys::ReleaseSysCache(entry);
-        collprovider.map(|collprovider| (collcollate, collprovider))
+        let collcollate = entry.attr::<String>(pg_sys::Anum_pg_collation_collcollate);
+        let collprovider = entry.attr::<i8>(pg_sys::Anum_pg_collation_collprovider)?;
+        Some((collcollate, collprovider as u8))
     }
 }

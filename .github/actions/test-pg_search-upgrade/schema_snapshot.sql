@@ -6,10 +6,7 @@
 -- Run against a freshly-installed database and an upgraded database and diff the
 -- two: any difference means a migration script under pg_search/sql/ is
 -- incomplete -- an object lives in the generated base schema but is never
--- created on the `ALTER EXTENSION ... UPDATE` path (or vice versa). This is the
--- exact failure mode behind verify_index() going missing after upgrade (#3907):
--- its delta landed in an already-shipped migration file, so it reached fresh
--- installs but not upgraders.
+-- created on the `ALTER EXTENSION ... UPDATE` path (or vice versa).
 --
 -- pg_describe_object() renders OID-free, fully-qualified identifiers (e.g.
 -- `function paradedb.verify_index(regclass,boolean,...)`), so the output is

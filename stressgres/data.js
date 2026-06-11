@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781135815792,
+  "lastUpdate": 1781136463257,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32172,6 +32172,60 @@ window.BENCHMARK_DATA = {
             "value": 17.577192505477136,
             "unit": "median tps",
             "extra": "avg tps: 17.413233233327116, max tps: 20.515499521434943, count: 55536"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14a548a50795cac8c5951ae71c1bc21e55fd48f7",
+          "message": "chore: June 2026 Tantivy Rebase (#5294)\n\nIncorporates\nhttps://github.com/paradedb/tantivy/commits/stuhood.tantivy-rebase-june-2026\n\nCloses #5302\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T16:09:54-07:00",
+          "tree_id": "4c028153d20f21d3934f77e21cfbc4f0b09e36e4",
+          "url": "https://github.com/paradedb/paradedb/commit/14a548a50795cac8c5951ae71c1bc21e55fd48f7"
+        },
+        "date": 1781136430683,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 59.79544818397293,
+            "unit": "median tps",
+            "extra": "avg tps: 58.82475073570394, max tps: 64.04011185707026, count: 55431"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 251.87531925909283,
+            "unit": "median tps",
+            "extra": "avg tps: 282.65778422807705, max tps: 2707.3867507064197, count: 55431"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 561.4931371062518,
+            "unit": "median tps",
+            "extra": "avg tps: 548.262367308308, max tps: 739.2932959179547, count: 55431"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.52189559119,
+            "unit": "median tps",
+            "extra": "avg tps: 183.04774045562485, max tps: 1117.3729920151045, count: 110862"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.781901492610643,
+            "unit": "median tps",
+            "extra": "avg tps: 18.4696556469124, max tps: 19.80260505843882, count: 55431"
           }
         ]
       }

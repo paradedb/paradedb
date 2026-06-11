@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781221022376,
+  "lastUpdate": 1781221057154,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20022,6 +20022,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.22870834997309, max segment_count: 127.0, count: 57593"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "864b803e6af1d8f55a641682e4f61afd69deee50",
+          "message": "fix: Avoid aggregate scan warnings for queries which will get TopK (#5312)\n\n## What\n\nAdd handling to silence `aggregate` scan warnings when TopK scans are\nbeing used.\n\n## Why\n\nTo fix #5296, we are switching to an RRF query in #5303. But that\nswitches from a valid `join` scan warning to a spurious `aggregate` scan\nwarning due to failing to handle subqueries:\n```\nWARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources (table: join)\n```\n\nWe will eventually want to support incorporating subqueries into the\n`aggregate` scan as joins. But in cases where a TopK is already\ntriggering, we cannot do any better with the `aggregate` scan.\n\n## Tests\n\nNew RRF regression test.",
+          "timestamp": "2026-06-11T16:04:34-07:00",
+          "tree_id": "5af1c6c36207d8d4735f95b1a7143622932a7282",
+          "url": "https://github.com/paradedb/paradedb/commit/864b803e6af1d8f55a641682e4f61afd69deee50"
+        },
+        "date": 1781221024434,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.1045752025443, max cpu: 43.156845, count: 57733"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 234.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 234.69772466840888, max mem: 236.4453125, count: 57733"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.842245606681377, max cpu: 33.333336, count: 57733"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.14201265145152, max mem: 178.0859375, count: 57733"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34765,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34083.15382883273, max block_count: 36854.0, count: 57733"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.70968077182894, max segment_count: 132.0, count: 57733"
           }
         ]
       }

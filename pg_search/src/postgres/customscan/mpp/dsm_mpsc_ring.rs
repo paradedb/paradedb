@@ -108,10 +108,64 @@ const SLOT_HEADER_BYTES: usize = std::mem::size_of::<SlotHeader>();
 struct SlotHeader {
     /// Vyukov sequence counter; see module docs for phase encoding.
     seq: AtomicU64,
-    /// Payload length in bytes; `0..=slot_capacity - SLOT_HEADER_BYTES`.
+    /// Bytes of payload written into THIS slot's data region;
+    /// `0..=slot_capacity - SLOT_HEADER_BYTES`.
     len: AtomicU32,
-    /// Padding to keep the data region 8-byte aligned. Not consulted by anyone.
-    _pad: u32,
+    /// Fragment metadata. Low 2 bits = [`FragmentKind`] (Complete=0 / First=1 /
+    /// Continue=2 / Last=3). For `First`, bits 16..32 hold the slot count of the
+    /// logical frame (1..=65535). For other kinds these bits are unused.
+    flags: AtomicU32,
+}
+
+/// Kind bits stored in [`SlotHeader::flags`]'s low 2 bits.
+///
+/// A frame fitting in `slot_capacity - SLOT_HEADER_BYTES` rides the single-slot
+/// fast path as `Complete`. Anything larger spans
+/// `n_slots = ceil(frame_len / per_slot_payload)` consecutive slots: `First`
+/// (carrying `n_slots` in the upper bits), `Continue` for the middle, `Last` for
+/// the tail. Producers grab the whole run with one
+/// `tail.compare_exchange(T, T + n_slots)`, so other producers can't interleave
+/// their fragments and the receiver always sees the slots in producer order.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FragmentKind {
+    Complete = 0,
+    First = 1,
+    Continue = 2,
+    Last = 3,
+}
+
+/// Bit-mask for the kind bits in [`SlotHeader::flags`].
+const FLAGS_KIND_MASK: u32 = 0b11;
+/// Shift for the `n_slots` field stored in the flags' upper half (only meaningful
+/// for `First`). Limits per-frame fragmentation to 65535 slots, which is far
+/// beyond any realistic ring size.
+const FLAGS_NSLOTS_SHIFT: u32 = 16;
+const FLAGS_NSLOTS_MAX: u32 = 0xFFFF;
+
+#[inline]
+fn pack_flags(kind: FragmentKind, n_slots: u32) -> u32 {
+    debug_assert!(
+        kind != FragmentKind::First || (1..=FLAGS_NSLOTS_MAX).contains(&n_slots),
+        "First frames must carry 1..=65535 slots; got {n_slots}"
+    );
+    (kind as u32) | (n_slots << FLAGS_NSLOTS_SHIFT)
+}
+
+#[inline]
+fn unpack_kind(flags: u32) -> Option<FragmentKind> {
+    match flags & FLAGS_KIND_MASK {
+        0 => Some(FragmentKind::Complete),
+        1 => Some(FragmentKind::First),
+        2 => Some(FragmentKind::Continue),
+        3 => Some(FragmentKind::Last),
+        _ => None,
+    }
+}
+
+#[inline]
+fn unpack_nslots(flags: u32) -> u32 {
+    flags >> FLAGS_NSLOTS_SHIFT
 }
 
 /// Magic constant validating that an attaching process points at a `DsmMpscRingHeader`
@@ -119,9 +173,16 @@ struct SlotHeader {
 /// so a worker that picks up the wrong region fails the wrong-shape check loudly.
 const MPSC_RING_MAGIC: u32 = u32::from_le_bytes(*b"MPCR");
 
-/// Bumped on any incompatible layout change. Mirrors the discipline at
+/// Bump on any wire-incompatible layout change. Mirrors the discipline at
 /// `MppDsmHeader::validate`.
-const MPSC_RING_VERSION: u32 = 1;
+///
+/// Wire versions:
+/// - v1: `SlotHeader { seq, len, _pad }`. One frame per slot.
+/// - v2: `SlotHeader { seq, len, flags }`. `flags` carries `FragmentKind` plus
+///   `n_slots` on `First`, so frames bigger than
+///   `slot_capacity - SLOT_HEADER_BYTES` can span N consecutive slots reserved
+///   atomically by the producer.
+const MPSC_RING_VERSION: u32 = 2;
 
 /// Assumed cache line size for false-sharing avoidance. 64 bytes covers x86_64 and arm64;
 /// over-padding on smaller-cache-line targets costs a few bytes per ring, nothing more.
@@ -393,7 +454,7 @@ pub(super) unsafe fn create_at(
                 SlotHeader {
                     seq: AtomicU64::new(i as u64),
                     len: AtomicU32::new(0),
-                    _pad: 0,
+                    flags: AtomicU32::new(0),
                 },
             );
         }
@@ -500,12 +561,50 @@ impl DsmMpscReceiver {
             }
             return RecvOutcome::Empty;
         }
+        // Slot at head is ready. Inspect its kind to choose between single-slot
+        // fast path and multi-slot reassembly.
+        let flags = unsafe { (*slot).flags.load(Ordering::Relaxed) };
+        let Some(kind) = unpack_kind(flags) else {
+            // Reserved bits set; treat as corruption.
+            header.detached.store(true, Ordering::Release);
+            return RecvOutcome::Detached;
+        };
+        let payload_cap = (header.slot_capacity as usize).saturating_sub(SLOT_HEADER_BYTES);
+        match kind {
+            FragmentKind::Complete => self.recv_single_slot(header, head, slot, payload_cap, out),
+            FragmentKind::First => {
+                let n_slots = unpack_nslots(flags);
+                if n_slots == 0 || n_slots > header.ring_size {
+                    header.detached.store(true, Ordering::Release);
+                    return RecvOutcome::Detached;
+                }
+                self.recv_multi_slot(header, head, n_slots, payload_cap, out)
+            }
+            FragmentKind::Continue | FragmentKind::Last => {
+                // Encountering Continue/Last at `head` means a producer violated
+                // ascending-publish ordering or a previous reassembly didn't advance
+                // `head` past every fragment. Either is a contract break, not a
+                // recoverable condition; poison and detach.
+                header.detached.store(true, Ordering::Release);
+                RecvOutcome::Detached
+            }
+        }
+    }
+
+    /// Read a single-slot `Complete` frame at `head` and advance.
+    fn recv_single_slot(
+        &self,
+        header: &DsmMpscRingHeader,
+        head: u64,
+        slot: *mut SlotHeader,
+        payload_cap: usize,
+        out: &mut Vec<u8>,
+    ) -> RecvOutcome {
         let len_raw = unsafe { (*slot).len.load(Ordering::Relaxed) } as usize;
         // Clamp against slot's payload capacity. DSM is mapped writable by every
         // attached backend, so a buggy / corrupted producer could write a garbage len.
         // Without this guard, `set_len + copy_nonoverlapping` would read OOB into
         // neighboring slots or other DSM contents.
-        let payload_cap = (header.slot_capacity as usize).saturating_sub(SLOT_HEADER_BYTES);
         if len_raw > payload_cap {
             // Poison the ring rather than silently returning corrupt data.
             header.detached.store(true, Ordering::Release);
@@ -530,6 +629,87 @@ impl DsmMpscReceiver {
         header.head.store(head.wrapping_add(1), Ordering::Release);
         RecvOutcome::Bytes
     }
+
+    /// Reassemble an `n_slots`-fragment frame at `head`. Returns `Empty` without
+    /// advancing `head` if any continuation slot isn't yet published (producer
+    /// mid-publish); the caller retries and the `First` slot stays put with its
+    /// flags intact.
+    fn recv_multi_slot(
+        &self,
+        header: &DsmMpscRingHeader,
+        head: u64,
+        n_slots: u32,
+        payload_cap: usize,
+        out: &mut Vec<u8>,
+    ) -> RecvOutcome {
+        // First pass: verify every fragment in the run is published. If not, bail
+        // with Empty so the caller can retry once the producer finishes.
+        let mut total_len: usize = 0;
+        for i in 0..n_slots {
+            let h = head.wrapping_add(i as u64);
+            let slot_idx = (h % header.ring_size as u64) as u32;
+            let slot = unsafe { slot_ptr(self.ring.as_ptr(), slot_idx, header.slot_capacity) };
+            let seq = unsafe { (*slot).seq.load(Ordering::Acquire) };
+            if seq != h.wrapping_add(1) {
+                // Continuation slot not yet ready. Don't touch `head` or any slot
+                // metadata; producer will publish soon, caller will retry.
+                return RecvOutcome::Empty;
+            }
+            let expected_kind = if i == 0 {
+                FragmentKind::First
+            } else if i + 1 == n_slots {
+                FragmentKind::Last
+            } else {
+                FragmentKind::Continue
+            };
+            let flags = unsafe { (*slot).flags.load(Ordering::Relaxed) };
+            if unpack_kind(flags) != Some(expected_kind) {
+                // Run integrity check: the producer's multi-slot publish never
+                // interleaves with another producer's, so the kind sequence must be
+                // First, Continue*, Last. Anything else is corruption.
+                header.detached.store(true, Ordering::Release);
+                return RecvOutcome::Detached;
+            }
+            let len = unsafe { (*slot).len.load(Ordering::Relaxed) } as usize;
+            if len > payload_cap || (i + 1 < n_slots && len != payload_cap) {
+                // Non-final fragments must be full slots (producer fills them
+                // first); final fragment may be partial. Anything else is
+                // corruption.
+                header.detached.store(true, Ordering::Release);
+                return RecvOutcome::Detached;
+            }
+            total_len = match total_len.checked_add(len) {
+                Some(v) => v,
+                None => {
+                    header.detached.store(true, Ordering::Release);
+                    return RecvOutcome::Detached;
+                }
+            };
+        }
+        // Second pass: concatenate payloads, mark each slot empty for next round,
+        // advance head past the whole run in one Release store.
+        out.clear();
+        out.reserve(total_len);
+        for i in 0..n_slots {
+            let h = head.wrapping_add(i as u64);
+            let slot_idx = (h % header.ring_size as u64) as u32;
+            let slot = unsafe { slot_ptr(self.ring.as_ptr(), slot_idx, header.slot_capacity) };
+            let len = unsafe { (*slot).len.load(Ordering::Relaxed) } as usize;
+            let data = unsafe { slot_data_ptr(slot) };
+            unsafe {
+                let write_at = out.as_mut_ptr().add(out.len());
+                std::ptr::copy_nonoverlapping(data, write_at, len);
+                out.set_len(out.len() + len);
+            }
+            // Round k empty marker for slot at position h is h + ring_size.
+            let next_empty_seq = h.wrapping_add(header.ring_size as u64);
+            unsafe { (*slot).seq.store(next_empty_seq, Ordering::Release) };
+        }
+        header
+            .head
+            .store(head.wrapping_add(n_slots as u64), Ordering::Release);
+        RecvOutcome::Bytes
+    }
 }
 
 impl DsmMpscSender {
@@ -549,19 +729,50 @@ impl DsmMpscSender {
     }
 
     /// Push one frame onto the ring. Returns immediately:
-    /// - `Ok(())` on success; receiver's latch was set if installed.
-    /// - `Err(Full)` if no slot is available right now; caller should yield + retry.
-    /// - `Err(Detached)` if the receiver has detached; caller should stop.
-    /// - `Err(MessageTooLarge)` if `bytes.len() + SLOT_HEADER_BYTES > slot_capacity`.
+    /// - `Ok(())`: published; receiver's latch was set if installed.
+    /// - `Err(Full)`: no slot run available right now; caller yields + retries.
+    /// - `Err(Detached)`: receiver has detached; caller stops.
+    /// - `Err(MessageTooLarge)`: frame needs more than `ring_size` slots
+    ///   (max writable size is `ring_size * (slot_capacity - SLOT_HEADER_BYTES)`).
+    ///
+    /// Frames up to the per-slot payload capacity take the single-slot fast path.
+    /// Larger frames span consecutive slots claimed atomically via one
+    /// `tail.compare_exchange(T, T + n_slots)`, so other producers can't
+    /// interleave their fragments. See [`FragmentKind`].
     pub(super) fn try_send(&self, bytes: &[u8]) -> Result<(), SendError> {
         let header = unsafe { self.ring.as_ref() };
         if header.detached.load(Ordering::Acquire) {
             return Err(SendError::Detached);
         }
         let payload_cap = (header.slot_capacity as usize).saturating_sub(SLOT_HEADER_BYTES);
-        if bytes.len() > payload_cap {
+        if payload_cap == 0 {
             return Err(SendError::MessageTooLarge);
         }
+        // Single-slot fast path: cheaper than the multi-slot CAS dance and preserves
+        // the v1 hot path exactly so the no-fragmentation case takes no extra branches
+        // inside the claim loop.
+        if bytes.len() <= payload_cap {
+            return self.try_send_single_slot(header, bytes);
+        }
+        // Multi-slot path: fragment across `n_slots` consecutive slots.
+        let n_slots_usize = bytes.len().div_ceil(payload_cap);
+        if n_slots_usize > header.ring_size as usize || n_slots_usize > FLAGS_NSLOTS_MAX as usize {
+            // Frame is larger than the entire ring (or larger than the n_slots field
+            // can encode). Either bump `mpp_queue_size` or land a chunked-stream
+            // protocol that spans rounds.
+            return Err(SendError::MessageTooLarge);
+        }
+        let n_slots = n_slots_usize as u32;
+        self.try_send_multi_slot(header, bytes, n_slots, payload_cap)
+    }
+
+    /// Single-slot path. Identical to the v1 layout's hot path with a `flags` write
+    /// added; the kind is always `Complete` here.
+    fn try_send_single_slot(
+        &self,
+        header: &DsmMpscRingHeader,
+        bytes: &[u8],
+    ) -> Result<(), SendError> {
         loop {
             // Acquire load on `tail` pairs defensively with any future blocking-send
             // variant that may want to observe consumer progress via `head` (we don't
@@ -588,6 +799,10 @@ impl DsmMpscSender {
                             // We own slot[slot_idx] for tail value `tail`.
                             unsafe {
                                 (*slot).len.store(bytes.len() as u32, Ordering::Relaxed);
+                                (*slot).flags.store(
+                                    pack_flags(FragmentKind::Complete, 0),
+                                    Ordering::Relaxed,
+                                );
                                 let data = slot_data_ptr(slot);
                                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
                                 // Publish: ready in round k is (k * ring_size + i + 1) = tail + 1.
@@ -613,6 +828,110 @@ impl DsmMpscSender {
             }
         }
     }
+
+    /// Multi-slot path. CAS-advance `tail` from `T` to `T + n_slots` to claim the run,
+    /// then publish each fragment ascending with `First` / `Continue` / `Last` flags.
+    /// The CAS requires all N target slots to already be in their expected empty
+    /// round, which generalizes v1's per-slot `seq == tail` check to a run.
+    ///
+    /// Ascending publish order isn't optional: the receiver only starts reassembling
+    /// once `slot[head]` (the `First`) is ready, then waits for each subsequent slot.
+    /// Out-of-order publish would make the receiver block on a `Continue` whose data
+    /// is already there but whose `seq` hasn't been stored yet, wasting one drain
+    /// pass per fragment.
+    fn try_send_multi_slot(
+        &self,
+        header: &DsmMpscRingHeader,
+        bytes: &[u8],
+        n_slots: u32,
+        payload_cap: usize,
+    ) -> Result<(), SendError> {
+        loop {
+            let tail = header.tail.load(Ordering::Acquire);
+            // Verify every target slot is currently in its expected empty round.
+            // Slot at position (tail + i) % ring_size in round-of-(tail+i) has empty
+            // marker == (tail + i). If ANY is not empty, the ring is too contended /
+            // not drained enough for a run of this length.
+            let mut all_empty = true;
+            for i in 0..n_slots {
+                let t = tail.wrapping_add(i as u64);
+                let slot_idx = (t % header.ring_size as u64) as u32;
+                let slot = unsafe { slot_ptr(self.ring.as_ptr(), slot_idx, header.slot_capacity) };
+                let seq = unsafe { (*slot).seq.load(Ordering::Acquire) };
+                match seq.cmp(&t) {
+                    std::cmp::Ordering::Equal => {}
+                    std::cmp::Ordering::Less => {
+                        // Slot at offset i hasn't been reclaimed by the consumer for
+                        // round-of-t. Run not available right now.
+                        return Err(SendError::Full);
+                    }
+                    std::cmp::Ordering::Greater => {
+                        // Another producer already claimed (T + i); our view of `tail`
+                        // is stale, retry.
+                        all_empty = false;
+                        break;
+                    }
+                }
+            }
+            if !all_empty {
+                continue;
+            }
+            // All N target slots are empty in our round. Atomically claim the run.
+            match header.tail.compare_exchange_weak(
+                tail,
+                tail.wrapping_add(n_slots as u64),
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    // We own slots tail..tail+n_slots. Write each fragment and
+                    // publish its seq in ascending order so the receiver can drain
+                    // them as soon as the prefix is ready.
+                    let mut offset = 0usize;
+                    for i in 0..n_slots {
+                        let t = tail.wrapping_add(i as u64);
+                        let slot_idx = (t % header.ring_size as u64) as u32;
+                        let slot =
+                            unsafe { slot_ptr(self.ring.as_ptr(), slot_idx, header.slot_capacity) };
+                        let remaining = bytes.len() - offset;
+                        let chunk_len = remaining.min(payload_cap);
+                        let kind = if i == 0 {
+                            FragmentKind::First
+                        } else if i + 1 == n_slots {
+                            FragmentKind::Last
+                        } else {
+                            FragmentKind::Continue
+                        };
+                        let flags_word = if kind == FragmentKind::First {
+                            pack_flags(kind, n_slots)
+                        } else {
+                            pack_flags(kind, 0)
+                        };
+                        unsafe {
+                            (*slot).len.store(chunk_len as u32, Ordering::Relaxed);
+                            (*slot).flags.store(flags_word, Ordering::Relaxed);
+                            let data = slot_data_ptr(slot);
+                            std::ptr::copy_nonoverlapping(
+                                bytes.as_ptr().add(offset),
+                                data,
+                                chunk_len,
+                            );
+                            // Publish: ready in round-of-t for slot at position t is t + 1.
+                            (*slot).seq.store(t.wrapping_add(1), Ordering::Release);
+                        }
+                        offset += chunk_len;
+                    }
+                    debug_assert_eq!(offset, bytes.len(), "multi-slot send copied wrong length");
+                    // Wake the consumer once for the whole run; the drain pass that
+                    // wakes for the First slot will keep going through all our
+                    // already-published Continue/Last fragments without sleeping.
+                    unsafe { wake_receiver(header) };
+                    return Ok(());
+                }
+                Err(_) => continue,
+            }
+        }
+    }
 }
 
 impl Drop for DsmMpscSender {
@@ -632,6 +951,7 @@ impl Drop for DsmMpscSender {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering as O};
     use std::sync::Arc;
 
@@ -728,14 +1048,19 @@ mod tests {
 
     #[test]
     fn message_too_large_is_rejected() {
+        // `MessageTooLarge` only fires when the frame would need more than `ring_size`
+        // slots. Per-slot oversize splits across consecutive slots instead.
         let (_region, _rx, tx) = make_ring(2, 32);
-        // payload_cap = 32 - SLOT_HEADER_BYTES; one byte over is too large.
         let payload_cap = 32 - SLOT_HEADER_BYTES;
-        let oversize = vec![0u8; payload_cap + 1];
+        // payload_cap + 1 byte: now spans 2 slots, fits in ring_size=2.
+        let two_slot = vec![0u8; payload_cap + 1];
+        tx.try_send(&two_slot).unwrap();
+        // ring_size * payload_cap + 1 byte: needs 3 slots, ring only has 2.
+        let oversize = vec![0u8; 2 * payload_cap + 1];
         assert_eq!(tx.try_send(&oversize), Err(SendError::MessageTooLarge));
-        // Exactly at the cap is fine.
-        let exact = vec![0u8; payload_cap];
-        tx.try_send(&exact).unwrap();
+        // Exactly at the ring-wide cap is fine. (We just sent a 2-slot frame above,
+        // so we need to drain it first to free the slots; the receiver only exists
+        // in this test for that.)
     }
 
     /// Multi-producer concurrent send: K threads each push M unique messages; consumer
@@ -968,6 +1293,182 @@ mod tests {
                 seq >= header.ring_size as u64,
                 "slot[{i}].seq={seq} < ring_size; slot was never reused"
             );
+        }
+    }
+
+    // ----- multi-slot fragmentation tests -----
+
+    /// Two-slot frame round-trip: send a payload that's exactly `2*payload_cap`
+    /// bytes long with distinct first-half and second-half markers, then verify the
+    /// receiver reassembles them in order with no truncation or duplication.
+    #[test]
+    fn multi_slot_two_fragment_round_trip() {
+        let slot_cap = 64;
+        let payload_cap = slot_cap - SLOT_HEADER_BYTES;
+        let (_region, rx, tx) = make_ring(4, slot_cap as u32);
+        let mut frame = vec![0u8; 2 * payload_cap];
+        for (i, b) in frame.iter_mut().enumerate() {
+            *b = (i & 0xFF) as u8;
+        }
+        tx.try_send(&frame).unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf.len(), frame.len());
+        assert_eq!(buf, frame);
+        // Ring fully drained.
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Empty);
+    }
+
+    /// Frame at the multi-slot ceiling: needs exactly `ring_size` slots, succeeds;
+    /// one byte more, rejected with MessageTooLarge.
+    #[test]
+    fn multi_slot_max_size_succeeds_one_more_rejected() {
+        let slot_cap = 64;
+        let payload_cap = slot_cap - SLOT_HEADER_BYTES;
+        let ring_size = 4;
+        let (_region, rx, tx) = make_ring(ring_size, slot_cap as u32);
+        let max = vec![0xABu8; ring_size as usize * payload_cap];
+        tx.try_send(&max).unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, max);
+        let too_big = vec![0u8; ring_size as usize * payload_cap + 1];
+        assert_eq!(tx.try_send(&too_big), Err(SendError::MessageTooLarge));
+    }
+
+    /// Multi-slot followed by single-slot from the same producer: each frame must
+    /// come out of the receiver as a separate, intact byte sequence; fragments
+    /// don't leak into the following frame.
+    #[test]
+    fn multi_slot_then_single_slot_preserves_boundaries() {
+        let slot_cap = 64;
+        let payload_cap = slot_cap - SLOT_HEADER_BYTES;
+        let (_region, rx, tx) = make_ring(8, slot_cap as u32);
+        let big = vec![0xAAu8; 3 * payload_cap];
+        tx.try_send(&big).unwrap();
+        let small = b"hi".to_vec();
+        tx.try_send(&small).unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, big);
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, small);
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Empty);
+    }
+
+    /// Multi-slot frame wrapping the ring boundary. With ring_size=4, tail starts at 0:
+    /// send a single-slot first to advance tail to 1, drain it, then send a 3-slot
+    /// frame at tail=1 occupying slots 1, 2, 3, drain the small frame to advance head,
+    /// then send another single-slot at tail=4 (slot 0 in round 1) and a 3-slot at
+    /// tail=5 (slots 1, 2, 3 in round 1). Verifies wraparound math holds.
+    #[test]
+    fn multi_slot_wraparound() {
+        let slot_cap = 64;
+        let payload_cap = slot_cap - SLOT_HEADER_BYTES;
+        let (_region, rx, tx) = make_ring(4, slot_cap as u32);
+        let mut buf = Vec::new();
+        // Push a small frame so the next multi-slot reservation starts mid-ring.
+        tx.try_send(b"warm").unwrap();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, b"warm");
+        // 3-slot frame at tail=1, wrapping at slot 3 -> slot 0 won't happen here
+        // (slots 1, 2, 3 are still in round 0). Drain it.
+        let big = vec![0x11u8; 3 * payload_cap];
+        tx.try_send(&big).unwrap();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, big);
+        // Now tail=4, head=4. Send another small frame at slot 0 (round 1, seq=4).
+        tx.try_send(b"two").unwrap();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, b"two");
+        // And a 3-slot at tail=5 occupying slots 1, 2, 3 in round 1 (seqs 5, 6, 7).
+        let big2 = vec![0x22u8; 3 * payload_cap];
+        tx.try_send(&big2).unwrap();
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
+        assert_eq!(buf, big2);
+        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Empty);
+    }
+
+    /// Stress: multiple producers each push a mix of single-slot and multi-slot
+    /// frames; consumer verifies every frame's contents and per-producer ordering.
+    /// Catches interleave bugs (a multi-slot run getting mixed with another
+    /// producer's fragments) and missing wake-ups under high contention.
+    // Randomizing per-producer fragment-kind sequences catches bugs the strict
+    // `sent % 3` rotation misses, like back-to-back multi-slot bursts that fill the
+    // ring before a single-slot frees one.
+    fn fragment_plan() -> impl Strategy<Value = Vec<u8>> {
+        proptest::collection::vec(0u8..3, 40..120)
+    }
+
+    proptest! {
+        // Each case spawns producer threads, so keep `cases` low.
+        #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
+
+        #[test]
+        fn multi_slot_stress_mixed_with_singles(
+            producer_plans in proptest::collection::vec(fragment_plan(), 2..=6),
+        ) {
+            let slot_cap: u32 = 128;
+            let payload_cap = slot_cap as usize - SLOT_HEADER_BYTES;
+            let n_producers = producer_plans.len();
+            let total_target: usize = producer_plans.iter().map(Vec::len).sum();
+            let (_region, rx, tx_template) = make_ring(16, slot_cap);
+            let ring_nn = SharedRing(tx_template.ring);
+            let mut handles = Vec::with_capacity(n_producers);
+            for (producer_id, plan) in producer_plans.into_iter().enumerate() {
+                let tx = unsafe { DsmMpscSender::new(ring_nn.0) };
+                handles.push(std::thread::spawn(move || {
+                    for (sent, kind) in plan.iter().enumerate() {
+                        let n_payload = match *kind {
+                            0 => 8,
+                            1 => 2 * payload_cap,
+                            _ => 4 * payload_cap,
+                        };
+                        let mut payload = vec![0u8; n_payload + 8];
+                        payload[0..4].copy_from_slice(&(producer_id as u32).to_le_bytes());
+                        payload[4..8].copy_from_slice(&(sent as u32).to_le_bytes());
+                        for (i, b) in payload[8..].iter_mut().enumerate() {
+                            *b = ((producer_id ^ sent ^ i) & 0xFF) as u8;
+                        }
+                        loop {
+                            match tx.try_send(&payload) {
+                                Ok(_) => break,
+                                Err(SendError::Full) => std::thread::yield_now(),
+                                Err(e) => panic!("unexpected send error: {e:?}"),
+                            }
+                        }
+                    }
+                }));
+            }
+            let mut last_seq: Vec<i64> = vec![-1; n_producers];
+            let mut buf = Vec::new();
+            let mut total = 0usize;
+            while total < total_target {
+                match rx.try_recv(&mut buf) {
+                    RecvOutcome::Bytes => {
+                        assert!(buf.len() >= 8, "frame too short: {}", buf.len());
+                        let producer_id = u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize;
+                        let sent_idx = i64::from(u32::from_le_bytes(buf[4..8].try_into().unwrap()));
+                        assert!(producer_id < n_producers, "bad producer id");
+                        assert_eq!(
+                            sent_idx,
+                            last_seq[producer_id] + 1,
+                            "out-of-order frame from producer {producer_id}"
+                        );
+                        for (i, b) in buf[8..].iter().enumerate() {
+                            let expected = ((producer_id ^ sent_idx as usize ^ i) & 0xFF) as u8;
+                            assert_eq!(*b, expected, "payload mismatch at byte {i}");
+                        }
+                        last_seq[producer_id] = sent_idx;
+                        total += 1;
+                    }
+                    RecvOutcome::Empty => std::thread::yield_now(),
+                    RecvOutcome::Detached => panic!("unexpected detach"),
+                }
+            }
+            for h in handles {
+                h.join().unwrap();
+            }
         }
     }
 }

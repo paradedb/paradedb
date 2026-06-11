@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781136498481,
+  "lastUpdate": 1781137151441,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42154,6 +42154,54 @@ window.BENCHMARK_DATA = {
             "value": 269.2367761513749,
             "unit": "median tps",
             "extra": "avg tps: 262.11658138556055, max tps: 538.0475889152071, count: 107710"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14a548a50795cac8c5951ae71c1bc21e55fd48f7",
+          "message": "chore: June 2026 Tantivy Rebase (#5294)\n\nIncorporates\nhttps://github.com/paradedb/tantivy/commits/stuhood.tantivy-rebase-june-2026\n\nCloses #5302\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T16:09:54-07:00",
+          "tree_id": "4c028153d20f21d3934f77e21cfbc4f0b09e36e4",
+          "url": "https://github.com/paradedb/paradedb/commit/14a548a50795cac8c5951ae71c1bc21e55fd48f7"
+        },
+        "date": 1781137116109,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 128.3004110555873,
+            "unit": "median tps",
+            "extra": "avg tps: 128.75114611306736, max tps: 140.6516085706828, count: 53876"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 521.0630697949944,
+            "unit": "median tps",
+            "extra": "avg tps: 525.8818473470228, max tps: 679.6966638159416, count: 53876"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 139.325567128459,
+            "unit": "median tps",
+            "extra": "avg tps: 139.56268065582424, max tps: 153.0994651821037, count: 53876"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 271.7217036152253,
+            "unit": "median tps",
+            "extra": "avg tps: 268.33636914679715, max tps: 554.9500796288077, count: 107752"
           }
         ]
       }

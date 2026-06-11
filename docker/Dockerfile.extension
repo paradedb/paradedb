@@ -1,0 +1,55 @@
+# Postgres extension image payload for pg_search.
+#
+# Unlike Dockerfile.paradedb-N / Dockerfile.official-N, this image is not a
+# runnable Postgres. It is a `FROM scratch` artifact containing only
+# pg_search's shared library, control file, SQL scripts, and license. The
+# CloudNativePG Postgres base image is used in the builder stage so the .deb's
+# ABI matches the common extension-image runtime used by Postgres operators.
+#
+ARG BASE=ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+FROM $BASE AS builder
+
+ARG PG_VERSION_MAJOR=18
+ARG PG_SEARCH_VERSION
+ARG PG_SEARCH_DEB_AMD64_SHA256
+ARG PG_SEARCH_DEB_ARM64_SHA256
+
+USER 0
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+# Install pg_search from GitHub Releases (same .deb as the runnable images).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    : "${PG_SEARCH_VERSION:?PG_SEARCH_VERSION is required}" && \
+    arch="$(dpkg --print-architecture)" && \
+    case "$arch" in \
+        amd64) checksum="$PG_SEARCH_DEB_AMD64_SHA256" ;; \
+        arm64) checksum="$PG_SEARCH_DEB_ARM64_SHA256" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac && \
+    if [ -z "$checksum" ]; then echo "checksum is required for $arch" >&2; exit 1; fi && \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/postgresql-${PG_VERSION_MAJOR}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-trixie_${arch}.deb" && \
+    echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c - && \
+    apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
+    rm /tmp/pg_search.deb && \
+    rm -rf /var/lib/apt/lists/*
+
+USER 65532:65532
+
+# Final extension payload. Postgres 18+ can load this mounted /lib and
+# /share/extension content through extension_control_path.
+FROM scratch
+
+ARG PG_VERSION_MAJOR=18
+
+# Licenses
+COPY --from=builder /usr/share/doc/postgresql-${PG_VERSION_MAJOR}-pg-search/copyright /licenses/postgresql-${PG_VERSION_MAJOR}-pg-search/
+
+# Library: pg_search.so
+COPY --from=builder /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search* /lib/
+
+# Control + SQL scripts
+COPY --from=builder /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/pg_search* /share/extension/
+
+USER 65532:65532

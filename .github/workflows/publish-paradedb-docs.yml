@@ -1,11 +1,11 @@
-# workflows/publish-docs.yml
+# workflows/publish-paradedb-docs.yml
 #
-# Publish ParadeDB Docs
+# Publish ParadeDB (Docs)
 # Build and publish the documentation stored in /docs to our Mintlify documentation
 # site. This workflow is triggered on creation of a GitHub Tag, but beta releases get
 # filtered out by the `if` condition of the job.
 
-name: Publish ParadeDB Docs
+name: Publish ParadeDB (Docs)
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish-docs:
+  publish-paradedb-docs:
     name: Publish Docs to Mintlify
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref, '-rc.') }}

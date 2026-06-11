@@ -84,6 +84,7 @@ fn parallel_with_subselect(mut conn: PgConnection) {
         return;
     }
     "SET debug_parallel_query TO on".execute(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
 
     r#"
     DROP TABLE IF EXISTS test;

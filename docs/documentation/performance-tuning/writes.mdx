@@ -35,7 +35,7 @@ Setting `layer_sizes` to `0` disables foreground merging, and setting `backgroun
 `work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement that writes to a BM25 index is required to have at least `15MB` memory. If
 `work_mem` is below `15MB`, it will be ignored and `15MB` will be used.
 
-If your typical update patterns are large, bulk updates (not single-row updates) a larger value may be better.
+A good starting point for `work_mem` is `(RAM - shared_buffers) / (3 * max_connections)`. If your typical update patterns are large, bulk updates (not single-row updates) a larger value may be better.
 
 ```sql
 SET work_mem = 64MB;

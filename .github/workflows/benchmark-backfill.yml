@@ -69,7 +69,7 @@ jobs:
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
             const sha   = '${{ matrix.sha }}';
-            const wf = 'benchmark-pg_search-benchmarks.yml';
+            const wf = 'benchmark-pg_search-queries.yml';
 
             /*  createWorkflowDispatch must point at a branch or tag, not a
                 bare SHA, so we send `ref:"main"` and hand the commit SHA

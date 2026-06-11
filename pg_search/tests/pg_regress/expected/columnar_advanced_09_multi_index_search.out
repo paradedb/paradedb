@@ -491,6 +491,7 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
+WARNING:  JoinScan not used: join keys must be fast fields (tables: p, r)
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -516,6 +517,7 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
+WARNING:  JoinScan not used: join keys must be fast fields (tables: p, r)
     name    | rating |                  content                   
 ------------+--------+--------------------------------------------
  Product 10 |      5 | Terrible product, complete waste of money!
@@ -572,6 +574,7 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -629,6 +632,7 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -809,6 +813,7 @@ ORDER BY
     END DESC,
     pdb.score(p.id),
     p.price;
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -852,6 +857,7 @@ ORDER BY
     END DESC,
     pdb.score(p.id),
     p.price;
+WARNING:  Aggregate Scan not used: grouping column product_id is missing from index. To disable this warning: SET paradedb.check_aggregate_scan = false (table: reviews)
     name    | price |  review_status  
 ------------+-------+-----------------
  Product 19 |   240 | Great reviews
@@ -900,6 +906,7 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -938,6 +945,7 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
  name | price | content | rating 
 ------+-------+---------+--------
 (0 rows)

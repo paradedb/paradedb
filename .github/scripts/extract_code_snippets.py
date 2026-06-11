@@ -21,6 +21,15 @@ IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
     # not SQL vs ORMs
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
+    # The "Joined Scores" example orders by a summed BM25 score
+    # (pdb.score(o.order_id) + pdb.score(m.id)) across a join. This is a valid,
+    # correct query, but since join custom scans are enabled by default it
+    # declines JoinScan and emits the informational "JoinScan not used: ORDER BY
+    # columns must be fast fields" planner warning (combined-score sort keys are
+    # not fast fields). The smoke test treats any WARNING as a failure, so this
+    # group is excluded. See joinscan_sortby_score.out for the tested behavior.
+    # Tracked in https://github.com/paradedb/paradedb/issues/5296.
+    "documentation__sorting__score__group-003",
 }
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent

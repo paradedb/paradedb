@@ -46,7 +46,7 @@ use tantivy::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
 use tantivy::directory::{
-    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, RamDirectory, TerminatingWrite,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     WatchCallback, WatchHandle,
 };
 use tantivy::index::{SegmentId, SegmentMetaInventory};
@@ -331,10 +331,7 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a segment writer that implements std::io::Write
-    fn open_write_inner(
-        &self,
-        path: &Path,
-    ) -> result::Result<Box<dyn TerminatingWrite>, OpenWriteError> {
+    fn open_write_inner(&self, path: &Path) -> result::Result<InnerWritePtr, OpenWriteError> {
         let writer = unsafe { SegmentComponentWriter::new(&self.indexrel, path) };
         self.new_files.lock().insert(
             path.to_path_buf(),

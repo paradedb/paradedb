@@ -151,21 +151,24 @@ runs:
     # An `ALTER EXTENSION ... UPDATE` must leave the schema identical to a fresh
     # `CREATE EXTENSION` of the same version. If a migration delta is incomplete
     # (e.g. an object's DDL was emitted into an already-shipped migration file, so
-    # it reaches fresh installs but not upgraders -- the verify_index() bug in
-    # #3907), the upgraded schema drifts from a fresh install. Diff the two and
-    # fail loudly so the gap is caught before release instead of by users.
+    # it reaches fresh installs but not upgraders), the upgraded schema drifts from
+    # a fresh install. Diff the two and fail loudly so the gap is caught before
+    # release instead of by users.
     - name: Verify Upgraded Schema Matches Fresh Install
       working-directory: pg_search/
       shell: bash
       run: |
         set -euo pipefail
         PORT=288${{ inputs.pg_version }}
-        # `postgres` was created on the prior version and upgraded via ALTER EXTENSION above.
+        
+        # `postgres` was created on the prior version and upgraded via ALTER EXTENSION above
         psql -At -v ON_ERROR_STOP=1 -h localhost -p "$PORT" postgres -f "$SCHEMA_SNAPSHOT_SQL" > /tmp/upgraded.schema
-        # A brand-new database gets the full generated base schema for the new version.
+        
+        # A brand-new database gets the full generated base schema for the new version
         createdb -h localhost -p "$PORT" schema_parity_fresh
         psql -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -c 'CREATE EXTENSION pg_search;'
         psql -At -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -f "$SCHEMA_SNAPSHOT_SQL" > /tmp/fresh.schema
+        
         if ! diff -u /tmp/fresh.schema /tmp/upgraded.schema; then
           echo "::error::Upgraded pg_search schema differs from a fresh install (see diff above; '-' = only in fresh install, '+' = only after upgrade). A migration script under pg_search/sql/ is incomplete: an object is in the generated base schema but is never created on the ALTER EXTENSION UPDATE path (or vice versa). Add the missing DDL to the migration file ending in the current Cargo version."
           exit 1

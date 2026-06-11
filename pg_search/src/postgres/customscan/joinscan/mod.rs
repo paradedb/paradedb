@@ -1379,14 +1379,22 @@ impl CustomScan for JoinScan {
             // For EXPLAIN ANALYZE, render the plan with metrics inline.
             // VERBOSE includes timing; without VERBOSE, timing is stripped for stable output.
             if let Some(ref physical_plan) = state.custom_state().physical_plan {
+                // Under MPP the worker fragments reported their metrics as mesh frames when
+                // they exited; fold them in so the stage boxes show more than the leader's
+                // own nodes.
+                let merged = match (
+                    state.custom_state().mpp.as_ref(),
+                    state.custom_state().runtime.as_ref(),
+                ) {
+                    (Some(MppExecState::Leader(_)), Some(_runtime)) => {
+                        crate::postgres::customscan::mpp::glue::merge_worker_metrics(physical_plan)
+                    }
+                    _ => None,
+                };
+                let plan = merged.as_ref().unwrap_or(physical_plan);
                 explainer.add_text("DataFusion Physical Plan", "");
                 let mut lines = Vec::new();
-                render_plan_with_metrics(
-                    physical_plan.as_ref(),
-                    0,
-                    explainer.is_verbose(),
-                    &mut lines,
-                );
+                render_plan_with_metrics(plan.as_ref(), 0, explainer.is_verbose(), &mut lines);
                 for line in &lines {
                     explainer.add_text("  ", line);
                 }
@@ -1669,9 +1677,14 @@ impl CustomScan for JoinScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // PG destroys the parallel DSM right after this hook; the leader's control senders
-        // decrement ring counters inside that mapping on drop, so release them now.
+        // PG destroys the parallel DSM right after this hook, so everything that reads or
+        // releases ring memory must happen now: drain the workers' metrics frames off the mesh
+        // (the EXPLAIN hook runs after teardown and only reads the store), then drop the
+        // leader's control senders, whose drop decrements counters inside the mapping.
         if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
+            if let Some(plan) = state.custom_state().physical_plan.as_ref() {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
+            }
             leader.release_control_senders();
         }
     }

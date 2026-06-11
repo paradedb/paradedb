@@ -428,3 +428,95 @@ pub unsafe fn worker_setup(
         mesh: attach.mesh,
     })
 }
+
+/// Merge the worker fragments' `TaskMetrics` frames into an executed `DistributedExec` plan for
+/// EXPLAIN ANALYZE. The workers send their frames as they exit, after the leader's gather
+/// already finished, so nothing has drained the leader inbox since; sweep it, file the frames
+/// into the plan's metrics store, and rewrite. Returns the rewritten plan, or `None` when there
+/// is nothing to merge (serial plan, metrics disabled) or a frame never arrived (the rewrite is
+/// bounded rather than trusting `wait_for_metrics`, which would block on a dead worker).
+/// Drain the workers' `TaskMetrics` frames off the mesh into the plan's metrics store.
+///
+/// Must run while the parallel DSM is still mapped: the mesh receivers read ring memory inside
+/// it. `shutdown_custom_scan` is the spot; the EXPLAIN hook runs after `ExecShutdownNode` tore
+/// the DSM down, so draining there reads unmapped memory.
+pub fn drain_worker_metrics(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    mesh: &Arc<MppMesh>,
+) -> Option<()> {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    use datafusion_distributed::embedded::CooperativeDrainSet;
+    use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
+
+    let dist = plan.as_any().downcast_ref::<DistributedExec>()?;
+    let store = dist.metrics_store()?;
+
+    // The wire frames carry (stage, task); the query uuid lives on the plan's own stages. Count
+    // the expected reports while walking: one per task of every producer stage.
+    let mut query_id = None;
+    let mut expected = 0usize;
+    let _ = plan.apply(|node| {
+        if let Some(nb) = node.as_network_boundary() {
+            let stage = nb.input_stage();
+            query_id.get_or_insert_with(|| stage.query_id().as_bytes().to_vec());
+            expected += stage.task_count();
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    let query_id = query_id?;
+
+    // The workers send their metrics frames right after their last EOF, which may still be in
+    // flight when shutdown reaches this node; wait briefly, bounded, and stop as soon as every
+    // expected (stage, task) reported.
+    let mut rx = mesh.take_task_metrics_receiver()?;
+    let mut got = crate::api::HashSet::default();
+    for _ in 0..100 {
+        let _ = mesh.try_drain_pass();
+        while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
+            store.insert(
+                datafusion_distributed::TaskKey {
+                    query_id: query_id.clone(),
+                    stage_id: stage_id as u64,
+                    task_number: task_number as u64,
+                },
+                metrics,
+            );
+            got.insert((stage_id, task_number));
+        }
+        if got.len() >= expected {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    Some(())
+}
+
+/// Rewrite the executed plan with the worker metrics collected by [`drain_worker_metrics`].
+/// Mesh-free, so it is safe at EXPLAIN-render time, after the DSM is gone.
+///
+/// Owns a small timer-enabled runtime: the rewrite waits on the metrics store, and the bound on
+/// that wait needs timers, which the scans' cached runtimes don't enable.
+pub fn merge_worker_metrics(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    use datafusion_distributed::DistributedExec;
+
+    plan.as_any().downcast_ref::<DistributedExec>()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    runtime
+        .block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                datafusion_distributed::rewrite_distributed_plan_with_metrics(
+                    Arc::clone(plan),
+                    datafusion_distributed::DistributedMetricsFormat::PerTask,
+                ),
+            )
+            .await
+        })
+        .ok()?
+        .ok()
+}

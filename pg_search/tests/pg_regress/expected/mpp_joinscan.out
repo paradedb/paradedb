@@ -180,6 +180,34 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
+-- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
+-- The values vary run to run, so assert presence, not content: the
+-- worker fragments' nodes must show row counts, which only happens
+-- when their TaskMetrics frames crossed the mesh.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  'SELECT f.title, p.size_bytes
+   FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+   WHERE f.content @@@ ''Section''
+   ORDER BY f.title, p.size_bytes
+   LIMIT 10'
+) AS line
+WHERE line LIKE '%output_rows%';
+ worker_metrics_shown 
+----------------------
+ t
+(1 row)
+
+DROP FUNCTION mpp_explain_analyze_lines(text);
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE mpp_join_pages;

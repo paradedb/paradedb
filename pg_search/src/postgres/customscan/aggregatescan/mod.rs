@@ -614,10 +614,18 @@ impl CustomScan for AggregateScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // PG destroys the parallel DSM right after this hook; the leader's control senders
-        // decrement ring counters inside that mapping on drop, so release them now.
+        // PG destroys the parallel DSM right after this hook, so everything that reads or
+        // releases ring memory must happen now: drain the workers' metrics frames off the mesh
+        // (the EXPLAIN hook runs after teardown and only reads the store), then drop the
+        // leader's control senders, whose drop decrements counters inside the mapping.
         if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
             if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                if let Some(plan) = df_state.physical_plan.as_ref() {
+                    crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                        plan,
+                        &leader.mesh,
+                    );
+                }
                 leader.release_control_senders();
             }
         }
@@ -1117,6 +1125,9 @@ impl AggregateScan {
     /// EXPLAIN ANALYZE: merge the worker metrics that arrived over the mesh into the executed
     /// plan and render it. The leader's own nodes already carry their metrics; the worker
     /// fragments reported theirs as `TaskMetrics` frames when they finished.
+    /// EXPLAIN ANALYZE: merge the worker metrics that arrived over the mesh into the executed
+    /// plan and render it. The leader's own nodes already carry their metrics; the worker
+    /// fragments reported theirs as `TaskMetrics` frames when they finished.
     fn render_executed_plan_with_metrics(
         df_state: &scan_state::DataFusionAggState,
         explainer: &mut Explainer,
@@ -1124,100 +1135,25 @@ impl AggregateScan {
         let Some(plan) = df_state.physical_plan.clone() else {
             return;
         };
-        let Some(dist) = plan.as_any().downcast_ref::<DistributedExec>() else {
+        let rendered = match (df_state.mpp.as_ref(), df_state.runtime.as_ref()) {
+            (Some(scan_state::MppExecState::Leader(_)), Some(_runtime)) => {
+                match crate::postgres::customscan::mpp::glue::merge_worker_metrics(&plan) {
+                    Some(merged) => display_plan_ascii(merged.as_ref(), true),
+                    None => {
+                        explainer.add_text(
+                            "DataFusion Physical Plan",
+                            "(worker metrics incomplete; a worker may not have reported)",
+                        );
+                        return;
+                    }
+                }
+            }
             // Serial fallback: no workers, the plain metrics display tells the whole story.
-            explainer.add_text("DataFusion Physical Plan", "");
-            for line in datafusion::physical_plan::displayable(plan.as_ref())
-                .indent(false)
-                .to_string()
-                .lines()
-            {
-                explainer.add_text("  ", line);
-            }
-            return;
+            _ => Self::render_plan_for_explain(plan.as_ref()),
         };
-        let (Some(store), Some(scan_state::MppExecState::Leader(leader))) =
-            (dist.metrics_store(), df_state.mpp.as_ref())
-        else {
-            return;
-        };
-
-        // The wire key for the metrics store: the query uuid lives on the plan's own stages.
-        fn dist_query_id(
-            plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-        ) -> Option<Vec<u8>> {
-            use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
-            use datafusion_distributed::NetworkBoundaryExt;
-            let mut found = None;
-            let _ = plan.apply(|node| {
-                if let Some(nb) = node.as_network_boundary() {
-                    found = Some(nb.input_stage().query_id().as_bytes().to_vec());
-                    return Ok(TreeNodeRecursion::Stop);
-                }
-                Ok(TreeNodeRecursion::Continue)
-            });
-            found
-        }
-
-        // The workers sent their frames as they exited, after the gather already finished, so
-        // nothing has drained the leader inbox since; sweep it now.
-        use datafusion_distributed::embedded::CooperativeDrainSet;
-        for _ in 0..64 {
-            if leader.mesh.try_drain_pass().is_err() {
-                break;
-            }
-        }
-        if let Some(mut rx) = leader.mesh.take_task_metrics_receiver() {
-            // Frames carry (stage, task); the query id comes from the plan's own stages.
-            let query_id = dist_query_id(&plan);
-            while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
-                if let Some(query_id) = query_id.as_ref() {
-                    store.insert(
-                        datafusion_distributed::TaskKey {
-                            query_id: query_id.clone(),
-                            stage_id: stage_id as u64,
-                            task_number: task_number as u64,
-                        },
-                        metrics,
-                    );
-                }
-            }
-        }
-
-        let Some(runtime) = df_state.runtime.as_ref() else {
-            return;
-        };
-        // `wait_for_metrics` inside the rewrite would block on any missing frame (a worker
-        // that died never reports), so bound the whole rewrite instead of trusting it.
-        let rewritten = runtime.block_on(async {
-            tokio::time::timeout(
-                std::time::Duration::from_millis(250),
-                datafusion_distributed::rewrite_distributed_plan_with_metrics(
-                    Arc::clone(&plan),
-                    datafusion_distributed::DistributedMetricsFormat::PerTask,
-                ),
-            )
-            .await
-        });
-        match rewritten {
-            Ok(Ok(plan)) => {
-                explainer.add_text("DataFusion Physical Plan", "");
-                for line in display_plan_ascii(plan.as_ref(), true).lines() {
-                    explainer.add_text("  ", line);
-                }
-            }
-            Ok(Err(e)) => {
-                explainer.add_text(
-                    "DataFusion Physical Plan",
-                    format!("(metrics merge failed: {e})"),
-                );
-            }
-            Err(_) => {
-                explainer.add_text(
-                    "DataFusion Physical Plan",
-                    "(worker metrics incomplete; a worker may not have reported)",
-                );
-            }
+        explainer.add_text("DataFusion Physical Plan", "");
+        for line in rendered.lines() {
+            explainer.add_text("  ", line);
         }
     }
 

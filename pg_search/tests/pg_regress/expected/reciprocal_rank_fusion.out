@@ -1,0 +1,135 @@
+-- Tests Reciprocal Rank Fusion on joined tables
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Create test tables
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items_rrf',
+  table_type => 'Items'
+);
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'orders_rrf',
+  table_type => 'Orders'
+);
+ALTER TABLE orders_rrf
+ADD CONSTRAINT foreign_key_product_id
+FOREIGN KEY (product_id)
+REFERENCES mock_items_rrf(id);
+CREATE INDEX orders_rrf_idx ON orders_rrf
+USING bm25 (order_id, product_id, order_quantity, order_total, customer_name)
+WITH (key_field = 'order_id');
+CREATE INDEX mock_items_rrf_idx ON mock_items_rrf
+USING bm25 (id, description, category, rating)
+WITH (key_field = 'id');
+-- RRF Query
+PREPARE rrf_query(text, text) AS
+WITH order_search AS (
+  SELECT order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT order_id, pdb.score(order_id) AS score
+    FROM orders_rrf
+    WHERE customer_name ||| $1
+    ORDER BY pdb.score(order_id) DESC
+    LIMIT 20
+  )
+),
+product_search AS (
+  SELECT o.order_id, RANK() OVER (ORDER BY score DESC) AS rank
+  FROM (
+    SELECT id, pdb.score(id) AS score
+    FROM mock_items_rrf
+    WHERE description ||| $2
+    ORDER BY pdb.score(id) DESC
+    LIMIT 20
+  ) m
+  JOIN orders_rrf o ON o.product_id = m.id
+),
+rrf AS (
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM order_search
+  UNION ALL
+  SELECT order_id, 1.0 / (60 + rank) AS s FROM product_search
+)
+SELECT
+  o.order_id,
+  o.customer_name,
+  m.description,
+  sum(rrf.s) AS score
+FROM rrf
+JOIN orders_rrf o USING (order_id)
+JOIN mock_items_rrf m ON o.product_id = m.id
+GROUP BY o.order_id, o.customer_name, m.description
+ORDER BY score DESC, o.order_id
+LIMIT 5;
+EXPLAIN (COSTS OFF)
+EXECUTE rrf_query('Johnson', 'running shoes');
+                                                                                                                                             QUERY PLAN                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (sum(((1.0 / ((60 + order_search.rank))::numeric)))) DESC, o.order_id
+         ->  GroupAggregate
+               Group Key: o.order_id, m.description
+               ->  Sort
+                     Sort Key: o.order_id, m.description
+                     ->  Hash Join
+                           Hash Cond: (o.product_id = m.id)
+                           ->  Hash Join
+                                 Hash Cond: (o.order_id = order_search.order_id)
+                                 ->  Seq Scan on orders_rrf o
+                                 ->  Hash
+                                       ->  Append
+                                             ->  Subquery Scan on order_search
+                                                   ->  WindowAgg
+                                                         Window: w1 AS (ORDER BY unnamed_subquery.score ROWS UNBOUNDED PRECEDING)
+                                                         ->  Subquery Scan on unnamed_subquery
+                                                               ->  Limit
+                                                                     ->  Custom Scan (ParadeDB Base Scan) on orders_rrf
+                                                                           Table: orders_rrf
+                                                                           Index: orders_rrf_idx
+                                                                           Exec Method: TopKScanExecState
+                                                                           Scores: true
+                                                                              TopK Order By: pdb.score() desc
+                                                                              TopK Limit: 20
+                                                                           Tantivy Query: {"with_index":{"query":{"match":{"field":"customer_name","value":"Johnson","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                                             ->  Subquery Scan on product_search
+                                                   ->  WindowAgg
+                                                         Window: w1 AS (ORDER BY m_1.score ROWS UNBOUNDED PRECEDING)
+                                                         ->  Sort
+                                                               Sort Key: m_1.score DESC
+                                                               ->  Hash Join
+                                                                     Hash Cond: (o_1.product_id = m_1.id)
+                                                                     ->  Seq Scan on orders_rrf o_1
+                                                                     ->  Hash
+                                                                           ->  Subquery Scan on m_1
+                                                                                 ->  Limit
+                                                                                       ->  Custom Scan (ParadeDB Base Scan) on mock_items_rrf
+                                                                                             Table: mock_items_rrf
+                                                                                             Index: mock_items_rrf_idx
+                                                                                             Exec Method: TopKScanExecState
+                                                                                             Scores: true
+                                                                                                TopK Order By: pdb.score() desc
+                                                                                                TopK Limit: 20
+                                                                                             Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                           ->  Hash
+                                 ->  Seq Scan on mock_items_rrf m
+(48 rows)
+
+EXECUTE rrf_query('Johnson', 'running shoes');
+ order_id | customer_name |     description     |         score          
+----------+---------------+---------------------+------------------------
+        3 | Alice Johnson | Sleek running shoes | 0.03278688524590163934
+        6 | Alice Johnson | White jogging shoes | 0.03028233151183970856
+       36 | Alice Johnson | White jogging shoes | 0.03028233151183970856
+        9 | Chris Wilson  | Sleek running shoes | 0.01639344262295081967
+       25 | Peter Parker  | Sleek running shoes | 0.01639344262295081967
+(5 rows)
+
+-- Cleanup
+DEALLOCATE rrf_query;
+DROP TABLE orders_rrf CASCADE;
+DROP TABLE mock_items_rrf CASCADE;

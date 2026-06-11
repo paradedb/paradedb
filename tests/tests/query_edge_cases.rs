@@ -270,3 +270,66 @@ fn bitmap_index_scan_preserves_null_semantics_issue_5264(mut conn: PgConnection)
     assert_eq!(postgres_count, 1);
     assert_eq!(bm25_count, postgres_count);
 }
+
+#[rstest]
+fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS exists_repro;
+    CREATE TABLE exists_repro (
+        id INTEGER PRIMARY KEY,
+        color TEXT
+    );
+
+    INSERT INTO exists_repro (id, color) VALUES
+        (1, 'blue'),
+        (2, NULL),
+        (3, 'red'),
+        (4, NULL);
+
+    CREATE INDEX exists_repro_idx ON exists_repro
+    USING bm25 (id, color) WITH (
+        key_field = 'id',
+        text_fields = '{"color": {"tokenizer": {"type": "keyword"}, "fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Postgres truth: `NOT (color IS NOT NULL)` is the rows where color is missing.
+    let missing_rows: Vec<(i32,)> = r#"
+    SELECT id FROM exists_repro WHERE color IS NULL ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(missing_rows, vec![(2,), (4,)]);
+
+    // `exists` itself returns the rows where the field is present.
+    let present_rows: Vec<(i32,)> = r#"
+    SELECT id FROM exists_repro WHERE id @@@ paradedb.exists('color') ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(present_rows, vec![(1,), (3,)]);
+
+    // Negating `exists` must return the rows where the field is missing, not an
+    // unsatisfiable `exists AND NOT exists`. Custom scan path:
+    let negated_custom_scan: Vec<(i32,)> = r#"
+    SELECT id FROM exists_repro WHERE NOT (id @@@ paradedb.exists('color')) ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(negated_custom_scan, missing_rows);
+
+    // Same query, but forcing the direct `search_with_query_input` operator path.
+    r#"
+    SET paradedb.enable_aggregate_custom_scan TO off;
+    SET paradedb.enable_custom_scan TO off;
+    SET paradedb.enable_custom_scan_without_operator TO off;
+    SET paradedb.enable_filter_pushdown TO off;
+    SET max_parallel_workers TO 0;
+    SET parallel_leader_participation TO off;
+    "#
+    .execute(&mut conn);
+
+    let negated_operator_path: Vec<(i32,)> = r#"
+    SELECT id FROM exists_repro WHERE NOT (id @@@ paradedb.exists('color')) ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(negated_operator_path, missing_rows);
+}

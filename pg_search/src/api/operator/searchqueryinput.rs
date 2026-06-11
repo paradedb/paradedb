@@ -135,6 +135,21 @@ unsafe impl SqlTranslatable for FakeSearchQueryInput {
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
+/// Whether `query` is (after unwrapping any `WithIndex`) an `Exists` predicate.
+///
+/// `Exists` is a total predicate: a missing field means it is FALSE, not NULL.
+/// So we must not build the "existing values" set for it, which would otherwise
+/// make missing fields evaluate to NULL instead of false.
+fn query_is_exists(query: &SearchQueryInput) -> bool {
+    match query {
+        SearchQueryInput::WithIndex { query, .. } => query_is_exists(query),
+        SearchQueryInput::FieldedQuery { query, .. } => {
+            matches!(query, crate::query::pdb_query::pdb::Query::Exists)
+        }
+        _ => false,
+    }
+}
+
 #[allow(unused_variables)]
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
@@ -193,6 +208,11 @@ pub fn search_with_query_input(
         let mut field_names = HashSet::default();
         search_query_input.extract_field_names(&mut field_names);
 
+        // For an `Exists` predicate a missing field is FALSE, not NULL, so we
+        // skip the existing-values computation below and let missing fields fall
+        // through to `Some(false)`.
+        let is_exists_query = query_is_exists(&search_query_input);
+
         let search_reader = SearchIndexReader::open(
             &index_relation,
             search_query_input,
@@ -219,7 +239,7 @@ pub fn search_with_query_input(
             })
             .collect();
 
-        let existing_values = if field_names.len() == 1 {
+        let existing_values = if field_names.len() == 1 && !is_exists_query {
             let field = field_names
                 .into_iter()
                 .next()

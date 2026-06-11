@@ -307,6 +307,10 @@ fn field_supports_exists(index_oid: Option<pg_sys::Oid>, field: &crate::api::Fie
 /// otherwise we fall back to the generic negation (the historical behavior),
 /// which keeps non-fast fields working at the cost of NULL-exactness.
 ///
+/// An `Exists` query is special-cased: negating "field exists" must return the
+/// rows where the field is *missing*, so it never gets an existence guard (that
+/// would produce `exists AND NOT exists`, which is unsatisfiable).
+///
 /// `index_oid` carries the index from the enclosing `WithIndex` wrapper so the
 /// recursion can resolve whether a field is fast.
 fn negate_fielded_input(
@@ -319,7 +323,11 @@ fn negate_fielded_input(
             query: Box::new(negate_fielded_input(*query, Some(oid))),
         },
         SearchQueryInput::FieldedQuery { field, query } => {
-            if field_supports_exists(index_oid, &field) {
+            // Negating an existence check must return rows where the field is
+            // missing, so it never gets an existence guard. Any other fielded
+            // predicate gets the guard on fast fields so NULLs are excluded;
+            // otherwise we fall back to the generic negation.
+            if !matches!(query, pdb::Query::Exists) && field_supports_exists(index_oid, &field) {
                 SearchQueryInput::Boolean {
                     must: vec![SearchQueryInput::FieldedQuery {
                         field: field.clone(),
@@ -2125,14 +2133,12 @@ mod tests {
                 .expect("spi should succeed")
                 .expect("index oid should exist");
 
-        let negate_for = |field: &str| -> SearchQueryInput {
+        let negate_for = |field: &str, query: pdb::Query| -> SearchQueryInput {
             let const_value = SearchQueryInput::WithIndex {
                 oid: index_oid,
                 query: Box::new(SearchQueryInput::FieldedQuery {
                     field: field.into(),
-                    query: pdb::Query::Term {
-                        value: PdbOwnedValue::Str("blue".into()),
-                    },
+                    query,
                 }),
             }
             .into_datum()
@@ -2158,8 +2164,12 @@ mod tests {
             SearchQueryInput::from(&qual)
         };
 
+        let term_blue = || pdb::Query::Term {
+            value: PdbOwnedValue::Str("blue".into()),
+        };
+
         // Fast field: the existence guard is added so NULLs are excluded.
-        let fast = negate_for("color");
+        let fast = negate_for("color", term_blue());
         let want_fast = SearchQueryInput::WithIndex {
             oid: index_oid,
             query: Box::new(SearchQueryInput::Boolean {
@@ -2179,7 +2189,7 @@ mod tests {
         assert_eq!(fast, want_fast);
 
         // Non-fast field: fall back to the generic negation (no existence guard).
-        let non_fast = negate_for("description");
+        let non_fast = negate_for("description", term_blue());
         let want_non_fast = SearchQueryInput::WithIndex {
             oid: index_oid,
             query: Box::new(SearchQueryInput::Boolean {
@@ -2194,6 +2204,24 @@ mod tests {
             }),
         };
         assert_eq!(non_fast, want_non_fast);
+
+        // Negating an `Exists` query (even on a fast field) must NOT add an
+        // existence guard, otherwise the result is the unsatisfiable
+        // `exists AND NOT exists`. It should be the generic negation, which
+        // returns the rows where the field is missing.
+        let negated_exists = negate_for("color", pdb::Query::Exists);
+        let want_negated_exists = SearchQueryInput::WithIndex {
+            oid: index_oid,
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::FieldedQuery {
+                    field: "color".into(),
+                    query: pdb::Query::Exists,
+                }],
+            }),
+        };
+        assert_eq!(negated_exists, want_negated_exists);
     }
 
     #[pg_test]

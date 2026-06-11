@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781220316039,
+  "lastUpdate": 1781220350959,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13526,6 +13526,138 @@ window.BENCHMARK_DATA = {
             "value": 56.234375,
             "unit": "median mem",
             "extra": "avg mem: 55.88807218608597, max mem: 68.4453125, count: 55250"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "864b803e6af1d8f55a641682e4f61afd69deee50",
+          "message": "fix: Avoid aggregate scan warnings for queries which will get TopK (#5312)\n\n## What\n\nAdd handling to silence `aggregate` scan warnings when TopK scans are\nbeing used.\n\n## Why\n\nTo fix #5296, we are switching to an RRF query in #5303. But that\nswitches from a valid `join` scan warning to a spurious `aggregate` scan\nwarning due to failing to handle subqueries:\n```\nWARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources (table: join)\n```\n\nWe will eventually want to support incorporating subqueries into the\n`aggregate` scan as joins. But in cases where a TopK is already\ntriggering, we cannot do any better with the `aggregate` scan.\n\n## Tests\n\nNew RRF regression test.",
+          "timestamp": "2026-06-11T16:04:34-07:00",
+          "tree_id": "5af1c6c36207d8d4735f95b1a7143622932a7282",
+          "url": "https://github.com/paradedb/paradedb/commit/864b803e6af1d8f55a641682e4f61afd69deee50"
+        },
+        "date": 1781220318095,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.430662106914355, max cpu: 18.953604, count: 55105"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 64.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.17934270370202, max mem: 74.78125, count: 55105"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.389896482572551, max cpu: 23.099133, count: 55105"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.19143077703929, max mem: 74.78515625, count: 55105"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.602472383113633, max cpu: 9.338522, count: 55105"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.934378827919424, max mem: 36.953125, count: 55105"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.643047235891344, max cpu: 9.302325, count: 55105"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.970763981830146, max mem: 72.18359375, count: 55105"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.632607019367423, max cpu: 9.266409, count: 110210"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 61.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.69170401251021, max mem: 72.60546875, count: 110210"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1731,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1722.9300244986844, max block_count: 2999.0, count: 55105"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.832773795481353, max segment_count: 28.0, count: 55105"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.711145433648657, max cpu: 14.117648, count: 55105"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.64092215996733, max mem: 73.26953125, count: 55105"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608895574235521, max cpu: 4.738401, count: 55105"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.868614392409945, max mem: 63.32421875, count: 55105"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.609188867815802, max cpu: 4.673807, count: 55105"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.72996807231649, max mem: 67.56640625, count: 55105"
           }
         ]
       }

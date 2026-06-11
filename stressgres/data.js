@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781171666261,
+  "lastUpdate": 1781172337572,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15790,6 +15790,42 @@ window.BENCHMARK_DATA = {
             "value": 5.09962257645175,
             "unit": "median tps",
             "extra": "avg tps: 4.502139317044541, max tps: 5.81214739559512, count: 57307"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24a2aa26f330aad5577c66bb824f59bdb7b1478b",
+          "message": "feat(mpp): collapsed N×(N-1) shm_mq grid to N MPSC inboxes. (#5169)\n\n## What\n\nThis PR collapses the MPP transport's `N × (N-1)` per-pair `shm_mq` grid\ninto `N` per-receiver MPSC inboxes, and lets a single frame span\nmultiple ring slots so payloads aren't capped at `slot_capacity`.\n\n## Why\n\nJoin + groupby wall-time was tracking `N²` because mesh edges scaled\nwith peer count.\n\nThe per-pair drain also treated any peer detach as registry-wide EOF.\nOnce a single `HashJoinExec` probe input finalized, that fired on\nchannels still expecting data and the upstream hung.\n\nCapping a frame at one slot worked while frames were small headers. The\nmoment a partition emitted a batch larger than `slot_capacity` it failed\nwith `MessageTooLarge`. Bumping `slot_capacity` for every batch wastes\nDSM; fragmentation lets the existing ring stretch.\n\n## How\n\n`DsmMpscRing` is a Vyukov lock-free MPSC primitive over DSM, with\n`Latch` wake. Frames carry a `sender_proc` field so the receiver demuxes\nthem into the same channel-buffer registry used by the prior `shm_mq`\ngrid.\n\nMulti-slot fragmentation lets a single frame span N consecutive ring\nslots. The producer reserves the slots via the same `tail` CAS,\nfragments the payload, and the consumer reassembles before handing the\nbytes up. Partial reads aren't visible to higher layers.\n\nPer-channel EOF rides the demuxed `Eof` frame instead of peer detach.\nTeardown unblock comes from `DrainHandle::Drop` setting the shared\n`detached` flag.\n\nZero-copy in-proc shuffle still ships separately.\n\n## Tests\n\nUnit tests cover the ring's SPSC round trip, MPSC contention,\nper-producer ordering, attach-time magic/version checks, multi-slot\nwraparound, and a proptest that randomizes per-producer fragment-kind\nsequences under contention.",
+          "timestamp": "2026-06-11T02:33:23-07:00",
+          "tree_id": "8cf553ed83345de52d9318139507c65b6c7c2c7e",
+          "url": "https://github.com/paradedb/paradedb/commit/24a2aa26f330aad5577c66bb824f59bdb7b1478b"
+        },
+        "date": 1781172304764,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.617589725887462,
+            "unit": "median tps",
+            "extra": "avg tps: 6.515644866245428, max tps: 9.938179994482358, count: 57593"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.261840277404222,
+            "unit": "median tps",
+            "extra": "avg tps: 4.61151337755396, max tps: 6.038888437748254, count: 57593"
           }
         ]
       }

@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.24.0"
+version = "0.24.1"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -41,7 +41,7 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
 ], default-features = false }
 pgrx = "=0.18.1"
 pgrx-tests = "=0.18.1"
-tantivy-jieba = "0.18.0"
+tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "788c93ce4f0b04733c483f65d189858ad94ffced" }

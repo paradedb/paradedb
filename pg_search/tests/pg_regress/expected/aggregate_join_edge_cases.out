@@ -153,6 +153,7 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r)
   category   | count | sum |        avg         
 -------------+-------+-----+--------------------
  Clothing    |     2 |   7 | 3.5000000000000000
@@ -187,6 +188,7 @@ LEFT JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r)
                                                                                                                QUERY PLAN                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -213,6 +215,7 @@ LEFT JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r)
   category   | count | count 
 -------------+-------+-------
  Books       |     1 |     0
@@ -229,6 +232,7 @@ LEFT JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r)
   category   | count | count 
 -------------+-------+-------
  Books       |     1 |     0
@@ -295,6 +299,7 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, s)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     4 |  14
@@ -314,6 +319,7 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
                                                                                                                 QUERY PLAN                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -342,6 +348,7 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
   category   | count | count | count 
 -------------+-------+-------+-------
  Books       |     1 |     0 |     0
@@ -359,6 +366,7 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
   category   | count | count | count 
 -------------+-------+-------+-------
  Books       |     1 |     0 |     0
@@ -377,6 +385,7 @@ FULL JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r)
   category   | count | count 
 -------------+-------+-------
  Books       |     1 |     0
@@ -393,6 +402,7 @@ FULL JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r)
   category   | count | count 
 -------------+-------+-------
  Books       |     1 |     0
@@ -412,6 +422,7 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY 1
 ORDER BY 1;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
                                                                                                                QUERY PLAN                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -437,6 +448,7 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY 1
 ORDER BY 1;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
   ?column?   
 -------------
  "Smash"
@@ -454,6 +466,7 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY 1
 ORDER BY 1;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
   ?column?   
 -------------
  "Smash"
@@ -476,6 +489,7 @@ LEFT JOIN ec_suppliers s ON r.category = s.category
 WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -505,6 +519,7 @@ LEFT JOIN ec_suppliers s ON r.category = s.category
 WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
  brand_text | brand_json 
 ------------+------------
  TechCorp   | "TechCorp"
@@ -519,6 +534,7 @@ LEFT JOIN ec_suppliers s ON r.category = s.category
 WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
  brand_text | brand_json 
 ------------+------------
  TechCorp   | "TechCorp"

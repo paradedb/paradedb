@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.15.19'" to load this file. \quit
+
 DROP FUNCTION IF EXISTS index_info(index regclass, show_invisible bool) CASCADE;
 CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT false)
     RETURNS TABLE

@@ -139,7 +139,7 @@
           # Check the Nix formatting for all Nix files
           nix-fmt = pkgs.runCommand "check-nix-formatting" { } ''
             cd ${self}
-            ${lib.getExe pkgs.nixfmt} --check $(find . -name '*.nix') 
+            ${lib.getExe pkgs.nixfmt} --check $(find . -name '*.nix')
             touch $out
           '';
         }

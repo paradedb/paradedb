@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.22.6'" to load this file. \quit
+
 CREATE OR REPLACE FUNCTION pdb."agg_placeholder_agg_placeholder_state"(
 	"this" internal,
 	"arg_one" jsonb

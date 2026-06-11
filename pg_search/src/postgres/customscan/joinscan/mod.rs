@@ -229,29 +229,61 @@ enum JoinPathDecline {
 /// Specific reason a `JoinPathDecline::Warn` was raised. Wraps a specific
 /// warning message and any optional details (e.g., unsupported join types)
 /// to be emitted as a planner warning.
-pub struct JoinDeclineReason {
-    message: String,
-    details: Option<Vec<String>>,
+pub enum JoinDeclineReason {
+    ContainsAggregate,
+    Message {
+        message: String,
+        details: Option<Vec<String>>,
+    },
 }
 
 impl JoinDeclineReason {
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
+        Self::Message {
             message: message.into(),
             details: None,
         }
     }
 
-    pub fn with_details(mut self, details: Vec<String>) -> Self {
-        self.details = Some(details);
-        self
+    pub fn with_details(self, new_details: Vec<String>) -> Self {
+        match self {
+            Self::ContainsAggregate => {
+                debug_assert!(false, "Cannot add details to ContainsAggregate");
+                self
+            }
+            Self::Message {
+                message,
+                details: _,
+            } => Self::Message {
+                message,
+                details: Some(new_details),
+            },
+        }
     }
 
     fn emit(&self, aliases: &[String]) {
-        if let Some(details) = &self.details {
-            JoinScan::add_detailed_planner_warning(&self.message, aliases, details.clone());
-        } else {
-            JoinScan::add_planner_warning(&self.message, aliases);
+        match self {
+            Self::ContainsAggregate => {
+                if crate::gucs::enable_aggregate_custom_scan() {
+                    // We currently suppress this warning if the aggregate scan is enabled, assuming
+                    // it will handle the query. If the aggregate scan later declines it, the user
+                    // won't see a JoinScan warning.
+                    // TODO: https://github.com/paradedb/paradedb/issues/5285 will fix this by allowing
+                    // the joinscan to propose itself even when aggregates are present.
+                    return;
+                }
+                JoinScan::add_planner_warning(
+                    "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.",
+                    aliases,
+                );
+            }
+            Self::Message { message, details } => {
+                if let Some(details) = details {
+                    JoinScan::add_detailed_planner_warning(message, aliases, details.clone());
+                } else {
+                    JoinScan::add_planner_warning(message, aliases);
+                }
+            }
         }
     }
 }
@@ -513,9 +545,7 @@ impl JoinScan {
         }
 
         if (*(*root).parse).hasAggs {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: aggregates are not supported",
-            ));
+            return Err(JoinDeclineReason::ContainsAggregate);
         }
 
         // Require LIMIT for top-level queries (without it, JoinScan's TopK
@@ -867,8 +897,7 @@ impl ParallelQueryCapable for JoinScan {
         };
 
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        let seg = unsafe { (*pcxt).seg };
-        match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
+        match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
             Ok(leader) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
             }
@@ -928,14 +957,7 @@ impl ParallelQueryCapable for JoinScan {
                 .region_total
         };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        match unsafe {
-            worker_setup(
-                mpp_coordinate,
-                region_total,
-                worker_number,
-                std::ptr::null_mut(),
-            )
-        } {
+        match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
             Ok(worker) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
             }

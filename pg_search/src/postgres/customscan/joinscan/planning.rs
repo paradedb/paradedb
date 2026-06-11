@@ -708,7 +708,7 @@ unsafe fn collect_join_sources_join_rel(
             return None;
         }
 
-        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
+        let mut join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: parsed_jointype,
             left: outer_node,
             right: inner_node,
@@ -719,6 +719,15 @@ unsafe fn collect_join_sources_join_rel(
         };
 
         keys.extend(join_conditions.equi_keys);
+
+        // If PG planned this sub-join right-oriented, rewrite it to its left
+        // twin (rationale on `JoinNode::canonicalize_orientation`). Per level,
+        // not recursive: `outer_node`/`inner_node` are already canonical from
+        // the collect_join_sources recursion above. Only reconstruction needs
+        // it -- the direct set_join_pathlist_hook invocation for a right join is
+        // redundant with the sibling left invocation PG also emits, so doing it
+        // there would only add a duplicate path.
+        join_node.canonicalize_orientation();
 
         return Some((RelNode::Join(Box::new(join_node)), keys));
     }

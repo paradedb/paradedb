@@ -46,7 +46,7 @@ use tantivy::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
 use tantivy::directory::{
-    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, RamDirectory, TerminatingWrite,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
     WatchCallback, WatchHandle,
 };
 use tantivy::index::{SegmentId, SegmentMetaInventory};
@@ -331,10 +331,7 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a segment writer that implements std::io::Write
-    fn open_write_inner(
-        &self,
-        path: &Path,
-    ) -> result::Result<Box<dyn TerminatingWrite>, OpenWriteError> {
+    fn open_write_inner(&self, path: &Path) -> result::Result<InnerWritePtr, OpenWriteError> {
         let writer = unsafe { SegmentComponentWriter::new(&self.indexrel, path) };
         self.new_files.lock().insert(
             path.to_path_buf(),
@@ -620,6 +617,44 @@ pub fn index_memory_segment(
         },
         PgTupleDesc,
     };
+
+    /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
+    /// detoasting performed while materializing a mutable segment.
+    ///
+    /// Most callers of [`index_memory_segment`] (ordinary DML, queries, VACUUM, background merge
+    /// workers) already run with an active snapshot. The logical-replication apply worker, however,
+    /// applies remote changes without pushing one, and `pg_detoast_datum` on an out-of-line TOAST
+    /// value requires a snapshot (`get_toast_snapshot` errors otherwise). This guard pushes the
+    /// transaction snapshot only when the caller lacks one, and pops it on normal scope exit.
+    ///
+    /// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
+    /// active-snapshot stack; popping again here would underflow it, so the drop implementation
+    /// uses `impl_safe_drop!` to skip cleanup while unwinding.
+    struct ActiveSnapshotGuard {
+        pushed: bool,
+    }
+
+    impl ActiveSnapshotGuard {
+        unsafe fn ensure() -> Self {
+            let pushed = !pg_sys::ActiveSnapshotSet();
+            if pushed {
+                pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
+            }
+            Self { pushed }
+        }
+    }
+
+    crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
+        if self.pushed {
+            unsafe {
+                pg_sys::PopActiveSnapshot();
+            }
+        }
+    });
+
+    // Ensure an active snapshot for the heap fetches, detoasting, and expression evaluation
+    // below. Held until this function returns so it covers the entire materialization loop.
+    let _snapshot_guard = unsafe { ActiveSnapshotGuard::ensure() };
 
     let directory = RamDirectory::create();
     let ctids = segment

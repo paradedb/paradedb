@@ -784,6 +784,7 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
+        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -799,6 +800,29 @@ impl SearchIndexReader {
                     .search_field(sort_field)
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
+
+                macro_rules! sort_fast_value {
+                    ($type:ty) => {{
+                        let mut computer = SortByStaticFastValue::<$type>::for_field(sort_field);
+                        if let Some(state) = parallel_state {
+                            computer = computer.with_shared_threshold(Some(std::sync::Arc::new(
+                                crate::postgres::shared_threshold::new_fast_value_threshold(
+                                    state,
+                                    order.clone(),
+                                ),
+                            )));
+                        }
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                            segment_ids,
+                            (computer, order),
+                            erased_features,
+                            n,
+                            offset,
+                            aux_collector,
+                        ))
+                    }};
+                }
+
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
                         TopKSearchResults::new_for_discarded_field(self.top_in_segments(
@@ -810,59 +834,11 @@ impl SearchIndexReader {
                             aux_collector,
                         ))
                     }
-                    tantivy::schema::Type::U64 => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
-                            (SortByStaticFastValue::<u64>::for_field(sort_field), order),
-                            erased_features,
-                            n,
-                            offset,
-                            aux_collector,
-                        ))
-                    }
-                    tantivy::schema::Type::I64 => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
-                            (SortByStaticFastValue::<i64>::for_field(sort_field), order),
-                            erased_features,
-                            n,
-                            offset,
-                            aux_collector,
-                        ))
-                    }
-                    tantivy::schema::Type::F64 => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
-                            (SortByStaticFastValue::<f64>::for_field(sort_field), order),
-                            erased_features,
-                            n,
-                            offset,
-                            aux_collector,
-                        ))
-                    }
-                    tantivy::schema::Type::Bool => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
-                            (SortByStaticFastValue::<bool>::for_field(sort_field), order),
-                            erased_features,
-                            n,
-                            offset,
-                            aux_collector,
-                        ))
-                    }
-                    tantivy::schema::Type::Date => {
-                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
-                            (
-                                SortByStaticFastValue::<DateTime>::for_field(sort_field),
-                                order,
-                            ),
-                            erased_features,
-                            n,
-                            offset,
-                            aux_collector,
-                        ))
-                    }
+                    tantivy::schema::Type::U64 => sort_fast_value!(u64),
+                    tantivy::schema::Type::I64 => sort_fast_value!(i64),
+                    tantivy::schema::Type::F64 => sort_fast_value!(f64),
+                    tantivy::schema::Type::Bool => sort_fast_value!(bool),
+                    tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
                         TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
@@ -893,9 +869,16 @@ impl SearchIndexReader {
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: ComparatorEnum = (*direction).into();
+                let mut computer = SortBySimilarityScore::new();
+                if let Some(state) = parallel_state {
+                    computer =
+                        SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
+                            crate::postgres::shared_threshold::new_score_threshold(state),
+                        )));
+                }
                 let (top_docs, aggregation_results) = self.top_in_segments(
                     segment_ids,
-                    (SortBySimilarityScore, order),
+                    (computer, order),
                     erased_features,
                     n,
                     offset,
@@ -909,10 +892,14 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score { .. },
                 direction,
-            } => {
-                // TODO: See method docs.
-                self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
-            }
+            } => self.top_by_score_in_segments(
+                segment_ids,
+                *direction,
+                n,
+                offset,
+                aux_collector,
+                parallel_state,
+            ),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
                 ..
@@ -1094,6 +1081,7 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
+        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
@@ -1119,7 +1107,17 @@ impl SearchIndexReader {
 
             // can use tantivy's score directly, which allows for Block-WAND
             SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
-                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by_score();
+                let mut computer = SortBySimilarityScore::new();
+                if let Some(state) = parallel_state {
+                    computer =
+                        SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
+                            crate::postgres::shared_threshold::new_score_threshold(state),
+                        )));
+                }
+
+                let top_docs_collector = TopDocs::with_limit(n)
+                    .and_offset(offset)
+                    .order_by::<Score>(computer);
 
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);

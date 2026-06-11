@@ -411,6 +411,12 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 ..
+            }
+            | pdb::Query::MatchArray {
+                distance,
+                transposition_cost_one,
+                prefix,
+                ..
             } => {
                 *distance = Some(new_fuzzy_data.distance);
                 *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
@@ -418,6 +424,10 @@ impl pdb::Query {
             }
 
             pdb::Query::ParseWithField { fuzzy_data, .. } => *fuzzy_data = Some(new_fuzzy_data),
+
+            pdb::Query::ScoreAdjusted { query, .. } => {
+                query.apply_fuzzy_data(Some(new_fuzzy_data));
+            }
 
             _ => panic!("query type is not compatible with fuzzy"),
         }

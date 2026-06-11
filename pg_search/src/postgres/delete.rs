@@ -135,17 +135,18 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
 
-    // garbage collecting the MergeList is necessary to remove any stale entries that may have
-    // been leftover from a cancelled merge or crash during merge
+    // garbage_collect reclaims stale entries (owning backend exited or transaction ended) left
+    // behind by a cancelled or crashed merge.
+    //
+    // We don't assert the list is empty afterwards. A merge that errored between writing its
+    // MergeEntry and removing it leaves a not-yet-recyclable entry (backend alive, xmin in
+    // progress) that survives garbage_collect. Such an entry is a harmless leftover, not a
+    // concurrent merge -- we hold the CLEANUP_LOCK exclusively, and a live merge holds it shared
+    // for its whole duration -- and a later garbage_collect reclaims it.
     merge_lock
         .merge_list()
         .garbage_collect(pg_sys::ReadNextFullTransactionId());
 
-    // and now we should not have any merges happening, and cannot
-    assert!(
-        merge_lock.merge_list().is_empty(),
-        "ambulkdelete cannot run concurrently with an active merge operation"
-    );
     drop(cleanup_lock);
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)

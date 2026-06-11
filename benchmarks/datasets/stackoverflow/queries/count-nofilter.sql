@@ -1,5 +1,5 @@
 -- numeric fast field
-SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all();
+SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all();
 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all();
@@ -8,4 +8,4 @@ SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM stackoverf
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(ctid) FROM stackoverflow_posts WHERE id @@@ pdb.all();
 
 -- pdb.agg without GROUP BY (mvcc disabled)
-SELECT pdb.agg('{"value_count": {"field": "ctid"}}', false) FROM stackoverflow_posts WHERE id @@@ pdb.all();
+SET paradedb.enable_aggregate_custom_scan TO off; SELECT pdb.agg('{"value_count": {"field": "ctid"}}', false) FROM stackoverflow_posts WHERE id @@@ pdb.all();

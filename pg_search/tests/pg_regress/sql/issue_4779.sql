@@ -1,0 +1,115 @@
+-- Regression test for issue paradedb/paradedb#4779:
+-- "JoinScan: multi-way semi/anti joins fail due to premature LIMIT pushdown
+-- validation" -- the serial-mode failure.
+--
+-- Root cause (verified): for a 2-way semijoin, PostgreSQL's make_join_rel
+-- calls add_paths_to_joinrel in BOTH orientations -- JOIN_SEMI and
+-- JOIN_RIGHT_SEMI (joinrels.c). When the *preserved* side (here `main`) is
+-- the smaller relation, PG's serial hash-join cost model picks the
+-- JOIN_RIGHT_SEMI shape (hash the small side) as the child's
+-- cheapest_total_path. JoinScan's multi-way reconstruction read that
+-- jointype and, because RightSemi was not in its supported set, declined --
+-- so the 3-way JoinScan fell back to native Hash (Right) Semi Join chains.
+-- JOIN_RIGHT_SEMI is a PG18 plan shape, so this only reproduces on pg18.
+-- Parallel mode was unaffected (partial hash joins exclude JOIN_RIGHT_SEMI,
+-- so the child's parallel-safe cheapest path is plain JOIN_SEMI), which is
+-- why issue #4910 did not close this one.
+--
+-- The fix canonicalizes RightSemi/RightAnti into Semi/Anti (swapping the
+-- children + equi-key orientation) so the preserved side is always the left
+-- child and the existing Semi/Anti path handles it.
+--
+-- This mirrors the issue's exact repro (preserved side of 100 rows, each
+-- EXISTS child 200 rows) under default join GUCs: the @@@ index scans on the
+-- children make PG's serial cost model pick the hash right-semi orientation
+-- naturally, so JoinScan's reconstruction hits JOIN_RIGHT_SEMI.
+
+SET client_min_messages TO WARNING;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS t_main_4779, t_a_4779, t_b_4779 CASCADE;
+
+CREATE TABLE t_main_4779 (id bigint PRIMARY KEY, val text)
+  WITH (autovacuum_enabled = false);
+CREATE TABLE t_a_4779 (id bigint PRIMARY KEY, main_id bigint)
+  WITH (autovacuum_enabled = false);
+CREATE TABLE t_b_4779 (id bigint PRIMARY KEY, main_id bigint)
+  WITH (autovacuum_enabled = false);
+
+INSERT INTO t_main_4779 SELECT i, 'val_' || i FROM generate_series(1, 100) i;
+INSERT INTO t_a_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
+INSERT INTO t_b_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
+
+CREATE INDEX t_main_4779_idx ON t_main_4779
+  USING bm25 (id, (val::pdb.literal)) WITH (key_field = 'id');
+CREATE INDEX t_a_4779_idx ON t_a_4779
+  USING bm25 (id, main_id) WITH (key_field = 'id');
+CREATE INDEX t_b_4779_idx ON t_b_4779
+  USING bm25 (id, main_id) WITH (key_field = 'id');
+
+ANALYZE t_main_4779;
+ANALYZE t_a_4779;
+ANALYZE t_b_4779;
+
+SET paradedb.enable_join_custom_scan TO on;
+SET work_mem = '1GB';
+
+-- ============================================================
+-- Serial mode: the originally failing case (issue's repro).
+-- ============================================================
+SET max_parallel_workers_per_gather = 0;
+
+-- Two EXISTS subqueries -> two semijoins over the small `main` table.
+-- Pre-fix: declined (Hash Semi Join over Hash Right Semi Join), with planner
+-- warnings about RIGHTSEMI and unsafe LIMIT pushdown. Post-fix: a single
+-- ParadeDB Join Scan absorbing all three relations with the LIMIT pushed down.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT m.id FROM t_main_4779 m
+WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.all())
+  AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
+  AND m.id @@@ pdb.all()
+ORDER BY m.id DESC LIMIT 10;
+
+-- Rows with JoinScan on (verifies correctness, not just plan shape).
+SELECT m.id FROM t_main_4779 m
+WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.all())
+  AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
+  AND m.id @@@ pdb.all()
+ORDER BY m.id DESC LIMIT 10;
+
+-- Native PG control (JoinScan off): same rows must come back.
+SET paradedb.enable_join_custom_scan TO off;
+SELECT m.id FROM t_main_4779 m
+WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.all())
+  AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
+  AND m.id @@@ pdb.all()
+ORDER BY m.id DESC LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- EXISTS + NOT EXISTS: exercises the anti side (RightAnti canonicalization)
+-- in the same serial, small-preserved-side regime.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT m.id FROM t_main_4779 m
+WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.all())
+  AND NOT EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
+  AND m.id @@@ pdb.all()
+ORDER BY m.id DESC LIMIT 10;
+
+-- ============================================================
+-- Parallel mode: control. Worked pre-fix (issue #4910); guard against
+-- regressions in the simpler-to-reach parallel path.
+-- ============================================================
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET max_parallel_workers_per_gather = 8;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT m.id FROM t_main_4779 m
+WHERE EXISTS (SELECT 1 FROM t_a_4779 a WHERE a.main_id = m.id AND a.id @@@ pdb.all())
+  AND EXISTS (SELECT 1 FROM t_b_4779 b WHERE b.main_id = m.id AND b.id @@@ pdb.all())
+  AND m.id @@@ pdb.all()
+ORDER BY m.id DESC LIMIT 10;
+
+DROP TABLE t_main_4779, t_a_4779, t_b_4779 CASCADE;

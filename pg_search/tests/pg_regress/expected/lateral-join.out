@@ -246,6 +246,7 @@ WHERE a.content @@@ 'database'
   AND c.comment_count > 5
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
                                                                               QUERY PLAN                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -280,6 +281,7 @@ WHERE a.content @@@ 'database'
   AND c.comment_count > 5
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
  id |              title               |   score   | comment_count 
 ----+----------------------------------+-----------+---------------
   4 | Database Security Best Practices | 1.4766761 |             7
@@ -301,6 +303,7 @@ LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content @@@ 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, au)
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -328,6 +331,7 @@ LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content @@@ 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, au)
  id |            title             |   score   | author_name 
 ----+------------------------------+-----------+-------------
  11 | Computer Vision Applications | 2.2999182 | Jane Smith
@@ -356,6 +360,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 10;
+WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -390,6 +395,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 10;
+WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
  id |          title          | total_comments | avg_rating 
 ----+-------------------------+----------------+------------
   2 | Machine Learning Basics |              7 |       2.00
@@ -414,6 +420,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'cloud'
 ORDER BY a.created_at DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -446,6 +453,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'cloud'
 ORDER BY a.created_at DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
  id |           title           |        created_at        |       comment_time       
 ----+---------------------------+--------------------------+--------------------------
   3 | Cloud Native Applications | Wed Jan 03 00:00:00 2024 | Thu Jan 04 20:00:00 2024
@@ -543,6 +551,7 @@ WHERE a.content @@@ 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
                                                                                                                                                              QUERY PLAN                                                                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -577,6 +586,7 @@ WHERE a.content @@@ 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
  id |          title          | score_value |   score   |       last_comment       
 ----+-------------------------+-------------+-----------+--------------------------
   2 | Machine Learning Basics |       82.30 | 4.5998363 | Thu Jan 04 19:00:00 2024
@@ -605,6 +615,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -641,6 +652,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.check_aggregate_scan = false (table: comments)
  id |          title          | has_comments | comment_count 
 ----+-------------------------+--------------+---------------
  14 | Encryption Fundamentals | t            |             6
@@ -731,6 +743,7 @@ LEFT JOIN (
 WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not a fast field (table: join)
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -777,6 +790,7 @@ LEFT JOIN (
 WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not a fast field (table: join)
  id |              title               | author_name | comment_count 
 ----+----------------------------------+-------------+---------------
   4 | Database Security Best Practices | Alice Brown |            20

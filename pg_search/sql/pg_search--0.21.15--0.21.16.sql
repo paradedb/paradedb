@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.21.16'" to load this file. \quit
+
 -- pg_search/src/api/aggregate.rs:195
 -- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state
 DROP FUNCTION IF EXISTS pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(internal, jsonb, bool) CASCADE;

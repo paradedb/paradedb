@@ -111,3 +111,73 @@ FROM (SELECT relname,
       ORDER BY relname , low DESC ) AS x ;
 
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
+
+-- The amcheck-style index verification functions (PR #3907) were originally
+-- emitted into `pg_search--0.21.4--0.21.5.sql` -- a migration for a release that
+-- had already shipped, so it sits off the upgrade path for anyone already past
+-- 0.21.5. Fresh installs got these from the generated base schema, but
+-- `ALTER EXTENSION pg_search UPDATE` from e.g. 0.23.x never created them. Re-emit
+-- them here on the current upgrade path. DROP-then-CREATE keeps it idempotent for
+-- installs that already have them (fresh 0.24.0, or a drop+create workaround).
+DROP FUNCTION IF EXISTS pdb."indexes"();
+CREATE  FUNCTION pdb."indexes"() RETURNS TABLE (
+	"schemaname" TEXT,  /* alloc::string::String */
+	"tablename" TEXT,  /* alloc::string::String */
+	"indexname" TEXT,  /* alloc::string::String */
+	"indexrelid" oid,  /* pgrx_pg_sys::submodules::oids::Oid */
+	"num_segments" INT,  /* i32 */
+	"total_docs" bigint  /* i64 */
+)
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'indexes_wrapper';
+
+DROP FUNCTION IF EXISTS pdb."index_segments"(regclass);
+CREATE  FUNCTION pdb."index_segments"(
+	"index" regclass /* pgrx::rel::PgRelation */
+) RETURNS TABLE (
+	"partition_name" TEXT,  /* alloc::string::String */
+	"segment_idx" INT,  /* i32 */
+	"segment_id" TEXT,  /* alloc::string::String */
+	"num_docs" bigint,  /* i64 */
+	"num_deleted" bigint,  /* i64 */
+	"max_doc" bigint  /* i64 */
+)
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_segments_wrapper';
+
+DROP FUNCTION IF EXISTS pdb."verify_all_indexes"(TEXT, TEXT, bool, double precision, bool, bool);
+CREATE  FUNCTION pdb."verify_all_indexes"(
+	"schema_pattern" TEXT DEFAULT NULL, /* core::option::Option<alloc::string::String> */
+	"index_pattern" TEXT DEFAULT NULL, /* core::option::Option<alloc::string::String> */
+	"heapallindexed" bool DEFAULT false, /* bool */
+	"sample_rate" double precision DEFAULT NULL, /* core::option::Option<f64> */
+	"report_progress" bool DEFAULT false, /* bool */
+	"on_error_stop" bool DEFAULT false /* bool */
+) RETURNS TABLE (
+	"schemaname" TEXT,  /* alloc::string::String */
+	"indexname" TEXT,  /* alloc::string::String */
+	"check_name" TEXT,  /* alloc::string::String */
+	"passed" bool,  /* bool */
+	"details" TEXT  /* core::option::Option<alloc::string::String> */
+)
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'verify_all_indexes_wrapper';
+
+DROP FUNCTION IF EXISTS pdb."verify_index"(regclass, bool, double precision, bool, bool, bool, INT[]);
+CREATE  FUNCTION pdb."verify_index"(
+	"index" regclass, /* pgrx::rel::PgRelation */
+	"heapallindexed" bool DEFAULT false, /* bool */
+	"sample_rate" double precision DEFAULT NULL, /* core::option::Option<f64> */
+	"report_progress" bool DEFAULT false, /* bool */
+	"verbose" bool DEFAULT false, /* bool */
+	"on_error_stop" bool DEFAULT false, /* bool */
+	"segment_ids" INT[] DEFAULT NULL /* core::option::Option<alloc::vec::Vec<i32>> */
+) RETURNS TABLE (
+	"check_name" TEXT,  /* alloc::string::String */
+	"passed" bool,  /* bool */
+	"details" TEXT  /* core::option::Option<alloc::string::String> */
+)
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'verify_index_wrapper';

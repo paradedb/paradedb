@@ -29,6 +29,13 @@ runs:
         done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
 
+        # Preserve standalone helper SQL too: `git checkout <prior version>` below
+        # replaces this action's directory with the prior version's contents,
+        # which predates these files.
+        SNAPSHOT_SQL="$(mktemp --suffix=.sql)"
+        cp "${{ github.action_path }}/schema_snapshot.sql" "$SNAPSHOT_SQL"
+        echo "SCHEMA_SNAPSHOT_SQL=$SNAPSHOT_SQL" >> "$GITHUB_ENV"
+
     # This is the pgrx version compatible with ParadeDB ${{ inputs.prior_pg_search_version }}
     - name: Install pgrx for ParadeDB ${{ inputs.prior_pg_search_version }}
       shell: bash
@@ -140,6 +147,30 @@ runs:
           echo "Creating database $db"
           psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         done
+
+    # An `ALTER EXTENSION ... UPDATE` must leave the schema identical to a fresh
+    # `CREATE EXTENSION` of the same version. If a migration delta is incomplete
+    # (e.g. an object's DDL was emitted into an already-shipped migration file, so
+    # it reaches fresh installs but not upgraders -- the verify_index() bug in
+    # #3907), the upgraded schema drifts from a fresh install. Diff the two and
+    # fail loudly so the gap is caught before release instead of by users.
+    - name: Verify Upgraded Schema Matches Fresh Install
+      working-directory: pg_search/
+      shell: bash
+      run: |
+        set -euo pipefail
+        PORT=288${{ inputs.pg_version }}
+        # `postgres` was created on the prior version and upgraded via ALTER EXTENSION above.
+        psql -At -v ON_ERROR_STOP=1 -h localhost -p "$PORT" postgres -f "$SCHEMA_SNAPSHOT_SQL" > /tmp/upgraded.schema
+        # A brand-new database gets the full generated base schema for the new version.
+        createdb -h localhost -p "$PORT" schema_parity_fresh
+        psql -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -c 'CREATE EXTENSION pg_search;'
+        psql -At -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -f "$SCHEMA_SNAPSHOT_SQL" > /tmp/fresh.schema
+        if ! diff -u /tmp/fresh.schema /tmp/upgraded.schema; then
+          echo "::error::Upgraded pg_search schema differs from a fresh install (see diff above; '-' = only in fresh install, '+' = only after upgrade). A migration script under pg_search/sql/ is incomplete: an object is in the generated base schema but is never created on the ALTER EXTENSION UPDATE path (or vice versa). Add the missing DDL to the migration file ending in the current Cargo version."
+          exit 1
+        fi
+        echo "Upgraded schema matches a fresh install."
 
     # We test each BM25 index after the upgrade to test for version compatibility.
     - name: Test BM25 Index

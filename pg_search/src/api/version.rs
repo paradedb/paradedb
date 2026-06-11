@@ -28,7 +28,7 @@ pub struct Version {
 /// The first pg_search version in which datetime fields are stored as i64 microseconds from the
 /// PG epoch (rather than tantivy `DateTime` nanoseconds from the Unix epoch). Used at read/write
 /// time to gate which storage representation an index uses.
-pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 23, 6);
+pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
 
 impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {

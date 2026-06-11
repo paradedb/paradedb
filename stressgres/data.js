@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781174437974,
+  "lastUpdate": 1781174473085,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -55218,6 +55218,186 @@ window.BENCHMARK_DATA = {
             "value": 30.21484375,
             "unit": "median mem",
             "extra": "avg mem: 29.52630078604223, max mem: 30.625, count: 53798"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24a2aa26f330aad5577c66bb824f59bdb7b1478b",
+          "message": "feat(mpp): collapsed N×(N-1) shm_mq grid to N MPSC inboxes. (#5169)\n\n## What\n\nThis PR collapses the MPP transport's `N × (N-1)` per-pair `shm_mq` grid\ninto `N` per-receiver MPSC inboxes, and lets a single frame span\nmultiple ring slots so payloads aren't capped at `slot_capacity`.\n\n## Why\n\nJoin + groupby wall-time was tracking `N²` because mesh edges scaled\nwith peer count.\n\nThe per-pair drain also treated any peer detach as registry-wide EOF.\nOnce a single `HashJoinExec` probe input finalized, that fired on\nchannels still expecting data and the upstream hung.\n\nCapping a frame at one slot worked while frames were small headers. The\nmoment a partition emitted a batch larger than `slot_capacity` it failed\nwith `MessageTooLarge`. Bumping `slot_capacity` for every batch wastes\nDSM; fragmentation lets the existing ring stretch.\n\n## How\n\n`DsmMpscRing` is a Vyukov lock-free MPSC primitive over DSM, with\n`Latch` wake. Frames carry a `sender_proc` field so the receiver demuxes\nthem into the same channel-buffer registry used by the prior `shm_mq`\ngrid.\n\nMulti-slot fragmentation lets a single frame span N consecutive ring\nslots. The producer reserves the slots via the same `tail` CAS,\nfragments the payload, and the consumer reassembles before handing the\nbytes up. Partial reads aren't visible to higher layers.\n\nPer-channel EOF rides the demuxed `Eof` frame instead of peer detach.\nTeardown unblock comes from `DrainHandle::Drop` setting the shared\n`detached` flag.\n\nZero-copy in-proc shuffle still ships separately.\n\n## Tests\n\nUnit tests cover the ring's SPSC round trip, MPSC contention,\nper-producer ordering, attach-time magic/version checks, multi-slot\nwraparound, and a proptest that randomizes per-producer fragment-kind\nsequences under contention.",
+          "timestamp": "2026-06-11T02:33:23-07:00",
+          "tree_id": "8cf553ed83345de52d9318139507c65b6c7c2c7e",
+          "url": "https://github.com/paradedb/paradedb/commit/24a2aa26f330aad5577c66bb824f59bdb7b1478b"
+        },
+        "date": 1781174440068,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.824518036813949, max cpu: 14.090019, count: 53829"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.94746660141374, max mem: 58.68359375, count: 53829"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.161496356105381, max cpu: 4.610951, count: 53829"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.32990777218135, max mem: 29.4453125, count: 53829"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.036861586815082, max cpu: 18.303146, count: 53829"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 54.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.02513906885694, max mem: 60.0, count: 53829"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.02959899398545, max cpu: 9.393347, count: 53829"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.75293986512846, max mem: 58.53125, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6732199172608055, max cpu: 9.204219, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.652718417349384, max mem: 37.76171875, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1098,
+            "unit": "median pages",
+            "extra": "avg pages: 1095.7976183841424, max pages: 1808.0, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.578125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.560918893626113, max relation_size:MB: 14.125, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.236954058221405, max segment_count: 18.0, count: 53829"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.408564847370287, max cpu: 4.610951, count: 53829"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 28.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.412794233243233, max mem: 28.546875, count: 53829"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.764416333945695, max cpu: 4.58891, count: 53829"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 28.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.34902204782738, max mem: 28.40625, count: 53829"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.63064117459464, max cpu: 13.872832, count: 53829"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.96604692347526, max mem: 56.625, count: 53829"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000018478274781672634, max replication_lag:MB: 0.0942840576171875, count: 53829"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.31744425670507, max cpu: 13.832853, count: 107658"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 50.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.126769238293946, max mem: 56.16796875, count: 107658"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7299976079281993, max cpu: 4.597701, count: 53829"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 29.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.20956001876312, max mem: 30.31640625, count: 53829"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.217222124803216, max cpu: 4.610951, count: 53829"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.260950475115646, max mem: 30.0703125, count: 53829"
           }
         ]
       }

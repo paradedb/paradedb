@@ -181,3 +181,37 @@ CREATE  FUNCTION pdb."verify_index"(
 )
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'verify_index_wrapper';
+
+-- The objects below also drifted off the upgrade path: they live in the
+-- generated base schema (so fresh installs, and ALTER EXTENSION UPDATE from
+-- recent versions, have them) but no migration delta ever (re)created them for
+-- installs coming from older versions. The upgrade test's schema-parity check
+-- surfaced them. Re-emit them here, idempotently, so upgraders converge on the
+-- same schema as a fresh install.
+
+-- `tokenizer()` gained a `stopwords_languages text[]` parameter, but no delta
+-- updated the function on the upgrade path -- leaving older installs with a stale
+-- 12-arg signature bound to the current 13-arg `tokenizer_wrapper`. Drop the
+-- stale signature (no-op on installs that already have the current one) and
+-- (re)create the current definition.
+DROP FUNCTION IF EXISTS tokenizer(text, integer, boolean, integer, integer, boolean, text, text, text, text, text[], boolean);
+CREATE OR REPLACE FUNCTION tokenizer(name text, remove_long pg_catalog.int4 DEFAULT '255', lowercase bool DEFAULT 'true', min_gram pg_catalog.int4 DEFAULT NULL, max_gram pg_catalog.int4 DEFAULT NULL, prefix_only bool DEFAULT NULL, language text DEFAULT NULL, pattern text DEFAULT NULL, stemmer text DEFAULT NULL, stopwords_language text DEFAULT NULL, stopwords_languages text[] DEFAULT NULL, stopwords text[] DEFAULT NULL, ascii_folding bool DEFAULT NULL) RETURNS jsonb AS 'MODULE_PATHNAME', 'tokenizer_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+
+-- `pdb.text_array_to_icu(text[])` and its `text[] -> pdb.icu` cast were never
+-- emitted into any delta, so upgraders never got them. Drop-then-create keeps it
+-- idempotent for installs that already have them.
+DROP CAST IF EXISTS (text[] AS pdb.icu);
+DROP FUNCTION IF EXISTS pdb."text_array_to_icu"(text[]);
+CREATE FUNCTION pdb."text_array_to_icu"(
+	"arr" text[]
+) RETURNS pdb.icu
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'text_array_to_icu_wrapper';
+CREATE CAST (text[] AS pdb.icu) WITH FUNCTION pdb.text_array_to_icu AS ASSIGNMENT;
+
+-- The `uuid -> pdb.alias` cast was dropped in 0.21.16--0.22.0 (to rename the
+-- backing function's argument) but never recreated. The `pdb.uuid_to_alias`
+-- function is already on the path; restore only the missing cast.
+DROP CAST IF EXISTS (uuid AS pdb.alias);
+CREATE CAST (uuid AS pdb.alias) WITH FUNCTION pdb.uuid_to_alias AS ASSIGNMENT;

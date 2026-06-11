@@ -1827,8 +1827,8 @@ fn decode_safe_cast(
 
     match (original_typoid, expected_typoid) {
         (orig, pg_sys::TEXTOID) if is_ltree_oid(orig) => {
-            if let OwnedValue::Str(ref s) = key.0 {
-                key = TantivyValue(OwnedValue::Str(
+            if let PdbOwnedValue::Str(ref s) = key.0 {
+                key = TantivyValue(PdbOwnedValue::Str(
                     crate::postgres::catalog::facet_encoded_str_to_ltree_text(s),
                 ));
             }

@@ -246,12 +246,18 @@ jobs:
       # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
       # entries on PRs (so Codecov has fresh data per PR). Older-version PR
       # entries run plain cargo test for ~30-40% wall-clock reduction.
+      #
+      # Note: Since `cargo pgrx regress` does not natively wrap `cargo llvm-cov`,
+      # we must manually export the coverage environment variables to $GITHUB_ENV.
+      # This ensures that subsequent steps (like `cargo pgrx install` and `cargo
+      # pgrx regress`) pick up the coverage instrumentation instructions via
+      # RUSTFLAGS, and write to the correct output path (LLVM_PROFILE_FILE).
       - name: Source LLVM coverage environment (pgrx)
         if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18)
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
-          env | grep -E '^(RUSTC_WRAPPER=|LLVM_PROFILE_FILE=|CARGO_LLVM_COV|__CARGO_LLVM_COV)' >> "$GITHUB_ENV"
+          env | grep -E '^(RUSTC_WRAPPER=|RUSTFLAGS=|LLVM_PROFILE_FILE=|CARGO_LLVM_COV|__CARGO_LLVM_COV)' >> "$GITHUB_ENV"
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'

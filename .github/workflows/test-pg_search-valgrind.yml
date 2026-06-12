@@ -25,6 +25,10 @@ concurrency:
 jobs:
   test-pg_search-valgrind:
     name: Test pg_search under Valgrind (PostgreSQL ${{ matrix.pg_version }}, x86_64)
+    # The Valgrind regress run takes ~7-8h with origin tracking enabled (roughly
+    # 2x a bare Memcheck run). Override the 360-min (6h) default to give it time
+    # to complete.
+    timeout-minutes: 600
     # Valgrind requires x86_64 (cannot decode aarch64 atomics). Compute-optimized
     # AMD c-family — Rust + Postgres are CPU-bound. Runs in us-east-1.
     # See https://runs-on.com/configuration/job-labels/

@@ -138,8 +138,11 @@ SELECT (SELECT COUNT(*)
            OR (NOT (products.age = '20')) AND (users.name = 'bob')
            OR ((users.color = 'blue') AND (users.name = 'bob')) AND (products.color = 'blue')
            OR (NOT (products.name = 'bob')));
-ERROR:  Failed to build DataFusion aggregate plan: Internal error: Failed to translate aggregate custom expression at index 0.
-This issue was likely caused by a bug in DataFusion's code. Please help us to resolve this by filing a bug report in our issue tracker: https://github.com/apache/datafusion/issues
+ count 
+-------
+    13
+(1 row)
+
 -- TODO: See https://github.com/paradedb/paradedb/issues/5266.
 SET paradedb.enable_aggregate_custom_scan TO off;
 --

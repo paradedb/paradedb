@@ -168,6 +168,21 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
+        /// Pre-computed tlist position → DataFusion column name map.
+        ///
+        /// Built at `plan_custom_path` time by iterating through `custom_scan_tlist`
+        /// while inner-plan RTIs are still valid (before PostgreSQL's `setrefs` pass
+        /// rewrites Var nodes to outer-context INDEX_VARs). At index `i` (0-based):
+        /// - `Some(col_name)` — tlist[i] is a Var; `col_name` is the fully-qualified
+        ///   DataFusion column reference `"<exec_alias>.<field>"` ready for `col()`.
+        /// - `None` — tlist[i] is not a plain Var (AggRef, function call, etc.).
+        ///
+        /// Using the precomputed string eliminates all execution-time source lookups.
+        /// `#[serde(default)]` lets plans serialized before this field existed
+        /// deserialize to an empty Vec; INDEX_VAR resolution then returns `None`
+        /// and translation errors out rather than misresolving columns.
+        #[serde(default)]
+        tlist_col_map: Vec<Option<String>>,
     },
 }
 

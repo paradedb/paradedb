@@ -571,10 +571,26 @@ impl<'a> PredicateTranslator<'a> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
-        if varno != pg_sys::INDEX_VAR as pg_sys::Index
-            && !self.sources.iter().any(|s| s.contains_rti(varno))
-        {
+        if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+            if let Some(ref mapper) = self.mapper {
+                // Planning-time column map: O(1) lookup, correct for any RTI
+                // offset (uniform, non-uniform, lateral joins, CTEs, partitions).
+                if let Some(expr) = mapper.resolve_index_var_to_expr(varattno) {
+                    return Some(expr);
+                }
+                // CombinedMapper fallback: handles INDEX_VAR via output_columns.
+                if let Some(expr) = mapper.map_var(varno, varattno) {
+                    return Some(expr);
+                }
+                pgrx::debug1!(
+                    "PredicateTranslator: mapper failed to resolve [Var] varno=INDEX_VAR, varattno={}",
+                    varattno
+                );
+            }
+            return None;
+        }
+
+        if !self.sources.iter().any(|s| s.contains_rti(varno)) {
             pgrx::debug1!(
                 "PredicateTranslator: unknown source [Var] varno={}, varattno={}",
                 varno,
@@ -631,6 +647,18 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::BOOLOID => {
                 let val = datum.value() != 0;
                 ScalarValue::Boolean(Some(val))
+            }
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID => {
+                let cstr = pg_sys::text_to_cstring(datum.cast_mut_ptr::<pg_sys::text>());
+                let s = std::ffi::CStr::from_ptr(cstr).to_str().ok()?.to_string();
+                ScalarValue::Utf8(Some(s))
+            }
+            pg_sys::NAMEOID => {
+                let s = std::ffi::CStr::from_ptr(datum.value() as *const std::ffi::c_char)
+                    .to_str()
+                    .ok()?
+                    .to_string();
+                ScalarValue::Utf8(Some(s))
             }
             _ => {
                 pgrx::debug1!(
@@ -1026,4 +1054,42 @@ mod tests {
     // minimal in-test schema triggers an unrelated JoinScan DISTINCT+PK-join
     // schema bug (column-name="" in apply_distinct_group_by), so the SQL
     // regression remains the authoritative coverage for that path.
+
+    // ---------- ColumnMapper / tlist_col_map unit tests ----------
+
+    /// `unwrap_to_var` with a null pointer must yield `None` without accessing
+    /// any memory — the while-loop guard `!node.is_null()` exits immediately.
+    #[test]
+    fn unwrap_to_var_null_ptr_yields_none() {
+        use crate::postgres::customscan::datafusion::translator::unwrap_to_var;
+        let result = unsafe { unwrap_to_var(std::ptr::null_mut()) };
+        assert!(result.is_none(), "null node pointer must yield None");
+    }
+
+    /// `ColumnMapper::resolve_index_var_to_expr` must return `None` by default.
+    /// Mappers that don't override it (e.g. `CombinedMapper`) fall through to
+    /// `map_var(INDEX_VAR, varattno)` in `translate_var`.
+    #[test]
+    fn default_resolve_index_var_to_expr_returns_none() {
+        use crate::postgres::customscan::datafusion::translator::ColumnMapper;
+
+        struct NullMapper;
+        impl ColumnMapper for NullMapper {
+            fn map_var(
+                &self,
+                _varno: pgrx::pg_sys::Index,
+                _varattno: pgrx::pg_sys::AttrNumber,
+            ) -> Option<Expr> {
+                None
+            }
+        }
+
+        let mapper = NullMapper;
+        for attno in [0i16, 1, 2, 5, 100, i16::MAX] {
+            assert!(
+                mapper.resolve_index_var_to_expr(attno).is_none(),
+                "default resolve_index_var_to_expr must return None for varattno={attno}",
+            );
+        }
+    }
 }

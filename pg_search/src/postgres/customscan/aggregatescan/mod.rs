@@ -225,7 +225,9 @@ impl CustomScan for AggregateScan {
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         // Extract values from private data before the match to avoid borrow conflicts.
-        let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val) =
+        // For the DataFusion path, also clone the plan so we can build the tlist_col_map
+        // after custom_scan_tlist is finalized (builder.build() consumes the builder).
+        let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val, plan_for_tlist_map) =
             match builder.custom_private() {
                 PrivateData::Tantivy {
                     heap_rti,
@@ -236,11 +238,19 @@ impl CustomScan for AggregateScan {
                     *heap_rti,
                     aggregate_clause.planner_should_replace_aggrefs(),
                     0usize,
+                    None,
                 ),
                 PrivateData::DataFusion {
                     multi_table_clause_count,
+                    plan,
                     ..
-                } => (false, 0, false, *multi_table_clause_count),
+                } => (
+                    false,
+                    0,
+                    false,
+                    *multi_table_clause_count,
+                    Some(plan.clone()),
+                ),
             };
 
         if is_tantivy {
@@ -308,6 +318,24 @@ impl CustomScan for AggregateScan {
                     cscan.custom_exprs = custom_exprs_list.into_pg();
                 }
 
+                // Build tlist_col_map while inner-plan RTIs are still valid (before
+                // setrefs rewrites custom_scan_tlist Vars to outer-context RTIs).
+                // Store it in PrivateData so execution can resolve INDEX_VAR references.
+                if let Some(ref plan) = plan_for_tlist_map {
+                    let tlist_col_map = build_tlist_col_map(cscan.custom_scan_tlist, plan, root);
+                    if !tlist_col_map.is_empty() {
+                        let mut privdat: PrivateData = cscan.custom_private.into();
+                        if let PrivateData::DataFusion {
+                            tlist_col_map: ref mut map,
+                            ..
+                        } = privdat
+                        {
+                            *map = tlist_col_map;
+                        }
+                        cscan.custom_private = privdat.into();
+                    }
+                }
+
                 let parallel_aware = (*best_path).path.parallel_aware;
                 if !has_pathkeys && !parallel_aware {
                     // Non-MPP, no-pathkeys: safe to replace Aggrefs at plan
@@ -368,14 +396,15 @@ impl CustomScan for AggregateScan {
                 join_level_predicates,
                 multi_table_predicates,
                 having_filter,
+                tlist_col_map,
                 ..
             } => {
                 // Replace Aggrefs for DataFusion path too
-                let (custom_exprs, custom_scan_tlist) = unsafe {
+                let custom_exprs = unsafe {
                     let cscan = builder.args().cscan;
                     let pg_plan = &mut (*cscan).scan.plan;
                     replace_aggrefs_in_target_list(pg_plan);
-                    ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
+                    (*cscan).custom_exprs
                 };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
@@ -384,7 +413,7 @@ impl CustomScan for AggregateScan {
                     join_level_predicates,
                     multi_table_predicates,
                     custom_exprs,
-                    custom_scan_tlist,
+                    tlist_col_map,
                     having_filter,
                     runtime: None,
                     stream: None,
@@ -958,7 +987,7 @@ impl AggregateScan {
         };
         let ctx = create_aggregate_session_context();
         let custom_exprs = df_state.custom_exprs;
-        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let tlist_col_map = df_state.tlist_col_map.as_slice();
         let logical = runtime.block_on(async {
             build_join_aggregate_plan(
                 &df_state.plan,
@@ -966,7 +995,7 @@ impl AggregateScan {
                 df_state.topk.as_ref(),
                 &df_state.join_level_predicates,
                 custom_exprs,
-                custom_scan_tlist,
+                tlist_col_map,
                 df_state.having_filter.as_ref(),
                 &ctx,
                 None,
@@ -1025,7 +1054,7 @@ impl AggregateScan {
         explainer: &mut Explainer,
     ) {
         let custom_exprs = df_state.custom_exprs;
-        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let tlist_col_map = df_state.tlist_col_map.as_slice();
         let ctx = if mpp_is_active() {
             // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
             // The shared session-context builder takes `mesh = None` and derives `n_workers`
@@ -1046,7 +1075,7 @@ impl AggregateScan {
                 df_state.topk.as_ref(),
                 &df_state.join_level_predicates,
                 custom_exprs,
-                custom_scan_tlist,
+                tlist_col_map,
                 df_state.having_filter.as_ref(),
                 &ctx,
                 None,
@@ -1337,6 +1366,7 @@ impl AggregateScan {
             multi_table_predicates,
             multi_table_clause_count,
             having_filter,
+            tlist_col_map: Vec::new(), // built later in plan_custom_path
         });
 
         // Append raw PG Expr pointers to custom_private after the serialized
@@ -1597,7 +1627,7 @@ impl AggregateScan {
             };
 
             let custom_exprs = df_state.custom_exprs;
-            let custom_scan_tlist = df_state.custom_scan_tlist;
+            let tlist_col_map = df_state.tlist_col_map.as_slice();
             let physical_plan = runtime.block_on(async {
                 let (logical, group_df_indices) = build_join_aggregate_plan(
                     &df_state.plan,
@@ -1605,7 +1635,7 @@ impl AggregateScan {
                     df_state.topk.as_ref(),
                     &df_state.join_level_predicates,
                     custom_exprs,
-                    custom_scan_tlist,
+                    tlist_col_map,
                     df_state.having_filter.as_ref(),
                     &ctx,
                     runtime_expr_context,
@@ -2040,6 +2070,66 @@ unsafe fn detect_join_aggregate_topk(
     }
 
     None
+}
+
+/// Build the planning-time tlist column map: for each entry in `custom_scan_tlist`,
+/// if it is a plain Var (or a RelabelType-cast Var), emit the fully-qualified
+/// DataFusion column name `"<exec_alias>.<field>"` ready for `col()`.
+/// Non-Var entries (AggRefs, function calls, etc.) produce `None`.
+///
+/// Source lookup matches on both `heap_rti` and `heaprelid`. RTI alone is
+/// ambiguous when the plan contains sources collected from sublink subplans
+/// (their inner PlannerInfo has its own RTI numbering that can collide with
+/// the outer one); OID alone is ambiguous for self-joins (the same relation
+/// appears as two sources with distinct execution aliases). Together they
+/// uniquely identify the source: tlist Vars only reference outer-namespace
+/// relations, where (rti, relid) pairs are unique.
+///
+/// Must be called **before** PostgreSQL's `setrefs` pass, so that `varno` is
+/// still an inner-plan RTI — the same namespace the sources were built with —
+/// and resolvable to a relid via `simple_rte_array`.
+unsafe fn build_tlist_col_map(
+    custom_scan_tlist: *mut pg_sys::List,
+    plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<Option<String>> {
+    use crate::postgres::customscan::datafusion::translator::unwrap_to_var;
+    use crate::postgres::customscan::range_table::get_rte;
+
+    if custom_scan_tlist.is_null() {
+        return Vec::new();
+    }
+    let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(custom_scan_tlist);
+    let sources = plan.sources();
+    let rt_size = (*root).simple_rel_array_size as usize;
+    let rt = (*root).simple_rte_array;
+
+    tlist
+        .iter_ptr()
+        .map(|te| {
+            if te.is_null() {
+                return None;
+            }
+            let var = unwrap_to_var((*te).expr as *mut pg_sys::Node)?;
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+
+            // Resolve RTI → relation OID via the planner's range table, then
+            // require the source to match on both RTI and OID (see doc comment).
+            let rte = get_rte(rt_size, rt, varno)?;
+            let relid = (*rte).relid;
+
+            let source = sources
+                .iter()
+                .find(|s| s.contains_rti(varno) && s.scan_info.heaprelid == relid)?;
+            let field_name = source.column_name(varattno)?;
+
+            // Precompute the full DataFusion column name.  execution_alias() uses
+            // the same RelationAlias formula as build_source_df, so the string is
+            // stable between planning and execution without any further lookup.
+            Some(format!("{}.{}", source.execution_alias(), field_name))
+        })
+        .collect()
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

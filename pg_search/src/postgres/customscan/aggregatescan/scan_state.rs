@@ -54,10 +54,12 @@ pub struct DataFusionAggState {
     /// Var nodes to INDEX_VAR references). Used to translate non-@@@
     /// cross-table predicates at execution time.
     pub custom_exprs: *mut pg_sys::List,
-    /// The custom_scan_tlist from the CustomScan node. Used to resolve
-    /// INDEX_VAR references in custom_exprs back to original (rti, attno)
-    /// pairs during DataFusion expression translation.
-    pub custom_scan_tlist: *mut pg_sys::List,
+    /// Pre-computed tlist position → fully-qualified DataFusion column name.
+    /// Built at planning time using heaprelid (not heap_rti) for source
+    /// lookup, then stores the complete `"<exec_alias>.<field>"` string so
+    /// no source lookup is needed at execution time.
+    /// Empty for old cached plans — those fail fast and force a re-plan.
+    pub tlist_col_map: Vec<Option<String>>,
     /// HAVING clause filter applied after aggregation.
     pub having_filter: Option<FilterExpr>,
     /// Tokio runtime for async DataFusion execution.

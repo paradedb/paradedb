@@ -30,6 +30,7 @@ use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
@@ -897,6 +898,7 @@ impl SearchQueryInput {
     pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -907,6 +909,7 @@ impl SearchQueryInput {
         self.into_tantivy_query_generic(
             &QueryOnlyBuilder,
             schema,
+            index_created_by_version,
             parser,
             searcher,
             index_oid,
@@ -922,6 +925,7 @@ impl SearchQueryInput {
         self,
         builder: &B,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -933,6 +937,7 @@ impl SearchQueryInput {
             input.into_tantivy_query_generic(
                 builder,
                 schema,
+                index_created_by_version,
                 parser,
                 searcher,
                 index_oid,
@@ -1172,7 +1177,8 @@ impl SearchQueryInput {
                 key_value,
                 fields,
             } => {
-                let mut mlt_builder = MoreLikeThisQuery::builder();
+                let mut mlt_builder = MoreLikeThisQuery::builder()
+                    .with_index_created_by_version(index_created_by_version);
 
                 // default min_doc_frequency to 1, Tantivy's default is 5
                 if let Some(min_doc_frequency) = min_doc_frequency {
@@ -1286,6 +1292,7 @@ impl SearchQueryInput {
                             &value,
                             field_type,
                             field.path().as_deref(),
+                            index_created_by_version,
                         )
                         .expect("could not convert argument to search term")
                     },
@@ -1346,6 +1353,7 @@ impl SearchQueryInput {
                 let query = pdb_query.clone().into_tantivy_query(
                     field.clone(),
                     schema,
+                    index_created_by_version,
                     parser,
                     searcher,
                 )?;
@@ -1364,6 +1372,7 @@ impl SearchQueryInput {
     pub fn into_tantivy_query_with_tree<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -1375,6 +1384,7 @@ impl SearchQueryInput {
         self.into_tantivy_query_generic(
             &QueryTreeBuilder,
             schema,
+            index_created_by_version,
             parser,
             searcher,
             index_oid,
@@ -1411,15 +1421,20 @@ fn value_to_json_term(
     value: &PdbOwnedValue,
     path: Option<&str>,
     expand_dots: bool,
+    index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         PdbOwnedValue::Str(text) => {
             if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
-                let dt: tantivy::DateTime = pgdt.try_into()?;
-                // https://github.com/quickwit-oss/tantivy/pull/2456
-                // It's a footgun that date needs to truncated when creating the Term
-                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    term.append_type_and_fast_value(pgdt.into_inner());
+                } else {
+                    let dt: tantivy::DateTime = pgdt.try_into()?;
+                    // https://github.com/quickwit-oss/tantivy/pull/2456
+                    // It's a footgun that date needs to truncated when creating the Term
+                    term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                }
             } else {
                 term.append_type_and_str(text);
             }
@@ -1441,10 +1456,14 @@ fn value_to_json_term(
             term.append_type_and_fast_value(*value);
         }
         PdbOwnedValue::Date(value) => {
-            let dt: tantivy::DateTime = (*value).try_into()?;
-            // https://github.com/quickwit-oss/tantivy/pull/2456
-            // It's a footgun that date needs to truncated when creating the Term
-            term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+            if index_created_by_version.stores_datetimes_in_i64() {
+                term.append_type_and_fast_value(value.into_inner());
+            } else {
+                let dt: tantivy::DateTime = (*value).try_into()?;
+                // https://github.com/quickwit-oss/tantivy/pull/2456
+                // It's a footgun that date needs to truncated when creating the Term
+                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+            }
         }
         unsupported => panic!(
             "Tantivy PdbOwnedValue type {:?} not supported for JSON term",
@@ -1465,6 +1484,7 @@ pub fn value_to_term(
     value: &PdbOwnedValue,
     field_type: &FieldType,
     path: Option<&str>,
+    index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
@@ -1472,7 +1492,13 @@ pub fn value_to_term(
     };
 
     if let Some(json_options) = json_options {
-        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
+        return value_to_json_term(
+            field,
+            value,
+            path,
+            json_options.is_expand_dots_enabled(),
+            index_created_by_version,
+        );
     }
 
     // For facet fields, convert string values to facet terms
@@ -1498,8 +1524,12 @@ pub fn value_to_term(
         PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
         PdbOwnedValue::Date(date) => {
-            let tantivy_date = tantivy::DateTime::try_from(*date)?;
-            Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
+            if index_created_by_version.stores_datetimes_in_i64() {
+                Term::from_field_i64(field, date.into_inner())
+            } else {
+                let tantivy_date = tantivy::DateTime::try_from(*date)?;
+                Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
+            }
         }
         PdbOwnedValue::Facet(facet) => Term::from_facet(field, facet),
         PdbOwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
@@ -1535,6 +1565,11 @@ pub enum QueryError {
     FieldTypeMismatch,
     #[error("could not build regex with pattern '{1}': {0}")]
     RegexError(#[source] tantivy::TantivyError, String),
+    #[error(
+        r#"could not parse query string '{0}'.
+           make sure to use column:term pairs, and to capitalize AND/OR."#
+    )]
+    GrammarParseError(String),
     #[error(
         r#"could not parse query string '{1}'.
            make sure to use column:term pairs, and to capitalize AND/OR."#

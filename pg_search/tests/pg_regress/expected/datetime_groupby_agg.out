@@ -37,8 +37,7 @@ WITH (
     key_field='id',
     text_fields='{"description": {}, "organization_id": {"fast": true}, "internal_account_id": {"fast": true}}',
     boolean_fields='{"live_mode": {"fast": true}}',
-    numeric_fields='{"unledgered_amount": {"fast": true}}',
-    datetime_fields='{"as_of_date": {"fast": true}, "discarded_at": {"fast": true}}'
+    numeric_fields='{"unledgered_amount": {"fast": true}}'
 );
 -- =====================================================================
 -- Test 1: Simple GROUP BY on DateTime field
@@ -76,7 +75,8 @@ ORDER BY as_of_date NULLS LAST;
          1 | 12-29-2025
          2 | 12-30-2025
          1 | 12-31-2025
-(6 rows)
+         1 | 
+(7 rows)
 
 -- =====================================================================
 -- Test 2: GROUP BY DateTime with BETWEEN range filter

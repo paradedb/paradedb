@@ -1,0 +1,194 @@
+-- Behaviors that should produce identical output before and after the
+-- i64-PG-micros datetime storage transition. Internal representation
+-- changes (tantivy Date / unix-epoch nanos -> tantivy I64 / pg-epoch
+-- micros) must not be visible through these query shapes.
+--
+-- Intentionally NOT covered here: raw `pdb.agg('{"min":...}')` JSONB
+-- output, which legitimately changes shape (gains `key_as_string`).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS events CASCADE;
+CREATE TABLE events (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    occurred_at TIMESTAMP,
+    occurred_at_tz TIMESTAMPTZ
+);
+INSERT INTO events (description, occurred_at, occurred_at_tz) VALUES
+    ('alpha event',   '2024-01-01 10:00:00', '2024-01-01 10:00:00+00'),
+    ('bravo event',   '2024-01-02 11:00:00', '2024-01-02 11:00:00+00'),
+    ('charlie event', '2024-01-03 12:00:00', '2024-01-03 12:00:00+00'),
+    ('delta event',   '2024-01-04 13:00:00', '2024-01-04 13:00:00+00'),
+    ('echo event',    '2024-01-05 14:00:00', '2024-01-05 14:00:00+00');
+CREATE INDEX events_idx ON events
+USING bm25 (id, description, occurred_at, occurred_at_tz)
+WITH (
+    key_field = 'id',
+    text_fields = '{"description": {}}'
+);
+-- =====================================================================
+-- 1. Datetime-as-Datum returns round-trip identically
+-- =====================================================================
+SELECT id, occurred_at, occurred_at_tz
+FROM events
+WHERE id @@@ pdb.all()
+ORDER BY id;
+ id |       occurred_at        |        occurred_at_tz        
+----+--------------------------+------------------------------
+  1 | Mon Jan 01 10:00:00 2024 | Mon Jan 01 02:00:00 2024 PST
+  2 | Tue Jan 02 11:00:00 2024 | Tue Jan 02 03:00:00 2024 PST
+  3 | Wed Jan 03 12:00:00 2024 | Wed Jan 03 04:00:00 2024 PST
+  4 | Thu Jan 04 13:00:00 2024 | Thu Jan 04 05:00:00 2024 PST
+  5 | Fri Jan 05 14:00:00 2024 | Fri Jan 05 06:00:00 2024 PST
+(5 rows)
+
+-- =====================================================================
+-- 2. Range filter on a datetime field returns the same row set
+-- =====================================================================
+SELECT id
+FROM events
+WHERE occurred_at @@@ '[2024-01-02T00:00:00Z TO 2024-01-04T00:00:00Z}'
+ORDER BY id;
+ id 
+----
+  2
+  3
+(2 rows)
+
+SELECT id
+FROM events
+WHERE occurred_at_tz @@@ '[2024-01-02T00:00:00Z TO 2024-01-04T00:00:00Z}'
+ORDER BY id;
+ id 
+----
+  2
+  3
+(2 rows)
+
+-- =====================================================================
+-- 3. TopK ordering on a datetime field
+-- =====================================================================
+SELECT id, occurred_at
+FROM events
+WHERE id @@@ pdb.all()
+ORDER BY occurred_at
+LIMIT 3;
+ id |       occurred_at        
+----+--------------------------
+  1 | Mon Jan 01 10:00:00 2024
+  2 | Tue Jan 02 11:00:00 2024
+  3 | Wed Jan 03 12:00:00 2024
+(3 rows)
+
+SELECT id, occurred_at
+FROM events
+WHERE id @@@ pdb.all()
+ORDER BY occurred_at DESC
+LIMIT 3;
+ id |       occurred_at        
+----+--------------------------
+  5 | Fri Jan 05 14:00:00 2024
+  4 | Thu Jan 04 13:00:00 2024
+  3 | Wed Jan 03 12:00:00 2024
+(3 rows)
+
+-- =====================================================================
+-- 4. SQL-standard aggregates on datetime
+-- =====================================================================
+SELECT MIN(occurred_at), MAX(occurred_at), COUNT(*)
+FROM events
+WHERE id @@@ pdb.all();
+           min            |           max            | count 
+--------------------------+--------------------------+-------
+ Mon Jan 01 10:00:00 2024 | Fri Jan 05 14:00:00 2024 |     5
+(1 row)
+
+SELECT MIN(occurred_at_tz), MAX(occurred_at_tz)
+FROM events
+WHERE id @@@ pdb.all();
+             min              |             max              
+------------------------------+------------------------------
+ Mon Jan 01 02:00:00 2024 PST | Fri Jan 05 06:00:00 2024 PST
+(1 row)
+
+-- =====================================================================
+-- 5. GROUP BY on a datetime field
+-- =====================================================================
+SELECT occurred_at, COUNT(*)
+FROM events
+WHERE id @@@ pdb.all()
+GROUP BY occurred_at
+ORDER BY occurred_at;
+       occurred_at        | count 
+--------------------------+-------
+ Mon Jan 01 10:00:00 2024 |     1
+ Tue Jan 02 11:00:00 2024 |     1
+ Wed Jan 03 12:00:00 2024 |     1
+ Thu Jan 04 13:00:00 2024 |     1
+ Fri Jan 05 14:00:00 2024 |     1
+(5 rows)
+
+-- =====================================================================
+-- 6. date_histogram via paradedb.aggregate() — bucket keys and
+--    key_as_string format must remain stable
+-- =====================================================================
+SELECT * FROM paradedb.aggregate(
+    index => 'events_idx',
+    query => paradedb.all(),
+    agg   => '{"by_day": {"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}}}'
+);
+                                                                                                                                                                                                                             aggregate                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"by_day": {"buckets": [{"key": 757382400000000.0, "doc_count": 1, "key_as_string": "2024-01-01T00:00:00Z"}, {"key": 757468800000000.0, "doc_count": 1, "key_as_string": "2024-01-02T00:00:00Z"}, {"key": 757555200000000.0, "doc_count": 1, "key_as_string": "2024-01-03T00:00:00Z"}, {"key": 757641600000000.0, "doc_count": 1, "key_as_string": "2024-01-04T00:00:00Z"}, {"key": 757728000000000.0, "doc_count": 1, "key_as_string": "2024-01-05T00:00:00Z"}]}}
+(1 row)
+
+-- =====================================================================
+-- 7. terms aggregation over a datetime field
+-- =====================================================================
+SELECT * FROM paradedb.aggregate(
+    index => 'events_idx',
+    query => paradedb.all(),
+    agg   => '{"by_dt": {"terms": {"field": "occurred_at"}}}'
+);
+                                                                                                                                                                 aggregate                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"by_dt": {"buckets": [{"key": "2024-01-01T10:00:00Z", "doc_count": 1}, {"key": "2024-01-03T12:00:00Z", "doc_count": 1}, {"key": "2024-01-05T14:00:00Z", "doc_count": 1}, {"key": "2024-01-02T11:00:00Z", "doc_count": 1}, {"key": "2024-01-04T13:00:00Z", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
+(1 row)
+
+-- =====================================================================
+-- 8. Plan shape: TopK on a datetime field still gets the fast-field plan
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, occurred_at
+FROM events
+WHERE id @@@ pdb.all()
+ORDER BY occurred_at
+LIMIT 3;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on events
+         Table: events
+         Index: events_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: occurred_at asc
+            TopK Limit: 3
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+-- =====================================================================
+-- 9. date_histogram with a nested sub-agg — sub-bucket structure preserved
+-- =====================================================================
+SELECT * FROM paradedb.aggregate(
+    index => 'events_idx',
+    query => paradedb.all(),
+    agg   => '{"by_day": {"date_histogram": {"field": "occurred_at", "fixed_interval": "1d"}, "aggs": {"count": {"value_count": {"field": "id"}}}}}'
+);
+                                                                                                                                                                                                                                                                                            aggregate                                                                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"by_day": {"buckets": [{"key": 757382400000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-01T00:00:00Z"}, {"key": 757468800000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-02T00:00:00Z"}, {"key": 757555200000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-03T00:00:00Z"}, {"key": 757641600000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-04T00:00:00Z"}, {"key": 757728000000000.0, "count": {"value": 1.0}, "doc_count": 1, "key_as_string": "2024-01-05T00:00:00Z"}]}}
+(1 row)
+
+-- Cleanup
+DROP TABLE events CASCADE;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781305672687,
+  "lastUpdate": 1781305702862,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41474,6 +41474,114 @@ window.BENCHMARK_DATA = {
             "value": 172.7890625,
             "unit": "median mem",
             "extra": "avg mem: 169.8599948571903, max mem: 173.5703125, count: 55721"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c571c102b477221a3b97f19b551a67a32ab8e0b0",
+          "message": "feat: simplified the MPP transport using the new WorkerTransport abstractions. (#5244)\n\n## What\n\nThis PR rewires `pg_search`'s MPP onto the `datafusion-distributed`\nfork's `WorkerTransport` abstractions and adds coordinator dispatch: the\nleader ships per-stage physical subplans through DSM, and workers stop\nre-planning.\n\n## Why\n\nThe MPP transport carried its own copies of decisions the fork now owns:\nhow connections open, how plans reach workers, and how a produced\npartition is routed. Every fork rebase had to re-derive them by hand.\nWith the abstractions in place (fork PRs 1 through 5), `pg_search`\nimplements the traits instead, and the worker-side re-plan (a whole\nlogical planning pass per worker, per query) goes away. Stacks on #5171.\n\n## How\n\n- **Consume half.** `ShmMqWorkerTransport` / `ShmMqWorkerConnection`\nimplement the fork's `WorkerTransport` / `WorkerConnection` over the\nexisting shm_mq mesh. The dispatcher is a no-op: the plan rides DSM at\nparallel-context init, so nothing is left to deliver.\n`InProcessWorkerResolver` hands the planner placeholder URLs it never\ndials. The old `in_process_mode` flag is gone, and producer-side routing\nreads the crate's `route_partition` instead of re-deriving the receive\nmath.\n- **Coordinator dispatch.** The leader builds the distributed physical\nplan once at DSM init and serializes each producer stage.\n`ScanDispatchDescriptor` is the transport-neutral scan recipe: the\nworker re-opens its reader from it (`score_needed` keeps score-ordered\nqueries ranking like the leader; `non_partitioning_index` keys the\ncanonical segment sets). Readers, `FFHelper`s, and `ParallelScanState`\nnever travel. UDF definitions travel through the composed codec: a\nwrapper at position `0` declines the `pg_search` names so their\n`fun_definition` ships, while built-ins keep resolving by registry name.\n- **Failure policy is serial fallback, decided by the leader.** Build,\ncapacity, encode, and routing problems return `Err` into the existing\nfallback, and the leader round-trips each stage blob at build time so a\ncodec gap falls back instead of erroring in a worker. On any pre-setup\nfailure the leader stamps `MPP_DISABLED_OFFSET` into the DSM header:\njoinscan workers return to the plain parallel path, aggregate workers\nemit nothing (a parallel aggregate worker has no partitioned non-MPP\npath), and a `worker_setup` failure without the marker fails the query\nrather than mixing protocols. Sorted-source queries fall back by design,\nsame line as #5268.\n\n## Tests\n\nThe property tests and MPP regress suites (`mpp_smoke`, `mpp_joinscan`,\n`mpp_aggregate`, `mpp_aggregate_postagg`) pass.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-12T15:12:11-07:00",
+          "tree_id": "b3fad45f29818b1002d59287f5ca15722721ed8d",
+          "url": "https://github.com/paradedb/paradedb/commit/c571c102b477221a3b97f19b551a67a32ab8e0b0"
+        },
+        "date": 1781305674667,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 14.264486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.088920036212468, max cpu: 39.044228, count: 57774"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 42.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.250653137657075, max mem: 42.38671875, count: 57774"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.689019343403073, max cpu: 37.907207, count: 57774"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.589935703127704, max mem: 20.59765625, count: 57774"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7477746,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.836513160162184, max cpu: 15.189873, count: 57774"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.797903455165816, max mem: 43.984375, count: 57774"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18982,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19332.80936061204, max block_count: 36357.0, count: 57774"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.641475159921896, max cpu: 4.743083, count: 57774"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.178091099045417, max mem: 21.21875, count: 57774"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.44423096894797, max segment_count: 36.0, count: 57774"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.536882295376245, max cpu: 37.907207, count: 115548"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 44.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.34172960046907, max mem: 46.2109375, count: 115548"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.528536,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.069108421506492, max cpu: 23.692005, count: 57774"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 36.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.5275887780403, max mem: 36.59375, count: 57774"
           }
         ]
       }

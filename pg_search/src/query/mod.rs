@@ -447,6 +447,62 @@ impl SearchQueryInput {
         }
     }
 
+    /// Per-matched-document traversal cost, in multiples of `cpu_operator_cost`,
+    /// for the TopK serial-vs-parallel decision: the decision switches on how
+    /// expensive this query shape is to score, not on score-DESC in particular.
+    /// `can_prune` is true only when the ORDER BY is score-DESC.
+    pub fn expense(&self, can_prune: bool) -> f64 {
+        use crate::query::pdb_query::{union_per_match, EXPENSE_AUTOMATON, EXPENSE_POSTING};
+
+        // A SHOULD clause that is a bare single term keeps the union Block-WAND-prunable.
+        fn is_bare_term(q: &SearchQueryInput) -> bool {
+            matches!(
+                q,
+                SearchQueryInput::FieldedQuery {
+                    query: pdb::Query::Term { .. } | pdb::Query::TermSet { .. },
+                    ..
+                }
+            )
+        }
+
+        match self {
+            SearchQueryInput::FieldedQuery { query, .. } => query.expense(can_prune),
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => query.expense(can_prune),
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => query.expense(can_prune),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => indexed_query.expense(can_prune),
+
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                if must.is_empty() && must_not.is_empty() && should.iter().all(is_bare_term) {
+                    // Pure SHOULD union of terms: Block-WAND union, traversal ~ log2(n).
+                    union_per_match(should.len(), can_prune)
+                } else {
+                    // Conjunction / mixed: intersection scorer bounded by the rarest
+                    // term, never WAND score-pruned.
+                    EXPENSE_POSTING
+                }
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                union_per_match(disjuncts.len(), false)
+            }
+            SearchQueryInput::Parse { query_string, .. } => {
+                union_per_match(query_string.split_whitespace().count().max(1), can_prune)
+            }
+            SearchQueryInput::All | SearchQueryInput::Empty => 0.0,
+
+            // TermSet, MoreLikeThis, PostgresExpression, Uninitialized, and
+            // ScoreFilter without an inner query → conservatively non-prunable.
+            _ => EXPENSE_AUTOMATON,
+        }
+    }
+
     pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
         match self {
             SearchQueryInput::Boolean {

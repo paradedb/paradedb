@@ -52,47 +52,41 @@ pub fn compute_nworkers(
     // we don't need any workers.
     let mut nworkers = segment_count.saturating_sub(1);
 
-    // When the scan declares sorted output (TopK with ORDER BY, or sorted columnar),
-    // skip row-based worker reductions. TopK must scan ALL segments to produce globally
-    // correct results, so the cost is segment-scan dominated and row-count thresholds
-    // would starve parallelism for queries matching few rows across many segments.
-    // Sorted columnar is lazy (SortPreservingMergeExec can stop early), but we
-    // conservatively skip reductions for it too since it still benefits from parallelism
-    // across segments.
+    // Reverts #4457 only: the row-based `min_rows_per_worker` cap applies to sorted
+    // output again (pre-#4457 / #4077 behavior, restoring #3055 protection for sorted
+    // scans). The LIMIT cap KEEPS the sorted exemption introduced by #4101 ("Use
+    // parallel workers for the join scan"): sorted output must scan ALL segments to
+    // produce a correct global order, so "segments needed to reach LIMIT" never
+    // applies to it. #4457 only moved the row cap under the sorted bypass; it did not
+    // touch the LIMIT cap's exemption, so neither does this revert.
     //
-    // For unsorted scans with reliable row estimates (RowEstimate::Known), we apply two
-    // reductions to avoid spawning workers whose startup overhead exceeds the benefit:
-    //
-    // 1. Limit-based: cap workers to the number of segments needed to reach the LIMIT.
+    // For scans with reliable row estimates (RowEstimate::Known):
+    // 1. Limit-based (UNSORTED only): cap workers to the segments needed to reach LIMIT.
     // 2. Row-based: cap so each worker processes at least `min_rows_per_worker` rows
-    //    (~300K default, based on benchmarks where worker startup is ~10ms).
-    //    Skipped in join contexts to avoid preventing Parallel Hash Join.
-    //
-    // When RowEstimate::Unknown (table not ANALYZEd), we don't limit workers since
-    // we can't trust the estimate.
+    //    (~300K default). Skipped in join contexts to avoid preventing Parallel Hash Join.
+    // When RowEstimate::Unknown (table not ANALYZEd), we don't cap (can't trust it).
     //
     // See: https://github.com/paradedb/paradedb/issues/3055
-    if !declares_sorted_output {
-        if let RowEstimate::Known(total_rows) = estimated_total_rows {
-            // Cap to the number of segments needed to reach the LIMIT
-            if let Some(limit) = limit {
-                let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
-                let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
-                // The leader is not included in `nworkers`, so subtract 1.
-                let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
-                nworkers = nworkers.min(nworkers_for_limited_segments);
-            }
+    if let RowEstimate::Known(total_rows) = estimated_total_rows {
+        // Cap to the number of segments needed to reach the LIMIT. Unsorted only:
+        // sorted output needs every segment, so it is exempt (#4101).
+        if let (false, Some(limit)) = (declares_sorted_output, limit) {
+            let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
+            let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
+            // The leader is not included in `nworkers`, so subtract 1.
+            let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
+            nworkers = nworkers.min(nworkers_for_limited_segments);
+        }
 
-            // Cap so each worker processes at least min_rows_per_worker rows.
-            // Skipped for joins: failing to claim workers can prevent the planner from
-            // choosing Parallel Hash Join, leading to inefficient serial plans.
-            if !is_join_context {
-                let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
-                #[allow(clippy::manual_checked_ops)]
-                if min_rows_per_worker > 0 {
-                    let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
-                    nworkers = nworkers.min(max_workers_for_rows);
-                }
+        // Cap so each worker processes at least min_rows_per_worker rows.
+        // Skipped for joins: failing to claim workers can prevent the planner from
+        // choosing Parallel Hash Join, leading to inefficient serial plans.
+        if !is_join_context {
+            let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
+            #[allow(clippy::manual_checked_ops)]
+            if min_rows_per_worker > 0 {
+                let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
+                nworkers = nworkers.min(max_workers_for_rows);
             }
         }
     }
@@ -131,6 +125,45 @@ pub fn compute_nworkers(
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             // force a parallel worker if the `debug_parallel_query` GUC is on
+            nworkers = 1;
+        }
+    }
+
+    nworkers
+}
+
+/// Maximum number of useful parallel workers given structural constraints only.
+///
+/// Unlike `compute_nworkers`, this does NOT gate on row count or the
+/// `min_rows_per_worker` GUC. The caller uses the returned upper bound in its
+/// serial-vs-parallel cost comparison before emitting one chosen path (see
+/// #4664).
+///
+/// Returns 0 if parallelism is structurally impossible:
+/// - External quals (parameterized scan in a nested loop).
+/// - Correlated PARAM_EXEC nodes.
+///
+/// Otherwise returns `min(segment_count - 1, max_parallel_workers_per_gather,
+/// max_parallel_workers)`. The leader is excluded from `segment_count - 1`.
+pub fn max_useful_workers(
+    segment_count: usize,
+    has_external_quals: bool,
+    has_correlated_param: bool,
+) -> usize {
+    if has_external_quals || has_correlated_param {
+        return 0;
+    }
+
+    let mut nworkers = segment_count.saturating_sub(1);
+    nworkers = unsafe {
+        nworkers
+            .min(pg_sys::max_parallel_workers_per_gather as usize)
+            .min(pg_sys::max_parallel_workers as usize)
+    };
+
+    #[cfg(not(feature = "pg15"))]
+    unsafe {
+        if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             nworkers = 1;
         }
     }

@@ -23,12 +23,13 @@ pub mod projections;
 mod scan_state;
 
 use std::ffi::CStr;
+use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
 
 use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, Varno};
+use crate::api::{Cardinality, HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -58,7 +59,9 @@ use crate::postgres::customscan::orderby::{
     extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
     UnusableReason,
 };
-use crate::postgres::customscan::parallel::{compute_nworkers, list_segment_ids, RowEstimate};
+use crate::postgres::customscan::parallel::{
+    compute_nworkers, list_segment_ids, max_useful_workers, RowEstimate,
+};
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
@@ -89,6 +92,224 @@ use tantivy::Index;
 
 #[derive(Default)]
 pub struct BaseScan;
+
+#[derive(Clone, Copy)]
+enum WorkerDecision {
+    Serial,
+    Parallel { nworkers: NonZeroUsize },
+}
+
+struct PathCostBasis {
+    worker_decision: WorkerDecision,
+    parallelizable_cost: f64,
+    non_parallelizable_cost: f64,
+    total_cost_multiplier: f64,
+}
+
+impl WorkerDecision {
+    fn from_worker_count(nworkers: usize) -> Self {
+        NonZeroUsize::new(nworkers)
+            .map(|nworkers| Self::Parallel { nworkers })
+            .unwrap_or(Self::Serial)
+    }
+
+    /// Effective worker count for dividing scan work. The leader is counted as a
+    /// full additional worker when `leader_participates` is true. We do not use
+    /// PostgreSQL's discounted leader formula (`1 - 0.3 * nworkers`) because the
+    /// bounded TopK cost path and the general path share the same divisor, and
+    /// uniform full-credit accounting keeps the two cost helpers comparable
+    /// across query shapes.
+    fn divisor(self, leader_participates: bool) -> f64 {
+        let Self::Parallel { nworkers } = self else {
+            return 1.0;
+        };
+        let nworkers = nworkers.get();
+        if leader_participates {
+            (nworkers + 1) as f64
+        } else {
+            nworkers as f64
+        }
+    }
+
+    fn nworkers(self) -> Option<NonZeroUsize> {
+        match self {
+            Self::Serial => None,
+            Self::Parallel { nworkers } => Some(nworkers),
+        }
+    }
+}
+
+/// # Safety
+///
+/// `root` must point to a valid `PlannerInfo` for the duration of this call.
+/// This is a planner-only helper and must not be called from execution.
+/// Returns `Some(can_prune)` when this method is an ordered TopK whose worker
+/// count should be chosen by the query-expense cost model (rather than the
+/// general worker-selection heuristic).
+///
+/// `can_prune` is true when the ORDER BY is exactly `score DESC` — the one case
+/// where Block-WAND can make a single posting list sublinear. The per-query-type
+/// expense model (`SearchQueryInput::expense`) then decides whether that pruning
+/// actually applies for the given query shape. Both are derived purely from the
+/// method + ORDER BY + `SearchQueryInput`, so no reader is opened at plan time.
+unsafe fn topk_can_prune_for_method(
+    method: &ExecMethodType,
+    root: *mut pg_sys::PlannerInfo,
+    quals: &Qual,
+) -> Option<bool> {
+    let ExecMethodType::TopK {
+        orderby_info: Some(orderby_info),
+        window_aggregates,
+        limit_offset,
+        ..
+    } = method
+    else {
+        return None;
+    };
+
+    if !window_aggregates.is_empty() || limit_offset.has_any_param() {
+        return None;
+    }
+
+    // `window_aggregates` is still empty here because placeholders are
+    // deserialized later in `plan_custom_path`, so inspect the target list
+    // recursively before costing. This relies on the planner hook replacing
+    // WindowFunc nodes with window_agg() placeholders before relation paths
+    // are created.
+    if query_has_window_agg_functions(root) {
+        return None;
+    }
+
+    // Runtime-dependent quals can't be costed at plan time; use the general path.
+    if quals.contains_exprs() || quals.contains_external_var() {
+        return None;
+    }
+
+    Some(SearchIndexReader::orderby_uses_score_desc_topk_collector(
+        orderby_info,
+    ))
+}
+
+/// Worker decision for an ordered TopK, driven entirely by the query-expense
+/// estimate.
+///
+/// Estimated scoring work is `matches * per_match`, where `per_match` comes from
+/// [`SearchQueryInput::expense`]: ~0 for a Block-WAND-pruned single term under
+/// score-DESC, `log2(terms)` for a term union, ~2 for regex/fuzzy, ~16 for
+/// phrase. We parallelize only when splitting that work across workers beats the
+/// fixed cost of starting them (PostgreSQL's `parallel_setup_cost`).
+///
+/// # Safety
+///
+/// `root` must point to a valid `PlannerInfo` for the duration of this call.
+#[allow(clippy::too_many_arguments)]
+unsafe fn decide_topk_workers(
+    can_prune: bool,
+    query: &SearchQueryInput,
+    row_estimate: RowEstimate,
+    segment_count: usize,
+    base_result_rows: f64,
+    consider_parallel: bool,
+    quals: &Qual,
+    root: *mut pg_sys::PlannerInfo,
+    parallel_leader_participates: bool,
+) -> WorkerDecision {
+    let max_workers = if consider_parallel {
+        max_useful_workers(
+            segment_count,
+            quals.contains_external_var(),
+            quals.contains_correlated_param(root),
+        )
+    } else {
+        0
+    };
+    let candidate = WorkerDecision::from_worker_count(max_workers);
+    let WorkerDecision::Parallel { .. } = candidate else {
+        return WorkerDecision::Serial;
+    };
+
+    // An unanalyzed table has no trustworthy match count, so stay serial rather
+    // than guess (matches the pre-existing unanalyzed-TopK behavior).
+    let matches = match row_estimate {
+        RowEstimate::Known(rows) => rows as f64,
+        RowEstimate::Unknown => return WorkerDecision::Serial,
+    };
+
+    let comparison_cost = 2.0 * pg_sys::cpu_operator_cost;
+    let work = matches * query.expense(can_prune) * comparison_cost;
+
+    // Parallelize only when dividing the work beats PostgreSQL's Gather overhead.
+    let divisor = candidate.divisor(parallel_leader_participates);
+    const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
+    let gather_overhead = pg_sys::parallel_setup_cost
+        + pg_sys::parallel_tuple_cost * base_result_rows * GATHER_MERGE_IPC_FACTOR;
+    if work / divisor + gather_overhead < work {
+        candidate
+    } else {
+        WorkerDecision::Serial
+    }
+}
+
+struct GeneralPathCostParams<'a> {
+    method: &'a ExecMethodType,
+    is_sorted: bool,
+    float_limit: Option<Cardinality>,
+    row_estimate: RowEstimate,
+    segment_count: usize,
+    per_tuple_cost: f64,
+    base_result_rows: f64,
+    consider_parallel: bool,
+    quals: &'a Qual,
+    root: *mut pg_sys::PlannerInfo,
+    is_join_context: bool,
+}
+
+/// # Safety
+///
+/// `params.root` must point to a valid `PlannerInfo` for the duration of this
+/// call. This is a planner-only helper and reads PostgreSQL planner cost GUCs.
+unsafe fn cost_general_path(params: GeneralPathCostParams<'_>) -> PathCostBasis {
+    let GeneralPathCostParams {
+        method,
+        is_sorted,
+        float_limit,
+        row_estimate,
+        segment_count,
+        per_tuple_cost,
+        base_result_rows,
+        consider_parallel,
+        quals,
+        root,
+        is_join_context,
+    } = params;
+
+    let nworkers = if consider_parallel {
+        compute_nworkers(
+            is_sorted,
+            float_limit,
+            row_estimate,
+            segment_count,
+            quals.contains_external_var(),
+            quals.contains_correlated_param(root),
+            is_join_context,
+        )
+    } else {
+        0
+    };
+
+    let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge() {
+        1.01
+    } else {
+        1.0
+    };
+
+    PathCostBasis {
+        worker_decision: WorkerDecision::from_worker_count(nworkers),
+        parallelizable_cost: base_result_rows * per_tuple_cost,
+        non_parallelizable_cost: 0.0,
+        total_cost_multiplier,
+    }
+}
 
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
@@ -368,52 +589,98 @@ impl BaseScan {
 ///
 /// Used to determine if we should create a custom path even without @@@ operator.
 ///
-/// Also validates that pdb.agg() is not present - if it is, that means the planner hook
-/// didn't replace it (e.g., not a Top K query), and we should reject it.
+/// Also preserves the historical top-level pdb.agg() validation: if a target
+/// entry itself is pdb.agg(), the planner hook did not replace it (e.g. not a
+/// TopK query), and we reject it. Recursive detection is only for window_agg()
+/// placeholders because plan_custom_path deserializes those recursively later.
 unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
+    use pgrx::pg_guard;
+    use pgrx::pg_sys::expression_tree_walker;
+
     if root.is_null() || (*root).parse.is_null() {
         return false;
     }
 
     let parse = (*root).parse;
     let window_agg_func_oid = window_agg_oid();
-    let paradedb_agg_func_oid = crate::api::agg_funcoid();
 
     // If functions don't exist yet (e.g., during extension creation), skip check
     if window_agg_func_oid == pg_sys::InvalidOid {
         return false;
     }
 
-    let window_agg_func_oid = window_agg_func_oid.to_u32();
-    let paradedb_agg_func_oid = paradedb_agg_func_oid.to_u32();
-
-    // Check target list for window_agg() or pdb.agg() function calls
+    let paradedb_agg_func_oid = crate::api::agg_funcoid();
     if !(*parse).targetList.is_null() {
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
         for te in target_list.iter_ptr() {
-            if !(*te).expr.is_null() {
-                // Check if this is a FuncExpr with window_agg or pdb.agg OID
-                if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                    let func_oid = (*func_expr).funcid.to_u32();
-                    if func_oid == window_agg_func_oid {
-                        return true;
-                    } else if func_oid == paradedb_agg_func_oid {
-                        // pdb.agg() should have been replaced by planner hook
-                        // If it's still here, it means it wasn't a valid Top K query
-                        pgrx::error!(
-                            "pdb.agg() can only be used as a window function in Top K queries \
-                             (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
-                             SQL aggregates like COUNT(*), SUM(), etc. \
-                             Hint: Try using '@@@ pdb.all()' with ORDER BY and LIMIT, \
-                             or see https://github.com/paradedb/paradedb/issues for more information."
-                        );
-                    }
-                }
+            let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) else {
+                continue;
+            };
+
+            let func_oid = (*func_expr).funcid.to_u32();
+            if func_oid == window_agg_func_oid.to_u32() {
+                return true;
+            }
+            if func_oid == paradedb_agg_func_oid.to_u32() {
+                pgrx::error!(
+                    "pdb.agg() can only be used as a window function in Top K queries \
+                     (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
+                     SQL aggregates like COUNT(*), SUM(), etc. \
+                     Hint: Try using '@@@ pdb.all()' with ORDER BY and LIMIT, \
+                     or see https://github.com/paradedb/paradedb/issues for more information."
+                );
             }
         }
     }
 
-    false
+    struct Context {
+        window_agg_func_oid: u32,
+        found: bool,
+    }
+
+    // window_agg() can appear nested inside CASE expressions, arithmetic,
+    // coercions, etc. The deserialize_window_agg_placeholders pass that runs
+    // later in plan_custom_path walks the tree recursively; this detector must
+    // do the same so the cost-model gate matches that pass's reality.
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = data.cast::<Context>();
+        if (*context).found {
+            return true;
+        }
+
+        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let func_oid = (*func_expr).funcid.to_u32();
+            if func_oid == (*context).window_agg_func_oid {
+                (*context).found = true;
+                return true;
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut context = Context {
+        window_agg_func_oid: window_agg_func_oid.to_u32(),
+        found: false,
+    };
+
+    if !(*parse).targetList.is_null() {
+        expression_tree_walker(
+            (*parse).targetList.cast(),
+            Some(walker),
+            (&mut context as *mut Context).cast(),
+        );
+    }
+
+    context.found
 }
 
 /// Classification of any set-returning function found in the target list,
@@ -784,7 +1051,7 @@ impl CustomScan for BaseScan {
             custom_private.set_heaprelid(table.oid());
             custom_private.set_indexrelid(bm25_index.oid());
             custom_private.set_range_table_index(rti);
-            custom_private.set_query(query);
+            custom_private.set_query(query.clone());
             custom_private.set_limit_offset(limit_offset.clone());
             custom_private.set_segment_count(segment_count);
 
@@ -847,10 +1114,13 @@ impl CustomScan for BaseScan {
 
             let startup_cost = DEFAULT_STARTUP_COST;
             let mut custom_paths = Vec::new();
+            let parallel_leader_participates = pg_sys::parallel_leader_participation;
 
-            // For each execution method variant (e.g. sorted vs unsorted), we build a separate
-            // CustomPath. This allows the Postgres planner to choose the most efficient
-            // implementation based on costs and downstream requirements like ordering.
+            // For each execution method variant, build one CustomPath. Most
+            // methods use `compute_nworkers` for worker selection; proven
+            // limit-bounded TopK compares serial and parallel costs here
+            // because bounded segment work can make worker startup more
+            // expensive than the scan itself (#4664).
             for method in exec_method_types {
                 let per_tuple_cost = match &method {
                     // returning fields from fast fields
@@ -859,13 +1129,17 @@ impl CustomScan for BaseScan {
                     _ => pg_sys::cpu_tuple_cost,
                 };
 
+                let is_sorted = method.declares_sorted_output();
+                let consider_parallel_local = (*builder.args().rel).consider_parallel;
+
+                let topk_can_prune =
+                    topk_can_prune_for_method(&method, builder.args().root, &quals);
                 let mut path_builder = CustomPathBuilder::<Self>::new(
                     builder.args().root,
                     builder.args().rel,
                     *builder.args(),
                 );
 
-                // we must use this path if we need to do const projections for scores or snippets
                 path_builder = path_builder.set_force_path(
                     maybe_needs_const_projections
                         || matches!(method, ExecMethodType::TopK { .. })
@@ -874,62 +1148,67 @@ impl CustomScan for BaseScan {
 
                 let mut method_private = custom_private.clone();
                 method_private.set_exec_method_type(method.clone());
-
-                let is_sorted = method.declares_sorted_output();
                 method_private.set_use_sorted_path(is_sorted);
 
-                // Our BaseScan is always parallel-safe (can run in a worker),
-                // even if it's not parallel-aware (splitting segments).
-                let nworkers = if (*builder.args().rel).consider_parallel {
+                if consider_parallel_local {
                     path_builder = path_builder.set_parallel_safe(true);
-
-                    compute_nworkers(
-                        is_sorted,
-                        float_limit,
-                        row_estimate,
-                        segment_count,
-                        quals.contains_external_var(),
-                        quals.contains_correlated_param(builder.args().root),
-                        is_join_context,
-                    )
-                } else {
-                    0
-                };
-
-                let mut method_result_rows = base_result_rows;
-
-                if nworkers > 0 {
-                    path_builder = path_builder.set_parallel(nworkers);
-
-                    // if we're likely to do a parallel scan, divide the result_rows by the number of workers
-                    // we're likely to use.  this lets Postgres make better decisions based on what
-                    // an individual parallel scan is actually going to return
-                    let processes = std::cmp::max(
-                        1,
-                        nworkers
-                            + if pg_sys::parallel_leader_participation {
-                                1
-                            } else {
-                                0
-                            },
-                    );
-                    method_result_rows /= processes as f64;
                 }
 
-                let mut total_cost = startup_cost + (method_result_rows * per_tuple_cost);
+                // Decide worker count and path cost. The path cost comes from
+                // the general estimator for every method; everything but
+                // ordered TopK (columnar, normal, unordered) also takes its
+                // worker count from the established heuristic. For ordered TopK
+                // we then override only the worker decision with the
+                // query-expense threshold: parallelize only when estimated
+                // scoring work (matches x per-match expense) outweighs the
+                // fixed cost of starting workers. A Block-WAND-pruned single
+                // term has ~0 work -> serial; heavy unions, non-prunable, and
+                // high-match shapes exceed the threshold -> parallel.
+                let mut cost_basis = cost_general_path(GeneralPathCostParams {
+                    method: &method,
+                    is_sorted,
+                    float_limit,
+                    row_estimate,
+                    segment_count,
+                    per_tuple_cost,
+                    base_result_rows,
+                    consider_parallel: consider_parallel_local,
+                    quals: &quals,
+                    root: builder.args().root,
+                    is_join_context,
+                });
+                if let Some(can_prune) = topk_can_prune {
+                    cost_basis.worker_decision = decide_topk_workers(
+                        can_prune,
+                        &query,
+                        row_estimate,
+                        segment_count,
+                        base_result_rows,
+                        consider_parallel_local,
+                        &quals,
+                        builder.args().root,
+                        parallel_leader_participates,
+                    );
+                }
 
-                if is_sorted && method.supports_sorted_index_merge() {
-                    total_cost *= 1.01;
+                let scan_work_divisor = cost_basis
+                    .worker_decision
+                    .divisor(parallel_leader_participates);
+                let method_result_rows = base_result_rows / scan_work_divisor;
+                let total_cost = (startup_cost
+                    + cost_basis.parallelizable_cost / scan_work_divisor
+                    + cost_basis.non_parallelizable_cost)
+                    * cost_basis.total_cost_multiplier;
+
+                if let Some(nworkers) = cost_basis.worker_decision.nworkers() {
+                    path_builder = path_builder.set_parallel(nworkers.get());
                 }
 
                 path_builder = path_builder.set_rows(method_result_rows);
                 path_builder = path_builder.set_startup_cost(startup_cost);
                 path_builder = path_builder.set_total_cost(total_cost);
-
-                // indicate that we'll be doing projection ourselves
                 path_builder = path_builder.set_flag(Flags::Projection);
 
-                // If Top K, add pathkeys to builder
                 if matches!(
                     method,
                     ExecMethodType::TopK {
@@ -939,7 +1218,6 @@ impl CustomScan for BaseScan {
                 ) {
                     path_builder = path_builder.set_pathkeys((*builder.args().root).query_pathkeys);
                 } else if is_sorted {
-                    // For sorted columnar execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {
                         path_builder = path_builder.add_path_key(pathkey_style);
                     }

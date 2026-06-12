@@ -758,6 +758,17 @@ impl SearchIndexReader {
         )
     }
 
+    /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
+    pub(crate) fn orderby_uses_score_desc_topk_collector(orderby_info: &[OrderByInfo]) -> bool {
+        matches!(
+            orderby_info,
+            [OrderByInfo {
+                feature: OrderByFeature::Score { .. },
+                direction,
+            }] if !direction.is_asc()
+        )
+    }
+
     /// Search the Tantivy index for the Top K matching documents in specific segments.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
@@ -1433,6 +1444,8 @@ impl SearchIndexReader {
     }
 }
 
+/// Shape-only inspection — never reads segment contents. The planning-time
+/// gate relies on this to use a one-segment (`LargestSegment`) reader.
 impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {

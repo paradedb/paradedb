@@ -254,7 +254,7 @@ LIMIT 10;
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
+         Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}]}}}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -308,7 +308,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}]}}}}]}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -351,7 +351,7 @@ LIMIT 10;
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}))
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -362,7 +362,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}},{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}},{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -449,7 +449,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -602,8 +602,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE NOT (qgen_users.name @@@ 'bob') 
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                                  QUERY PLAN                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: qgen_users.id, qgen_users.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -620,7 +620,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"name"}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
 (17 rows)
 
 SELECT qgen_users.id, qgen_users.name 

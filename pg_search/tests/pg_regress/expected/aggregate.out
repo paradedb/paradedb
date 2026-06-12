@@ -246,12 +246,12 @@ SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
 -- Test 2.2: Contradictory WHERE clauses (impossible conditions)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
@@ -264,12 +264,12 @@ SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (cat
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('SUM'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: SUM(price)
      Aggregate Definition: {"0":{"sum":{"field":"price","missing":null}}}
 (6 rows)
@@ -282,12 +282,12 @@ SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (c
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('AVG'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: AVG(rating)
      Aggregate Definition: {"0":{"avg":{"field":"rating","missing":null}}}
 (6 rows)
@@ -305,7 +305,7 @@ SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (des
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('MIN'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: MIN(price)
      Aggregate Definition: {"0":{"min":{"field":"price","missing":null}}}
 (6 rows)
@@ -318,12 +318,12 @@ SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (des
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('MAX'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: MAX(rating)
      Aggregate Definition: {"0":{"max":{"field":"rating","missing":null}}}
 (6 rows)

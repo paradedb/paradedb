@@ -66,6 +66,12 @@ enum CacheEntry {
     Set(HashSet<TantivyValue>),
 }
 
+struct QueryCacheEntry {
+    element_oid: PgOid,
+    matches: CacheEntry,
+    existing_values: Option<CacheEntry>,
+}
+
 impl FromIterator<TantivyValue> for CacheEntry {
     fn from_iter<T: IntoIterator<Item = TantivyValue>>(iter: T) -> Self {
         let set = iter.into_iter().collect();
@@ -84,7 +90,7 @@ impl CacheEntry {
 
 #[derive(Default)]
 struct Cache {
-    by_query: HashMap<Vec<u8>, (PgOid, CacheEntry)>,
+    by_query: HashMap<Vec<u8>, QueryCacheEntry>,
 }
 
 /// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
@@ -129,13 +135,28 @@ unsafe impl SqlTranslatable for FakeSearchQueryInput {
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
+/// Whether `query` is (after unwrapping any `WithIndex`) an `Exists` predicate.
+///
+/// `Exists` is a total predicate: a missing field means it is FALSE, not NULL.
+/// So we must not build the "existing values" set for it, which would otherwise
+/// make missing fields evaluate to NULL instead of false.
+fn query_is_exists(query: &SearchQueryInput) -> bool {
+    match query {
+        SearchQueryInput::WithIndex { query, .. } => query_is_exists(query),
+        SearchQueryInput::FieldedQuery { query, .. } => {
+            matches!(query, crate::query::pdb_query::pdb::Query::Exists)
+        }
+        _ => false,
+    }
+}
+
 #[allow(unused_variables)]
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
     element: FakeAnyElement,
     query: FakeSearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
-) -> bool {
+) -> Option<bool> {
     assert!(
         unsafe { (*(*fcinfo).flinfo).fn_strict },
         "paradedb.search_with_query_input must be STRICT"
@@ -156,7 +177,7 @@ pub fn search_with_query_input(
         pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
 
-    let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
+    let query_cache = cache.by_query.entry(key).or_insert_with(|| {
         let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
             SearchQueryInput::from_datum(query_datum, query_datum.is_null())
@@ -169,7 +190,11 @@ pub fn search_with_query_input(
             let is_paradedb_all = matches!(&search_query_input, SearchQueryInput::WithIndex { query, .. } if matches!(query.as_ref(), &SearchQueryInput::All))
                 || matches!(&search_query_input, SearchQueryInput::All);
             if is_paradedb_all {
-                return (element_oid, CacheEntry::All);
+                return QueryCacheEntry {
+                    element_oid,
+                    matches: CacheEntry::All,
+                    existing_values: None,
+                };
             }
         }
 
@@ -179,6 +204,15 @@ pub fn search_with_query_input(
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+        let mut field_names = HashSet::default();
+        search_query_input.extract_field_names(&mut field_names);
+
+        // For an `Exists` predicate a missing field is FALSE, not NULL, so we
+        // skip the existing-values computation below and let missing fields fall
+        // through to `Some(false)`.
+        let is_exists_query = query_is_exists(&search_query_input);
+
         let search_reader = SearchIndexReader::open(
             &index_relation,
             search_query_input,
@@ -205,16 +239,80 @@ pub fn search_with_query_input(
             })
             .collect();
 
-        (element_oid, matches)
+        let existing_values = if field_names.len() == 1 && !is_exists_query {
+            let field = field_names
+                .into_iter()
+                .next()
+                .expect("field_names should contain exactly one field");
+
+            let supports_exists = schema
+                .search_field(&field)
+                .is_some_and(|search_field| search_field.is_fast());
+
+            if !supports_exists {
+                return QueryCacheEntry {
+                    element_oid,
+                    matches,
+                    existing_values: None,
+                };
+            }
+
+            let exists_query = SearchQueryInput::WithIndex {
+                oid: index_oid,
+                query: Box::new(SearchQueryInput::FieldedQuery {
+                    field: field.into(),
+                    query: crate::query::pdb_query::pdb::Query::Exists,
+                }),
+            };
+
+            let exists_reader = SearchIndexReader::open(
+                &index_relation,
+                exists_query,
+                false,
+                MvccSatisfies::Snapshot,
+            )
+            .expect("search_with_query_input: should be able to open an Exists SearchIndexReader");
+
+            Some(
+                exists_reader
+                    .search()
+                    .map(|(_, doc_address)| {
+                        check_for_interrupts!();
+                        ff_helper
+                            .value(0, doc_address)
+                            .expect("key_field value should not be null")
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        QueryCacheEntry {
+            element_oid,
+            matches,
+            existing_values,
+        }
     });
 
     // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
     // is contained in the matches set
     unsafe {
         let element = pg_getarg_datum_raw(fcinfo, 0);
-        let user_value =
-            TantivyValue::try_from_datum(element, *element_oid).expect("no value present");
-        matches.contains(&user_value)
+        let user_value = TantivyValue::try_from_datum(element, query_cache.element_oid)
+            .expect("no value present");
+
+        if query_cache.matches.contains(&user_value) {
+            Some(true)
+        } else if let Some(existing_values) = &query_cache.existing_values {
+            if existing_values.contains(&user_value) {
+                Some(false)
+            } else {
+                None
+            }
+        } else {
+            Some(false)
+        }
     }
 }
 

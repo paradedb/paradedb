@@ -131,6 +131,21 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn sequential_scan_syntax_non_fast_field_issue_5264(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search
+        WHERE paradedb.search_with_query_input(
+            id,
+            paradedb.parse('description:keyboard')
+        ) ORDER BY id"
+        .to_string()
+        .fetch_collect(&mut conn);
+
+    assert_eq!(columns.id, vec![1, 2]);
+}
+
+#[rstest]
 fn quoted_table_name(mut conn: PgConnection) {
     r#"CREATE TABLE "Activity" (key SERIAL, name TEXT, age INTEGER);
     INSERT INTO "Activity" (name, age) VALUES ('Alice', 29);

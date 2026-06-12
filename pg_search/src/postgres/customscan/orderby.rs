@@ -27,10 +27,9 @@
 use crate::api::FieldName;
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
-use crate::postgres::catalog::CollationLocale;
-use crate::postgres::catalog::CollationProvider;
 use crate::postgres::catalog::{
     lookup_collation_collcollate_and_provider, lookup_database_datcollate_and_provider,
+    CollationLocale, CollationProvider,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;

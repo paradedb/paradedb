@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781304324505,
+  "lastUpdate": 1781305000971,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23594,6 +23594,54 @@ window.BENCHMARK_DATA = {
             "value": 5.450423910132939,
             "unit": "median tps",
             "extra": "avg tps: 5.458873865999789, max tps: 6.689012338030416, count: 56660"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c571c102b477221a3b97f19b551a67a32ab8e0b0",
+          "message": "feat: simplified the MPP transport using the new WorkerTransport abstractions. (#5244)\n\n## What\n\nThis PR rewires `pg_search`'s MPP onto the `datafusion-distributed`\nfork's `WorkerTransport` abstractions and adds coordinator dispatch: the\nleader ships per-stage physical subplans through DSM, and workers stop\nre-planning.\n\n## Why\n\nThe MPP transport carried its own copies of decisions the fork now owns:\nhow connections open, how plans reach workers, and how a produced\npartition is routed. Every fork rebase had to re-derive them by hand.\nWith the abstractions in place (fork PRs 1 through 5), `pg_search`\nimplements the traits instead, and the worker-side re-plan (a whole\nlogical planning pass per worker, per query) goes away. Stacks on #5171.\n\n## How\n\n- **Consume half.** `ShmMqWorkerTransport` / `ShmMqWorkerConnection`\nimplement the fork's `WorkerTransport` / `WorkerConnection` over the\nexisting shm_mq mesh. The dispatcher is a no-op: the plan rides DSM at\nparallel-context init, so nothing is left to deliver.\n`InProcessWorkerResolver` hands the planner placeholder URLs it never\ndials. The old `in_process_mode` flag is gone, and producer-side routing\nreads the crate's `route_partition` instead of re-deriving the receive\nmath.\n- **Coordinator dispatch.** The leader builds the distributed physical\nplan once at DSM init and serializes each producer stage.\n`ScanDispatchDescriptor` is the transport-neutral scan recipe: the\nworker re-opens its reader from it (`score_needed` keeps score-ordered\nqueries ranking like the leader; `non_partitioning_index` keys the\ncanonical segment sets). Readers, `FFHelper`s, and `ParallelScanState`\nnever travel. UDF definitions travel through the composed codec: a\nwrapper at position `0` declines the `pg_search` names so their\n`fun_definition` ships, while built-ins keep resolving by registry name.\n- **Failure policy is serial fallback, decided by the leader.** Build,\ncapacity, encode, and routing problems return `Err` into the existing\nfallback, and the leader round-trips each stage blob at build time so a\ncodec gap falls back instead of erroring in a worker. On any pre-setup\nfailure the leader stamps `MPP_DISABLED_OFFSET` into the DSM header:\njoinscan workers return to the plain parallel path, aggregate workers\nemit nothing (a parallel aggregate worker has no partitioned non-MPP\npath), and a `worker_setup` failure without the marker fails the query\nrather than mixing protocols. Sorted-source queries fall back by design,\nsame line as #5268.\n\n## Tests\n\nThe property tests and MPP regress suites (`mpp_smoke`, `mpp_joinscan`,\n`mpp_aggregate`, `mpp_aggregate_postagg`) pass.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-12T15:12:11-07:00",
+          "tree_id": "b3fad45f29818b1002d59287f5ca15722721ed8d",
+          "url": "https://github.com/paradedb/paradedb/commit/c571c102b477221a3b97f19b551a67a32ab8e0b0"
+        },
+        "date": 1781304972906,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1421.9800420593858,
+            "unit": "median tps",
+            "extra": "avg tps: 1435.1010716655042, max tps: 1527.9769661982232, count: 58247"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1966.2597577852714,
+            "unit": "median tps",
+            "extra": "avg tps: 1955.7177422326288, max tps: 1970.588315501653, count: 58247"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1361.3404974179523,
+            "unit": "median tps",
+            "extra": "avg tps: 1238.8007121882836, max tps: 1834.1909241641647, count: 58247"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 12.32466814538242,
+            "unit": "median tps",
+            "extra": "avg tps: 11.557785237033553, max tps: 13.32082445752924, count: 58247"
           }
         ]
       }

@@ -15,8 +15,6 @@ CREATE INDEX issue_5254_idx ON issue_5254
     WITH (key_field = id);
 -- Before the fix, this failed with:
 -- ERROR: cannot execute INSERT in a read-only transaction
--- pdb.alias typmod was never registered outside a read-only transaction,
--- so the lazy INSERT into _typmod_cache was attempted here and blocked.
 BEGIN TRANSACTION READ ONLY;
 SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('bar_lower') IS NOT NULL ORDER BY id;
  id |  bar  

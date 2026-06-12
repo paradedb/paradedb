@@ -1,0 +1,30 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+DROP TABLE IF EXISTS issue_5254;
+CREATE TABLE issue_5254 (
+    id SERIAL PRIMARY KEY,
+    bar TEXT NOT NULL
+);
+INSERT INTO issue_5254 (bar) VALUES ('alpha'), ('beta'), ('gamma');
+CREATE INDEX issue_5254_idx ON issue_5254
+    USING bm25 (id, (bar::pdb.literal), (bar::pdb.literal_normalized('alias=bar_lower')))
+    WITH (key_field = id);
+-- Before the fix, this failed with:
+-- ERROR: cannot execute INSERT in a read-only transaction
+-- pdb.alias typmod was never registered outside a read-only transaction,
+-- so the lazy INSERT into _typmod_cache was attempted here and blocked.
+BEGIN TRANSACTION READ ONLY;
+SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('bar_lower') IS NOT NULL ORDER BY id;
+ id |  bar  
+----+-------
+  1 | alpha
+  2 | beta
+  3 | gamma
+(3 rows)
+
+COMMIT;
+DROP TABLE issue_5254;

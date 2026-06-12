@@ -33,6 +33,10 @@ pub struct LayeredMergePolicy {
     n: usize,
     layer_sizes: Vec<u64>,
     min_merge_count: usize,
+    /// Maximum number of docs allowed in a single merge candidate.  When a
+    /// candidate would exceed this, we close it off and start a new one in the
+    /// same layer.  This caps peak merge memory regardless of byte-size layers.
+    doc_budget: usize,
     enable_logging: bool,
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
@@ -54,11 +58,12 @@ impl MergePolicy for LayeredMergePolicy {
 }
 
 impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
+    pub fn new(layer_sizes: Vec<u64>, doc_budget: usize) -> LayeredMergePolicy {
         Self {
             n: crate::available_parallelism(),
             layer_sizes,
             min_merge_count: 2,
+            doc_budget: doc_budget.max(1),
             enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },
 
             mergeable_segments: Default::default(),
@@ -261,6 +266,7 @@ impl LayeredMergePolicy {
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
             let mut candidate_byte_size = 0;
+            let mut candidate_doc_count: usize = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
             for segment in segments {
@@ -274,21 +280,45 @@ impl LayeredMergePolicy {
                     continue;
                 }
 
+                let segment_doc_count = segment.num_docs() as usize;
+
+                // if this segment alone would exceed the doc budget there's no way to fit it; skip
+                // it rather than rolling a degenerate single-segment candidate that blows past the
+                // memory cap.  The next layer (or a future merge cycle) can deal with it.
+                if segment_doc_count > self.doc_budget {
+                    continue;
+                }
+
+                // if appending this segment would push the in-progress candidate over the doc
+                // budget, close the current candidate (if it has anything) and start a new one
+                if !candidates.last().unwrap().1 .0.is_empty()
+                    && candidate_doc_count + segment_doc_count > self.doc_budget
+                {
+                    candidate_byte_size = 0;
+                    candidate_doc_count = 0;
+                    candidates.push((layer_size, MergeCandidate(vec![])));
+                }
+
                 // add this segment as a candidate
                 let segment_byte_size =
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 candidate_byte_size += segment_byte_size;
+                candidate_doc_count += segment_doc_count;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
+                    candidate_doc_count = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
                 }
             }
 
-            if candidate_byte_size < extended_layer_size {
-                // the last candidate isn't full, so throw it away
+            if candidate_byte_size < extended_layer_size && candidate_doc_count < self.doc_budget {
+                // the last candidate isn't full by either threshold, so throw it away.
+                // we keep candidates that hit the doc budget even if they're under the byte
+                // threshold — the budget exists to cap memory, and a half-full byte merge is a
+                // better outcome than OOMing.
                 candidates.pop();
             }
 
@@ -459,7 +489,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_eagerly_merges_mutable_segment() {
-        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let mut policy = LayeredMergePolicy::new(vec![1000], usize::MAX);
         // min_merge_count is 2 by default, but the single mutable segment should still be merged
         let segments = vec![create_mutable_segment_meta_entry(100, 0, false)];
         let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
@@ -479,7 +509,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_simple() {
-        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let mut policy = LayeredMergePolicy::new(vec![1000], usize::MAX);
         let segments = vec![
             create_segment_meta_entry(700, 70, 0),
             create_segment_meta_entry(700, 70, 0),
@@ -499,7 +529,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_not_full_enough() {
-        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let mut policy = LayeredMergePolicy::new(vec![1000], usize::MAX);
         let segments = vec![
             create_segment_meta_entry(400, 40, 0),
             create_segment_meta_entry(400, 40, 0),
@@ -515,7 +545,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_min_merge_count() {
-        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let mut policy = LayeredMergePolicy::new(vec![1000], usize::MAX);
         policy.min_merge_count = 3;
         let segments = vec![
             create_segment_meta_entry(700, 70, 0),
@@ -531,7 +561,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_multiple_layers() {
-        let mut policy = LayeredMergePolicy::new(vec![1000, 10000]);
+        let mut policy = LayeredMergePolicy::new(vec![1000, 10000], usize::MAX);
         let segments = vec![
             create_segment_meta_entry(700, 70, 0),
             create_segment_meta_entry(700, 70, 0),
@@ -558,5 +588,65 @@ mod tests {
             assert_eq!(candidate2_ids, small_segment_ids);
         }
         assert_eq!(largest_layer_size, 10000);
+    }
+
+    /// Four 30-doc segments with byte sizes that comfortably fill the 1000-byte
+    /// layer should all merge into one candidate when there's no doc budget,
+    /// but split into two 2-segment candidates when the budget is 60 docs (so
+    /// 3 segments wouldn't fit but 2 do).
+    #[pg_test]
+    fn test_layered_merge_policy_doc_budget_splits_candidate() {
+        let mut policy = LayeredMergePolicy::new(vec![1000], 60);
+        let segments = vec![
+            create_segment_meta_entry(400, 30, 0),
+            create_segment_meta_entry(400, 30, 0),
+            create_segment_meta_entry(400, 30, 0),
+            create_segment_meta_entry(400, 30, 0),
+        ];
+
+        policy.set_mergeable_segments_for_test(segments);
+        let (candidates, largest_layer_size) = policy.simulate();
+
+        // expect two candidates of 2 segments each (60 docs each, exactly at budget)
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].0.len(), 2);
+        assert_eq!(candidates[1].0.len(), 2);
+        assert_eq!(largest_layer_size, 1000);
+    }
+
+    /// A doc budget that's smaller than any single segment should drop those
+    /// over-budget segments rather than emitting a degenerate single-segment
+    /// candidate that would blow past the memory cap.
+    #[pg_test]
+    fn test_layered_merge_policy_doc_budget_skips_oversized_segments() {
+        let mut policy = LayeredMergePolicy::new(vec![10_000], 50);
+        let segments = vec![
+            create_segment_meta_entry(7000, 100, 0), // exceeds budget alone
+            create_segment_meta_entry(7000, 100, 0), // exceeds budget alone
+        ];
+
+        policy.set_mergeable_segments_for_test(segments);
+        let (candidates, largest_layer_size) = policy.simulate();
+
+        assert_eq!(candidates.len(), 0);
+        assert_eq!(largest_layer_size, 0);
+    }
+
+    /// With a generous doc budget, behavior should match the no-budget case:
+    /// two segments that fit the layer get merged into one candidate.
+    #[pg_test]
+    fn test_layered_merge_policy_doc_budget_loose_matches_unbounded() {
+        let mut policy = LayeredMergePolicy::new(vec![1000], 1_000_000);
+        let segments = vec![
+            create_segment_meta_entry(700, 70, 0),
+            create_segment_meta_entry(700, 70, 0),
+        ];
+
+        policy.set_mergeable_segments_for_test(segments);
+        let (candidates, largest_layer_size) = policy.simulate();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0.len(), 2);
+        assert_eq!(largest_layer_size, 1000);
     }
 }

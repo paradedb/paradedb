@@ -284,39 +284,66 @@ fn probe_segment_leaf_type(
     reader: &SegmentReader,
     path: &str,
 ) -> Option<Result<tantivy::schema::Type, ()>> {
+    use tantivy::columnar::Cardinality;
     use tantivy::schema::Type;
     let ffr = reader.fast_fields();
 
+    // Reject object sub-paths.
+    // If this path is an object, it will have dynamic subpath column handles representing its fields.
+    if let Ok(subpaths) = ffr.dynamic_subpath_column_handles(path) {
+        if !subpaths.is_empty() {
+            return Some(Err(()));
+        }
+    }
+
     let mut found = None;
 
-    if ffr.i64(path).is_ok() {
+    if let Ok(col) = ffr.i64(path) {
+        if col.get_cardinality() == Cardinality::Multivalued {
+            return Some(Err(()));
+        }
         found = Some(Type::I64);
     }
-    if ffr.u64(path).is_ok() {
+    if let Ok(col) = ffr.u64(path) {
+        if col.get_cardinality() == Cardinality::Multivalued {
+            return Some(Err(()));
+        }
         if found.is_some() {
             return Some(Err(()));
         }
         found = Some(Type::U64);
     }
-    if ffr.f64(path).is_ok() {
+    if let Ok(col) = ffr.f64(path) {
+        if col.get_cardinality() == Cardinality::Multivalued {
+            return Some(Err(()));
+        }
         if found.is_some() {
             return Some(Err(()));
         }
         found = Some(Type::F64);
     }
-    if ffr.bool(path).is_ok() {
+    if let Ok(col) = ffr.bool(path) {
+        if col.get_cardinality() == Cardinality::Multivalued {
+            return Some(Err(()));
+        }
         if found.is_some() {
             return Some(Err(()));
         }
         found = Some(Type::Bool);
     }
-    if ffr.date(path).is_ok() {
+    if let Ok(col) = ffr.date(path) {
+        if col.get_cardinality() == Cardinality::Multivalued {
+            return Some(Err(()));
+        }
         if found.is_some() {
             return Some(Err(()));
         }
         found = Some(Type::Date);
     }
-    if matches!(ffr.str(path), Ok(Some(_))) {
+    if let Ok(Some(col)) = ffr.str(path) {
+        if col.ords().get_cardinality() == Cardinality::Multivalued {
+            return Some(Err(()));
+        }
         if found.is_some() {
             return Some(Err(()));
         }

@@ -229,6 +229,57 @@ GROUP BY (metadata->>'tier')::bigint
 ORDER BY (metadata->>'tier')::bigint ASC
 LIMIT 5;
 
+-- 8. JSON Array sub-path. A JSON array at the sub-path causes Tantivy to expose
+--    a Multivalued fast field (e.g. Type::I64), but Postgres ->>/cast would
+--    sort differently or error before LIMIT. The pushdown must be rejected.
+DROP TABLE IF EXISTS mock_items_jsonsort_arrays;
+CREATE TABLE mock_items_jsonsort_arrays (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    metadata JSONB
+);
+INSERT INTO mock_items_jsonsort_arrays (description, metadata) VALUES
+('Item with array', '{"price_list": [10, 20]}'),
+('Item with primitive', '{"price_list": 30}');
+CREATE INDEX jsonsort_arrays_idx ON mock_items_jsonsort_arrays
+USING bm25 (id, description, metadata)
+WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, (metadata->>'price_list')::bigint AS price_list
+FROM mock_items_jsonsort_arrays
+WHERE id @@@ paradedb.all()
+ORDER BY price_list ASC
+LIMIT 5;
+
+DROP TABLE mock_items_jsonsort_arrays;
+
+-- 9. JSON Object sub-path. A JSON object at the sub-path causes Tantivy to expose
+--    a primitive fast field (e.g. Type::Str) if another document has a string,
+--    but Postgres ->>/cast would sort differently or error before LIMIT.
+--    The pushdown must be rejected because it contains subpaths.
+DROP TABLE IF EXISTS mock_items_jsonsort_objects;
+CREATE TABLE mock_items_jsonsort_objects (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    metadata JSONB
+);
+INSERT INTO mock_items_jsonsort_objects (description, metadata) VALUES
+('Item with object', '{"info": {"age": 30}}'),
+('Item with primitive', '{"info": "some_string"}');
+CREATE INDEX jsonsort_objects_idx ON mock_items_jsonsort_objects
+USING bm25 (id, description, metadata)
+WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'info' AS info
+FROM mock_items_jsonsort_objects
+WHERE id @@@ paradedb.all()
+ORDER BY info ASC
+LIMIT 5;
+
+DROP TABLE mock_items_jsonsort_objects;
+
 DROP TABLE mock_items_jsonsort_edges;
 
 \i common/common_cleanup.sql

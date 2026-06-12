@@ -1,0 +1,200 @@
+# workflows/test-pg_search-valgrind.yml
+#
+# Test pg_search (Valgrind)
+# Run the pg_regress suite under Valgrind to catch memory corruption.
+
+name: Test pg_search (Valgrind)
+
+on:
+  schedule:
+    - cron: "0 7 * * 3" # Weekly on Tuesday night
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - ".github/workflows/test-pg_search-valgrind.yml"
+      - ".github/scripts/scan_valgrind_log.py"
+  workflow_dispatch:
+
+concurrency:
+  group: test-pg_search-valgrind-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pg_search-valgrind:
+    name: Test pg_search under Valgrind (PostgreSQL ${{ matrix.pg_version }}, x86_64)
+    # The Valgrind regress run takes ~7-8h with origin tracking enabled (roughly
+    # 2x a bare Memcheck run). Override the 360-min (6h) default to give it time
+    # to complete.
+    timeout-minutes: 600
+    # Valgrind requires x86_64 (cannot decode aarch64 atomics). Compute-optimized
+    # AMD c-family — Rust + Postgres are CPU-bound. Runs in us-east-1.
+    # See https://runs-on.com/configuration/job-labels/
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7a+c7i
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-x64
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
+      - extras=s3-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version: [18]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale. This workflow does not save the
+      # cache (save-if: false) — it restores from the nightly-warmed default
+      # branch cache to avoid thrashing.
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "v2-rust-cache"
+          shared-key: pg${{ matrix.pg_version }}
+          cache-targets: true
+          cache-all-crates: true
+          save-if: false
+
+      - name: Install required system tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            valgrind lsof build-essential clang flex bison pkg-config ca-certificates git \
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
+            libcurl4-openssl-dev
+
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
+
+      - name: Install pgrx
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
+
+      # The Valgrind-enabled Postgres build (USE_VALGRIND) differs from the normal
+      # pgrx build, so it gets its own cache key suffixed with "valgrind".
+      - name: Cache pgrx-compiled Postgres (Valgrind)
+        id: cache-pgrx-pg
+        uses: actions/cache@v5
+        with:
+          path: ~/.pgrx
+          key: pgrx-pg-valgrind-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Initialize pgrx environment with Valgrind
+        if: steps.cache-pgrx-pg.outputs.cache-hit != 'true'
+        run: cargo pgrx init --valgrind "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline" -j $(nproc)
+
+      - name: Add pg_search to shared_preload_libraries
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+
+      - name: Compile & install pg_search extension
+        working-directory: pg_search/
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }}"
+
+      # Runs the full pg_regress suite with the postmaster wrapped in Valgrind.
+      # This is the multi-hour step. Valgrind output (including any memory errors)
+      # is written to the Postgres log, not stdout — see the scan step below.
+      # A regress failure (output diff or crash) fails the job here; the always()
+      # scan step below still runs so we also surface any Valgrind memory errors.
+      - name: Run pg_search Regression Tests under Valgrind
+        # pgrx hardcodes its Valgrind args (--trace-children, --leak-check=no, the
+        # error markers our scan parses), but Valgrind merges in $VALGRIND_OPTS, so
+        # we augment without patching pgrx:
+        #   --track-origins: report where an uninitialised value was allocated, not
+        #     just where it's read — turns the typical "Conditional jump..." report
+        #     into a pointer at the offending allocation. ~2x slower, fine weekly.
+        #   --num-callers=30: deeper stacks across the Rust<->C FFI boundary (12 default).
+        #   --keep-debuginfo=yes: pg_search is a dlopen'd .so; keep its symbols if the
+        #     library/backend unloads so stacks stay readable.
+        #   --expensive-definedness-checks=yes: fewer spurious uninitialised reports
+        #     from compiler optimizations (recommended by Postgres' Valgrind docs).
+        env:
+          VALGRIND_OPTS: "--track-origins=yes --num-callers=30 --keep-debuginfo=yes --expensive-definedness-checks=yes"
+        run: |
+          set -e
+          if ! cargo pgrx regress --valgrind --resetdb --package pg_search pg${{ matrix.pg_version }} --auto; then
+            git diff
+            exit 1
+          fi
+
+      # Memory-corruption errors do not always fail the regress run (Valgrind does
+      # not exit non-zero on them by default), so scan the Postgres log explicitly.
+      # The script groups identical reports by codepath and ignores leak summaries
+      # (normal Postgres operation leaks heavily → false positives).
+      - name: Scan Postgres log for Valgrind errors
+        if: always()
+        run: python3 .github/scripts/scan_valgrind_log.py ~/.pgrx/${{ matrix.pg_version }}.log
+
+      - name: Stop PostgreSQL
+        if: always()
+        working-directory: pg_search/
+        run: cargo pgrx stop pg${{ matrix.pg_version }} || true
+
+      - name: Upload Postgres log
+        if: always()
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
+        uses: actions/upload-artifact@v7
+        with:
+          name: valgrind-postgres-log-${{ matrix.pg_version }}
+          path: ~/.pgrx/${{ matrix.pg_version }}.log
+          retention-days: 7
+
+      - name: Print the Postgres Logs
+        if: always()
+        run: cat ~/.pgrx/${{ matrix.pg_version }}.log
+
+  # Ping Slack if the weekly (scheduled) run fails. PR runs are watched in the
+  # checks UI, so this only fires on schedule to avoid noise.
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [test-pg_search-valgrind]
+    if: |
+      always()
+      && github.event_name == 'schedule'
+      && needs.test-pg_search-valgrind.result == 'failure'
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+    steps:
+      - name: Send Slack notification
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            JSON_DATA="{
+              \"text\": \"🚨 Weekly pg_search Valgrind Run Failed - <!here>\",
+              \"attachments\": [
+                {
+                  \"color\": \"danger\",
+                  \"fields\": [
+                    {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                    {\"title\": \"Workflow\", \"value\": \"${{ github.workflow }}\", \"short\": true},
+                    {\"title\": \"Run ID\", \"value\": \"${{ github.run_id }}\", \"short\": true},
+                    {\"title\": \"View Logs\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>\", \"short\": true}
+                  ]
+                }
+              ]
+            }"
+
+            curl -X POST -H 'Content-type: application/json' \
+              --data "$JSON_DATA" \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "Slack webhook not configured, skipping notification"
+          fi

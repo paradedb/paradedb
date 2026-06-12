@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781221785845,
+  "lastUpdate": 1781222435516,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33684,6 +33684,60 @@ window.BENCHMARK_DATA = {
             "value": 17.79659101714274,
             "unit": "median tps",
             "extra": "avg tps: 17.583368145753433, max tps: 21.155346352686067, count: 55579"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "864b803e6af1d8f55a641682e4f61afd69deee50",
+          "message": "fix: Avoid aggregate scan warnings for queries which will get TopK (#5312)\n\n## What\n\nAdd handling to silence `aggregate` scan warnings when TopK scans are\nbeing used.\n\n## Why\n\nTo fix #5296, we are switching to an RRF query in #5303. But that\nswitches from a valid `join` scan warning to a spurious `aggregate` scan\nwarning due to failing to handle subqueries:\n```\nWARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources (table: join)\n```\n\nWe will eventually want to support incorporating subqueries into the\n`aggregate` scan as joins. But in cases where a TopK is already\ntriggering, we cannot do any better with the `aggregate` scan.\n\n## Tests\n\nNew RRF regression test.",
+          "timestamp": "2026-06-11T16:04:34-07:00",
+          "tree_id": "5af1c6c36207d8d4735f95b1a7143622932a7282",
+          "url": "https://github.com/paradedb/paradedb/commit/864b803e6af1d8f55a641682e4f61afd69deee50"
+        },
+        "date": 1781222400757,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 58.3364874740848,
+            "unit": "median tps",
+            "extra": "avg tps: 57.55188631499061, max tps: 65.63952910464378, count: 55721"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.2291433039441,
+            "unit": "median tps",
+            "extra": "avg tps: 276.22172827723057, max tps: 2955.305659962727, count: 55721"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 608.0662993446774,
+            "unit": "median tps",
+            "extra": "avg tps: 594.4761931703201, max tps: 816.3091902205657, count: 55721"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 166.32299677644764,
+            "unit": "median tps",
+            "extra": "avg tps: 183.36926480652187, max tps: 817.547338794901, count: 111442"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.30504536146037,
+            "unit": "median tps",
+            "extra": "avg tps: 18.037187910099377, max tps: 21.357910307882822, count: 55721"
           }
         ]
       }

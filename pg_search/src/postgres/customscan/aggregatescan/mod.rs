@@ -1395,7 +1395,10 @@ impl AggregateScan {
                 &tupdesc,
                 &row,
                 &state.custom_state().aggregate_clause,
-                &AggIndexInfo::from(state.custom_state().indexrel()),
+                state
+                    .custom_state()
+                    .precomputed_index_info()
+                    .expect("should be initialized by now"),
             );
 
             Self::project_wrapped_aggregates(state, slot, &row)
@@ -1506,7 +1509,10 @@ impl AggregateScan {
                         (*const_node).consttype,
                         aggregate_clause,
                         next_aggregate,
-                        &AggIndexInfo::from(state.custom_state().indexrel()),
+                        state
+                            .custom_state()
+                            .precomputed_index_info()
+                            .expect("should be initialized by now"),
                     ) {
                         Some(datum) => (datum, false),
                         None => (pg_sys::Datum::null(), true),

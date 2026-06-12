@@ -25,7 +25,7 @@ use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
-use crate::postgres::customscan::aggregatescan::AggregateType;
+use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -260,7 +260,7 @@ impl TopKScanExecState {
         aggregations: PreparedAggregations,
         agg_limits: AggregationLimitsGuard,
         intermediate_results: IntermediateAggregationResults,
-        index_info: &crate::postgres::customscan::aggregatescan::AggIndexInfo,
+        index_info: &AggIndexInfo,
     ) -> HashMap<usize, pg_sys::Datum> {
         let final_result = intermediate_results
             .into_final_result(aggregations.aggregations, agg_limits)
@@ -458,7 +458,7 @@ impl ExecMethod for TopKScanExecState {
             };
 
             let search_reader = state.search_reader.as_ref().unwrap();
-            let index_info = crate::postgres::customscan::aggregatescan::AggIndexInfo {
+            let index_info = AggIndexInfo {
                 created_by_version: search_reader.index_created_by_version(),
                 schema: search_reader.schema().clone(),
             };

@@ -188,8 +188,35 @@ pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
     s.trim_start_matches('\0').replace('\0', ".")
 }
 
+pub enum CollationProvider {
+    #[cfg(any(feature = "pg17", feature = "pg18"))]
+    Builtin,
+    Icu,
+    Libc,
+    Unknown(#[expect(dead_code)] u8),
+}
+
+impl From<u8> for CollationProvider {
+    fn from(c: u8) -> Self {
+        match c {
+            #[cfg(any(feature = "pg17", feature = "pg18"))]
+            pg_sys::COLLPROVIDER_BUILTIN => Self::Builtin,
+            pg_sys::COLLPROVIDER_ICU => Self::Icu,
+            pg_sys::COLLPROVIDER_LIBC => Self::Libc,
+            other => Self::Unknown(other),
+        }
+    }
+}
+
+pub struct CollationLocale {
+    pub provider: CollationProvider,
+    /// libc LC_COLLATE-style locale name. Reliably present only for libc
+    /// providers (collcollate is NULL for ICU/builtin rows in pg_collation).
+    pub name: Option<String>,
+}
+
 /// Helper function to lookup the database's `datcollate` and `datlocprovider` settings from `pg_database`
-pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
+pub fn lookup_database_datcollate_and_provider() -> Option<CollationLocale> {
     unsafe {
         let entry = SysCacheEntry::search1(
             pg_sys::SysCacheIdentifier::DATABASEOID,
@@ -198,7 +225,10 @@ pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
 
         let datcollate = entry.attr::<String>(pg_sys::Anum_pg_database_datcollate)?;
         let datlocprovider = entry.attr::<i8>(pg_sys::Anum_pg_database_datlocprovider)?;
-        Some((datcollate, datlocprovider as u8))
+        Some(CollationLocale {
+            provider: CollationProvider::from(datlocprovider as u8),
+            name: Some(datcollate),
+        })
     }
 }
 
@@ -206,13 +236,16 @@ pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
 /// Note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: https://www.postgresql.org/docs/current/catalog-pg-collation.html
 pub fn lookup_collation_collcollate_and_provider(
     collation: pg_sys::Oid,
-) -> Option<(Option<String>, u8)> {
+) -> Option<CollationLocale> {
     unsafe {
         let entry =
             SysCacheEntry::search1(pg_sys::SysCacheIdentifier::COLLOID, collation.into_datum()?)?;
 
         let collcollate = entry.attr::<String>(pg_sys::Anum_pg_collation_collcollate);
         let collprovider = entry.attr::<i8>(pg_sys::Anum_pg_collation_collprovider)?;
-        Some((collcollate, collprovider as u8))
+        Some(CollationLocale {
+            provider: CollationProvider::from(collprovider as u8),
+            name: collcollate,
+        })
     }
 }

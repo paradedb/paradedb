@@ -27,6 +27,8 @@
 use crate::api::FieldName;
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
+use crate::postgres::catalog::CollationLocale;
+use crate::postgres::catalog::CollationProvider;
 use crate::postgres::catalog::{
     lookup_collation_collcollate_and_provider, lookup_database_datcollate_and_provider,
 };
@@ -307,27 +309,25 @@ fn normalize_collation_name(mut collation_name: String) -> String {
 pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
     const NORMALIZED_SAFE_COLLATION_NAMES: &[&str] = &["C", "POSIX", "C.UTF8", "POSIX.UTF8"];
 
-    match collation {
-        pg_sys::Oid::INVALID => true,
-        pg_sys::C_COLLATION_OID => true,
-        // for default collation - if using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check LC_COLLATE
-        pg_sys::DEFAULT_COLLATION_OID => match lookup_database_datcollate_and_provider() {
-            #[cfg(any(feature = "pg17", feature = "pg18"))]
-            Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
-            Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((datcollate, pg_sys::COLLPROVIDER_LIBC)) => NORMALIZED_SAFE_COLLATION_NAMES
-                .contains(&normalize_collation_name(datcollate).as_str()),
-            _ => false,
-        },
-        // for all other collations, same as above
-        _ => match lookup_collation_collcollate_and_provider(collation) {
-            #[cfg(any(feature = "pg17", feature = "pg18"))]
-            Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
-            Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((Some(collcollate), pg_sys::COLLPROVIDER_LIBC)) => NORMALIZED_SAFE_COLLATION_NAMES
-                .contains(&normalize_collation_name(collcollate).as_str()),
-            _ => false,
-        },
+    let locale = match collation {
+        pg_sys::Oid::INVALID | pg_sys::C_COLLATION_OID => return true,
+        pg_sys::DEFAULT_COLLATION_OID => lookup_database_datcollate_and_provider(),
+        _ => lookup_collation_collcollate_and_provider(collation),
+    };
+
+    // If using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check the name
+    match locale {
+        #[cfg(any(feature = "pg17", feature = "pg18"))]
+        Some(CollationLocale {
+            provider: CollationProvider::Builtin,
+            ..
+        }) => true,
+        Some(CollationLocale {
+            provider: CollationProvider::Libc,
+            name: Some(name),
+        }) => NORMALIZED_SAFE_COLLATION_NAMES.contains(&normalize_collation_name(name).as_str()),
+        // ICU and anything unrecognized: never byte-ordered
+        _ => false,
     }
 }
 

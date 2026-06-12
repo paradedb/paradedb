@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781222470204,
+  "lastUpdate": 1781223120436,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44134,6 +44134,54 @@ window.BENCHMARK_DATA = {
             "value": 264.83439685681003,
             "unit": "median tps",
             "extra": "avg tps: 260.50005827997484, max tps: 563.164470719446, count: 107658"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "864b803e6af1d8f55a641682e4f61afd69deee50",
+          "message": "fix: Avoid aggregate scan warnings for queries which will get TopK (#5312)\n\n## What\n\nAdd handling to silence `aggregate` scan warnings when TopK scans are\nbeing used.\n\n## Why\n\nTo fix #5296, we are switching to an RRF query in #5303. But that\nswitches from a valid `join` scan warning to a spurious `aggregate` scan\nwarning due to failing to handle subqueries:\n```\nWARNING:  Aggregate Scan (DataFusion) not used: RTI 1 not found in join sources (table: join)\n```\n\nWe will eventually want to support incorporating subqueries into the\n`aggregate` scan as joins. But in cases where a TopK is already\ntriggering, we cannot do any better with the `aggregate` scan.\n\n## Tests\n\nNew RRF regression test.",
+          "timestamp": "2026-06-11T16:04:34-07:00",
+          "tree_id": "5af1c6c36207d8d4735f95b1a7143622932a7282",
+          "url": "https://github.com/paradedb/paradedb/commit/864b803e6af1d8f55a641682e4f61afd69deee50"
+        },
+        "date": 1781223088013,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 128.83092548321522,
+            "unit": "median tps",
+            "extra": "avg tps: 129.11597066972138, max tps: 142.44408775981637, count: 53838"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 518.8377043639268,
+            "unit": "median tps",
+            "extra": "avg tps: 519.2512592315331, max tps: 635.4876969512795, count: 53838"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 136.7663603889609,
+            "unit": "median tps",
+            "extra": "avg tps: 137.0022860067311, max tps: 148.86846168609821, count: 53838"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 266.7770321794873,
+            "unit": "median tps",
+            "extra": "avg tps: 262.1650240664214, max tps: 516.5990983122113, count: 107676"
           }
         ]
       }

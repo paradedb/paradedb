@@ -36,6 +36,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
+use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -1454,8 +1455,9 @@ unsafe fn pathkey_is_outer_only(
 /// Returns true if:
 /// - No ORDER BY clause exists
 /// - All relevant ORDER BY columns are fast fields or score functions
+/// - All relevant ORDER BY columns have a byte-ordered (C-like) collation
 ///
-/// Returns false if any relevant ORDER BY column is not a fast field.
+/// Returns false if any relevant ORDER BY column is not a fast field or uses a non C-like collation.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -1476,6 +1478,11 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         }
 
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let collation = (*equivclass).ec_collation;
+        if !is_collation_pushdown_safe(collation) {
+            return false;
+        }
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;

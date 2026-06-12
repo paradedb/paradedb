@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
     scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
@@ -38,7 +39,7 @@ use tantivy::query::{
     Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
     TermSetQuery,
 };
-use tantivy::schema::{FieldType, OwnedValue};
+use tantivy::schema::FieldType;
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
@@ -51,19 +52,13 @@ pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQuery
 
 #[pg_schema]
 pub mod pdb {
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::proximity::{ProximityClause, ProximityDistance};
-    use crate::query::range::{
-        deserialize_bound, deserialize_bound_date_aware, serialize_bound,
-        serialize_bound_date_aware,
-    };
-    use crate::query::{
-        deserialize_as_date_aware_owned_value, serialize_as_date_aware_owned_value,
-    };
+    use crate::query::range::{deserialize_bound, serialize_bound};
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
     use std::fmt::{Display, Formatter};
-    use tantivy::schema::OwnedValue;
 
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
     #[serde(rename_all = "snake_case")]
@@ -260,58 +255,54 @@ pub mod pdb {
         },
         Range {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            lower_bound: Bound<OwnedValue>,
+            lower_bound: Bound<PdbOwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            upper_bound: Bound<OwnedValue>,
+            upper_bound: Bound<PdbOwnedValue>,
         },
         RangeContains {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            lower_bound: Bound<OwnedValue>,
+            lower_bound: Bound<PdbOwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            upper_bound: Bound<OwnedValue>,
+            upper_bound: Bound<PdbOwnedValue>,
         },
         RangeIntersects {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            lower_bound: Bound<OwnedValue>,
+            lower_bound: Bound<PdbOwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            upper_bound: Bound<OwnedValue>,
+            upper_bound: Bound<PdbOwnedValue>,
         },
         RangeTerm {
-            #[serde(
-                serialize_with = "serialize_as_date_aware_owned_value",
-                deserialize_with = "deserialize_as_date_aware_owned_value"
-            )]
-            value: OwnedValue,
+            value: PdbOwnedValue,
         },
         RangeWithin {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            lower_bound: Bound<OwnedValue>,
+            lower_bound: Bound<PdbOwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
-            upper_bound: Bound<OwnedValue>,
+            upper_bound: Bound<PdbOwnedValue>,
         },
         Regex {
             pattern: String,
@@ -322,14 +313,10 @@ pub mod pdb {
             max_expansions: Option<u32>,
         },
         Term {
-            #[serde(
-                serialize_with = "serialize_as_date_aware_owned_value",
-                deserialize_with = "deserialize_as_date_aware_owned_value"
-            )]
-            value: OwnedValue,
+            value: PdbOwnedValue,
         },
         TermSet {
-            terms: Vec<OwnedValue>,
+            terms: Vec<PdbOwnedValue>,
         },
     }
 }
@@ -373,7 +360,7 @@ impl pdb::Query {
             }
 
             pdb::Query::Term {
-                value: OwnedValue::Str(value),
+                value: PdbOwnedValue::Str(value),
             } => {
                 *self = pdb::Query::FuzzyTerm {
                     value: value.to_string(),
@@ -387,7 +374,7 @@ impl pdb::Query {
                 // must convert to an OR'd set of FuzzyTerms
                 let mut fuzzy_terms = Vec::with_capacity(terms.len());
                 for term in terms {
-                    let OwnedValue::Str(term) = term else {
+                    let PdbOwnedValue::Str(term) = term else {
                         continue;
                     };
                     fuzzy_terms.push(term.clone());
@@ -757,7 +744,7 @@ fn proximity(
 fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
-    terms: Vec<OwnedValue>,
+    terms: Vec<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(&field)
@@ -767,9 +754,11 @@ fn term_set(
     let search_field_type = search_field.field_type();
 
     // Convert terms based on field type (uses same logic as term())
-    let converted_terms: Vec<OwnedValue> = terms
+    let converted_terms: Vec<PdbOwnedValue> = terms
         .into_iter()
-        .map(|term| convert_value_for_field(term, &search_field_type).unwrap_or(OwnedValue::Null))
+        .map(|term| {
+            convert_value_for_field(term, &search_field_type).unwrap_or(PdbOwnedValue::Null)
+        })
         .collect();
 
     Ok(Box::new(TermSetQuery::new(
@@ -789,7 +778,7 @@ fn term_set(
 fn term(
     field: FieldName,
     schema: &SearchIndexSchema,
-    value: &OwnedValue,
+    value: &PdbOwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
     let search_field = schema
@@ -854,8 +843,8 @@ fn regex(
 fn range_within(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    lower_bound: Bound<OwnedValue>,
-    upper_bound: Bound<OwnedValue>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1006,7 +995,7 @@ fn range_within(
 fn range_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    value: &OwnedValue,
+    value: &PdbOwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1116,8 +1105,8 @@ fn range_term(
 fn range_intersects(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    lower_bound: Bound<OwnedValue>,
-    upper_bound: Bound<OwnedValue>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1271,8 +1260,8 @@ fn range_intersects(
 fn range_contains(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    lower_bound: Bound<OwnedValue>,
-    upper_bound: Bound<OwnedValue>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1428,8 +1417,8 @@ fn range_contains(
 fn range(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    lower_bound: Bound<OwnedValue>,
-    upper_bound: Bound<OwnedValue>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1558,7 +1547,7 @@ fn tokenized_phrase(
 
     let mut tokens = Vec::new();
     while let Some(token) = stream.next() {
-        let value = OwnedValue::Str(token.text.clone());
+        let value = PdbOwnedValue::Str(token.text.clone());
         let term = value_to_term(
             search_field.field(),
             &value,
@@ -1597,7 +1586,7 @@ fn phrase_prefix(
     let terms = phrases.clone().into_iter().map(|phrase| {
         value_to_term(
             search_field.field(),
-            &OwnedValue::Str(phrase),
+            &PdbOwnedValue::Str(phrase),
             field_type,
             field.path().as_deref(),
             false,
@@ -1636,7 +1625,7 @@ fn phrase(
             let token = stream.token().text.clone();
             let term = value_to_term(
                 search_field.field(),
-                &OwnedValue::Str(token),
+                &PdbOwnedValue::Str(token),
                 field_type,
                 field.path().as_deref(),
                 false,
@@ -1682,7 +1671,7 @@ fn phrase_array(
     if tokens.len() == 1 {
         let term = value_to_term(
             search_field.field(),
-            &OwnedValue::Str(tokens.pop().unwrap()),
+            &PdbOwnedValue::Str(tokens.pop().unwrap()),
             field_type,
             field.path().as_deref(),
             false,
@@ -1695,7 +1684,7 @@ fn phrase_array(
         for token in tokens {
             let term = value_to_term(
                 search_field.field(),
-                &OwnedValue::Str(token),
+                &PdbOwnedValue::Str(token),
                 field_type,
                 field.path().as_deref(),
                 false,
@@ -1757,7 +1746,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(..)
     ) {
         // Convert the query string to the appropriate numeric format
-        let value = OwnedValue::Str(query_string.trim().to_string());
+        let value = PdbOwnedValue::Str(query_string.trim().to_string());
         if let Ok(converted) = convert_value_for_field(value, &field_type) {
             let tantivy_field_type = search_field.field_entry().field_type();
             let term = value_to_term(
@@ -1846,7 +1835,7 @@ fn match_query(
         let token = stream.token().text.clone();
         terms.push(value_to_term(
             search_field.field(),
-            &OwnedValue::Str(token),
+            &PdbOwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
             false,
@@ -1904,7 +1893,7 @@ fn match_array_query(
     for token in tokens {
         let term = value_to_term(
             search_field.field(),
-            &OwnedValue::Str(token),
+            &PdbOwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
             false,
@@ -1950,7 +1939,7 @@ fn fuzzy_term(
     let field_type = search_field.field_entry().field_type();
     let term = value_to_term(
         search_field.field(),
-        &OwnedValue::Str(value),
+        &PdbOwnedValue::Str(value),
         field_type,
         field.path().as_deref(),
         false,

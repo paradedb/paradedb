@@ -23,6 +23,7 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_build_pushdown_qual, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::VarContext;
 use crate::query::heap_field_filter::HeapFieldFilter;
@@ -31,7 +32,6 @@ use crate::query::SearchQueryInput;
 use pg_sys::BoolExprType;
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
-use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone)]
 pub enum Qual {
@@ -323,25 +323,25 @@ impl From<&Qual> for SearchQueryInput {
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(true),
+                    value: PdbOwnedValue::Bool(true),
                 },
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(false),
+                    value: PdbOwnedValue::Bool(false),
                 },
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(true),
+                    value: PdbOwnedValue::Bool(true),
                 },
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
-                    value: OwnedValue::Bool(false),
+                    value: PdbOwnedValue::Bool(false),
                 },
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::FieldedQuery {
@@ -1862,6 +1862,8 @@ unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
+
     use super::*;
     use pgrx::prelude::*;
     use proptest::prelude::*;
@@ -1889,7 +1891,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "foo".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(true),
+                value: PdbOwnedValue::Bool(true),
             },
         };
         assert_eq!(got, want);
@@ -1904,7 +1906,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "bar".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(false),
+                value: PdbOwnedValue::Bool(false),
             },
         };
         assert_eq!(got, want);
@@ -1919,7 +1921,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "baz".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(true),
+                value: PdbOwnedValue::Bool(true),
             },
         };
         assert_eq!(got, want);
@@ -1934,7 +1936,7 @@ mod tests {
         let want = SearchQueryInput::FieldedQuery {
             field: "qux".into(),
             query: pdb::Query::Term {
-                value: OwnedValue::Bool(false),
+                value: PdbOwnedValue::Bool(false),
             },
         };
         assert_eq!(got, want);
@@ -1996,7 +1998,7 @@ mod tests {
                     field: f,
                     query: pdb::Query::Term { value, .. },
                 },
-            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
+            ) => field.attname() == *f && matches!(value, PdbOwnedValue::Bool(true)),
 
             // Match boolean field FALSE cases
             (
@@ -2005,7 +2007,7 @@ mod tests {
                     field: f,
                     query: pdb::Query::Term { value, .. },
                 },
-            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
+            ) => field.attname() == *f && matches!(value, PdbOwnedValue::Bool(false)),
 
             // Match IS NOT NULL
             (
@@ -2053,7 +2055,7 @@ mod tests {
                     field: f,
                     query:
                         pdb::Query::Term {
-                            value: OwnedValue::Bool(false),
+                            value: PdbOwnedValue::Bool(false),
                             ..
                         },
                 },
@@ -2068,7 +2070,7 @@ mod tests {
                     field: f,
                     query:
                         pdb::Query::Term {
-                            value: OwnedValue::Bool(true),
+                            value: PdbOwnedValue::Bool(true),
                             ..
                         },
                 },

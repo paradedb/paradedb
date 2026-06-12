@@ -104,7 +104,7 @@ use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
     pub canonical: CanonicalColumn,
@@ -218,6 +218,73 @@ impl SegmentedTopKExec {
             .collect();
 
         Ok(RowConverter::new(materialized_sort_fields)?)
+    }
+
+    /// Serialize for leader dispatch. The `ffhelper` is live and doesn't travel; the worker
+    /// pulls it from the scan in its decoded subtree. The `dynamic_filter` is internal and is
+    /// recreated fresh by `new` on decode; the leader-side `FilterPushdown` wiring of that filter
+    /// into the scans' `PreFilter` does not travel, so a dispatched fragment scans without the
+    /// runtime top-k pruning (correct, just slower). Rewiring on decode is an open follow-up.
+    /// `decoders`/`properties` are derived.
+    pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
+        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
+        let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
+        let sort_proto = datafusion_proto::physical_plan::to_proto::serialize_physical_sort_exprs(
+            self.sort_exprs.iter().cloned(),
+            &codec,
+            &proto_conv,
+        )?;
+        let sort_bytes: Vec<Vec<u8>> = sort_proto
+            .iter()
+            .map(prost::Message::encode_to_vec)
+            .collect();
+        let payload = (sort_bytes, self.deferred_columns.clone(), self.k);
+        serde_json::to_vec(&payload).map_err(|e| {
+            DataFusionError::Internal(format!("SegmentedTopKExec dispatch: serialize: {e}"))
+        })
+    }
+
+    pub(crate) fn decode_for_dispatch(
+        buf: &[u8],
+        input: Arc<dyn ExecutionPlan>,
+        ffhelper: Arc<FFHelper>,
+        ctx: &TaskContext,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let (sort_bytes, deferred_columns, k): (Vec<Vec<u8>>, Vec<DeferredSortColumn>, usize) =
+            serde_json::from_slice(buf).map_err(|e| {
+                DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
+            })?;
+        let sort_proto = sort_bytes
+            .iter()
+            .map(|b| {
+                <datafusion_proto::protobuf::PhysicalSortExprNode as prost::Message>::decode(
+                    b.as_slice(),
+                )
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| {
+                DataFusionError::Internal(format!("SegmentedTopKExec dispatch: sort decode: {e}"))
+            })?;
+        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
+        let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
+        let input_schema = input.schema();
+        let exprs = datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
+            &sort_proto,
+            ctx,
+            input_schema.as_ref(),
+            &codec,
+            &proto_conv,
+        )?;
+        let sort_exprs = LexOrdering::new(exprs).ok_or_else(|| {
+            DataFusionError::Internal("SegmentedTopKExec dispatch: empty sort order".into())
+        })?;
+        Ok(Arc::new(SegmentedTopKExec::new(
+            input,
+            sort_exprs,
+            deferred_columns,
+            ffhelper,
+            k,
+        )))
     }
 }
 

@@ -466,7 +466,7 @@ impl PgSearchTableProvider {
         &self,
         segments: Vec<ScanState>,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
         ffhelper: Arc<FFHelper>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -495,7 +495,7 @@ impl PgSearchTableProvider {
         Ok(Arc::new(PgSearchScanPlan::new(
             segments,
             schema,
-            query_for_display,
+            resolved_query,
             actual_sort_order,
             deferred,
             ffhelper_arg,
@@ -527,7 +527,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let mut segments = Vec::new();
@@ -562,7 +562,7 @@ impl PgSearchTableProvider {
             segments.push(partition);
         }
 
-        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+        self.create_scan(segments, schema, resolved_query, sort_order, ffhelper)
     }
 
     /// Creates a multi-partition `PgSearchScanPlan` for eager scans.
@@ -585,7 +585,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
@@ -593,6 +593,7 @@ impl PgSearchTableProvider {
             which_fast_fields: which_fast_fields.clone(),
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
+            score_needed: self.scan_info.score_needed,
         };
         let segments: Vec<ScanState> = reader
             .segment_readers()
@@ -608,7 +609,7 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+        self.create_scan(segments, schema, resolved_query, sort_order, ffhelper)
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
@@ -636,7 +637,7 @@ impl PgSearchTableProvider {
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
-        query_for_display: SearchQueryInput,
+        resolved_query: SearchQueryInput,
         planner_estimated_rows: u64,
         mpp_source_idx: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -645,10 +646,12 @@ impl PgSearchTableProvider {
             which_fast_fields: which_fast_fields.clone(),
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
+            score_needed: self.scan_info.score_needed,
         };
         let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
             parallel_state,
             source_idx: mpp_source_idx,
+            non_partitioning_index: self.non_partitioning_index,
             planner_estimated_rows,
             scanner_config,
         };
@@ -662,7 +665,7 @@ impl PgSearchTableProvider {
         self.create_scan(
             vec![state],
             schema,
-            query_for_display,
+            resolved_query,
             None, // no sort order
             ffhelper,
         )

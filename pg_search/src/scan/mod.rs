@@ -23,6 +23,7 @@ pub mod filter_passthrough_exec;
 pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization;
+pub mod physical_codec;
 pub mod pre_filter;
 pub mod search_predicate_udf;
 pub mod segmented_topk_exec;

@@ -46,6 +46,7 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
+use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
@@ -652,7 +653,10 @@ impl ParallelQueryCapable for AggregateScan {
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let mpp_offset = mpp_align(pscan_offset() + pscan_size);
 
-        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
+        // Size the plan region before the physical plan (and so the real blob size) can exist;
+        // `initialize_dsm` derives the same capacity from the same length, and an oversized
+        // blob falls back to serial there.
+        let mpp_size = match estimate_dsm_size(dispatch_plan_capacity(plan_bytes_len)) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -724,15 +728,27 @@ impl ParallelQueryCapable for AggregateScan {
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
         state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
 
+        // Build the leader dispatch payload: per-stage physical subplans, serialized once
+        // so workers run their fragments without re-planning. This runs before
+        // `LaunchParallelWorkers`, so erroring here fails the query without launching a single
+        // worker; surviving a serialization gap with a silent serial fallback would hide codec
+        // bugs behind a correct-but-slow plan.
+        let payload = match build_dispatch_payload(
+            &plan_bytes,
+            create_aggregate_session_context(),
+            producer_worker_count(),
+            &state.custom_state().non_partitioning_segments,
+        ) {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
+        };
+
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
+        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, payload) } {
             Ok(l) => l,
-            Err(e) => {
-                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
-                return;
-            }
+            Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
         };
         let df_state = state
             .custom_state_mut()
@@ -766,7 +782,9 @@ impl ParallelQueryCapable for AggregateScan {
         }
 
         // Read the MPP-region offset + partitioning-source index from the
-        // DSM header.
+        // DSM header. The leader errors out of `initialize_dsm_custom_scan` on any setup
+        // failure, before `LaunchParallelWorkers`, so a launched worker always finds an
+        // initialized region.
         let header = unsafe { read_custom_scan_header(coordinate) };
         let mpp_offset = header.mpp_offset as usize;
         let pscan_offset = pscan_offset();
@@ -791,8 +809,10 @@ impl ParallelQueryCapable for AggregateScan {
         let worker = match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
             Ok(w) => w,
             Err(e) => {
-                pgrx::warning!("mpp: worker_setup failed: {e}; falling back to serial");
-                return;
+                // No disabled marker, so the leader initialized the region and will wait for
+                // this worker's EOFs. Falling back here would either duplicate the aggregate
+                // or hang the leader; fail the query instead.
+                pgrx::error!("mpp: worker_setup failed: {e}");
             }
         };
         let df_state = state

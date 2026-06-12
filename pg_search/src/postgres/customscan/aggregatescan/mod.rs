@@ -50,7 +50,6 @@ use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
-    MPP_DISABLED_OFFSET,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 
@@ -705,20 +704,6 @@ impl ParallelQueryCapable for AggregateScan {
             )
         };
 
-        // On any failure past this point the leader falls back to serial, but the parallel
-        // workers are already planned and will still launch. Stamp the disabled marker so they
-        // emit nothing instead of attaching to an uninitialized region and each re-running the
-        // whole aggregate.
-        let write_disabled_header = || unsafe {
-            write_custom_scan_header(
-                coordinate,
-                CustomScanMppHeader {
-                    mpp_offset: MPP_DISABLED_OFFSET,
-                    partitioning_source_idx: partitioning_idx as u64,
-                },
-            )
-        };
-
         // Init the ParallelScanState at `pscan_offset`.
         let pscan_state =
             unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
@@ -743,8 +728,10 @@ impl ParallelQueryCapable for AggregateScan {
         state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
 
         // Build the leader dispatch payload: per-stage physical subplans, serialized once
-        // so workers run their fragments without re-planning. Any failure falls back to serial,
-        // correct but slower.
+        // so workers run their fragments without re-planning. This runs before
+        // `LaunchParallelWorkers`, so erroring here fails the query without launching a single
+        // worker; surviving a serialization gap with a silent serial fallback would hide codec
+        // bugs behind a correct-but-slow plan.
         let payload = match build_dispatch_payload(
             &plan_bytes,
             create_aggregate_session_context(),
@@ -752,11 +739,7 @@ impl ParallelQueryCapable for AggregateScan {
             &state.custom_state().non_partitioning_segments,
         ) {
             Ok(p) => p,
-            Err(e) => {
-                pgrx::warning!("mpp: dispatch payload build failed: {e}; falling back to serial");
-                write_disabled_header();
-                return;
-            }
+            Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
         };
 
         // Init the MPP region.
@@ -764,11 +747,7 @@ impl ParallelQueryCapable for AggregateScan {
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
         let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, payload) } {
             Ok(l) => l,
-            Err(e) => {
-                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
-                write_disabled_header();
-                return;
-            }
+            Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
         };
         let df_state = state
             .custom_state_mut()
@@ -802,19 +781,10 @@ impl ParallelQueryCapable for AggregateScan {
         }
 
         // Read the MPP-region offset + partitioning-source index from the
-        // DSM header.
+        // DSM header. The leader errors out of `initialize_dsm_custom_scan` on any setup
+        // failure, before `LaunchParallelWorkers`, so a launched worker always finds an
+        // initialized region.
         let header = unsafe { read_custom_scan_header(coordinate) };
-        if header.mpp_offset == MPP_DISABLED_OFFSET {
-            // The leader fell back to serial before initializing the region; emit nothing
-            // (see [`scan_state::MppExecState::Disabled`]).
-            let df_state = state
-                .custom_state_mut()
-                .datafusion_state
-                .as_mut()
-                .expect("checked above");
-            df_state.mpp = Some(scan_state::MppExecState::Disabled);
-            return;
-        }
         let mpp_offset = header.mpp_offset as usize;
         let pscan_offset = pscan_offset();
         state.custom_state_mut().mpp_partitioning_source_idx =
@@ -1555,12 +1525,6 @@ impl AggregateScan {
         // PG; the leader assembles the result via the consumer plan.
         if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
             return crate::postgres::customscan::mpp::host::exec_mpp_worker(state);
-        }
-
-        // MPP disabled by the leader before setup: this parallel worker emits nothing; the
-        // leader computes the whole aggregate serially.
-        if let Some(scan_state::MppExecState::Disabled) = &df_state.mpp {
-            return std::ptr::null_mut();
         }
 
         // First call: build and execute the DataFusion plan

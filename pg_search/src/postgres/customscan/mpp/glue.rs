@@ -115,16 +115,12 @@ pub fn mpp_worker_count() -> u32 {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CustomScanMppHeader {
-    /// Byte offset of the MPP region within the coordinate, or [`MPP_DISABLED_OFFSET`].
+    /// Byte offset of the MPP region within the coordinate. Always a real, initialized region:
+    /// the leader errors out of `initialize_dsm_custom_scan` on any setup failure, before
+    /// `LaunchParallelWorkers`, so no worker ever reads a half-written header.
     pub mpp_offset: u64,
     pub partitioning_source_idx: u64,
 }
-
-/// `mpp_offset` value marking MPP as disabled for this query: the leader hit a pre-setup
-/// failure (dispatch blob, capacity, runtime) and fell back to serial. Workers must not attach
-/// to the MPP region (it was never initialized) and must not produce rows of their own. A real
-/// region offset is always non-zero because this header occupies the start of the coordinate.
-pub const MPP_DISABLED_OFFSET: u64 = 0;
 
 const CUSTOM_SCAN_MPP_HEADER_SIZE: usize = std::mem::size_of::<CustomScanMppHeader>();
 

@@ -72,7 +72,9 @@ use crate::postgres::customscan::aggregatescan::exec::{
     aggregation_results_iter, AggregateResult, AggregationResultsRow,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
-use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    extract_aggregate_targetlist, JoinAggregateTargetList,
+};
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
@@ -872,6 +874,34 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
+    /// Decide whether to set `parallel_workers` on the path builder for an MPP
+    /// run. Returns `true` to enable MPP, `false` to fall through to the
+    /// serial `HashJoinExec mode=CollectLeft` + `CooperativeExec` segment-claim
+    /// path. Caller already gated on `mpp_is_active()`.
+    ///
+    /// Today this only suppresses MPP for scalar aggregates (no GROUP BY) when
+    /// the planner-estimated **join-output cardinality** (`input_rel.rows`)
+    /// sits below `paradedb.mpp_scalar_agg_threshold_rows`. `input_rel.rows`
+    /// is what PG's cost model itself uses when deciding parallelism cost, so
+    /// thresholding on the same number keeps the GUC behavior aligned with
+    /// the planner's other parallel-path decisions. Default 0 always enables
+    /// MPP, preserving historical behavior.
+    fn should_use_mpp_for_aggregate(
+        args: &CreateUpperPathsHookArgs,
+        targetlist: &JoinAggregateTargetList,
+    ) -> bool {
+        let threshold = crate::gucs::mpp_scalar_agg_threshold_rows();
+        if threshold <= 0 {
+            return true;
+        }
+        let is_scalar_agg = targetlist.group_columns.is_empty();
+        if !is_scalar_agg {
+            return true;
+        }
+        let estimated_rows = args.input_rel().rows;
+        estimated_rows >= threshold as f64
+    }
+
     /// Capture per-source `SearchIndexManifest`s for every PgSearchScan
     /// reachable from the aggregate's `RelNode` plan tree. Mirrors
     /// `JoinScan::ensure_source_manifests`. Required at DSM-init time so
@@ -1321,7 +1351,29 @@ impl AggregateScan {
         // parallel flags at build time, and setting them after produces a
         // `Single Copy: true` Gather where the customscan never actually
         // runs in multiple workers.
-        let builder = if mpp_is_active() {
+        //
+        // Suppression: `paradedb.mpp_scalar_agg_threshold_rows > 0` skips the
+        // `set_parallel` call for scalar aggregates (no GROUP BY) when the
+        // planner-estimated **join-output** cardinality is below the threshold.
+        // This is primarily an EXPLAIN-cleanup lever: PG already declines to
+        // Gather over a 1-row return regardless of `set_parallel`, so the gate
+        // doesn't change wall time. It does drop the misleading "Parallel"
+        // marker on a path that wouldn't actually parallelize, and skips a tiny
+        // amount of planner work building the parallel sibling. Real perf
+        // levers for scalar count live elsewhere — see Path C analysis in
+        // `benchmarks/mpp_scaling/FINDINGS.md`. JoinScan has a different
+        // activation site (`joinscan/mod.rs::compute_nworkers`) and is out of
+        // scope for this gate.
+        let mpp_active = mpp_is_active();
+        let use_mpp = mpp_active && Self::should_use_mpp_for_aggregate(builder.args(), &targetlist);
+        if mpp_active && !use_mpp {
+            crate::mpp_log!(
+                "mpp suppressed for scalar aggregate: input_rel.rows={} < threshold={}",
+                builder.args().input_rel().rows,
+                crate::gucs::mpp_scalar_agg_threshold_rows()
+            );
+        }
+        let builder = if use_mpp {
             builder.set_parallel(producer_worker_count() as usize)
         } else {
             builder

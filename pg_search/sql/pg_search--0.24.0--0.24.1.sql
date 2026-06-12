@@ -121,3 +121,13 @@ CREATE CAST (text[] AS pdb.icu) WITH FUNCTION pdb.text_array_to_icu AS ASSIGNMEN
 -- function is already on the path; restore only the missing cast.
 DROP CAST IF EXISTS (uuid AS pdb.alias);
 CREATE CAST (uuid AS pdb.alias) WITH FUNCTION pdb.uuid_to_alias AS ASSIGNMENT;
+
+
+CREATE FUNCTION "alias_typmod_in"(
+	"typmod_parts" cstring[] /* Array < '_, & '_ CStr > */
+) RETURNS INT /* i32 */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'alias_typmod_in_wrapper';
+
+ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typmod_out);

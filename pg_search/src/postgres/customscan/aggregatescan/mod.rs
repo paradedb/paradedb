@@ -624,7 +624,15 @@ impl CustomScan for AggregateScan {
         }
     }
 
-    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // PG destroys the parallel DSM right after this hook; the leader's control senders
+        // decrement ring counters inside that mapping on drop, so release them now.
+        if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
+            if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                leader.release_control_senders();
+            }
+        }
+    }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Explicitly drop DataFusion resources (runtime, stream, batches) at the
@@ -750,7 +758,7 @@ impl ParallelQueryCapable for AggregateScan {
         // `LaunchParallelWorkers`, so erroring here fails the query without launching a single
         // worker; surviving a serialization gap with a silent serial fallback would hide codec
         // bugs behind a correct-but-slow plan.
-        let payload = match build_dispatch_payload(
+        let (payload, stage_plans) = match build_dispatch_payload(
             &plan_bytes,
             create_aggregate_session_context(),
             producer_worker_count(),
@@ -763,7 +771,7 @@ impl ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, payload) } {
+        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, payload, stage_plans) } {
             Ok(l) => l,
             Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
         };
@@ -776,7 +784,7 @@ impl ParallelQueryCapable for AggregateScan {
     }
 
     fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
+        state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut std::os::raw::c_void,
     ) {
@@ -786,6 +794,14 @@ impl ParallelQueryCapable for AggregateScan {
             unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         if !pscan_state.is_null() {
             unsafe { (*pscan_state).reset() };
+        }
+        // Relaunched workers need their plan frames again.
+        if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
+            if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                leader
+                    .plans_delivered
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+            }
         }
     }
 
@@ -1640,6 +1656,12 @@ impl AggregateScan {
                                  https://github.com/paradedb/paradedb/issues/5061."
                             );
                         }
+                    }
+                    // Workers are up and draining; ship each fragment's plan frame now.
+                    if let Err(e) =
+                        crate::postgres::customscan::mpp::glue::deliver_set_plans(leader)
+                    {
+                        pgrx::error!("mpp aggregate: plan delivery failed: {e}");
                     }
                     Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                 }

@@ -36,7 +36,13 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use datafusion_distributed::embedded::{self, Interrupt, MppMesh, MppSender, Wakeup};
+use datafusion_distributed::embedded::{
+    self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
+    SendBatchStats, SetPlanFrame, Wakeup,
+};
+use datafusion_distributed::{SetPlanRequest, TaskKey};
+
+use crate::postgres::customscan::mpp::dispatch::StagePlan;
 
 use crate::gucs::{
     enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
@@ -180,6 +186,25 @@ pub struct MppLeaderState {
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
+    /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
+    /// frames. Held for the query's lifetime so no ring observes a sender count of zero before
+    /// every worker attaches (the rings latch `detached` permanently at zero).
+    ///
+    /// Dropping one of these decrements a counter inside the DSM ring, so they must never
+    /// outlive the mapping: [`MppLeaderState::release_control_senders`] clears them from
+    /// `shutdown_custom_scan` on the success path, and a transaction-abort callback (registered
+    /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
+    /// The scan state's own drop runs after detach and must find this empty.
+    pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
+    /// Plans for [`deliver_set_plans`], which runs at exec time when the launched workers are
+    /// draining their inboxes. Sending from the init callback instead could fill a small ring
+    /// with no drainer behind it and wedge the leader. Kept (not drained) so a parallel rescan
+    /// can re-deliver to relaunched workers, the frame analog of the plan blob persisting in
+    /// DSM. Mutex because the exec hook only sees a shared borrow of the scan state.
+    pub stage_plans: std::sync::Mutex<Vec<StagePlan>>,
+    /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
+    /// path before workers relaunch.
+    pub plans_delivered: std::sync::atomic::AtomicBool,
     /// Borrowed pointer to the parallel context PG passed to
     /// `initialize_dsm_custom_scan`. Lifetime: valid for the duration of
     /// the parallel exec; PG destroys it after `ExecParallelFinish`. The
@@ -216,6 +241,7 @@ pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
+    stage_plans: Vec<StagePlan>,
 ) -> Result<MppLeaderState, String> {
     let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
@@ -225,7 +251,7 @@ pub unsafe fn leader_setup(
     // because this runs synchronously from `initialize_dsm_custom_scan` before any tokio
     // runtime spins up.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
-    let mesh = unsafe {
+    let attach = unsafe {
         embedded::leader_setup(
             coordinate,
             mpp_worker_count(),
@@ -234,21 +260,107 @@ pub unsafe fn leader_setup(
             wakeup,
             token,
             interrupt,
-            // No leader-to-worker control frames yet: the dispatch payload travels through the
-            // DSM plan area. Attaching senders here is the dynamic-filters follow-up, and they
-            // must then outlive every worker's attach.
-            /* attach_senders */ false,
+            // The leader ships `SetPlan` frames (and later, work units) through these senders.
+            // `MppLeaderState` holds them for the query's lifetime, which keeps the rings'
+            // sender count above zero across every worker attach.
+            /* attach_senders */
+            true,
         )
     }
-    .map_err(|e| e.to_string())?
-    .mesh;
+    .map_err(|e| e.to_string())?;
+    let mesh = attach.mesh;
     if let Some(t) = t_setup {
         pgrx::warning!(
             "mpp trace: leader_setup (ring create + self attach) took {:.3} ms",
             t.elapsed().as_secs_f64() * 1000.0
         );
     }
-    Ok(MppLeaderState { mesh, pcxt })
+    let control_senders = Arc::new(std::sync::Mutex::new(attach.outbound_senders));
+    // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
+    // are cleaned up; release the DSM-backed senders while the mapping is still alive.
+    let on_abort = Arc::clone(&control_senders);
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, move || {
+        on_abort.lock().unwrap().clear();
+    });
+    Ok(MppLeaderState {
+        mesh,
+        control_senders,
+        stage_plans: std::sync::Mutex::new(stage_plans),
+        plans_delivered: std::sync::atomic::AtomicBool::new(false),
+        pcxt,
+    })
+}
+
+impl MppLeaderState {
+    /// Drop the DSM-backed control senders while the mapping is still attached. Called from
+    /// `shutdown_custom_scan`; the abort callback covers the error path. Idempotent.
+    pub fn release_control_senders(&self) {
+        self.control_senders.lock().unwrap().clear();
+    }
+}
+
+/// Ship every dispatched plan as `SetPlan` frames: one per `(stage, task)`, to the proc hosting
+/// the task, carrying the same `SetPlanRequest` Flight would put on its coordinator stream.
+///
+/// Runs at exec time, after the launched-worker check: the workers are attaching and draining by
+/// then, so a plan bigger than a ring drains through instead of wedging the send spin. One
+/// delivery per worker generation; re-execution without a relaunch is a no-op.
+pub fn deliver_set_plans(leader: &MppLeaderState) -> Result<(), String> {
+    if leader
+        .plans_delivered
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return Ok(());
+    }
+    let stage_plans = leader.stage_plans.lock().unwrap().clone();
+    if stage_plans.is_empty() {
+        return Ok(());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("mpp: set-plan runtime build: {e}"))?;
+    let n_workers = leader.mesh.n_workers();
+    runtime.block_on(async {
+        let mut stats = SendBatchStats::default();
+        for sp in &stage_plans {
+            for task in 0..sp.task_count {
+                let dest = proc_for_task(n_workers, task as u32);
+                // Clone the sender out under the lock so the guard never spans the await below.
+                let sender = {
+                    let senders = leader.control_senders.lock().unwrap();
+                    let Some(base) = senders.get(dest as usize).and_then(|s| s.as_ref()) else {
+                        return Err(format!("mpp: no leader sender for proc {dest}"));
+                    };
+                    base.clone_with_header(MppFrameHeader::set_plan(sp.stage_num, task as u32, 0))
+                        .with_cooperative_drain(
+                            Arc::clone(&leader.mesh) as Arc<dyn CooperativeDrainSet>
+                        )
+                };
+                let frame = SetPlanFrame {
+                    set_plan: Some(SetPlanRequest {
+                        plan_proto: sp.plan_proto.clone(),
+                        task_count: sp.task_count as u64,
+                        task_key: Some(TaskKey {
+                            query_id: sp.query_id.clone(),
+                            stage_id: sp.stage_num as u64,
+                            task_number: task as u64,
+                        }),
+                        work_unit_feed_declarations: vec![],
+                        target_worker_url: String::new(),
+                        query_start_time_ns: 0,
+                    }),
+                    header_keys: vec![],
+                    header_values: vec![],
+                };
+                sender
+                    .send_set_plan_traced(&frame, &mut stats)
+                    .await
+                    .map_err(|e| format!("mpp: set-plan send failed: {e}"))?;
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the

@@ -113,18 +113,16 @@ fn aggregate_impl(
     }
 
     let mut output = serde_json::to_value(aggregate)?;
+    // rewrite the aggregate results so we get human readable datetime values
     if relation.created_by_version().stores_datetimes_in_i64() {
-        // rewrite the aggregate results so we get human readable datetime values
-        if relation.created_by_version().stores_datetimes_in_i64() {
-            if let (Some(schema), Some(request_obj), Some(output_obj)) = (
-                schema.as_ref(),
-                agg_json.as_object(),
-                output.as_object_mut(),
-            ) {
-                for (name, request) in request_obj.iter() {
-                    if let Some(response) = output_obj.get_mut(name) {
-                        rewrite_aggregate_result_json_timestamps(response, request, schema);
-                    }
+        if let (Some(schema), Some(request_obj), Some(output_obj)) = (
+            schema.as_ref(),
+            agg_json.as_object(),
+            output.as_object_mut(),
+        ) {
+            for (name, request) in request_obj.iter() {
+                if let Some(response) = output_obj.get_mut(name) {
+                    rewrite_aggregate_result_json_timestamps(response, request, schema);
                 }
             }
         }

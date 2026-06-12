@@ -19,4 +19,17 @@ BEGIN TRANSACTION READ ONLY;
 SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('bar_lower') IS NOT NULL ORDER BY id;
 COMMIT;
 
+-- Verify that re-parsing alias=bar_lower does not produce alias=alias=bar_lower.
+BEGIN TRANSACTION READ ONLY;
+SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('alias=bar_lower') IS NOT NULL ORDER BY id;
+COMMIT;
+
+-- Extra args must be rejected.
+DO $$
+BEGIN
+    PERFORM NULL::pdb.alias('foo', 'bar');
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '%', SQLERRM;
+END $$;
+
 DROP TABLE issue_5254;

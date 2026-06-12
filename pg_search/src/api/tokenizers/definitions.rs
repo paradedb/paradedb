@@ -996,15 +996,29 @@ extension_sql!(
 
 #[pg_extern(immutable, parallel_safe)]
 fn alias_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
-    // Normalize bare 'name' to 'alias=name'T
-    let name = typmod_parts
-        .iter()
-        .next()
-        .flatten()
+    let parts: Vec<_> = typmod_parts.iter().collect();
+
+    if parts.len() != 1 {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+            "pdb.alias requires exactly one argument",
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+        unreachable!()
+    }
+
+    let raw = parts[0]
         .expect("pdb.alias requires a name argument")
         .to_str()
         .expect("alias name must be valid utf-8");
-    let normalized = CString::new(format!("alias={name}")).unwrap();
+
+    let normalized = if raw.starts_with("alias=") {
+        CString::new(raw).unwrap()
+    } else {
+        CString::new(format!("alias={raw}")).unwrap()
+    };
+
     save_typmod(std::iter::once(Some(normalized.as_c_str())))
         .expect("should not fail to save typmod")
 }

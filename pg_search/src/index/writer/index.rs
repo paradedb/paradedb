@@ -425,7 +425,55 @@ impl Mergeable for SearchIndexMerger {
                 .num_worker_threads(0)
                 .build(),
         )?;
-        let new_segment = writer.merge_foreground(segment_ids, true)?;
+
+        // Wrap merge_foreground in catch_unwind to prevent Tantivy's IndexWriter Drop
+        // from causing a double-panic → SIGABRT.
+        //
+        // During a merge, Tantivy's SegmentSerializer and IndexMerger perform heavy I/O
+        // through the Directory trait (MVCCDirectory → PostgreSQL buffer manager). If the
+        // merge fails — whether by returning Err or by panicking — and IndexWriter's Drop
+        // runs, it may attempt I/O through the same buffer API. If PostgreSQL raises an
+        // ERROR during that cleanup, pgrx converts it to a second panic during the first
+        // panic's unwind, resulting in "non-unwinding panic" → SIGABRT (signal 6).
+        //
+        // By catching any panic here and forgetting the writer before re-propagating, we
+        // ensure the IndexWriter Drop never runs during error/panic cleanup.
+        //
+        // Safe to forget because: we configured num_merge_threads(0) and
+        // num_worker_threads(0), so there are no background threads to join. The only
+        // resources leaked are the segment_updater's atomic state, which will be cleaned
+        // up when the transaction aborts.
+        let merge_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            writer.merge_foreground(segment_ids, true)
+        }));
+
+        let new_segment = match merge_result {
+            Ok(Ok(segment)) => segment,
+            Ok(Err(err)) => {
+                // merge_foreground returned an error — forget writer before propagating
+                std::mem::forget(writer);
+                return Err(err.into());
+            }
+            Err(panic_payload) => {
+                // merge_foreground panicked — forget writer to prevent its Drop from
+                // performing I/O, then convert the panic into an error so callers can
+                // perform their own cleanup (e.g., merge.rs removes its merge_entry)
+                // before the error propagates.
+                std::mem::forget(writer);
+                let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "merge_foreground panicked".to_string()
+                };
+                return Err(anyhow::anyhow!("merge panicked: {msg}"));
+            }
+        };
+
+        // Success path: writer drops normally here (safe — no error state)
+        drop(writer);
+
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that

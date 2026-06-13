@@ -29,8 +29,6 @@ use tantivy::{Directory, Inventory, SegmentMeta};
 
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
-    #[allow(dead_code)]
-    n: usize,
     layer_sizes: Vec<u64>,
     min_merge_count: usize,
     enable_logging: bool,
@@ -56,7 +54,6 @@ impl MergePolicy for LayeredMergePolicy {
 impl LayeredMergePolicy {
     pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
         Self {
-            n: crate::available_parallelism(),
             layer_sizes,
             min_merge_count: 2,
             enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },
@@ -327,25 +324,6 @@ impl LayeredMergePolicy {
             }
             break;
         }
-
-        // // pop off merge candidates until we have at least `self.n` segments remaining
-        // // this ensures we generally keep as many segments as "N", which is typically the CPU count
-        // let mut ndropped = 0;
-        // let mut ndropped_segments = 0;
-        // while !candidates.is_empty()
-        //     && original_segments.len()
-        //         - candidates
-        //             .iter()
-        //             .map(|candidate| candidate.1 .0.len())
-        //             .sum::<usize>()
-        //         + candidates.len()
-        //         < self.n
-        // {
-        //     ndropped += 1;
-        //     if let Some(dropped) = candidates.pop() {
-        //         ndropped_segments += dropped.1 .0.len();
-        //     }
-        // }
 
         if !candidates.is_empty() {
             self.already_processed.store(true, Ordering::Relaxed);

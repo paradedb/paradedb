@@ -192,7 +192,6 @@ impl ParallelProcessFinish {
         unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
     }
 
-    #[allow(dead_code)]
     pub fn state_manager(&self) -> &ParallelStateManager {
         &self.launcher.state_manager
     }

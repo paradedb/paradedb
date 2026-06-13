@@ -480,9 +480,6 @@
   "appearance": {
     "strict": false
   },
-  "background": {
-    "image": "/images/background.png"
-  },
   "navbar": {
     "links": [
       {

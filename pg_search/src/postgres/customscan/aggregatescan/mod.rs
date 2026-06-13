@@ -137,37 +137,45 @@ enum AggregateDeclineReason {
 }
 
 impl AggregateDeclineReason {
-    fn emit(&self, alias: String) {
+    fn message(&self) -> String {
         match self {
-            AggregateDeclineReason::NotAllBm25 => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
-                alias,
-            ),
-            AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                alias,
-            ),
-            AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
-                alias,
-            ),
-            AggregateDeclineReason::DistinctOn => {
-                if !gucs::check_aggregate_scan() {
-                    return;
-                }
-                AggregateScan::add_planner_warning(
-                    "Aggregate Scan not used: DISTINCT ON is not supported \
-                     (see https://github.com/paradedb/paradedb/issues/new/choose). \
-                     To disable this warning: SET paradedb.check_aggregate_scan = false",
-                    alias,
-                )
+            AggregateDeclineReason::NotAllBm25 => {
+                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes".into()
             }
-            AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
-                format!("Aggregate Scan (DataFusion) not used: {}", msg),
-                alias,
-            ),
+            AggregateDeclineReason::NonEquiJoinQuals => {
+                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans".into()
+            }
+            AggregateDeclineReason::CrossJoin => {
+                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)".into()
+            }
+            AggregateDeclineReason::DistinctOn => {
+                "Aggregate Scan not used: DISTINCT ON is not supported \
+                 (see https://github.com/paradedb/paradedb/issues/new/choose)".into()
+            }
+            AggregateDeclineReason::Other(msg) => {
+                format!("Aggregate Scan (DataFusion) not used: {}", msg)
+            }
         }
     }
+}
+
+/// Returns true when `rel`'s pathlist contains a ParadeDB Join Scan custom
+/// path, meaning JoinScan accepted this join and will compete on cost.
+unsafe fn rel_pathlist_has_joinscan(rel: &pg_sys::RelOptInfo) -> bool {
+    PgList::<pg_sys::Path>::from_pg(rel.pathlist)
+        .iter_ptr()
+        .any(|path| {
+            if (*path).type_ != pg_sys::NodeTag::T_CustomPath {
+                return false;
+            }
+            let custom_path = path.cast::<pg_sys::CustomPath>();
+            let methods = (*custom_path).methods;
+            if methods.is_null() || (*methods).CustomName.is_null() {
+                return false;
+            }
+            CStr::from_ptr((*methods).CustomName)
+                == crate::postgres::customscan::joinscan::JoinScan::NAME
+        })
 }
 
 /// Resolve the table alias used in planner-warning messages emitted by a
@@ -258,13 +266,12 @@ impl CustomScan for AggregateScan {
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {
-                // For JOIN + DISTINCT, defer to JoinScan which owns that
-                // combined plan shape. Only step in when JoinScan is
-                // disabled, so AggregateScan can still pushdown via
-                // DataFusion. AggregateScan otherwise handles JOIN +
-                // GROUP BY here.
+                // Defer JOIN + DISTINCT to JoinScan only when it actually built
+                // a path. JoinScan has its own gates (top-level LIMIT,
+                // fast-field columns); when it declines, AggregateScan is the
+                // only pushdown left and must handle the query itself.
                 if builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT
-                    && gucs::enable_join_custom_scan()
+                    && unsafe { rel_pathlist_has_joinscan(input_rel) }
                 {
                     return Vec::new();
                 }
@@ -1205,6 +1212,13 @@ impl AggregateScan {
             Ok((builder, aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
+                // A grouped path must advertise a positive row estimate:
+                // planner stages above (e.g. a DISTINCT's HashAggregate)
+                // derive numGroups from path->rows, and ExecInitAgg asserts
+                // numGroups > 0.
+                let rows = builder.args().output_rel().rows.max(1.0);
+                let builder = builder.set_rows(rows);
+
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
                     indexrelid: index.oid(),
@@ -1237,11 +1251,23 @@ impl AggregateScan {
         builder: CustomPathBuilder<Self>,
     ) -> Vec<pg_sys::CustomPath> {
         let alias = unsafe { resolve_decline_alias(builder.args()) };
+        let is_distinct_stage =
+            builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT;
         match Self::try_build_datafusion_aggregate_path(builder) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                reason.emit(alias);
+                // Always warn for GROUP_AGG declines, but let check_aggregate_scan suppress DISTINCT-stage ones.
+                if !is_distinct_stage || gucs::check_aggregate_scan() {
+                    let mut msg = reason.message();
+                    if is_distinct_stage {
+                        msg.push_str(
+                            ". To disable this warning: \
+                             SET paradedb.check_aggregate_scan = false",
+                        );
+                    }
+                    Self::add_planner_warning(msg, alias);
+                }
                 Vec::new()
             }
         }
@@ -1317,11 +1343,14 @@ impl AggregateScan {
             }
         }
 
-        // DISTINCT ON cannot be modelled as an aggregate — decline before any
-        // further extraction so the error message is meaningful.
+        // Reject DISTINCT ON only at UPPERREL_DISTINCT: it can't be modelled as
+        // an aggregate. At UPPERREL_GROUP_AGG the GROUP BY still pushes down,
+        // with PG applying the DISTINCT ON above the grouped output.
         let has_distinct_on = unsafe {
             let parse = builder.args().root().parse;
-            !parse.is_null() && (*parse).hasDistinctOn
+            builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+                && !parse.is_null()
+                && (*parse).hasDistinctOn
         };
         if has_distinct_on {
             return Err(warn(AggregateDeclineReason::DistinctOn));
@@ -1423,6 +1452,12 @@ impl AggregateScan {
         } else {
             builder
         };
+
+        // A grouped path must advertise a positive row estimate: planner
+        // stages above (e.g. a DISTINCT ON's Unique/HashAggregate) derive
+        // numGroups from path->rows, and ExecInitAgg asserts numGroups > 0.
+        let rows = builder.args().output_rel().rows.max(1.0);
+        let builder = builder.set_rows(rows);
 
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
@@ -2079,26 +2114,9 @@ unsafe fn detect_join_aggregate_topk(
     let direction =
         SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
-    // Find matching position in output_rel target using structural equality.
-    // At UPPERREL_DISTINCT the planner leaves output_rel.reltarget.exprs empty,
-    // so fall back to parse->targetList (non-junk entries) to expose the
-    // DISTINCT columns to the position match.
-    let reltarget = args.output_rel().reltarget;
-    if reltarget.is_null() {
-        return None;
-    }
-    let reltarget_list = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
-    let target_exprs: Vec<*mut pg_sys::Expr> = if reltarget_list.is_empty()
-        && args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT
-    {
-        PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList)
-            .iter_ptr()
-            .filter(|te| !(**te).resjunk)
-            .map(|te| (*te).expr)
-            .collect()
-    } else {
-        reltarget_list.iter_ptr().collect()
-    };
+    // The output target expressions, with the UPPERREL_DISTINCT fallback to
+    // parse->targetList handled by the helper.
+    let target_exprs = join_targetlist::aggregate_target_exprs(args);
 
     let mut match_pos = None;
     for (pos, target_expr) in target_exprs.iter().copied().enumerate() {
@@ -2141,6 +2159,23 @@ unsafe fn detect_join_aggregate_topk(
     {
         // The sort expression must be a simple Var (group column reference).
         if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
+            return None;
+        }
+        // Group-column TopK prunes groups inside the scan using DataFusion's
+        // byte-order Utf8 comparison. If the sort key's collation orders
+        // differently (any non-C text collation), the wrong K groups survive
+        // and the PG Sort above cannot resurrect dropped rows. Only push TopK
+        // when byte order is the collation order: non-collatable types
+        // (InvalidOid), or explicit C/POSIX collations. DEFAULT_COLLATION_OID
+        // is conservatively declined even when the database default happens
+        // to be C — resolving it would tie plans to the environment's locale.
+        // POSIX_COLLATION_OID (951) is not exposed by pgrx.
+        let posix_collation_oid = pg_sys::Oid::from(951u32);
+        let sort_collid = (*(sort_expr as *mut pg_sys::Var)).varcollid;
+        if sort_collid != pg_sys::InvalidOid
+            && sort_collid != pg_sys::C_COLLATION_OID
+            && sort_collid != posix_collation_oid
+        {
             return None;
         }
         return Some(privdat::DataFusionTopK {

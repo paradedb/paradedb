@@ -75,6 +75,12 @@ impl SegmentComponentWriter {
 
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
+        // Skip re-entering the PG buffer manager while unwinding: the outer
+        // BufWriter (Tantivy's WritePtr) flushes us on drop, which would
+        // cause a double-panic and SIGABRT.  See #5218.
+        if std::thread::panicking() {
+            return Ok(data.len());
+        }
         if let Some(inner) = self.inner.as_mut() {
             inner.write(data)
         } else {
@@ -83,6 +89,10 @@ impl Write for SegmentComponentWriter {
     }
 
     fn flush(&mut self) -> Result<()> {
+        // Same guard as write() above -- see #5218.
+        if std::thread::panicking() {
+            return Ok(());
+        }
         if let Some(inner) = self.inner.as_mut() {
             inner.flush()
         } else {
@@ -242,5 +252,77 @@ mod tests {
         loop {
             pinned.push(bman.new_buffer().into_immutable_page());
         }
+    }
+
+    /// Verifies that [`SegmentComponentWriter`]'s `Write` impl no-ops during
+    /// unwind instead of re-entering the PG buffer manager.
+    #[pg_test]
+    fn writer_noops_during_unwind() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        static WRITE_OK: AtomicBool = AtomicBool::new(false);
+        static FLUSH_OK: AtomicBool = AtomicBool::new(false);
+
+        Spi::run("DROP TABLE IF EXISTS scw_unwind_guard;").unwrap();
+        Spi::run("CREATE TABLE scw_unwind_guard (id SERIAL PRIMARY KEY, body TEXT);").unwrap();
+        Spi::run(
+            "CREATE INDEX scw_unwind_guard_idx ON scw_unwind_guard USING bm25(id, body) WITH (key_field = 'id');",
+        )
+        .unwrap();
+
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 'scw_unwind_guard_idx' AND relkind = 'i';",
+        )
+        .unwrap()
+        .expect("index oid should exist");
+
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        // Create the writer BEFORE the panic so we don't touch PG during unwind.
+        let writer = unsafe {
+            SegmentComponentWriter::new(
+                &indexrel,
+                Path::new("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.idx"),
+            )
+        };
+
+        // Use catch_unwind (not thread::spawn) because PgSearchRelation is !Send.
+        // The Drop impl runs while std::thread::panicking() == true, exercising
+        // the write/flush guards on the pre-created writer.
+        struct CallDuringDrop {
+            writer: SegmentComponentWriter,
+        }
+        impl Drop for CallDuringDrop {
+            fn drop(&mut self) {
+                if !std::thread::panicking() {
+                    return;
+                }
+                // These must no-op during unwind, not re-enter PG.
+                if let Ok(n) = self.writer.write(b"should be skipped") {
+                    if n == 17 {
+                        WRITE_OK.store(true, Ordering::SeqCst);
+                    }
+                }
+                if self.writer.flush().is_ok() {
+                    FLUSH_OK.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = CallDuringDrop { writer };
+            panic!("trigger unwind to exercise write/flush guards");
+        }));
+
+        assert!(result.is_err(), "catch_unwind should have caught the panic");
+        assert!(
+            WRITE_OK.load(Ordering::SeqCst),
+            "write during unwind should return Ok(17)"
+        );
+        assert!(
+            FLUSH_OK.load(Ordering::SeqCst),
+            "flush during unwind should return Ok(())"
+        );
     }
 }

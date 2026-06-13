@@ -79,6 +79,33 @@ impl SearchQueryInput {
             })
         }
     }
+
+    /// Resolve InitPlan PARAM_EXEC nodes in all HeapFieldFilter expressions.
+    ///
+    /// This must be called before the query is passed to parallel workers to ensure
+    /// that subquery results like `(SELECT array[1, 2])` are baked into the expression
+    /// tree as constants, preventing segfaults when workers evaluate expressions without
+    /// access to the leader's InitPlan results.
+    ///
+    /// Only resolves params from actual InitPlans — NestLoop correlation params
+    /// (which also use PARAM_EXEC) are left untouched.
+    pub unsafe fn resolve_heap_filter_params(&mut self, estate: *mut pg_sys::EState) {
+        if estate.is_null() {
+            return;
+        }
+        let initplan_param_ids =
+            crate::query::heap_field_filter::collect_initplan_param_ids(estate);
+        if initplan_param_ids.is_empty() {
+            return;
+        }
+        self.visit(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
+                for filter in field_filters.iter_mut() {
+                    filter.resolve_initplan_params(estate, &initplan_param_ids);
+                }
+            }
+        });
+    }
 }
 
 impl PostgresExpression {
@@ -111,6 +138,7 @@ pub trait SolvePostgresExpressions {
     fn has_heap_filters(&mut self) -> bool;
     fn has_postgres_expressions(&mut self) -> bool;
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext);
+    unsafe fn resolve_heap_filter_params(&mut self, estate: *mut pg_sys::EState);
 
     unsafe fn init_expr_context(
         &mut self,
@@ -146,6 +174,16 @@ pub trait SolvePostgresExpressions {
         if self.has_postgres_expressions() {
             self.init_postgres_expressions(planstate);
             self.solve_postgres_expressions(expr_context);
+        }
+
+        // Resolve InitPlan PARAM_EXEC nodes in HeapFieldFilter expressions.
+        // This makes expressions self-contained and safe for parallel workers
+        // by replacing subquery parameter references with their pre-computed values.
+        if self.has_heap_filters() {
+            unsafe {
+                let estate = (*planstate).state;
+                self.resolve_heap_filter_params(estate);
+            }
         }
     }
 }

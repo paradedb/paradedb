@@ -254,4 +254,15 @@ impl SolvePostgresExpressions for AggregateScanState {
                 .for_each(|agg| agg.solve_postgres_expressions(expr_context));
         }
     }
+
+    unsafe fn resolve_heap_filter_params(&mut self, estate: *mut pg_sys::EState) {
+        if !self.is_datafusion_backend() {
+            self.aggregate_clause
+                .query_mut()
+                .resolve_heap_filter_params(estate);
+            self.aggregate_clause
+                .aggregates_mut()
+                .for_each(|agg| agg.resolve_heap_filter_params(estate));
+        }
+    }
 }

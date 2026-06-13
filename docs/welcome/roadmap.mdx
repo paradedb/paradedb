@@ -40,7 +40,7 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 ### Analytics
 
-- **A custom scan node for aggregates**. Plain SQL aggregates like `COUNT`, and clauses like `GROUP BY`, go through the same fast execution path as our [aggregate UDFs](/documentation/aggregates/tantivy).
+- **A custom scan node for aggregates**. Plain SQL aggregates like `COUNT`, and clauses like `GROUP BY`, go through the same fast execution path as our aggregate UDFs.
 - **Aggregate pushdown across joins**. Aggregates over multi-table joins are pushed down into the index when every joined table has a BM25 index.
 
 ### Write Throughput

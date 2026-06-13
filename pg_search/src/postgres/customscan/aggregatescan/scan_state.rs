@@ -62,6 +62,9 @@ pub struct DataFusionAggState {
     pub having_filter: Option<FilterExpr>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
+    /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that
+    /// arrive over the mesh into its display.
+    pub physical_plan: Option<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
     /// DataFusion result stream.
     pub stream: Option<SendableRecordBatchStream>,
     /// Current batch being consumed row-by-row.

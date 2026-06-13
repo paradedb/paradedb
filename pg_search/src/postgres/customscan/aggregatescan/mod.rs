@@ -388,6 +388,7 @@ impl CustomScan for AggregateScan {
                     custom_scan_tlist,
                     having_filter,
                     runtime: None,
+                    physical_plan: None,
                     stream: None,
                     current_batch: None,
                     batch_row_idx: 0,
@@ -407,6 +408,11 @@ impl CustomScan for AggregateScan {
     ) {
         if state.custom_state().is_datafusion_backend() {
             explainer.add_text("Backend", "DataFusion");
+            if explainer.is_analyze() {
+                if let Some(ref df_state) = state.custom_state().datafusion_state {
+                    Self::render_executed_plan_with_metrics(df_state, explainer);
+                }
+            }
             if let Some(ref df_state) = state.custom_state().datafusion_state {
                 // Show indexes from the join tree sources
                 let indexes: Vec<String> = df_state
@@ -608,10 +614,18 @@ impl CustomScan for AggregateScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // PG destroys the parallel DSM right after this hook; the leader's control senders
-        // decrement ring counters inside that mapping on drop, so release them now.
+        // PG destroys the parallel DSM right after this hook, so everything that reads or
+        // releases ring memory must happen now: drain the workers' metrics frames off the mesh
+        // (the EXPLAIN hook runs after teardown and only reads the store), then drop the
+        // leader's control senders, whose drop decrements counters inside the mapping.
         if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
             if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                if let Some(plan) = df_state.physical_plan.as_ref() {
+                    crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                        plan,
+                        &leader.mesh,
+                    );
+                }
                 leader.release_control_senders();
             }
         }
@@ -1105,6 +1119,41 @@ impl AggregateScan {
                     format!("(rebuild failed during EXPLAIN: {e})"),
                 );
             }
+        }
+    }
+
+    /// EXPLAIN ANALYZE: merge the worker metrics that arrived over the mesh into the executed
+    /// plan and render it. The leader's own nodes already carry their metrics; the worker
+    /// fragments reported theirs as `TaskMetrics` frames when they finished.
+    /// EXPLAIN ANALYZE: merge the worker metrics that arrived over the mesh into the executed
+    /// plan and render it. The leader's own nodes already carry their metrics; the worker
+    /// fragments reported theirs as `TaskMetrics` frames when they finished.
+    fn render_executed_plan_with_metrics(
+        df_state: &scan_state::DataFusionAggState,
+        explainer: &mut Explainer,
+    ) {
+        let Some(plan) = df_state.physical_plan.clone() else {
+            return;
+        };
+        let rendered = match (df_state.mpp.as_ref(), df_state.runtime.as_ref()) {
+            (Some(scan_state::MppExecState::Leader(_)), Some(_runtime)) => {
+                match crate::postgres::customscan::mpp::glue::merge_worker_metrics(&plan) {
+                    Some(merged) => display_plan_ascii(merged.as_ref(), true),
+                    None => {
+                        explainer.add_text(
+                            "DataFusion Physical Plan",
+                            "(worker metrics incomplete; a worker may not have reported)",
+                        );
+                        return;
+                    }
+                }
+            }
+            // Serial fallback: no workers, the plain metrics display tells the whole story.
+            _ => Self::render_plan_for_explain(plan.as_ref()),
+        };
+        explainer.add_text("DataFusion Physical Plan", "");
+        for line in rendered.lines() {
+            explainer.add_text("  ", line);
         }
     }
 
@@ -1696,6 +1745,7 @@ impl AggregateScan {
             };
 
             df_state.runtime = Some(runtime);
+            df_state.physical_plan = Some(physical_plan);
             df_state.stream = Some(stream);
         }
 

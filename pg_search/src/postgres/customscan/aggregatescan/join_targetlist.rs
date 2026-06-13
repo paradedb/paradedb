@@ -224,6 +224,36 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
+/// Target expressions for the aggregate target list, with the
+/// `UPPERREL_DISTINCT` fallback.
+///
+/// At `UPPERREL_DISTINCT` the planner leaves `output_rel.reltarget.exprs`
+/// empty, so fall back to `parse->targetList` (non-junk entries), which
+/// always contains the DISTINCT columns at this stage. Returns an empty vec
+/// when neither source yields expressions.
+pub(crate) unsafe fn aggregate_target_exprs(
+    args: &CreateUpperPathsHookArgs,
+) -> Vec<*mut pg_sys::Expr> {
+    let reltarget = args.output_rel().reltarget;
+    let from_reltarget = if reltarget.is_null() {
+        PgList::new()
+    } else {
+        PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs)
+    };
+    if !from_reltarget.is_empty() || args.stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT {
+        return from_reltarget.iter_ptr().collect();
+    }
+    let parse = args.root().parse;
+    if parse.is_null() {
+        return Vec::new();
+    }
+    PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList)
+        .iter_ptr()
+        .filter(|te| !(**te).resjunk)
+        .map(|te| (*te).expr)
+        .collect()
+}
+
 /// Extract aggregate target list from `output_rel.reltarget.exprs` for a join
 /// aggregate query.
 ///
@@ -250,8 +280,7 @@ pub unsafe fn extract_aggregate_targetlist(
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
 ) -> Result<JoinAggregateTargetList, String> {
-    let output_rel = args.output_rel();
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
+    let target_exprs = aggregate_target_exprs(args);
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
@@ -262,7 +291,7 @@ pub unsafe fn extract_aggregate_targetlist(
     let mut group_columns = Vec::new();
     let mut aggregates = Vec::new();
 
-    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+    for (idx, expr) in target_exprs.iter().copied().enumerate() {
         let tag = (*(expr as *mut pg_sys::Node)).type_;
 
         if tag == pg_sys::NodeTag::T_Var {
@@ -274,10 +303,19 @@ pub unsafe fn extract_aggregate_targetlist(
             let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
-                format!(
-                    "could not resolve field name for GROUP BY column (RTI={}, attno={})",
-                    rti, attno
-                )
+                // None here means the column has no fast field; report it by
+                // name (matching groupby.rs) instead of rti/attno internals.
+                let attname = pg_sys::get_attname(source.relid, attno, true);
+                if attname.is_null() {
+                    format!(
+                        "could not resolve field name for GROUP BY column (RTI={rti}, attno={attno})"
+                    )
+                } else {
+                    format!(
+                        "grouping column \"{}\" exists, but is not a fast field",
+                        std::ffi::CStr::from_ptr(attname).to_string_lossy()
+                    )
+                }
             })?;
 
             let plan_position = plan

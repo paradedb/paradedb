@@ -45,6 +45,7 @@ use pgrx::{
     PgSqlErrorCode,
 };
 use std::num::NonZeroUsize;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -562,9 +563,26 @@ unsafe extern "C-unwind" fn build_callback(
 
     if let Some(segment_meta) = segment_meta {
         build_state.unmerged_metas.push(segment_meta);
-        build_state
-            .try_merge(false)
-            .unwrap_or_else(|e| panic!("{e}"));
+
+        // Catch any failure from try_merge to prevent the parallel build from aborting.
+        //
+        // merge_segments already converts merge_foreground panics to errors (to prevent
+        // a double-panic → SIGABRT from Tantivy's IndexWriter Drop doing I/O during
+        // unwind). This outer catch_unwind is defense-in-depth for panics from other
+        // parts of try_merge (garbage_collect_index, assertions, etc.).
+        //
+        // On failure, unmerged segments remain on disk as valid, committed segments.
+        // The final commit() → try_merge(true) will attempt to merge them. If that also
+        // fails, the build fails with a clean PostgreSQL ERROR.
+        match catch_unwind(AssertUnwindSafe(|| build_state.try_merge(false))) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                pgrx::warning!("merge during parallel index build failed, deferring to final merge: {e}");
+            }
+            Err(_) => {
+                pgrx::warning!("merge during parallel index build panicked, deferring to final merge");
+            }
+        }
         set_ps_display_suffix(INDEXING.as_ptr());
     }
 }

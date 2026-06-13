@@ -99,6 +99,20 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
+-- SELECT DISTINCT routes through the same DataFusion aggregate path as a
+-- GROUP BY with no aggregates. No LIMIT, so JoinScan (which requires one)
+-- stays out and AggregateScan owns the dedup.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT f.title
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+) t;
+
 -- =====================================================================
 -- Pass 2: MPP path (enable_mpp = on). Same queries, same expected results.
 --
@@ -134,6 +148,19 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
+
+-- DISTINCT under MPP: a GROUP BY with no aggregates, partitioned by the
+-- group key across workers. Same expected count as the serial baseline.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT f.title
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+) t;
 
 -- =====================================================================
 -- Cleanup

@@ -43,7 +43,7 @@ OFFSET 0;
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=0.00..0.00 rows=1 width=64)
-   ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=0 width=64)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=1 width=64)
          Index: idx_parade_core
          Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
            Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"dwf_doid"}})
@@ -106,7 +106,7 @@ LIMIT 5 OFFSET 0;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=0.00..0.00 rows=1 width=64)
-   ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=0 width=64)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=1 width=64)
          Index: idx_parade_core
          Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
            Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"dwf_doid"}})

@@ -101,6 +101,7 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                                      QUERY PLAN                                                      
 ---------------------------------------------------------------------------------------------------------------------
@@ -127,6 +128,7 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "name" exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
  name  
 -------

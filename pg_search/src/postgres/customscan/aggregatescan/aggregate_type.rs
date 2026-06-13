@@ -114,6 +114,12 @@ impl SolvePostgresExpressions for AggregateType {
             filter.solve_postgres_expressions(expr_context);
         }
     }
+
+    unsafe fn resolve_heap_filter_params(&mut self, estate: *mut pg_sys::EState) {
+        if let Some(filter) = self.filter_expr_mut() {
+            filter.resolve_heap_filter_params(estate);
+        }
+    }
 }
 
 impl AggregateType {

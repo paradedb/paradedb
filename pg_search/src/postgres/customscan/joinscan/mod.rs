@@ -185,7 +185,8 @@ use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
-use crate::postgres::customscan::mpp::runtime::MppMesh;
+use datafusion_distributed::embedded::{region_total, MppMesh};
+
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
@@ -904,7 +905,7 @@ impl ParallelQueryCapable for JoinScan {
         // `LaunchParallelWorkers`, so erroring here fails the query without launching a single
         // worker; surviving a serialization gap with a silent serial fallback would hide codec
         // bugs behind a correct-but-slow plan.
-        let payload = match build_dispatch_payload(
+        let (payload, stage_plans) = match build_dispatch_payload(
             &plan_bytes,
             create_datafusion_session_context(SessionContextProfile::Join),
             producer_worker_count(),
@@ -915,7 +916,7 @@ impl ParallelQueryCapable for JoinScan {
         };
 
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        match unsafe { leader_setup(mpp_coordinate, pcxt, payload) } {
+        match unsafe { leader_setup(mpp_coordinate, pcxt, payload, stage_plans) } {
             Ok(leader) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
             }
@@ -924,7 +925,7 @@ impl ParallelQueryCapable for JoinScan {
     }
 
     fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
+        state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
@@ -932,6 +933,12 @@ impl ParallelQueryCapable for JoinScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
         unsafe {
             (*pscan_state).reset();
+        }
+        // Relaunched workers need their plan frames again.
+        if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
+            leader
+                .plans_delivered
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -970,12 +977,9 @@ impl ParallelQueryCapable for JoinScan {
         state.custom_state_mut().mpp_partitioning_source_idx =
             Some(header.partitioning_source_idx as usize);
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        let region_total = unsafe {
-            (*mpp_coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>())
-                .region_total
-        };
+        let region_bytes = unsafe { region_total(mpp_coordinate) };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
+        match unsafe { worker_setup(mpp_coordinate, region_bytes, worker_number) } {
             Ok(worker) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
             }
@@ -1543,6 +1547,12 @@ impl CustomScan for JoinScan {
                                 );
                             }
                         }
+                        // Workers are up and draining; ship each fragment's plan frame now.
+                        if let Err(e) =
+                            crate::postgres::customscan::mpp::glue::deliver_set_plans(leader)
+                        {
+                            pgrx::error!("mpp join: plan delivery failed: {e}");
+                        }
                         Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                     }
                     _ => create_datafusion_session_context(SessionContextProfile::Join),
@@ -1658,7 +1668,13 @@ impl CustomScan for JoinScan {
         }
     }
 
-    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // PG destroys the parallel DSM right after this hook; the leader's control senders
+        // decrement ring counters inside that mapping on drop, so release them now.
+        if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
+            leader.release_control_senders();
+        }
+    }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         unsafe {

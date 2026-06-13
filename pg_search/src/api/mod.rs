@@ -105,20 +105,8 @@ pub type Cardinality = f64;
 
 pub type Varno = i32;
 
-#[allow(dead_code)]
-pub trait AsBool {
-    unsafe fn as_bool(&self) -> Option<bool>;
-}
-
 pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
-}
-
-impl AsBool for *mut pgrx::pg_sys::Node {
-    unsafe fn as_bool(&self) -> Option<bool> {
-        let node = nodecast!(Boolean, T_Boolean, *self)?;
-        Some((*node).boolval)
-    }
 }
 
 impl AsCStr for *mut pgrx::pg_sys::Node {
@@ -236,7 +224,6 @@ extension_sql!(
     requires = [text_to_fieldname]
 );
 
-#[allow(unused)]
 pub fn fieldname_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(

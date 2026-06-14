@@ -1,7 +1,9 @@
 [package]
 name = "benchmarks"
+description = "Benchmarking harness for pg_search"
 version = { workspace = true }
 edition = { workspace = true }
+license = { workspace = true }
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "env"] }

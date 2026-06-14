@@ -16,12 +16,12 @@ CREATE INDEX issue_5254_idx ON issue_5254
 -- Before the fix, this failed with:
 -- ERROR: cannot execute INSERT in a read-only transaction
 BEGIN TRANSACTION READ ONLY;
-SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('bar_lower') IS NOT NULL ORDER BY id;
+SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('bar_lower') @@@ 'alpha' ORDER BY id;
 COMMIT;
 
 -- Verify that re-parsing alias=bar_lower does not produce alias=alias=bar_lower.
 BEGIN TRANSACTION READ ONLY;
-SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('alias=bar_lower') IS NOT NULL ORDER BY id;
+SELECT id, bar FROM issue_5254 WHERE bar::pdb.alias('alias=bar_lower') @@@ 'beta' ORDER BY id;
 COMMIT;
 
 -- Extra args must be rejected.

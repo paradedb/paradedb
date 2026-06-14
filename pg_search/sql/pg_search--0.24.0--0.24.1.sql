@@ -122,8 +122,7 @@ CREATE CAST (text[] AS pdb.icu) WITH FUNCTION pdb.text_array_to_icu AS ASSIGNMEN
 DROP CAST IF EXISTS (uuid AS pdb.alias);
 CREATE CAST (uuid AS pdb.alias) WITH FUNCTION pdb.uuid_to_alias AS ASSIGNMENT;
 
-
-CREATE FUNCTION "alias_typmod_in"(
+CREATE OR REPLACE FUNCTION "alias_typmod_in"(
 	"typmod_parts" cstring[] /* Array < '_, & '_ CStr > */
 ) RETURNS INT /* i32 */
 IMMUTABLE STRICT PARALLEL SAFE

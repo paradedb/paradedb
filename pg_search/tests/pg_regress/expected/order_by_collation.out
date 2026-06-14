@@ -113,7 +113,7 @@ SELECT id, name_icu FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_icu
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns with non byte-ordered (C-like) collations cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit
@@ -178,7 +178,7 @@ SELECT id, name_c FROM collation_test
 WHERE id @@@ paradedb.all()
 ORDER BY name_c COLLATE "test_icu"
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns with non byte-ordered (C-like) collations cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
                            QUERY PLAN                           
 ----------------------------------------------------------------
  Limit

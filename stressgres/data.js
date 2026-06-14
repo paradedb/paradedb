@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781475166799,
+  "lastUpdate": 1781475809743,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45454,6 +45454,54 @@ window.BENCHMARK_DATA = {
             "value": 438.3312750165087,
             "unit": "median tps",
             "extra": "avg tps: 430.11711899118444, max tps: 815.4473497327509, count: 113046"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a4e49dceaf6e8b50ca828f590c0ffccd9be6aa9",
+          "message": "chore: audit-driven cleanup (dead code, docs, CI, metadata) (#5324)\n\nCleanup from a repo-wide audit. Four independent, low-risk buckets (one\ncommit each) — no behavior changes. The correctness findings from the\nsame audit are filed separately as #5323 (not touched here).\n\n## Commits\n\n**1. Remove dead code & stale `#[allow]`s**\n- Delete unused `ExplainState` helpers\n`add_integer`/`add_float`/`add_list` (`customscan/explainer.rs`) — 0\ncall sites.\n- Delete the unused `AsBool` trait + `impl for *mut Node` (`api/mod.rs`)\n— no `Node::as_bool()` callers (the many `.as_bool()` hits are\n`serde_json::Value`).\n- Delete the unused `Batch::schema()` accessor (`scan/batch_scanner.rs`)\nand drop the now-unused `build_arrow_schema` import.\n- Drop stale `#[allow(dead_code)]`/`#[allow(unused)]` from items that\nare actually used: `to_record_batch`, `fieldname_typoid`,\n`item_pointer_to_u64`, `state_manager`.\n- Remove the dead `n` field from `LayeredMergePolicy` plus the 18-line\ncommented-out merge-trimming block that referenced it.\n\n**2. Crate metadata & stale references**\n- Add the inherited workspace `license` (+ a `description`) to\n`tokenizers` and `benchmarks` — the only 2 of 6 crates missing it (their\nsources already carry the AGPL header).\n- Fix a duplicate `.PHONY: pg-version` that should mark `pgrx-version`\n(`Makefile`).\n- Bump the stale `0.20.0` example version in `RELEASE.md` to `0.25.0`.\n\n**3. Prune dead CI/lint config**\n- Remove the leftover `moe/** # Temporary` stacked-PR branch trigger\nfrom 6 workflows.\n- Drop 17 dead `.prettierignore` entries pointing at docs paths that no\nlonger exist (`docs/v2/*`, several `full-text/*`,\n`integrations/overview`, `pg_search/benchmarks/out/`, etc.).\n- Replace the ineffective final-newline step in `lint-format.yml` — it\nchecked `git ls-files --modified`, which is always empty on a fresh\ncheckout, so it never caught anything — with a real, binary-safe check\nmirroring the existing trailing-whitespace step (verified 0 violations\non the current tree).\n- `benchmarks/.gitignore`: add `!README.md` so the `*.md` ignore can't\nswallow a README.\n\n**4. Docs fixes**\n- Remove `docs.json` `background.image` → `/images/background.png` (file\ndoesn't exist; broken site background).\n- Fix two dead legacy links to their real targets\n(`/legacy/advanced/phrase/phrase`, `/legacy/advanced/term/term`).\n- Delete the unreferenced `docs/images/paradedb_v2_banner.png`.\n\n## Verified, then deliberately left OUT (with reasons)\n\nThis came from an automated audit; I re-verified every item and\n**dropped several that the audit flagged but that are unsafe or wrong**:\n\n- **`postgres/scan.rs` `ambulkdelete_epoch` field** — flagged\n\"write-only\", but it's a heavily-used MVCC/vacuum-epoch concept across\n~10 files; correctness-sensitive, not safely removable.\n- **`pdb_owned_value.rs` file-wide `#![allow(dead_code)]`** — can't\nconfirm the whole module is dead-code-free without a build; removing it\nrisks turning CI red.\n- **cargo-machete `ignored = [\"strum\"]` (tokenizers)** — *not* bogus:\n`strum` is a derive-only dep (`features=[\"derive\"]`), which\ncargo-machete can't detect, so the ignore is load-bearing. Left as-is.\n- **`logo/pg_search.svg`** — *not* orphaned: it's referenced by\n`pg_search/README.md`. Kept.\n- **Orphaned doc pages** (`legacy/similarity/*`,\n`aggregates/tantivy.mdx`, …) — most actually have inbound links\n(reachable), so deleting them would break those links;\n`aggregates/tantivy.mdx` is linked from the changelog and roadmap.\nRecommend maintainers decide delete-vs-add-to-nav rather than a drive-by\nremoval.\n- **`changelog/0.20.0.mdx:64`** dead `/documentation/` link — historical\nchangelog entry with no clear current target; left untouched.\n- **`tokenizers/src/manager.rs:445`** comment — accurate (documents the\npre-0.20.0 v1 API), not stale.\n\n## Validation\n\nI could not run the full pgrx build/clippy locally (needs a PG\ntoolchain), so the Rust changes were verified by: exhaustive `git grep`\nfor every removed symbol (Rust variable/symbol refs are static, so grep\nis complete), `rustfmt --check` on all edited files, and fixing the one\ncascading unused-import that removal caused. **CI's `clippy --workspace\n--all-targets -- -D warnings` is the final gate.** Edited YAML/JSON/TOML\nparse and pass Prettier; the new lint-format check passes on the current\ntree.",
+          "timestamp": "2026-06-14T17:19:11-04:00",
+          "tree_id": "5785c1a283e6057e98845c1dd56f5e5f1bf4aa80",
+          "url": "https://github.com/paradedb/paradedb/commit/5a4e49dceaf6e8b50ca828f590c0ffccd9be6aa9"
+        },
+        "date": 1781475781480,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 227.75919247814159,
+            "unit": "median tps",
+            "extra": "avg tps: 227.9335853487147, max tps: 249.4058947332626, count: 56514"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 793.0401744427628,
+            "unit": "median tps",
+            "extra": "avg tps: 793.4953177665524, max tps: 1070.5136199223418, count: 56514"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 240.86302589599882,
+            "unit": "median tps",
+            "extra": "avg tps: 241.13129243264825, max tps: 262.07074777045807, count: 56514"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 424.93617928144613,
+            "unit": "median tps",
+            "extra": "avg tps: 422.27476676654595, max tps: 814.1540088243222, count: 113028"
           }
         ]
       }

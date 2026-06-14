@@ -35,6 +35,8 @@ impl SysCacheEntry {
         (!tuple.is_null()).then_some(Self { cache, tuple })
     }
 
+    /// Note that borrowed values MUST be copied out before the guard drops
+    /// Ex: attr::<&CStr>() hands back a borrow into the pinned tuple, but the lifetime isn't tied to the guard, so Rust's compiler won't catch use after free
     unsafe fn attr<T: FromDatum>(&self, attno: u32) -> Option<T> {
         let mut is_null = false;
         let datum = pg_sys::SysCacheGetAttr(self.cache as _, self.tuple, attno as _, &mut is_null);
@@ -216,7 +218,7 @@ pub struct CollationLocale {
 }
 
 /// Helper function to lookup the database's `datcollate` and `datlocprovider` settings from `pg_database`
-pub fn lookup_database_datcollate_and_provider() -> Option<CollationLocale> {
+pub fn lookup_database_collation_locale() -> Option<CollationLocale> {
     unsafe {
         let entry = SysCacheEntry::search1(
             pg_sys::SysCacheIdentifier::DATABASEOID,
@@ -234,9 +236,7 @@ pub fn lookup_database_datcollate_and_provider() -> Option<CollationLocale> {
 
 /// Helper function to lookup the `collcollate` and `collprovider` fields for a collation object in `pg_collation`
 /// Note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: https://www.postgresql.org/docs/current/catalog-pg-collation.html
-pub fn lookup_collation_collcollate_and_provider(
-    collation: pg_sys::Oid,
-) -> Option<CollationLocale> {
+pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale> {
     unsafe {
         let entry =
             SysCacheEntry::search1(pg_sys::SysCacheIdentifier::COLLOID, collation.into_datum()?)?;

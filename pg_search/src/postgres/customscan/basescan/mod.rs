@@ -1733,7 +1733,7 @@ fn validate_topk_expectation(
                 .to_string(),
         ),
         PathKeyInfo::Unusable(UnusableReason::UnsafeCollation) => (
-            "ORDER BY columns with non byte-ordered (C-like) collations cannot be pushed down to the index"
+            "ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index"
                 .to_string(),
             "Specify COLLATE \"C\" in your query, or use a byte-ordered collation instead".to_string(),
         ),

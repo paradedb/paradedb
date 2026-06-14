@@ -28,8 +28,7 @@ use crate::api::FieldName;
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
 use crate::postgres::catalog::{
-    lookup_collation_collcollate_and_provider, lookup_database_datcollate_and_provider,
-    CollationLocale, CollationProvider,
+    lookup_collation_locale, lookup_database_collation_locale, CollationLocale, CollationProvider,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
@@ -310,8 +309,8 @@ pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
 
     let locale = match collation {
         pg_sys::Oid::INVALID | pg_sys::C_COLLATION_OID => return true,
-        pg_sys::DEFAULT_COLLATION_OID => lookup_database_datcollate_and_provider(),
-        _ => lookup_collation_collcollate_and_provider(collation),
+        pg_sys::DEFAULT_COLLATION_OID => lookup_database_collation_locale(),
+        _ => lookup_collation_locale(collation),
     };
 
     // If using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check the name

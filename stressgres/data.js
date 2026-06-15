@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781552526619,
+  "lastUpdate": 1781553168660,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36204,6 +36204,60 @@ window.BENCHMARK_DATA = {
             "value": 22.31408560119216,
             "unit": "median tps",
             "extra": "avg tps: 22.019567488902428, max tps: 33.87355786714736, count: 57770"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55",
+          "message": "fix: run vacuum to ensure visibility map is updated (#5321)\n\nThe visibility map does not get updated from `VACUUM FULL`. Running both\na full and regular vacuum ensures the heap file has no fragmented space\nand the visibility map is updated.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-15T11:59:35-07:00",
+          "tree_id": "fe8814c6de47812055e5ba648988201ea0283b6e",
+          "url": "https://github.com/paradedb/paradedb/commit/ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55"
+        },
+        "date": 1781553138883,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 70.60589188392534,
+            "unit": "median tps",
+            "extra": "avg tps: 69.422557428748, max tps: 79.25411160063975, count: 57795"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 304.80930725252,
+            "unit": "median tps",
+            "extra": "avg tps: 373.47774474365207, max tps: 6482.075320542935, count: 57795"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 976.7519381115765,
+            "unit": "median tps",
+            "extra": "avg tps: 940.4694965746435, max tps: 1169.9056123950315, count: 57795"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 228.6800972613872,
+            "unit": "median tps",
+            "extra": "avg tps: 250.34323677384552, max tps: 1967.5083510868483, count: 115590"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.308266980756283,
+            "unit": "median tps",
+            "extra": "avg tps: 21.94594776262329, max tps: 34.18233713184555, count: 57795"
           }
         ]
       }

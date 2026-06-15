@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781565622169,
+  "lastUpdate": 1781565654389,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33172,6 +33172,108 @@ window.BENCHMARK_DATA = {
             "value": 25.69140625,
             "unit": "median mem",
             "extra": "avg mem: 49.13313407438095, max mem: 83.2890625, count: 58234"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4acbededaaac59721cf1b30a75c58704c9077e",
+          "message": "fix: Resolve uncorrelated params in heap filters (#5342)\n\n# Ticket(s) Closed\n\n- Closes #4598\n\n## What\n\nPartially solves expressions in heap filters in the leader. Uses the\nsame mechanism as our existing partial solving for constant expressions\ninside other query nodes.\n\n## Why\n\nParam nodes cannot safely be resolved inside of custom scan parallel\nworkers, and so caused a segfault.\n\n## Tests\n\nNew regress test.",
+          "timestamp": "2026-06-15T15:37:47-07:00",
+          "tree_id": "6d458c734e90d3f61f99cb43c95b64f9c4d8c2ad",
+          "url": "https://github.com/paradedb/paradedb/commit/be4acbededaaac59721cf1b30a75c58704c9077e"
+        },
+        "date": 1781565624169,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07228212348053019, max background_merging: 2.0, count: 58244"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7524753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77914351467787, max cpu: 9.751143, count: 58244"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 20.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.106913641319277, max mem: 20.171875, count: 58244"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7524753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.955492227614449, max cpu: 9.841107, count: 58244"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.54634704862303, max mem: 33.6875, count: 58244"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53794,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53647.74242840464, max block_count: 53794.0, count: 58244"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.34266190508893, max segment_count: 104.0, count: 58244"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7501235,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.917713855478304, max cpu: 28.430405, count: 58244"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 32.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 37.04399279593177, max mem: 53.90625, count: 58244"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7524753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.842088975477954, max cpu: 19.032515, count: 58244"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 47.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.96727539800237, max mem: 50.046875, count: 58244"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.715414,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.067388954683658, max cpu: 33.466137, count: 58244"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 25.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.9547851093031, max mem: 83.1484375, count: 58244"
           }
         ]
       }

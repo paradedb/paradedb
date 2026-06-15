@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781557984820,
+  "lastUpdate": 1781558651064,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17470,6 +17470,42 @@ window.BENCHMARK_DATA = {
             "value": 7.467836405690229,
             "unit": "median tps",
             "extra": "avg tps: 6.965722752753203, max tps: 7.9953910044009024, count: 58924"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "687162c151682647a3bd9f40dd597ad7ae1a8d30",
+          "message": "fix: Remove question marks (#5343)\n\n## What\nRemoves the question marks I forgot to clean up in #5245",
+          "timestamp": "2026-06-15T14:51:14-06:00",
+          "tree_id": "db3fdaec7a2debc31003114b83d1e22aa86c0f97",
+          "url": "https://github.com/paradedb/paradedb/commit/687162c151682647a3bd9f40dd597ad7ae1a8d30"
+        },
+        "date": 1781558622202,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.362979302004868,
+            "unit": "median tps",
+            "extra": "avg tps: 8.051533048310949, max tps: 12.209866816905919, count: 58912"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.1831442286350935,
+            "unit": "median tps",
+            "extra": "avg tps: 6.722484194467385, max tps: 7.791741494776969, count: 58912"
           }
         ]
       }

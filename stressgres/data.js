@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781565654389,
+  "lastUpdate": 1781566298600,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37212,6 +37212,60 @@ window.BENCHMARK_DATA = {
             "value": 22.323908908719034,
             "unit": "median tps",
             "extra": "avg tps: 22.09435457390838, max tps: 33.442185417387904, count: 57784"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4acbededaaac59721cf1b30a75c58704c9077e",
+          "message": "fix: Resolve uncorrelated params in heap filters (#5342)\n\n# Ticket(s) Closed\n\n- Closes #4598\n\n## What\n\nPartially solves expressions in heap filters in the leader. Uses the\nsame mechanism as our existing partial solving for constant expressions\ninside other query nodes.\n\n## Why\n\nParam nodes cannot safely be resolved inside of custom scan parallel\nworkers, and so caused a segfault.\n\n## Tests\n\nNew regress test.",
+          "timestamp": "2026-06-15T15:37:47-07:00",
+          "tree_id": "6d458c734e90d3f61f99cb43c95b64f9c4d8c2ad",
+          "url": "https://github.com/paradedb/paradedb/commit/be4acbededaaac59721cf1b30a75c58704c9077e"
+        },
+        "date": 1781566266412,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 70.0074549920768,
+            "unit": "median tps",
+            "extra": "avg tps: 68.95960425489262, max tps: 77.54827543183873, count: 57779"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 305.6225397739018,
+            "unit": "median tps",
+            "extra": "avg tps: 370.92723449594257, max tps: 7084.697242046486, count: 57779"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 941.4303741645215,
+            "unit": "median tps",
+            "extra": "avg tps: 920.1041306207128, max tps: 1490.8367185310126, count: 57779"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 226.6705420004531,
+            "unit": "median tps",
+            "extra": "avg tps: 250.14995255621355, max tps: 1957.2460731085748, count: 115558"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.231076457919144,
+            "unit": "median tps",
+            "extra": "avg tps: 21.09834667762145, max tps: 34.52304940023969, count: 57779"
           }
         ]
       }

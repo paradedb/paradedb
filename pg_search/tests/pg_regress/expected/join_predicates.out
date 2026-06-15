@@ -620,7 +620,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"name"}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
 (17 rows)
 
 SELECT qgen_users.id, qgen_users.name 

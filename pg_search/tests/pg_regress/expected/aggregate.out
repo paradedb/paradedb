@@ -251,7 +251,7 @@ SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (cat
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"category"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
@@ -269,7 +269,7 @@ SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (c
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('SUM'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"category"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: SUM(price)
      Aggregate Definition: {"0":{"sum":{"field":"price","missing":null}}}
 (6 rows)
@@ -287,7 +287,7 @@ SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('AVG'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"category"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: AVG(rating)
      Aggregate Definition: {"0":{"avg":{"field":"rating","missing":null}}}
 (6 rows)
@@ -323,7 +323,7 @@ SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('MAX'::text)
    Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"exists":{"field":"category"}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"category"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: MAX(rating)
      Aggregate Definition: {"0":{"max":{"field":"rating","missing":null}}}
 (6 rows)

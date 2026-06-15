@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781551816245,
+  "lastUpdate": 1781552493093,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24986,6 +24986,54 @@ window.BENCHMARK_DATA = {
             "value": 12.282479676560184,
             "unit": "median tps",
             "extra": "avg tps: 11.555890137349481, max tps: 13.282210679988522, count: 58247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55",
+          "message": "fix: run vacuum to ensure visibility map is updated (#5321)\n\nThe visibility map does not get updated from `VACUUM FULL`. Running both\na full and regular vacuum ensures the heap file has no fragmented space\nand the visibility map is updated.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-15T11:59:35-07:00",
+          "tree_id": "fe8814c6de47812055e5ba648988201ea0283b6e",
+          "url": "https://github.com/paradedb/paradedb/commit/ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55"
+        },
+        "date": 1781552464474,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1419.687419698596,
+            "unit": "median tps",
+            "extra": "avg tps: 1429.25062464128, max tps: 1524.616951613713, count: 58246"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1904.2766974361234,
+            "unit": "median tps",
+            "extra": "avg tps: 1904.7742231727868, max tps: 1955.272456279243, count: 58246"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2268.2279876309694,
+            "unit": "median tps",
+            "extra": "avg tps: 2221.9024436847467, max tps: 2423.9767699191043, count: 58246"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 12.26786225546917,
+            "unit": "median tps",
+            "extra": "avg tps: 11.533735482171796, max tps: 13.089472747365962, count: 58246"
           }
         ]
       }

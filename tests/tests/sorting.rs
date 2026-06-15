@@ -94,6 +94,97 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
     );
 }
 
+/// Regression test: a parallel `ORDER BY <fast field> ... LIMIT` (TopK) must
+/// return the same rows as plain Postgres when deleted tuples are present.
+///
+/// Reduced from a `generated_paging_small` qgen failure. Deleted tuples are
+/// filtered at query time (heap MVCC), so a TopK over the index can come up
+/// short on visible rows and re-query a deeper page with an `offset`. Under
+/// parallel execution the shared-threshold pruning optimization is kept in
+/// shared memory and only reset at scan setup, so it leaks across that
+/// offset-paged retry and drops a band of rows out of the LIMIT tail. The
+/// unbounded result set is correct; only the ordered LIMIT under parallel
+/// execution is wrong -- hence the comparison against Postgres ground truth
+/// across several limits.
+#[rstest]
+fn parallel_topk_limit_visibility_retry(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 17 {
+        // We cannot reliably force parallel workers without `debug_parallel_query`.
+        return;
+    }
+
+    // Deterministic data (no `random()`): ids 1..=2000; a keyword `name` that is
+    // 'bob' for 1/7 of rows; a fast `sortk` deliberately uncorrelated with `id`
+    // so the index's physical (sort_by) order differs from id order; then delete
+    // 10% of rows so the TopK visibility retry actually fires.
+    r#"
+        CREATE EXTENSION IF NOT EXISTS pg_search;
+        CREATE TABLE t (id bigint NOT NULL PRIMARY KEY, name text, sortk int);
+        CREATE INDEX idx ON t USING bm25 (id, name, sortk) WITH (
+            key_field = 'id',
+            text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+            numeric_fields = '{"sortk": {"fast": true}}',
+            sort_by = 'sortk DESC NULLS LAST',
+            target_segment_count = 2
+        );
+        INSERT INTO t (id, name, sortk)
+        SELECT g,
+               CASE WHEN g % 7 = 0 THEN 'bob' ELSE 'alice' END,
+               (g * 7919) % 1009
+        FROM generate_series(1, 2000) g;
+        DELETE FROM t WHERE id % 10 = 0;
+    "#
+    .execute(&mut conn);
+
+    let limits = [10, 25, 40, 57, 75];
+
+    // Ground truth straight from Postgres, captured before forcing the parallel
+    // path. `NOT (name = 'bob')` uses no `@@@` operator, so the pg_search custom
+    // scan never applies here.
+    let expected: Vec<Vec<i64>> = limits
+        .iter()
+        .map(|k| {
+            format!(
+                "SELECT id FROM t WHERE NOT (name = 'bob') \
+                 ORDER BY id DESC NULLS FIRST LIMIT {k}"
+            )
+            .fetch::<(i64,)>(&mut conn)
+            .into_iter()
+            .map(|(id,)| id)
+            .collect()
+        })
+        .collect();
+
+    // Force the parallel custom-scan TopK path. `parallel_leader_participation =
+    // off` (with `debug_parallel_query = on`) makes a single worker do the whole
+    // scan, which is the configuration that exposed the bug.
+    r#"
+        SET enable_seqscan TO off;
+        SET enable_indexscan TO off;
+        SET max_parallel_workers TO 8;
+        SET parallel_leader_participation TO off;
+        SET debug_parallel_query TO on;
+        SET paradedb.enable_custom_scan TO on;
+    "#
+    .execute(&mut conn);
+
+    for (k, want) in limits.iter().zip(expected) {
+        let got = format!(
+            "SELECT id FROM t WHERE NOT (name @@@ 'bob') \
+             ORDER BY id DESC NULLS FIRST LIMIT {k}"
+        )
+        .fetch::<(i64,)>(&mut conn)
+        .into_iter()
+        .map(|(id,)| id)
+        .collect::<Vec<_>>();
+
+        assert_eq!(
+            want, got,
+            "parallel BM25 TopK disagrees with Postgres at LIMIT {k}"
+        );
+    }
+}
+
 #[rstest]
 fn sort_by_raw(mut conn: PgConnection) {
     // ensure our custom scan wins against our small test table

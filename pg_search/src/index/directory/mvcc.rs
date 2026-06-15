@@ -640,6 +640,7 @@ pub fn index_memory_segment(
     let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
     let search_schema = indexrel.schema()?;
     let categorized_fields = search_schema.categorized_fields();
+    let created_by_version = indexrel.created_by_version();
     let oldest_xmin = unsafe { GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
 
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
@@ -831,6 +832,7 @@ pub fn index_memory_segment(
                         }
                     }),
                 &mut doc,
+                created_by_version,
             )
             .unwrap_or_else(|e| {
                 panic!("Failed to create document from row: {e}");

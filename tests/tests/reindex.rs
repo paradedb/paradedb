@@ -248,8 +248,7 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
         }',
         numeric_fields='{"rating": {}}',
         boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}',
-        datetime_fields='{"created_at": {}, "last_updated_date": {}}'
+        json_fields='{"metadata": {}}'
     )"#.execute(&mut conn);
 
     // Query using the new index

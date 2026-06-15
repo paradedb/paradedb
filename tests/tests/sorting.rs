@@ -49,11 +49,6 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
             }',
             json_fields = '{
                 "metadata": {}
-            }',
-            datetime_fields = '{
-                "created_at": {},
-                "last_updated_date": {},
-                "latest_available_time": {}
             }'
         );
     "#.execute(conn);
@@ -126,11 +121,6 @@ fn sort_by_raw(mut conn: PgConnection) {
             }',
             json_fields = '{
                 "metadata": {}
-            }',
-            datetime_fields = '{
-                "created_at": {},
-                "last_updated_date": {},
-                "latest_available_time": {}
             }'
         );
     "#.execute(&mut conn);

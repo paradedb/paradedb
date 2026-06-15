@@ -17,6 +17,7 @@
 
 use std::panic::{catch_unwind, resume_unwind};
 
+use crate::api::version::Version;
 use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
@@ -83,6 +84,7 @@ pub struct InsertState {
     indexrel: PgSearchRelation,
     per_row_context: PgMemoryContexts,
     pub mode: InsertMode,
+    index_created_by_version: Option<Version>,
 }
 
 impl InsertState {
@@ -129,6 +131,7 @@ impl InsertState {
             indexrel: indexrel.clone(),
             mode,
             per_row_context: PgMemoryContexts::For(per_row_context),
+            index_created_by_version: indexrel.created_by_version(),
         })
     }
 }
@@ -302,6 +305,7 @@ unsafe fn insert(
                     (datum, is_null, field, categorized)
                 }),
                 &mut search_document,
+                state.index_created_by_version,
             )
             .unwrap_or_else(|err| panic!("{err}"));
             mode.writer

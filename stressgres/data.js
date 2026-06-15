@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781560068600,
+  "lastUpdate": 1781560712434,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48094,6 +48094,54 @@ window.BENCHMARK_DATA = {
             "value": 428.0177568181598,
             "unit": "median tps",
             "extra": "avg tps: 408.8761945055979, max tps: 862.9891223549799, count: 113016"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "687162c151682647a3bd9f40dd597ad7ae1a8d30",
+          "message": "fix: Remove question marks (#5343)\n\n## What\nRemoves the question marks I forgot to clean up in #5245",
+          "timestamp": "2026-06-15T14:51:14-06:00",
+          "tree_id": "db3fdaec7a2debc31003114b83d1e22aa86c0f97",
+          "url": "https://github.com/paradedb/paradedb/commit/687162c151682647a3bd9f40dd597ad7ae1a8d30"
+        },
+        "date": 1781560683136,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 225.94108437434386,
+            "unit": "median tps",
+            "extra": "avg tps: 226.41393150776142, max tps: 251.71881070183122, count: 56530"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 783.5421225717305,
+            "unit": "median tps",
+            "extra": "avg tps: 785.5457945492691, max tps: 998.910956539459, count: 56530"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 238.2456513539325,
+            "unit": "median tps",
+            "extra": "avg tps: 238.6743990880207, max tps: 264.7106385802679, count: 56530"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 428.59883500853607,
+            "unit": "median tps",
+            "extra": "avg tps: 423.0640552499553, max tps: 842.9042188231897, count: 113060"
           }
         ]
       }

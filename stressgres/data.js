@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781538296402,
+  "lastUpdate": 1781538330719,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14138,6 +14138,138 @@ window.BENCHMARK_DATA = {
             "value": 35.08203125,
             "unit": "median mem",
             "extra": "avg mem: 34.661855534832924, max mem: 35.61328125, count: 57338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa86f0efe37e2595c0e59ed8cef8d976aa038848",
+          "message": "feat: Support all Postgres timestamps (4/4) - Make storage format change to i64 (#5245)\n\n# Ticket(s) Closed\n- Closes #5040\n- Closes #5041\n- Closes #5042\n- Closes #4607\n- Closes #3579 \n\n## What\nChanges the tantivy storage type for datetime types from `Date` to\n`I64`. This is done in a backwards-compatible way. Indexes created\nbefore the version this is released with continue to read and write\n`Date`s, while new indexes read and write `I64` values. For new indexes,\ntantivy queries and datetime_histogram queries are rewritten to convert\nstring timestamp values to their respective pg micros i64\nrepresentation. All agg results for queries against datetime columns\nrewritten to add `key_as_string` fields containing timestamp strings.\nAll arrow batches/etc for datetime types are now in terms of pg\nmicroseconds.\n\n## Why\nThis enables us to store all valid postgres datetime values. \n\n## How\nIn most places we examine `index_created_by_version` to make a behavior\ndecision. Looking this up is expensive (it requires loading in the meta\npage), so I've tried to do it at most once per code-path and then as\nergonomically as possible, thread it down to the decision site.\n\nIn a couple locations, we can look at the schema instead, so we do that.\n\nAlso, the `datetime_fields` field is now rejected in fresh index\ndefinitions. (The columns would be numeric anyways, making this\nvalidation pointless.)\n\n## Tests\n- With minor modifications (dropping `datetime_fields`, removing tests\nabout tantivy datetime boundary behavior, and changing the expected\nschema type where appropriate) all unit and integration tests pass.\n- All regression tests pass (after removing `datetime_fields`,\naccounting for different \"key\" values for datetime agg queries, adding\n'key_as_value').\n\n## Other\nThis is also dependent on this tantivy PR:\nhttps://github.com/paradedb/tantivy/pull/148. The cargo changes\ncurrently point to that revision and may need to be updated once its\nmerged.\n\nAlso, we'll want to adjust the version `DATETIME_I64_STORAGE_VERSION`\nand a couple comments that reference the version number before merging\nto ensure they match the version this will be released with.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-15T09:18:33-06:00",
+          "tree_id": "a5dfa94f7b8d34ba1620868a57d7f9571642a479",
+          "url": "https://github.com/paradedb/paradedb/commit/aa86f0efe37e2595c0e59ed8cef8d976aa038848"
+        },
+        "date": 1781538299225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.3339815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.4455500560091075, max cpu: 24.303799, count: 57292"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.510686210552954, max mem: 40.87109375, count: 57292"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.320388,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.433949595553947, max cpu: 24.21796, count: 57292"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.29815476528137, max mem: 40.60546875, count: 57292"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6378466909033005, max cpu: 9.421001, count: 57292"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.808760862664073, max mem: 20.81640625, count: 57292"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.473095619535407, max cpu: 4.7784967, count: 57292"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.30158619986211, max mem: 38.68359375, count: 57292"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6570688218955665, max cpu: 9.444171, count: 114584"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 36.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.5933499114187, max mem: 39.10546875, count: 114584"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1769,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1773.2605250296726, max block_count: 3196.0, count: 57292"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.515482091740557, max segment_count: 30.0, count: 57292"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.38724864408575, max cpu: 14.494213, count: 57292"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.17213538484867, max mem: 39.4921875, count: 57292"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.37706484610802, max cpu: 9.4395275, count: 57292"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 29.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.339994976392866, max mem: 29.4921875, count: 57292"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1848562946744865, max cpu: 4.7197638, count: 57292"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.6065040167039, max mem: 35.37109375, count: 57292"
           }
         ]
       }

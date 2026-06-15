@@ -91,16 +91,16 @@ pub enum AggregateType {
 }
 
 impl SolvePostgresExpressions for AggregateType {
-    fn has_heap_filters(&mut self) -> bool {
-        self.filter_expr_mut()
-            .as_mut()
-            .is_some_and(|filter| filter.has_heap_filters())
-    }
-
     fn has_postgres_expressions(&mut self) -> bool {
         self.filter_expr_mut()
             .as_mut()
             .is_some_and(|filter| filter.has_postgres_expressions())
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        self.filter_expr_mut()
+            .as_mut()
+            .is_some_and(|filter| filter.has_parameters())
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

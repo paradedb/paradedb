@@ -1095,7 +1095,7 @@ impl JoinScan {
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.plan.sources().iter().any(|source| {
             let mut query = source.scan_info.query.clone();
-            query.has_postgres_expressions()
+            query.has_postgres_expressions() || query.has_parameters()
         })
     }
 }

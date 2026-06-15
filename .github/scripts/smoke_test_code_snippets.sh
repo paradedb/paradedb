@@ -163,7 +163,7 @@ if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-    "rails-paradedb:0.7.0" \
+    "rails-paradedb:0.8.0" \
     "pg"
 
   while IFS= read -r snippet_file; do

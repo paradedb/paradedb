@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781551123263,
+  "lastUpdate": 1781551785087,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17230,6 +17230,42 @@ window.BENCHMARK_DATA = {
             "value": 7.377014001150807,
             "unit": "median tps",
             "extra": "avg tps: 6.9091891304740685, max tps: 7.904479042079487, count: 58933"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55",
+          "message": "fix: run vacuum to ensure visibility map is updated (#5321)\n\nThe visibility map does not get updated from `VACUUM FULL`. Running both\na full and regular vacuum ensures the heap file has no fragmented space\nand the visibility map is updated.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-15T11:59:35-07:00",
+          "tree_id": "fe8814c6de47812055e5ba648988201ea0283b6e",
+          "url": "https://github.com/paradedb/paradedb/commit/ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55"
+        },
+        "date": 1781551756386,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.215304961983747,
+            "unit": "median tps",
+            "extra": "avg tps: 7.93383539541881, max tps: 12.018590442171337, count: 58924"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.467836405690229,
+            "unit": "median tps",
+            "extra": "avg tps: 6.965722752753203, max tps: 7.9953910044009024, count: 58924"
           }
         ]
       }

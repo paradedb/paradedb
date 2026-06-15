@@ -276,7 +276,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes", tokenizer: Tokenizer.whitespace())
+        .matching_any("running shoes", tokenizer: ParadeDB::Tokenizer.whitespace())
         .select(:description, :rating, :category)
 ```
 

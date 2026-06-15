@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781558651064,
+  "lastUpdate": 1781558683142,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21822,6 +21822,66 @@ window.BENCHMARK_DATA = {
             "value": 130,
             "unit": "median segment_count",
             "extra": "avg segment_count: 133.53786233113843, max segment_count: 188.0, count: 58924"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "687162c151682647a3bd9f40dd597ad7ae1a8d30",
+          "message": "fix: Remove question marks (#5343)\n\n## What\nRemoves the question marks I forgot to clean up in #5245",
+          "timestamp": "2026-06-15T14:51:14-06:00",
+          "tree_id": "db3fdaec7a2debc31003114b83d1e22aa86c0f97",
+          "url": "https://github.com/paradedb/paradedb/commit/687162c151682647a3bd9f40dd597ad7ae1a8d30"
+        },
+        "date": 1781558653069,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.814308,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.172956444510152, max cpu: 43.880142, count: 58912"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 96.87283575502444, max mem: 98.44921875, count: 58912"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.916836481492428, max cpu: 33.73494, count: 58912"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 40.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.47308856854291, max mem: 41.515625, count: 58912"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37084,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34094.13156912004, max block_count: 39480.0, count: 58912"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 131,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.01945274307442, max segment_count: 188.0, count: 58912"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781553878154,
+  "lastUpdate": 1781557953895,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5178,6 +5178,78 @@ window.BENCHMARK_DATA = {
             "value": 88.53825930426521,
             "unit": "median tps",
             "extra": "avg tps: 116.02717040490919, max tps: 1384.495040046519, count: 57337"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "687162c151682647a3bd9f40dd597ad7ae1a8d30",
+          "message": "fix: Remove question marks (#5343)\n\n## What\nRemoves the question marks I forgot to clean up in #5245",
+          "timestamp": "2026-06-15T14:51:14-06:00",
+          "tree_id": "db3fdaec7a2debc31003114b83d1e22aa86c0f97",
+          "url": "https://github.com/paradedb/paradedb/commit/687162c151682647a3bd9f40dd597ad7ae1a8d30"
+        },
+        "date": 1781557925365,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 225.21277659103606,
+            "unit": "median tps",
+            "extra": "avg tps: 224.92822999818992, max tps: 235.89446967569413, count: 57340"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 226.11734762472054,
+            "unit": "median tps",
+            "extra": "avg tps: 225.89561766992009, max tps: 236.21003019472818, count: 57340"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5069.246900941143,
+            "unit": "median tps",
+            "extra": "avg tps: 5057.611776440069, max tps: 6769.1162149563625, count: 57340"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 653.2575018689273,
+            "unit": "median tps",
+            "extra": "avg tps: 651.1725454987148, max tps: 722.5925609457147, count: 57340"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4376.280452558199,
+            "unit": "median tps",
+            "extra": "avg tps: 4338.176776242456, max tps: 6100.870669332153, count: 114680"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 727.8769943279556,
+            "unit": "median tps",
+            "extra": "avg tps: 723.9878683101831, max tps: 818.4996810289329, count: 57340"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2622.895931741563,
+            "unit": "median tps",
+            "extra": "avg tps: 2631.3166545123813, max tps: 3157.38290845484, count: 57340"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 66.80277457194144,
+            "unit": "median tps",
+            "extra": "avg tps: 84.0524238193519, max tps: 397.8615736141387, count: 57340"
           }
         ]
       }

@@ -28,7 +28,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, MppExecState, SessionContextProfile,
 };
 use crate::postgres::customscan::joinscan::JoinScan;
-use datafusion_distributed::embedded::MppSender;
+use datafusion_distributed::shm::MppSender;
 
 use crate::postgres::customscan::mpp::exec_worker::MppWorkerInputs;
 use crate::postgres::customscan::mpp::host::MppWorkerHost;

@@ -15,14 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! The two PostgreSQL primitives the embedded transport leaves to the embedder: how to wake a
+//! The two PostgreSQL primitives the shared-memory transport leaves to the embedder: how to wake a
 //! blocked consumer, and how to check for cancellation.
 //!
-//! The transport itself lives in `datafusion_distributed::embedded` and is PG-free; these impls are
+//! The transport itself lives in `datafusion_distributed::shm` and is PG-free; these impls are
 //! the only MPP transport code that still touches `pg_sys`.
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion_distributed::embedded::{Interrupt, Wakeup};
+use datafusion_distributed::shm::{Interrupt, Wakeup};
 
 /// Pack `pgprocno` (low 32 bits) + `pid` (high 32 bits) into the one `u64` token the ring stores.
 /// A producer's single `Acquire` load then can't observe a torn `(new_pgprocno, old_pid)` pair and

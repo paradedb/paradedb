@@ -185,7 +185,7 @@ use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
-use datafusion_distributed::embedded::{region_total, MppMesh};
+use datafusion_distributed::shm::{region_total, MppMesh};
 
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;

@@ -35,7 +35,7 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::prelude::SessionContext;
 use tantivy::index::SegmentId;
 
-use datafusion_distributed::embedded::{proc_for_task, MppMesh};
+use datafusion_distributed::shm::{proc_for_task, MppMesh};
 
 use crate::api::HashSet;
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;

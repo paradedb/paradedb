@@ -48,7 +48,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
 use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
-use datafusion_distributed::embedded::{region_total, MppMesh};
+use datafusion_distributed::shm::{region_total, MppMesh};
 
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,

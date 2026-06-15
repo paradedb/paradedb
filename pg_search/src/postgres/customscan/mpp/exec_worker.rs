@@ -45,7 +45,7 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use datafusion_distributed::embedded::{
+use datafusion_distributed::shm::{
     proc_for_task, run_worker_fragment, CooperativeDrainSet, InProcessWorkerResolver,
     MppFrameHeader, MppMesh, MppPartitionSink, MppSender, ShmMqWorkerTransport,
 };
@@ -58,7 +58,7 @@ use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
-use datafusion_distributed::embedded::SetPlanFrame;
+use datafusion_distributed::shm::SetPlanFrame;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan
 /// [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls populate this from their

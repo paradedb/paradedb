@@ -21,7 +21,7 @@
 //! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
 //! Guarded by `paradedb.enable_mpp` (default off).
 //!
-//! The transport lives in `datafusion_distributed::embedded`. Deadlock avoidance is a
+//! The transport lives in `datafusion_distributed::shm`. Deadlock avoidance is a
 //! cooperative inline drain: a producer stalled on a full outbound pulls its own inbound
 //! before retrying, so every peer sending at once cannot wedge.
 

@@ -20,7 +20,7 @@
 //!
 //! Customscan code calls into this module from four hooks; everything else (the shared-memory
 //! layout, the ring mesh, the `WorkerTransport` plumbing) lives in
-//! `datafusion_distributed::embedded` and is reached through these thin wrappers:
+//! `datafusion_distributed::shm` and is reached through these thin wrappers:
 //!
 //! - [`mpp_is_active`] — gate for the customscan path-builder.
 //! - [`estimate_dsm_size`] — `estimate_dsm_custom_scan` body.
@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use datafusion_distributed::embedded::{
+use datafusion_distributed::shm::{
     self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
     SendBatchStats, SetPlanFrame, Wakeup,
 };
@@ -121,7 +121,7 @@ pub fn mpp_align(n: usize) -> usize {
     n.next_multiple_of(a)
 }
 
-// The embedded transport's layout pins 8-byte alignment (its ring headers hold `u64` atomics).
+// The shared-memory transport's layout pins 8-byte alignment (its ring headers hold `u64` atomics).
 // `mpp_align` hands it MAXALIGN-aligned bases, so the two must agree or the rings would be
 // misaligned, which is UB-class.
 const _: () = assert!(pg_sys::MAXIMUM_ALIGNOF == 8);
@@ -164,7 +164,7 @@ pub(super) fn mpp_queue_size() -> usize {
 /// for the header, the worker plan, and one MPSC inbox per process. `n_procs` is the
 /// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
-    embedded::dsm_region_bytes(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
+    shm::dsm_region_bytes(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
         .map_err(|e| e.to_string())
 }
 
@@ -252,7 +252,7 @@ pub unsafe fn leader_setup(
     // runtime spins up.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let attach = unsafe {
-        embedded::leader_setup(
+        shm::leader_setup(
             coordinate,
             mpp_worker_count(),
             mpp_queue_size(),
@@ -412,7 +412,7 @@ pub unsafe fn worker_setup(
     // before tokio starts.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let attach = unsafe {
-        embedded::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt)
+        shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt)
     }
     .map_err(|e| e.to_string())?;
     if let Some(t) = t_setup {

@@ -47,7 +47,7 @@ use std::sync::Arc;
 
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::embedded::proc_for_task;
+use datafusion_distributed::shm::proc_for_task;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
 };

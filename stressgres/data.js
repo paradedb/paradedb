@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781566330236,
+  "lastUpdate": 1781566975688,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48754,6 +48754,54 @@ window.BENCHMARK_DATA = {
             "value": 428.59883500853607,
             "unit": "median tps",
             "extra": "avg tps: 423.0640552499553, max tps: 842.9042188231897, count: 113060"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4acbededaaac59721cf1b30a75c58704c9077e",
+          "message": "fix: Resolve uncorrelated params in heap filters (#5342)\n\n# Ticket(s) Closed\n\n- Closes #4598\n\n## What\n\nPartially solves expressions in heap filters in the leader. Uses the\nsame mechanism as our existing partial solving for constant expressions\ninside other query nodes.\n\n## Why\n\nParam nodes cannot safely be resolved inside of custom scan parallel\nworkers, and so caused a segfault.\n\n## Tests\n\nNew regress test.",
+          "timestamp": "2026-06-15T15:37:47-07:00",
+          "tree_id": "6d458c734e90d3f61f99cb43c95b64f9c4d8c2ad",
+          "url": "https://github.com/paradedb/paradedb/commit/be4acbededaaac59721cf1b30a75c58704c9077e"
+        },
+        "date": 1781566945540,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 226.0374909742483,
+            "unit": "median tps",
+            "extra": "avg tps: 226.8326253456269, max tps: 249.01554708818736, count: 56507"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 796.1668237089599,
+            "unit": "median tps",
+            "extra": "avg tps: 800.1905406190758, max tps: 997.696925093739, count: 56507"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 241.4010809757732,
+            "unit": "median tps",
+            "extra": "avg tps: 242.15895525134442, max tps: 260.6194687318462, count: 56507"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 434.11005419863676,
+            "unit": "median tps",
+            "extra": "avg tps: 425.0421527696314, max tps: 871.4980792888953, count: 113014"
           }
         ]
       }

@@ -1,0 +1,111 @@
+-- =====================================================================
+-- MPP must not crash the backend when a worker hits the work_mem limit.
+--
+-- A `work_mem` overflow inside an MPP fragment makes one worker error and
+-- the leader tear down the parallel query. Both the JoinScan and the
+-- AggregateScan leader teardowns used to drop DSM-backed senders after the
+-- worker error had already torn down the parallel segment, faulting the
+-- leader. This test forces the overflow on both paths and checks the
+-- backend returns a clean error and keeps serving on the same connection.
+--
+-- The overflow margin is deliberately huge (a ~200k-row TopN sort, then a
+-- 200k-group hash aggregate, both against a 64kB-derived pool), so the trip
+-- is platform-independent. The error is caught so the exact byte count
+-- stays out of the expected output.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_worker_count TO 4;
+SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+CREATE TABLE mpp_wm_files (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE mpp_wm_pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER,
+    page_text TEXT,
+    size_bytes INTEGER
+);
+INSERT INTO mpp_wm_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 200) AS g;
+INSERT INTO mpp_wm_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 200000) AS g;
+CREATE INDEX mpp_wm_files_idx ON mpp_wm_files
+USING bm25 (id, title, content)
+WITH (
+    key_field='id',
+    text_fields='{"title": {"fast": true}, "content": {}}'
+);
+CREATE INDEX mpp_wm_pages_idx ON mpp_wm_pages
+USING bm25 (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
+ANALYZE mpp_wm_files;
+ANALYZE mpp_wm_pages;
+-- A TopN sort over the full match set can't fit in the minimum pool. The
+-- branch taken is recorded so the output stays independent of the exact
+-- byte count; a crash here would drop the connection instead of being
+-- caught, and the expected output wouldn't match.
+SET work_mem TO '64kB';
+CREATE TABLE mpp_wm_outcome (msg text);
+DO $$
+BEGIN
+    PERFORM f.title, p.size_bytes
+    FROM mpp_wm_files f JOIN mpp_wm_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    ORDER BY p.size_bytes, p.id
+    LIMIT 200000;
+    INSERT INTO mpp_wm_outcome VALUES ('join: unexpected success under 64kB work_mem');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO mpp_wm_outcome VALUES ('join: work_mem overflow returned a clean error');
+END$$;
+-- The aggregate path (GROUP BY over the join) routes through AggregateScan
+-- MPP, which has its own leader teardown. A high-cardinality hash aggregate
+-- over the full match set also overruns the minimum pool.
+DO $$
+BEGIN
+    PERFORM p.id, count(*)
+    FROM mpp_wm_files f JOIN mpp_wm_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY p.id;
+    INSERT INTO mpp_wm_outcome VALUES ('agg: unexpected success under 64kB work_mem');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO mpp_wm_outcome VALUES ('agg: work_mem overflow returned a clean error');
+END$$;
+RESET work_mem;
+SELECT msg FROM mpp_wm_outcome ORDER BY msg;
+                      msg                       
+------------------------------------------------
+ agg: work_mem overflow returned a clean error
+ join: work_mem overflow returned a clean error
+(2 rows)
+
+-- The backend survived both teardowns and still serves queries on the same
+-- connection. (If the server had crashed, this errors out with a lost
+-- connection and the expected output won't match.)
+SELECT count(*) AS files_still_readable
+FROM mpp_wm_files
+WHERE content @@@ 'Section';
+ files_still_readable 
+----------------------
+                  200
+(1 row)
+
+DROP TABLE mpp_wm_outcome;
+DROP TABLE mpp_wm_pages;
+DROP TABLE mpp_wm_files;

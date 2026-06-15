@@ -179,6 +179,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
+use crate::postgres::customscan::mpp::interrupt::{process_pending, HeldInterrupts};
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -1552,6 +1553,10 @@ impl CustomScan for JoinScan {
 
                 let next_batch = {
                     let custom_state = state.custom_state_mut();
+                    // Hold cancel/die off across the pull so a subroutine's
+                    // `CHECK_FOR_INTERRUPTS` can't `proc_exit` out of the live runtime; the
+                    // consumer drain polls cooperatively to bail. Resumes at end of block.
+                    let _held = HeldInterrupts::hold();
                     custom_state.runtime.as_mut().unwrap().block_on(async {
                         custom_state
                             .datafusion_stream
@@ -1561,6 +1566,11 @@ impl CustomScan for JoinScan {
                             .await
                     })
                 };
+
+                // The consumer drain bails cooperatively on a pending cancel/die so the
+                // runtime can unwind first; service it now with the runtime idle (a die
+                // `proc_exit`s here) before the error match below.
+                process_pending();
 
                 match next_batch {
                     Some(Ok(batch)) => {
@@ -1579,6 +1589,14 @@ impl CustomScan for JoinScan {
         // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
         // already reached EOF.
         state.custom_state_mut().datafusion_stream = None;
+        // Release the DSM-backed control senders before `recv`. A producer's `work_mem` overflow
+        // (or any worker error) is re-raised in the leader from inside `recv`, which `longjmp`s
+        // out of this hook; a release placed after it would never run, leaving the senders to drop
+        // at xact commit, past the DSM's lifetime, where their `fetch_sub` faults. The query is
+        // done producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
+        if let Some(leader) = state.custom_state().mpp.as_ref() {
+            leader.release_control_senders();
+        }
         // Wait for the producer workers to finish and flush their `TaskMetrics` before draining:
         // `recv` blocks until every worker detaches its completion queue, which it does only after
         // sending metrics. PG's parallel teardown joins Gather-spawned workers here; the
@@ -1590,13 +1608,11 @@ impl CustomScan for JoinScan {
             }
         }
         // The EXPLAIN hook runs after teardown and only reads the store, so drain the workers'
-        // metrics frames off the mesh now, then drop the leader's control senders (their drop
-        // decrements counters inside the still-mapped DSM).
+        // metrics frames off the mesh now.
         if let Some(leader) = state.custom_state().mpp.as_ref() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
-            leader.release_control_senders();
         }
     }
 

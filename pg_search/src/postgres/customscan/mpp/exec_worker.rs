@@ -56,6 +56,7 @@ use datafusion_distributed::PartitionSink;
 
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
+use crate::postgres::customscan::mpp::interrupt::{process_pending, HeldInterrupts};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
@@ -320,6 +321,10 @@ pub(crate) fn run_mpp_worker(
                 + Send,
         >,
     >;
+    // Hold cancel/die off for the duration so neither our drain/send loops nor a subroutine
+    // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
+    // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
+    let held = HeldInterrupts::hold();
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
@@ -553,6 +558,12 @@ pub(crate) fn run_mpp_worker(
         }
         outcome
     });
+    // `block_on` has returned, so the runtime is idle and every fragment future (with its
+    // DSM senders) has dropped. Resume interrupts, then service any cancel/die the loops
+    // deferred, now on a stack with no live runtime; for a die this `proc_exit`s here instead
+    // of mid-`block_on`.
+    drop(held);
+    process_pending();
     if let Err(e) = result {
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }

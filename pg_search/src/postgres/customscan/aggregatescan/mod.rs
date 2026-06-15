@@ -49,6 +49,7 @@ use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTas
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
+use crate::postgres::customscan::mpp::interrupt::{process_pending, HeldInterrupts};
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -633,16 +634,22 @@ impl CustomScan for AggregateScan {
         // context is finally destroyed). Harmless when the gather already reached EOF.
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
+            // Release the DSM-backed control senders before `recv`. A producer's `work_mem`
+            // overflow (or any worker error) is re-raised in the leader from inside `recv`, which
+            // longjmps out of this hook; a release placed after it would never run, leaving the
+            // senders to drop at xact commit, past the DSM's lifetime, where their `fetch_sub`
+            // faults. The query is done producing here, so the senders aren't needed.
+            if let Some(leader) = df_state.mpp.as_ref() {
+                leader.release_control_senders();
+            }
             if let Some(leader) = df_state.mpp.as_mut() {
                 if let Some(finish) = leader.finish.as_mut() {
                     let _ = finish.recv();
                 }
             }
         }
-        // PG destroys the parallel DSM right after this hook, so everything that reads or
-        // releases ring memory must happen now: drain the workers' metrics frames off the mesh
-        // (the EXPLAIN hook runs after teardown and only reads the store), then drop the
-        // leader's control senders, whose drop decrements counters inside the mapping.
+        // PG destroys the parallel DSM right after this hook, so drain the workers' metrics frames
+        // off the mesh now (the EXPLAIN hook runs after teardown and only reads the store).
         if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
             if let Some(leader) = df_state.mpp.as_ref() {
                 if let Some(plan) = df_state.physical_plan.as_ref() {
@@ -651,7 +658,6 @@ impl CustomScan for AggregateScan {
                         &leader.mesh,
                     );
                 }
-                leader.release_control_senders();
             }
         }
     }
@@ -1652,7 +1658,18 @@ impl AggregateScan {
             let runtime = df_state.runtime.as_ref().unwrap();
             let stream = df_state.stream.as_mut().unwrap();
 
-            let next = runtime.block_on(async { stream.next().await });
+            let next = {
+                // Hold cancel/die off across the pull so a subroutine's `CHECK_FOR_INTERRUPTS`
+                // can't `proc_exit` out of the live runtime; the consumer drain polls
+                // cooperatively to bail. Resumes at end of block.
+                let _held = HeldInterrupts::hold();
+                runtime.block_on(async { stream.next().await })
+            };
+
+            // The consumer drain bails cooperatively on a pending cancel/die so the runtime
+            // can unwind first; service it now with the runtime idle (a die `proc_exit`s here)
+            // before the error match below.
+            process_pending();
 
             match next {
                 Some(Ok(batch)) => {

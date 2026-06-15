@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781564913854,
+  "lastUpdate": 1781564944847,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22122,6 +22122,66 @@ window.BENCHMARK_DATA = {
             "value": 131,
             "unit": "median segment_count",
             "extra": "avg segment_count: 134.01945274307442, max segment_count: 188.0, count: 58912"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4acbededaaac59721cf1b30a75c58704c9077e",
+          "message": "fix: Resolve uncorrelated params in heap filters (#5342)\n\n# Ticket(s) Closed\n\n- Closes #4598\n\n## What\n\nPartially solves expressions in heap filters in the leader. Uses the\nsame mechanism as our existing partial solving for constant expressions\ninside other query nodes.\n\n## Why\n\nParam nodes cannot safely be resolved inside of custom scan parallel\nworkers, and so caused a segfault.\n\n## Tests\n\nNew regress test.",
+          "timestamp": "2026-06-15T15:37:47-07:00",
+          "tree_id": "6d458c734e90d3f61f99cb43c95b64f9c4d8c2ad",
+          "url": "https://github.com/paradedb/paradedb/commit/be4acbededaaac59721cf1b30a75c58704c9077e"
+        },
+        "date": 1781564915868,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.842003,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.107495443417772, max cpu: 43.636364, count: 58932"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 96.49731098978484, max mem: 98.109375, count: 58932"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.575638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.939305648398687, max cpu: 33.633633, count: 58932"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 40.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 40.42313658379573, max mem: 41.2265625, count: 58932"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37343,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34210.64849317858, max block_count: 39383.0, count: 58932"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 130,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.20029864929072, max segment_count: 186.0, count: 58932"
           }
         ]
       }

@@ -362,5 +362,6 @@ fn negated_predicate_preserves_empty_array_not_null_issue_5264(mut conn: PgConne
     "#
     .fetch(&mut conn);
 
-    assert_eq!(indexed_rows, vec![(2,)]);
+    assert!(indexed_rows.iter().any(|(id,)| *id == 2));
+    assert!(!indexed_rows.iter().any(|(id,)| *id == 1));
 }

@@ -332,6 +332,25 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(negated_operator_path, missing_rows);
+
+    // A `boost`/`const_score` wrapper around `exists` must still be recognized
+    // as an existence predicate (the wrapper is unwrapped), so the operator
+    // returns false (not NULL) for missing fields and negating it returns the
+    // missing rows. Without the unwrap, missing rows would evaluate to NULL and
+    // drop out of the negation.
+    let negated_boosted_exists: Vec<(i32,)> = r#"
+    SELECT id FROM exists_repro
+    WHERE NOT (id @@@ paradedb.boost(2.0, paradedb.exists('color'))) ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(negated_boosted_exists, missing_rows);
+
+    let negated_const_score_exists: Vec<(i32,)> = r#"
+    SELECT id FROM exists_repro
+    WHERE NOT (id @@@ paradedb.const_score(1.0, paradedb.exists('color'))) ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(negated_const_score_exists, missing_rows);
 }
 
 #[rstest]

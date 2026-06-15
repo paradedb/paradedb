@@ -192,7 +192,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     if created_by_version.stores_datetimes_in_i64() {
         if datetime_configs.iter().flatten().next().is_some() {
             panic!(
-                "As of v0.24.1(?), \"datetime_fields\" should be removed, as it's no longer necessary."
+                "As of v0.24.1, \"datetime_fields\" should be removed, as it's no longer necessary."
             );
         }
     } else {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781553201487,
+  "lastUpdate": 1781553846315,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47434,6 +47434,54 @@ window.BENCHMARK_DATA = {
             "value": 423.96333525458454,
             "unit": "median tps",
             "extra": "avg tps: 417.43083101711994, max tps: 813.369655259033, count: 113028"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55",
+          "message": "fix: run vacuum to ensure visibility map is updated (#5321)\n\nThe visibility map does not get updated from `VACUUM FULL`. Running both\na full and regular vacuum ensures the heap file has no fragmented space\nand the visibility map is updated.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-15T11:59:35-07:00",
+          "tree_id": "fe8814c6de47812055e5ba648988201ea0283b6e",
+          "url": "https://github.com/paradedb/paradedb/commit/ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55"
+        },
+        "date": 1781553816958,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 224.78117544650212,
+            "unit": "median tps",
+            "extra": "avg tps: 225.7473320795432, max tps: 277.06085459734607, count: 56508"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 716.435327259045,
+            "unit": "median tps",
+            "extra": "avg tps: 735.8486829111354, max tps: 1084.5284731471525, count: 56508"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 235.71424132592645,
+            "unit": "median tps",
+            "extra": "avg tps: 237.30195505418553, max tps: 291.5282618321799, count: 56508"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 428.0177568181598,
+            "unit": "median tps",
+            "extra": "avg tps: 408.8761945055979, max tps: 862.9891223549799, count: 113016"
           }
         ]
       }

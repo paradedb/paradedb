@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781564249781,
+  "lastUpdate": 1781564913854,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17710,6 +17710,42 @@ window.BENCHMARK_DATA = {
             "value": 7.1831442286350935,
             "unit": "median tps",
             "extra": "avg tps: 6.722484194467385, max tps: 7.791741494776969, count: 58912"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4acbededaaac59721cf1b30a75c58704c9077e",
+          "message": "fix: Resolve uncorrelated params in heap filters (#5342)\n\n# Ticket(s) Closed\n\n- Closes #4598\n\n## What\n\nPartially solves expressions in heap filters in the leader. Uses the\nsame mechanism as our existing partial solving for constant expressions\ninside other query nodes.\n\n## Why\n\nParam nodes cannot safely be resolved inside of custom scan parallel\nworkers, and so caused a segfault.\n\n## Tests\n\nNew regress test.",
+          "timestamp": "2026-06-15T15:37:47-07:00",
+          "tree_id": "6d458c734e90d3f61f99cb43c95b64f9c4d8c2ad",
+          "url": "https://github.com/paradedb/paradedb/commit/be4acbededaaac59721cf1b30a75c58704c9077e"
+        },
+        "date": 1781564882041,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.40730878572874,
+            "unit": "median tps",
+            "extra": "avg tps: 8.093592480983695, max tps: 12.335922109208541, count: 58932"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.362826252172159,
+            "unit": "median tps",
+            "extra": "avg tps: 6.86946407095615, max tps: 7.794902758870828, count: 58932"
           }
         ]
       }

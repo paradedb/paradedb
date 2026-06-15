@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781545091338,
+  "lastUpdate": 1781545122138,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14342,6 +14342,138 @@ window.BENCHMARK_DATA = {
             "value": 34.88671875,
             "unit": "median mem",
             "extra": "avg mem: 34.6065040167039, max mem: 35.37109375, count: 57292"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d867cfc9232d4f6fe2974722399b416338f53942",
+          "message": "fix(joinscan): absorb 3-way joins when sub-join path is Gather Merge -> Sort (#5337)\n\n## What\n\nFix `ParadeDB Join Scan` so it engages for parallel 3-way (or deeper)\n`DISTINCT`\nfull-text search joins. Before this change, such a query silently\ndeclined and\nfell back to a native PostgreSQL plan.\n\n## Why\n\nUnder parallel execution, the `cheapest_total_path` of an intermediate\njoin rel\ncan be wrapped as:\n\n    Gather Merge -> Sort -> Hash Join\n\nThe 3-way JoinScan path reconstruction (`collect_join_sources_join_rel`)\npeels\nthe `Gather` / `GatherMerge` wrappers via `unwrap_path_wrappers`, but it\nstopped\nat the intervening `Sort`. As a result `is_join_path` returned false,\nthe\nsub-join failed to reconstruct, the third relation was never absorbed,\nand\nJoinScan declined the whole join.\n\nThe decline surfaced in two confusing ways:\n\n- with `DISTINCT`: \"JoinScan not used: DISTINCT columns must be fast\nfields\"\n    (misleading -- the columns are fast fields; the real cause is the\n    un-reconstructed sub-join)\n- without `DISTINCT`: \"LIMIT pushdown is unsafe due to un-absorbed\nrelations\"\n\nEither way the query still returned correct results via the native plan,\nbut the\nJoinScan optimization was lost. The `generated_joinscan` property test\nflags this\nunder forced parallelism.\n\n## How\n\nPeel `SortPath` in `unwrap_path_wrappers` as well. A `Sort` only\nreorders rows,\nso it is transparent to join-structure reconstruction (RTIs, equi-keys,\njointype are unchanged), and JoinScan re-derives its own ordering from\n`query_pathkeys`. This mirrors the existing `Gather` / `GatherMerge` /\n`Material`\n/ `Projection` arms; it is read-only path navigation with no ownership,\nDrop,\nrefcount, or allocation involved.\n\n## Test\n\nAdds a deterministic pg_regress test `joinscan_parallel_distinct` that:\n\n- forces a parallel plan (debug_parallel_query = on) for a 3-way\nDISTINCT\n    `@@@` join, and\n  - asserts via `EXPLAIN` that the plan is a\n    `Parallel Custom Scan (ParadeDB Join Scan)`, plus a row-count check.\n\nWithout the fix the EXPLAIN is a native Hash/Nested Loop plan, so the\ntest fails;\nwith the fix it passes. Verified both directions locally:\n\n    cargo pgrx regress pg18 joinscan_parallel_distinct\n    -> with fix:    PASS\n    -> without fix: FAIL (native plan + \"JoinScan not used\" warning)",
+          "timestamp": "2026-06-15T22:49:33+05:30",
+          "tree_id": "80ec90d66e26b70afd79c3ef42f7f7de11ca94ac",
+          "url": "https://github.com/paradedb/paradedb/commit/d867cfc9232d4f6fe2974722399b416338f53942"
+        },
+        "date": 1781545093455,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 7.6433125,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.381778654924743, max cpu: 29.675425, count: 57332"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.64222778073327, max mem: 41.05078125, count: 57332"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 7.689227,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.415631718464989, max cpu: 29.675425, count: 57332"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.5486917210284, max mem: 40.9375, count: 57332"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.596840796376327, max cpu: 4.8830113, count: 57332"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.898571178617527, max mem: 20.90625, count: 57332"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5647105817258025, max cpu: 4.7928104, count: 57332"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.47929221464452, max mem: 38.9765625, count: 57332"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.705713052083389, max cpu: 9.528536, count: 114664"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 36.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.64696212956987, max mem: 39.203125, count: 114664"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1780,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1788.2618956254796, max block_count: 3180.0, count: 57332"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.68448684853136, max segment_count: 29.0, count: 57332"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.457962352692159, max cpu: 19.783615, count: 57332"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 39.36897219811798, max mem: 39.7421875, count: 57332"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582442344435444, max cpu: 4.8533874, count: 57332"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 29.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.60833030364805, max mem: 29.86328125, count: 57332"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.754829,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2054374668613046, max cpu: 4.754829, count: 57332"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.15069749986918, max mem: 35.55078125, count: 57332"
           }
         ]
       }

@@ -53,8 +53,7 @@ BEGIN;
       USING bm25 (id, description, sale_date, amount)
       WITH (
         key_field='id',
-        numeric_fields='{"amount": {"fast": true}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
+        numeric_fields='{"amount": {"fast": true}}'
       );
 COMMIT;
 "#;

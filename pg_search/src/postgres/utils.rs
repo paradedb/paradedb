@@ -20,6 +20,7 @@ use crate::api::tokenizers::definitions::pdb::DatumWithType;
 use crate::api::tokenizers::{
     type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
 };
+use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
@@ -40,7 +41,6 @@ use std::collections::{BTreeMap, HashSet};
 
 use std::ptr::addr_of_mut;
 use std::str::FromStr;
-use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
 
 use super::datetime::PostgresDateTime;
@@ -505,6 +505,7 @@ pub unsafe fn extract_field_attributes(
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let pg_search_indexrel = PgSearchRelation::from_pg(indexrel);
+    let created_by_version = pg_search_indexrel.created_by_version();
     let index_info = pg_search_indexrel.index_info();
     let expressions = pg_search_indexrel.index_expressions();
     let mut expressions_iter = expressions.iter_ptr().enumerate();
@@ -553,11 +554,12 @@ pub unsafe fn extract_field_attributes(
                         }
 
                         let pg_type = PgOid::from_untagged(comp_field.type_oid);
-                        let tantivy_type = SearchFieldType::try_from((
+                        let tantivy_type = SearchFieldType::try_from_type_info(
                             pg_type,
                             comp_field.typmod,
                             comp_field.type_oid,
-                        ))
+                            created_by_version,
+                        )
                         .unwrap_or_else(|e| panic!("{e}"));
 
                         field_attributes.insert(
@@ -703,8 +705,13 @@ pub unsafe fn extract_field_attributes(
         }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
-            .unwrap_or_else(|e| panic!("{e}"));
+        let tantivy_type = SearchFieldType::try_from_type_info(
+            pg_type,
+            att_typmod,
+            inner_typoid,
+            created_by_version,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
 
         // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.literal` tokenizer
         let missing_tokenizer_cast = expression.is_some()
@@ -741,6 +748,7 @@ pub unsafe fn row_to_search_document<'a>(
         ),
     >,
     document: &mut tantivy::TantivyDocument,
+    created_by_version: Option<Version>,
 ) -> Result<(), IndexError> {
     for (
         datum,
@@ -789,7 +797,10 @@ pub unsafe fn row_to_search_document<'a>(
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             for value in converted_array {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.add_field_value(
+                    search_field.field(),
+                    &value.into_tantivy_value(created_by_version),
+                );
             }
         } else if *is_json {
             for value in
@@ -797,7 +808,10 @@ pub unsafe fn row_to_search_document<'a>(
                     panic!("could not parse field `{}`: {e}", search_field.field_name())
                 })
             {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.add_field_value(
+                    search_field.field(),
+                    &value.into_tantivy_value(created_by_version),
+                );
             }
         } else {
             // Check for NUMERIC field types that need special handling
@@ -817,7 +831,10 @@ pub unsafe fn row_to_search_document<'a>(
             .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
-            document.add_field_value(search_field.field(), &OwnedValue::from(tv));
+            document.add_field_value(
+                search_field.field(),
+                &tv.into_tantivy_value(created_by_version),
+            );
         }
     }
     Ok(())

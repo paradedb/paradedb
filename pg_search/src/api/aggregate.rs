@@ -55,8 +55,10 @@ use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::api::version::VersionInfo;
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
+use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
@@ -84,13 +86,16 @@ fn aggregate_impl(
 
     // Validate aggregation fields exist and are supported before executing.
     // This path bypasses the planner, so we validate here directly.
-    if let Ok(schema) = SearchIndexSchema::open(&relation) {
-        if let Err(e) = validate_agg_json_fields(&agg.0, &schema) {
+    let schema = SearchIndexSchema::open(&relation).ok();
+    if let Some(schema) = schema.as_ref() {
+        if let Err(e) = validate_agg_json_fields(&agg.0, schema) {
             pgrx::error!("{}", e);
         }
     }
 
     let standalone_context = ExprContextGuard::new();
+    // need a copy of the original request json for rewriting later
+    let agg_json = agg.0.clone();
 
     let aggregate = execute_aggregate(
         &relation,
@@ -104,10 +109,26 @@ fn aggregate_impl(
     )?;
 
     if aggregate.0.is_empty() {
-        Ok(JsonB(serde_json::Value::Null))
-    } else {
-        Ok(JsonB(serde_json::to_value(aggregate)?))
+        return Ok(JsonB(serde_json::Value::Null));
     }
+
+    let mut output = serde_json::to_value(aggregate)?;
+    // rewrite the aggregate results so we get human readable datetime values
+    if relation.created_by_version().stores_datetimes_in_i64() {
+        if let (Some(schema), Some(request_obj), Some(output_obj)) = (
+            schema.as_ref(),
+            agg_json.as_object(),
+            output.as_object_mut(),
+        ) {
+            for (name, request) in request_obj.iter() {
+                if let Some(response) = output_obj.get_mut(name) {
+                    rewrite_aggregate_result_json_timestamps(response, request, schema);
+                }
+            }
+        }
+    }
+
+    Ok(JsonB(output))
 }
 
 /// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=GUC)

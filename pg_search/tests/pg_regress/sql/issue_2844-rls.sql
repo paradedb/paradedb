@@ -230,9 +230,6 @@ CREATE INDEX IF NOT EXISTS
 				"tokenizer": {"type": "keyword"},
 				"record": "basic"
 			}
-		}',
-    datetime_fields='{
-			"created_at": {}
 		}'
     );
 

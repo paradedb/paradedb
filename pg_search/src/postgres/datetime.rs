@@ -43,6 +43,11 @@ pub fn unix_micros_to_pg_micros(unix_micros: i64) -> i64 {
         .unwrap()
 }
 
+pub fn unix_millis_to_pg_micros(unix_millis: i64) -> i64 {
+    let unix_micros = unix_millis.checked_mul(1_000).unwrap();
+    unix_micros_to_pg_micros(unix_micros)
+}
+
 /// The minimum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
 /// converted between Postgres types and Tantivy without underflowing i64 when floored to the
 /// day.

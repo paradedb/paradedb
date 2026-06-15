@@ -84,11 +84,12 @@ fn ensure_column_fetched(
         return;
     }
     match &which_fast_fields[ff_index] {
-        WhichFastField::Named(_, _) | WhichFastField::Deferred(_, _) => {
+        WhichFastField::Named(_, search_field_type)
+        | WhichFastField::Deferred(_, search_field_type) => {
             memoized_columns[ff_index] = Some(
                 ffhelper
                     .column(segment_ord, ff_index)
-                    .fetch_values_or_ords_to_arrow(ids),
+                    .fetch_values_or_ords_to_arrow(ids, *search_field_type),
             );
         }
         WhichFastField::Ctid

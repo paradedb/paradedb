@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
+use crate::api::version::Version;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
@@ -398,6 +400,11 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+
+    /// This opens the MetaPage on every call, so use it carefully
+    pub fn created_by_version(&self) -> Option<Version> {
+        MetaPage::open(self).created_by_version()
     }
 
     /// Get the index info for this relation.

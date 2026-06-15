@@ -38,12 +38,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -70,12 +65,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -102,12 +92,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -135,12 +120,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
 SET paradedb.enable_aggregate_custom_scan = false;
     "#
@@ -168,12 +148,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -199,12 +174,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);

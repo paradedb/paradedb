@@ -256,13 +256,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value_date, value_timestamp, value_timestamptz, value_time, value_timetz) WITH (key_field='id', datetime_fields='{
-        "value_date": {}, 
-        "value_timestamp": {}, 
-        "value_timestamptz": {}, 
-        "value_time": {}, 
-        "value_timetz": {}
-    }');
+    USING bm25 (id, value_date, value_timestamp, value_timestamptz, value_time, value_timetz) WITH (key_field='id');
     "#
     .execute(&mut conn);
 

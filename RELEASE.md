@@ -64,7 +64,7 @@ To publish a patch for an older release:
 ## Post-Release Steps
 
 1. **Verify** that the GitHub Release and GitHub Tag properly created and that all jobs completed.
-2. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `0.20.0` or `0.20.0-rc.1`).
+2. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `0.25.0` or `0.25.0-rc.1`).
 3. **Merge** that PR so `main` reflects ongoing work.
 4. **Release** `paradedb/paradedb-enterprise`, `paradedb/charts` and `paradedb/terraform-paradedb-byoc`. More context to come here as we automate more of the release flow.
 

@@ -695,7 +695,7 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 /// into executable quals. They serve different purposes:
 /// - This function: Quick boolean check for planner decisions
 /// - extract_quals: Detailed extraction and validation for execution
-unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
+pub(crate) unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     // We still need to check for the @@@(anyelement, searchqueryinput) variant
     // because it's the most common and we want fast-path for it
     let target_ops = anyelement_search_opoids();

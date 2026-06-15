@@ -405,6 +405,11 @@ impl ColumnarExecState {
             which_fast_fields: self.scanner_fast_fields.clone(),
             heap_relid: heap_rel.oid().to_u32(),
             batch_size_hint: self.batch_size_hint,
+            // Basescan is never leader-dispatched; mirror the reader's scoring from the fields.
+            score_needed: self
+                .scanner_fast_fields
+                .iter()
+                .any(|f| matches!(f, crate::index::fast_fields_helper::WhichFastField::Score)),
         };
 
         // Create PgSearchScanPlan and execute via DataFusion
@@ -412,6 +417,8 @@ impl ColumnarExecState {
             recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
                 parallel_state: state.parallel_state,
                 source_idx: None,
+                // Basescan is never an MPP source, so there is no non-partitioning position.
+                non_partitioning_index: None,
                 planner_estimated_rows: 0,
                 scanner_config,
             },
@@ -537,6 +544,10 @@ impl ColumnarExecState {
                         which_fast_fields: self.scanner_fast_fields.clone(),
                         heap_relid: heaprel.oid().to_u32(),
                         batch_size_hint: self.batch_size_hint,
+                        // Basescan is never leader-dispatched.
+                        score_needed: self.scanner_fast_fields.iter().any(|f| {
+                            matches!(f, crate::index::fast_fields_helper::WhichFastField::Score)
+                        }),
                     };
                     ScanState {
                         recipe: crate::scan::execution_plan::ScanRecipe::Eager {

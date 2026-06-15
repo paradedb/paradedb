@@ -1,8 +1,9 @@
 [package]
 name = "tokenizers"
+description = "Text tokenizers for pg_search"
 version = { workspace = true }
 edition = { workspace = true }
-
+license = { workspace = true }
 
 [dependencies]
 anyhow = "1.0.102"

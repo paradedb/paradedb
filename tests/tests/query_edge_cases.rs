@@ -333,3 +333,34 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(negated_operator_path, missing_rows);
 }
+
+#[rstest]
+fn negated_predicate_preserves_empty_array_not_null_issue_5264(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS array_repro;
+    CREATE TABLE array_repro (
+        id INTEGER PRIMARY KEY,
+        tags TEXT[]
+    );
+
+    INSERT INTO array_repro (id, tags) VALUES
+        (1, ARRAY['beer']),
+        (2, '{}'),
+        (3, NULL);
+
+    CREATE INDEX array_repro_idx ON array_repro
+    USING bm25 (id, tags) WITH (
+        key_field = 'id',
+        text_fields = '{"tags": {"tokenizer": {"type": "keyword"}, "fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Empty array is SQL NOT NULL; the null-preserving guard must not treat it as NULL.
+    let indexed_rows: Vec<(i32,)> = r#"
+    SELECT id FROM array_repro WHERE NOT (tags @@@ 'beer') ORDER BY id;
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(indexed_rows, vec![(2,)]);
+}

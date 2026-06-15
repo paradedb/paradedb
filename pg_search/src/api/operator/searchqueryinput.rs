@@ -69,7 +69,8 @@ enum CacheEntry {
 struct QueryCacheEntry {
     element_oid: PgOid,
     matches: CacheEntry,
-    existing_values: Option<CacheEntry>,
+    /// Key-field values for rows where the indexed field is absent (SQL NULL semantics).
+    missing_values: Option<CacheEntry>,
 }
 
 impl FromIterator<TantivyValue> for CacheEntry {
@@ -135,19 +136,56 @@ unsafe impl SqlTranslatable for FakeSearchQueryInput {
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
-/// Whether `query` is (after unwrapping any `WithIndex`) an `Exists` predicate.
+/// Whether `query` is (after unwrapping wrappers) an `Exists` predicate.
 ///
 /// `Exists` is a total predicate: a missing field means it is FALSE, not NULL.
-/// So we must not build the "existing values" set for it, which would otherwise
-/// make missing fields evaluate to NULL instead of false.
+/// So we must not build the missing-values set for it.
 fn query_is_exists(query: &SearchQueryInput) -> bool {
     match query {
         SearchQueryInput::WithIndex { query, .. } => query_is_exists(query),
+        SearchQueryInput::Boost { query, .. } => query_is_exists(query),
+        SearchQueryInput::ConstScore { query, .. } => query_is_exists(query),
         SearchQueryInput::FieldedQuery { query, .. } => {
             matches!(query, crate::query::pdb_query::pdb::Query::Exists)
         }
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+        } => {
+            let clauses: Vec<_> = must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .collect();
+            clauses.len() == 1 && query_is_exists(clauses[0])
+        }
         _ => false,
     }
+}
+
+/// Whether the null-preserving existence guard is valid for this field.
+///
+/// The guard equates "field absent from the index" with SQL NULL, which is only
+/// correct for scalar columns. Array and JSON columns can be non-NULL in SQL
+/// while having no indexed values (e.g. `'{}'::text[]`, `'{}'::jsonb`).
+fn field_supports_null_preserving_guard(
+    schema: &crate::schema::SearchIndexSchema,
+    field: &str,
+) -> bool {
+    let Some(search_field) = schema.search_field(field) else {
+        return false;
+    };
+    if !search_field.is_fast() {
+        return false;
+    }
+
+    let categorized = schema.categorized_fields();
+    let root = crate::api::FieldName::from(field).root();
+    categorized
+        .iter()
+        .find(|(sf, _)| sf.field_name().root() == root)
+        .is_none_or(|(_, data)| !data.is_array && !data.is_json)
 }
 
 #[allow(unused_variables)]
@@ -193,7 +231,7 @@ pub fn search_with_query_input(
                 return QueryCacheEntry {
                     element_oid,
                     matches: CacheEntry::All,
-                    existing_values: None,
+                    missing_values: None,
                 };
             }
         }
@@ -209,7 +247,7 @@ pub fn search_with_query_input(
         search_query_input.extract_field_names(&mut field_names);
 
         // For an `Exists` predicate a missing field is FALSE, not NULL, so we
-        // skip the existing-values computation below and let missing fields fall
+        // skip the missing-values computation below and let missing fields fall
         // through to `Some(false)`.
         let is_exists_query = query_is_exists(&search_query_input);
 
@@ -223,8 +261,8 @@ pub fn search_with_query_input(
         let schema = search_reader.schema();
         let key_field_name = schema.key_field_name();
         let key_field_type = schema.key_field_type();
-        let ff_helper =
-            FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
+        let key_ff_helper =
+            FFHelper::with_fields(&search_reader, &[(key_field_name.clone(), key_field_type).into()]);
 
         // now, query the SearchReader and collect up the docs that match our query.
         // the matches are cached so that the same input query will return the same results
@@ -233,52 +271,59 @@ pub fn search_with_query_input(
             .search()
             .map(|(_, doc_address)| {
                 check_for_interrupts!();
-                ff_helper
+                key_ff_helper
                     .value(0, doc_address)
                     .expect("key_field value should not be null")
             })
             .collect();
 
-        let existing_values = if field_names.len() == 1 && !is_exists_query {
+        let missing_values = if field_names.len() == 1 && !is_exists_query {
             let field = field_names
                 .into_iter()
                 .next()
                 .expect("field_names should contain exactly one field");
 
-            let supports_exists = schema
-                .search_field(&field)
-                .is_some_and(|search_field| search_field.is_fast());
-
-            if !supports_exists {
+            if !field_supports_null_preserving_guard(schema, &field) {
                 return QueryCacheEntry {
                     element_oid,
                     matches,
-                    existing_values: None,
+                    missing_values: None,
                 };
             }
 
-            let exists_query = SearchQueryInput::WithIndex {
+            // Collect rows where the field is absent (the complement of `exists`).
+            // Membership in this set means SQL NULL for negation semantics.
+            let complement_query = SearchQueryInput::WithIndex {
                 oid: index_oid,
-                query: Box::new(SearchQueryInput::FieldedQuery {
-                    field: field.into(),
-                    query: crate::query::pdb_query::pdb::Query::Exists,
+                query: Box::new(SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: Default::default(),
+                    must_not: vec![SearchQueryInput::FieldedQuery {
+                        field: field.into(),
+                        query: crate::query::pdb_query::pdb::Query::Exists,
+                    }],
                 }),
             };
 
-            let exists_reader = SearchIndexReader::open(
+            let complement_reader = SearchIndexReader::open(
                 &index_relation,
-                exists_query,
+                complement_query,
                 false,
                 MvccSatisfies::Snapshot,
             )
-            .expect("search_with_query_input: should be able to open an Exists SearchIndexReader");
+            .expect("search_with_query_input: should be able to open a complement SearchIndexReader");
+
+            let complement_ff_helper = FFHelper::with_fields(
+                &complement_reader,
+                &[(key_field_name, key_field_type).into()],
+            );
 
             Some(
-                exists_reader
+                complement_reader
                     .search()
                     .map(|(_, doc_address)| {
                         check_for_interrupts!();
-                        ff_helper
+                        complement_ff_helper
                             .value(0, doc_address)
                             .expect("key_field value should not be null")
                     })
@@ -291,7 +336,7 @@ pub fn search_with_query_input(
         QueryCacheEntry {
             element_oid,
             matches,
-            existing_values,
+            missing_values,
         }
     });
 
@@ -304,11 +349,11 @@ pub fn search_with_query_input(
 
         if query_cache.matches.contains(&user_value) {
             Some(true)
-        } else if let Some(existing_values) = &query_cache.existing_values {
-            if existing_values.contains(&user_value) {
-                Some(false)
-            } else {
+        } else if let Some(missing_values) = &query_cache.missing_values {
+            if missing_values.contains(&user_value) {
                 None
+            } else {
+                Some(false)
             }
         } else {
             Some(false)

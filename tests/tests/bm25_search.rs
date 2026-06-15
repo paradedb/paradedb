@@ -131,13 +131,13 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn sequential_scan_syntax_non_fast_field_issue_5264(mut conn: PgConnection) {
+fn search_with_query_input_non_fast_field_issue_5264(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search
         WHERE paradedb.search_with_query_input(
             id,
-            paradedb.parse('description:keyboard')
+            paradedb.parse_with_field('description', 'keyboard')
         ) ORDER BY id"
         .to_string()
         .fetch_collect(&mut conn);

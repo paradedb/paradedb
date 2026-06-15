@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781564215281,
+  "lastUpdate": 1781564249781,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14954,6 +14954,138 @@ window.BENCHMARK_DATA = {
             "value": 35.1796875,
             "unit": "median mem",
             "extra": "avg mem: 34.77867067601151, max mem: 35.546875, count: 57340"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be4acbededaaac59721cf1b30a75c58704c9077e",
+          "message": "fix: Resolve uncorrelated params in heap filters (#5342)\n\n# Ticket(s) Closed\n\n- Closes #4598\n\n## What\n\nPartially solves expressions in heap filters in the leader. Uses the\nsame mechanism as our existing partial solving for constant expressions\ninside other query nodes.\n\n## Why\n\nParam nodes cannot safely be resolved inside of custom scan parallel\nworkers, and so caused a segfault.\n\n## Tests\n\nNew regress test.",
+          "timestamp": "2026-06-15T15:37:47-07:00",
+          "tree_id": "6d458c734e90d3f61f99cb43c95b64f9c4d8c2ad",
+          "url": "https://github.com/paradedb/paradedb/commit/be4acbededaaac59721cf1b30a75c58704c9077e"
+        },
+        "date": 1781564217422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 7.692308,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.406575698712693, max cpu: 27.688503, count: 57338"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.664876886837696, max mem: 40.95703125, count: 57338"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 7.69539,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.408558058391376, max cpu: 27.688503, count: 57338"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 40.50646883665719, max mem: 40.78125, count: 57338"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594874038730345, max cpu: 9.514371, count: 57338"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.971740763106492, max mem: 20.97265625, count: 57338"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.736063,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.511587728315874, max cpu: 9.472126, count: 57338"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 38.48434952060588, max mem: 38.73828125, count: 57338"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.697172989218333, max cpu: 9.653092, count: 114676"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 28.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.685746588486257, max mem: 39.296875, count: 114676"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1758,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1771.9363249502946, max block_count: 3136.0, count: 57338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.529003453207297, max segment_count: 30.0, count: 57338"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.738401,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.429056614547543, max cpu: 29.782835, count: 57338"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.3040473813178, max mem: 39.5546875, count: 57338"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.703519629921779, max cpu: 4.8607597, count: 57338"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 37.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 36.89915555565245, max mem: 37.4765625, count: 57338"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.329327857991823, max cpu: 4.7666335, count: 57338"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 34.92551623705047, max mem: 35.42578125, count: 57338"
           }
         ]
       }

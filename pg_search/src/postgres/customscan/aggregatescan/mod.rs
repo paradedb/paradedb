@@ -373,7 +373,8 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().indexrelid = indexrelid;
                 builder.custom_state().execution_rti =
                     unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
-                builder.custom_state().aggregate_clause = *aggregate_clause;
+                builder.custom_state().aggregate_clause = *aggregate_clause.clone();
+                builder.custom_state().base_aggregate_clause = Some(*aggregate_clause);
                 builder.build()
             }
             PrivateData::DataFusion {
@@ -396,6 +397,7 @@ impl CustomScan for AggregateScan {
                     plan,
                     targetlist,
                     topk,
+                    base_join_level_predicates: Some(join_level_predicates.clone()),
                     join_level_predicates,
                     multi_table_predicates,
                     custom_exprs,

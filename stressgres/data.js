@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781552493093,
+  "lastUpdate": 1781552526619,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32272,6 +32272,108 @@ window.BENCHMARK_DATA = {
             "value": 25.71484375,
             "unit": "median mem",
             "extra": "avg mem: 48.808473974518, max mem: 83.27734375, count: 58247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55",
+          "message": "fix: run vacuum to ensure visibility map is updated (#5321)\n\nThe visibility map does not get updated from `VACUUM FULL`. Running both\na full and regular vacuum ensures the heap file has no fragmented space\nand the visibility map is updated.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-15T11:59:35-07:00",
+          "tree_id": "fe8814c6de47812055e5ba648988201ea0283b6e",
+          "url": "https://github.com/paradedb/paradedb/commit/ef9cb6c590b9222d1e0976c2fbc2b291b19d7e55"
+        },
+        "date": 1781552495070,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07264018130000344, max background_merging: 2.0, count: 58246"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.754829,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752807964577917, max cpu: 9.638554, count: 58246"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.02567645471363, max mem: 20.08984375, count: 58246"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7524753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.97178120973259, max cpu: 28.930183, count: 58246"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 48.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.83289544561, max mem: 53.8984375, count: 58246"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52125,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51965.773100298735, max block_count: 52125.0, count: 58246"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 74,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.32302647392096, max segment_count: 104.0, count: 58246"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7501235,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.751409115758927, max cpu: 23.703703, count: 58246"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 50.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.38648509661608, max mem: 50.91796875, count: 58246"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7524753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.826670772155668, max cpu: 28.57143, count: 58246"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 47.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.63609846867167, max mem: 50.03515625, count: 58246"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.738873,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.403569808828916, max cpu: 33.650475, count: 58246"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 25.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.70853269430519, max mem: 83.265625, count: 58246"
           }
         ]
       }

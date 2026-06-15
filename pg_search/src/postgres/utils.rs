@@ -220,7 +220,6 @@ mod tests {
 /// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
 /// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
 /// bitpacking or compressing these values.
-#[allow(dead_code)]
 #[inline(always)]
 pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
     let (blockno, offno) = item_pointer_get_both(ctid);

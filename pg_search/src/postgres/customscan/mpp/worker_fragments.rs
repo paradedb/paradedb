@@ -15,34 +15,38 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Worker-side fragment discovery for the multi-fragment runner.
+//! Leader-side producer-stage discovery for dispatch. "Fragment" here means a plan fragment
+//! (one task of a producer stage), not the frame fragmentation the ring does for oversized
+//! messages.
 //!
-//! [`find_worker_assignments`] walks a worker's physical plan, visits every
-//! [`datafusion_distributed::NetworkBoundary`], and collects the
-//! `(input_stage.num, task_idx, plan, routing)` tuples assigned to a given
-//! `this_proc`. The dispatcher driven by [`mpp::host::exec_mpp_worker`] runs one
-//! fragment per returned [`FragmentAssignment`].
+//! [`collect_dispatched_stages`] walks the distributed physical plan, visits every
+//! [`datafusion_distributed::NetworkBoundary`], and collects one [`StageEntry`]
+//! (`input_stage.num`, `task_count`, `routing`, `plan`) per boundary. The leader serializes each
+//! stage's plan and ships it; each worker later expands a stage into one [`FragmentAssignment`]
+//! per `task_idx` it owns under `proc_for_task`.
 //!
-//! The walker tracks a `ParentContext` per recursion level so nested
-//! boundaries know which OUTER stage's tasks consume their output. The
-//! routing math (which proc to send partition `q` to) depends on this:
+//! The fork's coordinator has no equivalent of this walk: it dispatches one boundary at a time,
+//! when the consumer's `execute` opens connections, so routing is implicit in who pulls. These
+//! workers launch exactly once and the mesh is push-driven, so the leader enumerates every
+//! producer stage and precomputes destinations before any worker exists.
 //!
-//! - **Top-level boundary** (`parent = None`): the consumer is the leader at
+//! Routing classification (which proc an output partition `q` is sent to) depends on the
+//! boundary's position:
+//!
+//! - **Top-level boundary** (`nested = false`): the consumer is the leader at
 //!   proc 0. Every output partition goes there.
-//! - **Nested boundary inside outer stage `S_outer.plan`**: the consumer is
-//!   one of `S_outer`'s tasks. For [`NetworkShuffleExec`] the routing is
-//!   hash-partitioned (partition `q` → consumer task `q / P_c` where `P_c`
-//!   is the per-consumer-task output count); for [`NetworkCoalesceExec`]
-//!   the routing collapses to a single consumer task.
+//! - **Nested boundary inside an outer stage**: the consumer is one of that stage's
+//!   tasks. For [`NetworkShuffleExec`] the routing is hash-partitioned (partition `q` →
+//!   the consumer task `route_partition(q)` picks); for [`NetworkCoalesceExec`] the
+//!   routing collapses to a single consumer task.
 //!
 //! [`NetworkShuffleExec`]: datafusion_distributed::NetworkShuffleExec
 //! [`NetworkCoalesceExec`]: datafusion_distributed::NetworkCoalesceExec
 
 use std::sync::Arc;
 
+use datafusion::common::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
-#[cfg(not(test))]
-use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
 };
@@ -70,119 +74,89 @@ pub struct FragmentAssignment {
 }
 
 /// Routing rule for a fragment's output partitions.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FragmentRouting {
     /// All output partitions go to one destination proc (`NetworkCoalesceExec`
-    /// or the top-level gather case). Frame header carries
-    /// `(stage_id, partition)` directly; consumer reads
-    /// `execute(partition)`.
+    /// or the top-level gather case). Coalesce routes by producer task, not by
+    /// output partition, so the crate's `route_partition` does not describe it;
+    /// the dispatcher sends every partition to `dest_proc`.
     Coalesce {
-        /// Destination proc index. `0` for the leader (top-level gather),
-        /// or an `assignment.proc_for(parent_stage_id, 0)` lookup for a
-        /// nested coalesce that lands on a single consumer task.
+        /// Destination proc index. `0` for the leader (top-level gather), or a
+        /// `proc_for_task(n_workers, 0)` lookup for a nested coalesce that lands
+        /// on a single consumer task.
         dest_proc: u32,
     },
-    /// Hash-partitioned mesh ([`NetworkShuffleExec`]). Output partition `q`
-    /// goes to consumer task `q / partitions_per_consumer_task`, hosted on
-    /// `proc_for_task(n_workers, consumer_task_idx)`. Frame header is
-    /// `(stage_id, q)` so the consumer's
-    /// `execute(P_c * task_index + p_local)` finds it via the
-    /// per-`(stage_id, partition)` channel buffer registry.
+    /// Hash-partitioned mesh ([`NetworkShuffleExec`] / [`NetworkBroadcastExec`]). Output
+    /// partition `q` goes to the consumer task the crate's `route_partition(q)` selects,
+    /// hosted on `proc_for_task(n_workers, consumer_task)`. Precomputed per output partition:
+    /// the crate owns the receive-side formula, so the producer side reads it from
+    /// `route_partition` rather than re-deriving `q / P_c`.
     ///
     /// [`NetworkShuffleExec`]: datafusion_distributed::NetworkShuffleExec
-    Shuffle {
-        /// `B.properties().output_partitioning().partition_count()`. Equal to
-        /// `P_c` in the receive-side formula `off = P_c * task_index`.
-        partitions_per_consumer_task: usize,
-    },
-    /// Broadcast mesh ([`NetworkBroadcastExec`]). Wire-level math matches [`Self::Shuffle`]
-    /// (`q → q / P_c`).
-    ///
-    /// Delta from upstream: we cap the build subtree at `task_count = 1` via
-    /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees `task_idx == 0`
-    /// fragments here. The estimator relies on the AggregateScan all-gather step canonical-
-    /// replicating the build side; a future planner that emits `NetworkBroadcastExec` over a
-    /// sharded child would silently drop shards under this rule and needs a new routing variant.
-    ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
-    /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
-    Broadcast {
-        /// `B.properties().output_partitioning().partition_count()`. Same
-        /// semantics as
-        /// [`Self::Shuffle::partitions_per_consumer_task`].
-        partitions_per_consumer_task: usize,
+    Hashed {
+        /// `route_partition(q).consumer_task` for each producer output partition `q`.
+        consumer_task: Vec<u32>,
+        /// `true` for broadcast. The build subtree is capped at `task_count = 1` via
+        /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees
+        /// `task_idx == 0` broadcast fragments; the cap is asserted at dispatch.
+        ///
+        /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
+        broadcast: bool,
     },
 }
 
-/// Walk `root` (the worker's physical plan) and collect every fragment
-/// assigned to `this_proc` under the `proc_for_task` round-robin policy.
-/// Returns one [`FragmentAssignment`] per `(stage_id, task_idx)` pair
-/// hosted by this proc; the dispatcher spawns one async task per entry.
-pub fn find_worker_assignments(
-    root: &Arc<dyn ExecutionPlan>,
-    this_proc: u32,
-    n_workers: u32,
-) -> Vec<FragmentAssignment> {
-    let mut out = Vec::new();
-    collect(
-        root, this_proc, n_workers, /* nested = */ false, &mut out,
-    );
-    #[cfg(not(test))]
-    {
-        crate::mpp_log!(
-            "mpp worker_fragments::find_worker_assignments this_proc={} fragments={}",
-            this_proc,
-            out.len()
-        );
-        for f in &out {
-            let n_out = f.plan.output_partitioning().partition_count();
-            match &f.routing {
-                FragmentRouting::Coalesce { dest_proc } => crate::mpp_log!(
-                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Coalesce dest_proc={dest_proc}",
-                    f.stage_id,
-                    f.task_idx,
-                    f.task_count,
-                ),
-                FragmentRouting::Shuffle {
-                    partitions_per_consumer_task,
-                } => crate::mpp_log!(
-                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Shuffle \
-                     partitions_per_consumer_task={partitions_per_consumer_task}",
-                    f.stage_id,
-                    f.task_idx,
-                    f.task_count,
-                ),
-                FragmentRouting::Broadcast {
-                    partitions_per_consumer_task,
-                } => crate::mpp_log!(
-                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Broadcast \
-                     partitions_per_consumer_task={partitions_per_consumer_task}",
-                    f.stage_id,
-                    f.task_idx,
-                    f.task_count,
-                ),
-            }
-        }
-    }
-    out
+/// One producer stage to dispatch. The leader serializes `plan` once per stage and ships it with
+/// its `task_count` and `routing`; each worker expands a stage into one [`FragmentAssignment`] per
+/// `task_idx` it owns under `proc_for_task`.
+pub struct StageEntry {
+    /// `input_stage.num` of the boundary whose producer side this stage belongs to.
+    pub stage_num: u32,
+    /// Total task count for the stage (= `input_stage.tasks.len()`).
+    pub task_count: usize,
+    /// How to route each output partition to a destination proc.
+    pub routing: FragmentRouting,
+    /// The stage's `input_stage.plan` (nested boundaries left `Local`; the worker converts them
+    /// at run time via `prepare_in_process_plan`, same as before).
+    pub plan: Arc<dyn ExecutionPlan>,
 }
 
-fn collect(
+/// Walk the distributed physical plan and collect every producer stage, once per boundary. The
+/// leader runs this (replacing the worker-side re-plan): it classifies routing from the boundary
+/// type and captures each stage's `local_plan` for serialization. Not filtered by proc; the blob
+/// is shared and each worker selects its own `(stage, task)` slots.
+pub fn collect_dispatched_stages(
+    root: &Arc<dyn ExecutionPlan>,
+    n_workers: u32,
+) -> Result<Vec<StageEntry>, DataFusionError> {
+    let mut out = Vec::new();
+    collect_stages(root, n_workers, /* nested = */ false, &mut out)?;
+    Ok(out)
+}
+
+fn collect_stages(
     plan: &Arc<dyn ExecutionPlan>,
-    this_proc: u32,
     n_workers: u32,
     nested: bool,
-    out: &mut Vec<FragmentAssignment>,
-) {
+    out: &mut Vec<StageEntry>,
+) -> Result<(), DataFusionError> {
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        // Per-consumer-task partition count from upstream's `NetworkShuffleExec::execute`
-        // receive-side formula `off = P_c * task_index`.
-        let p_c = plan.properties().partitioning.partition_count();
+        // Only the `mpp_log!` trace reads `p_c` (routing reads the crate's `route_partition`),
+        // so it's gated to non-test builds to avoid the unused-variable warning.
+        #[cfg(not(test))]
+        let p_c = nb.partitions_per_consumer_task();
+        // `route_partition(q).consumer_task` for every producer output partition. Used by the
+        // hash-partitioned boundaries (Shuffle / Broadcast) only; Coalesce routes by task instead.
+        let route_consumer_tasks = || -> Result<Vec<u32>, DataFusionError> {
+            let n_out = stage
+                .local_plan()
+                .map_or(0, |p| p.properties().partitioning.partition_count());
+            (0..n_out)
+                .map(|q| Ok(nb.route_partition(q)?.consumer_task as u32))
+                .collect()
+        };
         let plan_any = plan.as_ref().as_any();
 
         // Classify the boundary by downcasting to its concrete `Network*Exec` type, then pick a
@@ -206,9 +180,10 @@ fn collect(
         } else if plan_any.is::<NetworkShuffleExec>() {
             if nested {
                 // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
-                // to consumer task q / p_c.
-                FragmentRouting::Shuffle {
-                    partitions_per_consumer_task: p_c,
+                // to the consumer task `route_partition(q)` selects.
+                FragmentRouting::Hashed {
+                    consumer_task: route_consumer_tasks()?,
+                    broadcast: false,
                 }
             } else {
                 // Top-level NetworkShuffleExec isn't a shape our customscan plans produce.
@@ -224,11 +199,12 @@ fn collect(
             }
         } else if plan_any.is::<NetworkBroadcastExec>() {
             if nested {
-                // Nested NetworkBroadcastExec: same wire-level math as Shuffle, but the dispatcher
-                // only runs the producer plan on task 0 to avoid the canonical-replica duplication
-                // described on `FragmentRouting::Broadcast`.
-                FragmentRouting::Broadcast {
-                    partitions_per_consumer_task: p_c,
+                // Nested NetworkBroadcastExec: same receive-side routing as Shuffle (via
+                // `route_partition`), but the dispatcher only runs the producer plan on task 0 to
+                // avoid the canonical-replica duplication described on `FragmentRouting::Hashed`.
+                FragmentRouting::Hashed {
+                    consumer_task: route_consumer_tasks()?,
+                    broadcast: true,
                 }
             } else {
                 // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan
@@ -256,7 +232,7 @@ fn collect(
         #[cfg(not(test))]
         {
             crate::mpp_log!(
-                "mpp worker_fragments::collect boundary={} stage_id={stage_id} \
+                "mpp worker_fragments::collect_stages boundary={} stage_id={stage_id} \
                  p_c={p_c} nested={nested}",
                 plan.name()
             );
@@ -264,29 +240,24 @@ fn collect(
 
         let task_count = stage.task_count();
         if let Some(stage_plan) = stage.local_plan() {
-            for task_idx in 0..task_count {
-                let owner = proc_for_task(n_workers, task_idx as u32);
-                if owner == this_proc {
-                    out.push(FragmentAssignment {
-                        stage_id,
-                        task_idx,
-                        task_count,
-                        plan: Arc::clone(stage_plan),
-                        routing: routing.clone(),
-                    });
-                }
-            }
+            out.push(StageEntry {
+                stage_num: stage_id,
+                task_count,
+                routing,
+                plan: Arc::clone(stage_plan),
+            });
             // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
             // returns `[stage.plan]`, so descending through it would double-process every nested
-            // fragment. Return here to keep visit counts exact.
-            collect(stage_plan, this_proc, n_workers, true, out);
+            // stage. Return here to keep visit counts exact.
+            collect_stages(stage_plan, n_workers, true, out)?;
         }
-        return;
+        return Ok(());
     }
     // Non-boundary nodes recurse through plan children.
     for child in plan.children() {
-        collect(child, this_proc, n_workers, nested, out);
+        collect_stages(child, n_workers, nested, out)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -296,10 +267,10 @@ mod tests {
     use datafusion::physical_plan::empty::EmptyExec;
 
     #[test]
-    fn boundary_free_plan_returns_no_assignments() {
+    fn boundary_free_plan_yields_no_stages() {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
-        let out = find_worker_assignments(&plan, 1, 3);
+        let out = collect_dispatched_stages(&plan, 3).unwrap();
         assert!(out.is_empty());
     }
 
@@ -315,15 +286,20 @@ mod tests {
     }
 
     #[test]
-    fn routing_shuffle_carries_pc() {
-        let r = FragmentRouting::Shuffle {
-            partitions_per_consumer_task: 3,
+    fn routing_hashed_carries_consumer_tasks() {
+        let r = FragmentRouting::Hashed {
+            consumer_task: vec![0, 0, 1],
+            broadcast: false,
         };
         match r {
-            FragmentRouting::Shuffle {
-                partitions_per_consumer_task,
-            } => assert_eq!(partitions_per_consumer_task, 3),
-            _ => panic!("expected Shuffle"),
+            FragmentRouting::Hashed {
+                consumer_task,
+                broadcast,
+            } => {
+                assert_eq!(consumer_task, vec![0, 0, 1]);
+                assert!(!broadcast);
+            }
+            _ => panic!("expected Hashed"),
         }
     }
 }

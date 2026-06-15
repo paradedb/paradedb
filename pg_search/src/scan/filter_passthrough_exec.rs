@@ -44,6 +44,13 @@ impl FilterPassthroughExec {
     pub fn new(inner: Arc<dyn ExecutionPlan>) -> Self {
         Self { inner }
     }
+
+    /// The wrapped node. The passthrough only matters during filter-pushdown optimization; once
+    /// the plan is finalized it delegates everything to `inner`, so leader dispatch strips
+    /// the wrapper and ships `inner` directly.
+    pub(crate) fn inner(&self) -> &Arc<dyn ExecutionPlan> {
+        &self.inner
+    }
 }
 
 impl DisplayAs for FilterPassthroughExec {

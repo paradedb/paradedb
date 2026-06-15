@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! High-level glue between PostgreSQL parallel-query callbacks and the
-//! coordinator/worker MPP architecture.
+//! leader/worker MPP architecture.
 //!
 //! Customscan code calls into this module from four hooks; everything else
 //! (DSM math, shm_mq FFI, DF-D fork's `WorkerTransport` plumbing) is hidden
@@ -115,6 +115,9 @@ pub fn mpp_worker_count() -> u32 {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CustomScanMppHeader {
+    /// Byte offset of the MPP region within the coordinate. Always a real, initialized region:
+    /// the leader errors out of `initialize_dsm_custom_scan` on any setup failure, before
+    /// `LaunchParallelWorkers`, so no worker ever reads a half-written header.
     pub mpp_offset: u64,
     pub partitioning_source_idx: u64,
 }
@@ -302,8 +305,8 @@ pub struct MppWorkerState {
     /// `Arc<dyn BatchChannelSender>` so callers can `clone_with_header` to multiplex
     /// `(stage_id, partition)` channels onto one inbox.
     pub outbound_senders: Vec<Option<MppSender>>,
-    /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via the
-    /// `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
+    /// Leader's dispatch payload (framed per-stage physical subplans), copied out of DSM. The
+    /// worker decodes it into its fragment assignments via `mpp::dispatch::expand_to_assignments`.
     pub plan_bytes: Vec<u8>,
     /// Worker's MppMesh. The single `inbound_receiver` pulls frames addressed to this
     /// proc from both the DSM MPSC inbox and the in-proc self-loop channel; demux by

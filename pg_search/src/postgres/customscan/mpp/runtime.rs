@@ -27,8 +27,9 @@
 //! time. `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one
 //! stream per consumer partition from the shared `inbound_receiver`.
 //!
-//! No `WorkerResolver` impl: under `in_process_mode = true` the fork makes the resolver
-//! optional and substitutes a placeholder URL; nothing here resolves anything by URL.
+//! [`InProcessWorkerResolver`] hands the planner `n_workers` placeholder URLs. The transport
+//! routes by task index, not URL, so the URLs are never dialed; the resolver exists only because
+//! the planner sizes stages from the URL count.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -37,8 +38,12 @@ use datafusion::arrow::array::RecordBatch;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
-use datafusion_distributed::{RemoteStage, WorkerConnection, WorkerTransport};
+use datafusion_distributed::{
+    RemoteStage, WorkerConnection, WorkerDispatch, WorkerDispatchRequest, WorkerResolver,
+    WorkerTransport,
+};
 use futures::stream::BoxStream;
+use url::Url;
 
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
@@ -152,7 +157,7 @@ impl WorkerTransport for ShmMqWorkerTransport {
         target_task: usize,
         _ctx: &Arc<TaskContext>,
         _metrics: &ExecutionPlanMetricsSet,
-    ) -> Result<Box<dyn WorkerConnection + Send + Sync>> {
+    ) -> Result<Box<dyn WorkerConnection>> {
         let target_task_u32 = u32::try_from(target_task).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerTransport: target_task={target_task} > u32::MAX"
@@ -182,6 +187,49 @@ impl WorkerTransport for ShmMqWorkerTransport {
             sender_proc,
             stage_id,
         }))
+    }
+
+    /// The plan rides DSM at parallel-context init: the leader writes per-stage physical
+    /// subplans, and workers decode their fragments before the leader's plan reaches dispatch.
+    /// Nothing is left to deliver here, so the dispatcher is a no-op.
+    fn dispatcher(&self) -> Box<dyn WorkerDispatch> {
+        Box::new(NoOpDispatch)
+    }
+}
+
+struct NoOpDispatch;
+
+impl WorkerDispatch for NoOpDispatch {
+    /// No-op, see [`ShmMqWorkerTransport::dispatcher`].
+    fn dispatch(&self, _request: WorkerDispatchRequest<'_>) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// Placeholder worker resolver for the in-process MPP transport: the planner sizes stages from
+/// the URL count, and the shm_mq transport routes by `target_task`, so the URLs are never
+/// dialed.
+pub struct InProcessWorkerResolver {
+    n_workers: usize,
+}
+
+impl InProcessWorkerResolver {
+    pub fn new(n_workers: usize) -> Self {
+        Self { n_workers }
+    }
+}
+
+impl WorkerResolver for InProcessWorkerResolver {
+    fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
+        (0..self.n_workers.max(1))
+            .map(|i| {
+                Url::parse(&format!("inprocess://worker/{i}")).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "InProcessWorkerResolver: invalid placeholder url: {e}"
+                    ))
+                })
+            })
+            .collect()
     }
 }
 

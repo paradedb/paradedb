@@ -180,6 +180,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
@@ -819,7 +820,9 @@ impl ParallelQueryCapable for JoinScan {
             return pscan_size as pg_sys::Size;
         };
         let mpp_offset = mpp_align(pscan_offset() + pscan_size);
-        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
+        // Sized for the worst-case dispatch payload (see the aggregate path); an oversized blob or
+        // a codec gap falls back to serial at init time.
+        let mpp_size = match estimate_dsm_size(dispatch_plan_capacity(plan_bytes_len)) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp join: estimate_dsm failed: {e}; falling back to serial");
@@ -896,14 +899,27 @@ impl ParallelQueryCapable for JoinScan {
             )
         };
 
+        // Build the leader dispatch payload: per-stage physical subplans, serialized once
+        // so workers run their fragments without re-planning. This runs before
+        // `LaunchParallelWorkers`, so erroring here fails the query without launching a single
+        // worker; surviving a serialization gap with a silent serial fallback would hide codec
+        // bugs behind a correct-but-slow plan.
+        let payload = match build_dispatch_payload(
+            &plan_bytes,
+            create_datafusion_session_context(SessionContextProfile::Join),
+            producer_worker_count(),
+            &state.custom_state().non_partitioning_segments,
+        ) {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("mpp join: dispatch payload build failed: {e}"),
+        };
+
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
+        match unsafe { leader_setup(mpp_coordinate, pcxt, payload) } {
             Ok(leader) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
             }
-            Err(e) => {
-                pgrx::warning!("mpp join: leader_setup failed: {e}; falling back to serial");
-            }
+            Err(e) => pgrx::error!("mpp join: leader_setup failed: {e}"),
         }
     }
 
@@ -946,7 +962,9 @@ impl ParallelQueryCapable for JoinScan {
         }
 
         // MPP worker: read the header to find where the MPP region starts + which source we're
-        // partitioning over. Hand the MPP region to `worker_setup`.
+        // partitioning over. Hand the MPP region to `worker_setup`. The leader errors out of
+        // `initialize_dsm_custom_scan` on any setup failure, before `LaunchParallelWorkers`, so
+        // a launched worker always finds an initialized region.
         let header = unsafe { read_custom_scan_header(coordinate) };
         let mpp_offset = header.mpp_offset as usize;
         state.custom_state_mut().mpp_partitioning_source_idx =
@@ -962,7 +980,10 @@ impl ParallelQueryCapable for JoinScan {
                 state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
             }
             Err(e) => {
-                pgrx::warning!("mpp join: worker_setup failed: {e}; falling back to serial");
+                // The leader initialized the region and will wait for this worker's EOFs.
+                // Producing rows through the plain parallel path here would mix protocols;
+                // fail the query instead.
+                pgrx::error!("mpp join: worker_setup failed: {e}");
             }
         }
     }

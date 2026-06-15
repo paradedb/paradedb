@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
+    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
@@ -119,7 +119,6 @@ pub struct Batch {
 
 impl Batch {
     /// Convert the batch to an Arrow `RecordBatch`.
-    #[allow(dead_code)]
     pub fn to_record_batch(&self, schema: &SchemaRef) -> RecordBatch {
         let columns: Vec<ArrayRef> = self
             .fields
@@ -214,12 +213,6 @@ impl Scanner {
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
         }
-    }
-
-    /// Returns the Arrow schema for this scanner.
-    #[allow(dead_code)]
-    pub fn schema(&self) -> SchemaRef {
-        build_arrow_schema(&self.which_fast_fields)
     }
 
     /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.

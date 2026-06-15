@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781547247731,
+  "lastUpdate": 1781547891963,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46774,6 +46774,54 @@ window.BENCHMARK_DATA = {
             "value": 427.0891759549382,
             "unit": "median tps",
             "extra": "avg tps: 426.29790639644096, max tps: 845.6365209117633, count: 112940"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d867cfc9232d4f6fe2974722399b416338f53942",
+          "message": "fix(joinscan): absorb 3-way joins when sub-join path is Gather Merge -> Sort (#5337)\n\n## What\n\nFix `ParadeDB Join Scan` so it engages for parallel 3-way (or deeper)\n`DISTINCT`\nfull-text search joins. Before this change, such a query silently\ndeclined and\nfell back to a native PostgreSQL plan.\n\n## Why\n\nUnder parallel execution, the `cheapest_total_path` of an intermediate\njoin rel\ncan be wrapped as:\n\n    Gather Merge -> Sort -> Hash Join\n\nThe 3-way JoinScan path reconstruction (`collect_join_sources_join_rel`)\npeels\nthe `Gather` / `GatherMerge` wrappers via `unwrap_path_wrappers`, but it\nstopped\nat the intervening `Sort`. As a result `is_join_path` returned false,\nthe\nsub-join failed to reconstruct, the third relation was never absorbed,\nand\nJoinScan declined the whole join.\n\nThe decline surfaced in two confusing ways:\n\n- with `DISTINCT`: \"JoinScan not used: DISTINCT columns must be fast\nfields\"\n    (misleading -- the columns are fast fields; the real cause is the\n    un-reconstructed sub-join)\n- without `DISTINCT`: \"LIMIT pushdown is unsafe due to un-absorbed\nrelations\"\n\nEither way the query still returned correct results via the native plan,\nbut the\nJoinScan optimization was lost. The `generated_joinscan` property test\nflags this\nunder forced parallelism.\n\n## How\n\nPeel `SortPath` in `unwrap_path_wrappers` as well. A `Sort` only\nreorders rows,\nso it is transparent to join-structure reconstruction (RTIs, equi-keys,\njointype are unchanged), and JoinScan re-derives its own ordering from\n`query_pathkeys`. This mirrors the existing `Gather` / `GatherMerge` /\n`Material`\n/ `Projection` arms; it is read-only path navigation with no ownership,\nDrop,\nrefcount, or allocation involved.\n\n## Test\n\nAdds a deterministic pg_regress test `joinscan_parallel_distinct` that:\n\n- forces a parallel plan (debug_parallel_query = on) for a 3-way\nDISTINCT\n    `@@@` join, and\n  - asserts via `EXPLAIN` that the plan is a\n    `Parallel Custom Scan (ParadeDB Join Scan)`, plus a row-count check.\n\nWithout the fix the EXPLAIN is a native Hash/Nested Loop plan, so the\ntest fails;\nwith the fix it passes. Verified both directions locally:\n\n    cargo pgrx regress pg18 joinscan_parallel_distinct\n    -> with fix:    PASS\n    -> without fix: FAIL (native plan + \"JoinScan not used\" warning)",
+          "timestamp": "2026-06-15T22:49:33+05:30",
+          "tree_id": "80ec90d66e26b70afd79c3ef42f7f7de11ca94ac",
+          "url": "https://github.com/paradedb/paradedb/commit/d867cfc9232d4f6fe2974722399b416338f53942"
+        },
+        "date": 1781547862352,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 228.0508004420564,
+            "unit": "median tps",
+            "extra": "avg tps: 228.89170338073797, max tps: 247.66856867002772, count: 56514"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 763.1605983341863,
+            "unit": "median tps",
+            "extra": "avg tps: 774.3149223317212, max tps: 1047.300047033679, count: 56514"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 242.2472263952363,
+            "unit": "median tps",
+            "extra": "avg tps: 243.22131466854765, max tps: 261.0693734974427, count: 56514"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 423.96333525458454,
+            "unit": "median tps",
+            "extra": "avg tps: 417.43083101711994, max tps: 813.369655259033, count: 113028"
           }
         ]
       }

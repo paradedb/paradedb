@@ -33,6 +33,7 @@
 
 use std::sync::Arc;
 
+use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::prelude::SessionContext;
@@ -443,6 +444,11 @@ pub(crate) fn run_mpp_worker(
                     .with_runtime(Arc::new(
                         RuntimeEnvBuilder::new()
                             .with_memory_pool(memory_pool)
+                            // Spilling isn't wired to PG's temp-file management yet, so keep
+                            // it off: a `work_mem` overflow errors instead of writing files.
+                            .with_disk_manager_builder(
+                                DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled),
+                            )
                             .build()
                             .expect("Failed to create RuntimeEnv"),
                     )),

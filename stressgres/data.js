@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781475842376,
+  "lastUpdate": 1781538296402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4962,6 +4962,78 @@ window.BENCHMARK_DATA = {
             "value": 100.56701150914408,
             "unit": "median tps",
             "extra": "avg tps: 93.14494145372906, max tps: 302.4741782835236, count: 57338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa86f0efe37e2595c0e59ed8cef8d976aa038848",
+          "message": "feat: Support all Postgres timestamps (4/4) - Make storage format change to i64 (#5245)\n\n# Ticket(s) Closed\n- Closes #5040\n- Closes #5041\n- Closes #5042\n- Closes #4607\n- Closes #3579 \n\n## What\nChanges the tantivy storage type for datetime types from `Date` to\n`I64`. This is done in a backwards-compatible way. Indexes created\nbefore the version this is released with continue to read and write\n`Date`s, while new indexes read and write `I64` values. For new indexes,\ntantivy queries and datetime_histogram queries are rewritten to convert\nstring timestamp values to their respective pg micros i64\nrepresentation. All agg results for queries against datetime columns\nrewritten to add `key_as_string` fields containing timestamp strings.\nAll arrow batches/etc for datetime types are now in terms of pg\nmicroseconds.\n\n## Why\nThis enables us to store all valid postgres datetime values. \n\n## How\nIn most places we examine `index_created_by_version` to make a behavior\ndecision. Looking this up is expensive (it requires loading in the meta\npage), so I've tried to do it at most once per code-path and then as\nergonomically as possible, thread it down to the decision site.\n\nIn a couple locations, we can look at the schema instead, so we do that.\n\nAlso, the `datetime_fields` field is now rejected in fresh index\ndefinitions. (The columns would be numeric anyways, making this\nvalidation pointless.)\n\n## Tests\n- With minor modifications (dropping `datetime_fields`, removing tests\nabout tantivy datetime boundary behavior, and changing the expected\nschema type where appropriate) all unit and integration tests pass.\n- All regression tests pass (after removing `datetime_fields`,\naccounting for different \"key\" values for datetime agg queries, adding\n'key_as_value').\n\n## Other\nThis is also dependent on this tantivy PR:\nhttps://github.com/paradedb/tantivy/pull/148. The cargo changes\ncurrently point to that revision and may need to be updated once its\nmerged.\n\nAlso, we'll want to adjust the version `DATETIME_I64_STORAGE_VERSION`\nand a couple comments that reference the version number before merging\nto ensure they match the version this will be released with.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-15T09:18:33-06:00",
+          "tree_id": "a5dfa94f7b8d34ba1620868a57d7f9571642a479",
+          "url": "https://github.com/paradedb/paradedb/commit/aa86f0efe37e2595c0e59ed8cef8d976aa038848"
+        },
+        "date": 1781538262821,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 223.61627914723033,
+            "unit": "median tps",
+            "extra": "avg tps: 223.6871915587105, max tps: 238.6852119211493, count: 57292"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 224.89972748112285,
+            "unit": "median tps",
+            "extra": "avg tps: 224.7975300411904, max tps: 238.2088642027563, count: 57292"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4995.705829273795,
+            "unit": "median tps",
+            "extra": "avg tps: 5007.613210962705, max tps: 7369.877601286417, count: 57292"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 644.9724833504124,
+            "unit": "median tps",
+            "extra": "avg tps: 642.7544504158752, max tps: 748.5057953061201, count: 57292"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4200.571683535706,
+            "unit": "median tps",
+            "extra": "avg tps: 4171.220038926217, max tps: 5302.921597863859, count: 114584"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 719.1112919812812,
+            "unit": "median tps",
+            "extra": "avg tps: 718.9786063115735, max tps: 840.6942679809969, count: 57292"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2584.430130505903,
+            "unit": "median tps",
+            "extra": "avg tps: 2584.607659452391, max tps: 2893.4030175004823, count: 57292"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 72.05276346661758,
+            "unit": "median tps",
+            "extra": "avg tps: 90.0730959203131, max tps: 422.15746602613297, count: 57292"
           }
         ]
       }

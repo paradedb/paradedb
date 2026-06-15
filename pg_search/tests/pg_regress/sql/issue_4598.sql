@@ -32,5 +32,13 @@ AND mock_hash = $1;
 
 EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
 
+-- trigger prepared statement PARAM_EXTERN parallel worker SIGSEGV
+PREPARE issue_4598_prep(text) AS
+SELECT COUNT(*) FROM issue_4598_repro
+WHERE text_searchable @@@ paradedb.all()
+AND doc_id_hash = $1;
+
+EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
+
 -- cleanup
 DROP TABLE issue_4598_repro CASCADE;

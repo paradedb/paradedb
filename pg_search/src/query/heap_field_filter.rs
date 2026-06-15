@@ -182,7 +182,118 @@ impl HeapFieldFilter {
         self.expr_node.0.cast()
     }
 
-    // The new expression-based approach handles evaluation directly
+    /// Returns true if this filter contains any PostgreSQL parameters (like $1 or InitPlans).
+    pub fn has_parameters(&self) -> bool {
+        unsafe {
+            let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
+            if expr_node.is_null() {
+                return false;
+            }
+
+            #[pgrx::pg_guard]
+            unsafe extern "C-unwind" fn param_walker(
+                node: *mut pg_sys::Node,
+                _context: *mut core::ffi::c_void,
+            ) -> bool {
+                if node.is_null() {
+                    return false;
+                }
+                if (*node).type_ == pg_sys::NodeTag::T_Param {
+                    return true;
+                }
+
+                pg_sys::expression_tree_walker(node, Some(param_walker), _context)
+            }
+
+            pg_sys::expression_tree_walker(expr_node, Some(param_walker), std::ptr::null_mut())
+        }
+    }
+
+    /// Replaces Param nodes in the expression with Const nodes containing their evaluated values.
+    /// This is required because custom parallel workers do not inherit the leader's EState.
+    pub fn solve_parameters(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        unsafe {
+            let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
+            if expr_node.is_null() {
+                return;
+            }
+
+            #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+            let new_node = {
+                let fnptr = param_resolver_mutator as *const ();
+                let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                    std::mem::transmute(fnptr);
+                pg_sys::expression_tree_mutator(
+                    expr_node,
+                    Some(mutator),
+                    expr_context as *mut core::ffi::c_void,
+                )
+            };
+
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            let new_node = pg_sys::expression_tree_mutator_impl(
+                expr_node,
+                Some(param_resolver_mutator),
+                expr_context as *mut core::ffi::c_void,
+            );
+
+            self.expr_node = PostgresPointer(new_node.cast());
+        }
+    }
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn param_resolver_mutator(
+    node: *mut pg_sys::Node,
+    context: *mut core::ffi::c_void,
+) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    if (*node).type_ == pg_sys::NodeTag::T_Param {
+        let param = node.cast::<pg_sys::Param>();
+        let expr_context = context.cast::<pg_sys::ExprContext>();
+
+        let mut is_null = false;
+
+        // Evaluate the parameter using a minimal expression state
+        let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
+        let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+
+        let param_type = (*param).paramtype;
+        let param_typmod = (*param).paramtypmod;
+        let param_collid = (*param).paramcollid;
+
+        let mut typlen = 0;
+        let mut typbyval = false;
+        pg_sys::get_typlenbyval(param_type, &mut typlen, &mut typbyval);
+
+        let const_node = pg_sys::makeConst(
+            param_type,
+            param_typmod,
+            param_collid,
+            typlen.into(),
+            result,
+            is_null,
+            typbyval,
+        );
+
+        return const_node.cast();
+    }
+
+    #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+    {
+        let fnptr = param_resolver_mutator as *const ();
+        let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+            std::mem::transmute(fnptr);
+        pg_sys::expression_tree_mutator(node, Some(mutator), context)
+    }
+
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    {
+        pg_sys::expression_tree_mutator_impl(node, Some(param_resolver_mutator), context)
+    }
 }
 
 /// Tantivy query that combines indexed search with heap field filtering

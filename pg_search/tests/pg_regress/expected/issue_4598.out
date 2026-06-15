@@ -20,8 +20,33 @@ ERROR:  unrecognized configuration parameter "force_parallel_mode"
 SELECT COUNT(*) FROM issue_4598_repro
 WHERE mock_text @@@ paradedb.all()
 AND mock_hash = ANY(ARRAY(SELECT mock_hash FROM issue_4598_repro LIMIT 5));
-WARNING:  terminating connection because of crash of another server process
-server closed the connection unexpectedly
-	This probably means the server terminated abnormally
-	before or while processing the request.
-connection to server was lost
+ count 
+-------
+     5
+(1 row)
+
+-- trigger prepared statement PARAM_EXTERN in parallel worker
+PREPARE issue_4598_prep(text) AS
+SELECT COUNT(*) FROM issue_4598_repro
+WHERE mock_text @@@ paradedb.all()
+AND mock_hash = $1;
+EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
+ count 
+-------
+     0
+(1 row)
+
+-- trigger prepared statement PARAM_EXTERN parallel worker SIGSEGV
+PREPARE issue_4598_prep(text) AS
+SELECT COUNT(*) FROM issue_4598_repro
+WHERE text_searchable @@@ paradedb.all()
+AND doc_id_hash = $1;
+ERROR:  column "text_searchable" does not exist at character 78
+EXECUTE issue_4598_prep('098f6bcd4621d373cade4e832627b4f6');
+ count 
+-------
+     0
+(1 row)
+
+-- cleanup
+DROP TABLE issue_4598_repro CASCADE;

@@ -768,7 +768,7 @@ impl PgSearchTableProvider {
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
         let mut query = self.combine_query_with_filters(self.scan_info.query.clone(), filters);
-        if query.has_postgres_expressions() {
+        if query.has_postgres_expressions() || query.has_parameters() {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
                     "postgres expressions have not been solved: missing planstate".to_string(),

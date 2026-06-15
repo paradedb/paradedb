@@ -423,6 +423,14 @@ impl AggregateType {
         }
         Ok(())
     }
+
+    pub fn custom_agg_json(&self) -> Option<&serde_json::Value> {
+        if let Self::Custom { agg_json, .. } = self {
+            Some(agg_json)
+        } else {
+            None
+        }
+    }
 }
 
 /// Validate that all fields referenced in a JSON aggregation request exist in the

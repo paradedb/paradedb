@@ -30,6 +30,8 @@ use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use pgrx::pg_sys;
 
+use super::AggIndexInfo;
+
 #[derive(Default)]
 pub enum ExecutionState {
     #[default]
@@ -162,6 +164,10 @@ pub struct AggregateScanState {
     /// header by the leader and read back by workers; used in
     /// `exec_mpp_worker` to key `index_segment_ids` correctly.
     pub mpp_partitioning_source_idx: Option<usize>,
+
+    /// A collection of things needed for result-rewriting decisions that
+    /// are expensive to look up.
+    precomputed_index_info: Option<AggIndexInfo>,
 }
 
 impl AggregateScanState {
@@ -170,6 +176,7 @@ impl AggregateScanState {
             lockmode,
             PgSearchRelation::with_lock(self.indexrelid, lockmode),
         ));
+        self.precomputed_index_info = Some(AggIndexInfo::from(self.indexrel()))
     }
 
     #[inline(always)]
@@ -183,6 +190,10 @@ impl AggregateScanState {
     /// Returns true if the DataFusion backend is active.
     pub fn is_datafusion_backend(&self) -> bool {
         self.datafusion_state.is_some()
+    }
+
+    pub fn precomputed_index_info(&self) -> Option<&AggIndexInfo> {
+        self.precomputed_index_info.as_ref()
     }
 }
 

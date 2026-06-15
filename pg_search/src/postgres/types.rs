@@ -56,13 +56,14 @@ impl Default for TantivyValue {
     }
 }
 
-impl From<TantivyValue> for tantivy::schema::OwnedValue {
-    fn from(v: TantivyValue) -> Self {
-        v.0.into_tantivy_value()
-    }
-}
-
 impl TantivyValue {
+    pub fn into_tantivy_value(
+        self,
+        index_created_by_version: Option<crate::api::version::Version>,
+    ) -> tantivy::schema::OwnedValue {
+        self.0.into_tantivy_value(index_created_by_version)
+    }
+
     pub fn into_owned_datetime(self) -> Option<PdbOwnedValue> {
         match self.0 {
             PdbOwnedValue::Date(_) => Some(self.0),
@@ -1312,12 +1313,20 @@ pub enum TantivyValueError {
 
 /// Check if the given OID is a date/time type that requires special conversion
 pub fn is_datetime_type(typoid: pg_sys::Oid) -> bool {
-    matches!(
-        typoid,
-        pg_sys::DATEOID
-            | pg_sys::TIMESTAMPOID
-            | pg_sys::TIMESTAMPTZOID
-            | pg_sys::TIMEOID
-            | pg_sys::TIMETZOID
-    )
+    is_pgoid_datetime_type(PgOid::from_untagged(typoid))
+}
+
+pub fn is_pgoid_datetime_type(pgoid: PgOid) -> bool {
+    match pgoid {
+        PgOid::Invalid => false,
+        PgOid::Custom(_) => false,
+        PgOid::BuiltIn(oid) => matches!(
+            oid,
+            pgrx::pg_sys::BuiltinOid::DATEOID
+                | pgrx::pg_sys::BuiltinOid::TIMESTAMPOID
+                | pgrx::pg_sys::BuiltinOid::TIMESTAMPTZOID
+                | pgrx::pg_sys::BuiltinOid::TIMEOID
+                | pgrx::pg_sys::BuiltinOid::TIMETZOID
+        ),
+    }
 }

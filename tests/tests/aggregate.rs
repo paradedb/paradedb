@@ -85,12 +85,7 @@ fn test_aggregate_without_mvcc(mut conn: PgConnection) {
         }',
         numeric_fields='{"rating": {"fast": true}}',
         boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}',
-        datetime_fields='{
-            "created_at": {},
-            "last_updated_date": {},
-            "latest_available_time": {}
-        }'
+        json_fields='{"metadata": {}}'
     );
     INSERT INTO paradedb.bm25_search (description, category, rating) VALUES
         ('keyboard', 'Electronics', 4.5),

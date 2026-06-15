@@ -31,7 +31,11 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
+<<<<<<< HEAD
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "19bd78439962e573d04a51e6b599636d666e3af5", features = [
+=======
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "dcbfce29c74b5d6c6653f3e36471aa2f37a9a79b", features = [
+>>>>>>> aa86f0efe (feat: Support all Postgres timestamps (4/4) - Make storage format change to i64 (#5245))
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -44,4 +48,8 @@ pgrx-tests = "=0.18.1"
 tantivy-jieba = "0.18.0"
 
 [patch.crates-io]
+<<<<<<< HEAD
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "19bd78439962e573d04a51e6b599636d666e3af5" }
+=======
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "dcbfce29c74b5d6c6653f3e36471aa2f37a9a79b" }
+>>>>>>> aa86f0efe (feat: Support all Postgres timestamps (4/4) - Make storage format change to i64 (#5245))

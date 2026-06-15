@@ -682,6 +682,7 @@ fn extract_in_list_exprs<'a>(
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
+    index_created_by_version: Option<crate::api::version::Version>,
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> Option<Box<dyn Query>> {
     if in_list.negated() {
@@ -726,7 +727,14 @@ fn try_convert_in_list_to_query(
         .map(|expr| {
             let scalar = extract_physical_scalar_value(expr)?;
             let owned_value = scalar_to_owned_value(&scalar, &field_type)?;
-            value_to_term(tantivy_field, &owned_value, tantivy_field_type, None).ok()
+            value_to_term(
+                tantivy_field,
+                &owned_value,
+                tantivy_field_type,
+                None,
+                index_created_by_version,
+            )
+            .ok()
         })
         .collect();
 
@@ -779,6 +787,7 @@ pub fn try_dynamic_filter_pushdown(
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
     let schema = reader.schema();
+    let index_created_by_version = reader.index_created_by_version();
 
     for df in dynamic_filters {
         let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() else {
@@ -794,9 +803,12 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) =
-                try_convert_in_list_to_query(in_list, schema, strategy_sink.clone())
-            {
+            if let Some(query) = try_convert_in_list_to_query(
+                in_list,
+                schema,
+                index_created_by_version,
+                strategy_sink.clone(),
+            ) {
                 pushed_down_queries.push(query);
                 pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
             }

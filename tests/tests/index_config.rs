@@ -295,10 +295,10 @@ fn default_datetime_field(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("created_at".into(), "Date".into()));
+    assert_eq!(rows[0], ("created_at".into(), "I64".into()));
     assert_eq!(rows[1], ("ctid".into(), "U64".into()));
     assert_eq!(rows[2], ("id".into(), "I64".into()));
-    assert_eq!(rows[3], ("last_updated_date".into(), "Date".into()));
+    assert_eq!(rows[3], ("last_updated_date".into(), "I64".into()));
 }
 
 #[rstest]
@@ -308,17 +308,17 @@ fn datetime_field_with_options(mut conn: PgConnection) {
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
         USING bm25 (id, created_at, last_updated_date)
-        WITH (key_field='id', datetime_fields='{"created_at": {"fast": true}, "last_updated_date": {"fast": false}}')"#
+        WITH (key_field='id')"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("created_at".into(), "Date".into()));
+    assert_eq!(rows[0], ("created_at".into(), "I64".into()));
     assert_eq!(rows[1], ("ctid".into(), "U64".into()));
     assert_eq!(rows[2], ("id".into(), "I64".into()));
-    assert_eq!(rows[3], ("last_updated_date".into(), "Date".into()));
+    assert_eq!(rows[3], ("last_updated_date".into(), "I64".into()));
 }
 
 #[rstest]
@@ -478,7 +478,7 @@ fn partitioned_schema(mut conn: PgConnection) {
     assert_eq!(rows[1], ("ctid".into(), "U64".into()));
     assert_eq!(rows[2], ("description".into(), "Str".into()));
     assert_eq!(rows[3], ("id".into(), "I64".into()));
-    assert_eq!(rows[4], ("sale_date".into(), "Date".into()));
+    assert_eq!(rows[4], ("sale_date".into(), "I64".into()));
 }
 
 #[rstest]
@@ -794,8 +794,7 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
         WITH (
             key_field = 'id',
             text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}',
-            datetime_fields = '{"sale_date": {"fast": true}}'
+            numeric_fields = '{"amount": {}}'
         );
         "#
         .execute(conn);
@@ -841,8 +840,7 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
         WITH (
             key_field = 'id',
             text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}',
-            datetime_fields = '{"sale_date": {"fast": true}}'
+            numeric_fields = '{"amount": {}}'
         );
 
         CREATE INDEX idx_products_2024_bm25 ON products_2024
@@ -850,8 +848,7 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
         WITH (
             key_field = 'id',
             text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}',
-            datetime_fields = '{"sale_date": {"fast": true}}'
+            numeric_fields = '{"amount": {}}'
         );
         "#
         .execute(conn);
@@ -906,8 +903,7 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
     WITH (
         key_field = 'id',
         text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
+        numeric_fields = '{"amount": {}}'
     );
 
     CREATE INDEX idx_products_2024_view_bm25 ON products_2024_view
@@ -915,8 +911,7 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
     WITH (
         key_field = 'id',
         text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
+        numeric_fields = '{"amount": {}}'
     );
 
     -- Create view combining both tables

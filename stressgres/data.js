@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781645457261,
+  "lastUpdate": 1781645489547,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16578,6 +16578,138 @@ window.BENCHMARK_DATA = {
             "value": 34.76953125,
             "unit": "median mem",
             "extra": "avg mem: 33.4055654008899, max mem: 35.046875, count: 57310"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92a49399a01a2643acf3c34a15cb2a586ab9aa29",
+          "message": "fix: Flip sign so parallel state is only passed on first query (#5352)\n\n## What\nFix the sign comparison direction. This worked before because not using\nthe shared threshold on the first query _also_ has the effect of the\nreturning the correct rows since only 2 queries are necessary in the\ntest checking this. However, this PR corrects for the actual behavior we\nwant.",
+          "timestamp": "2026-06-16T15:12:19-06:00",
+          "tree_id": "602f4187e077c7e3811cc6200c56f8ca1496b2af",
+          "url": "https://github.com/paradedb/paradedb/commit/92a49399a01a2643acf3c34a15cb2a586ab9aa29"
+        },
+        "date": 1781645459451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 7.6677313,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.393390021362757, max cpu: 24.615385, count: 57344"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.180246353149414, max mem: 40.46875, count: 57344"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 7.597943,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.33449474744244, max cpu: 29.538462, count: 57344"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.38641779763358, max mem: 40.625, count: 57344"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.599256214511512, max cpu: 4.873096, count: 57344"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.744147436959402, max mem: 20.74609375, count: 57344"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629323536644397, max cpu: 4.8120303, count: 57344"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.06729146412441, max mem: 38.46484375, count: 57344"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.654080246341496, max cpu: 9.533267, count: 114688"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 27.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.0817517212459, max mem: 35.95703125, count: 114688"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1841,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1828.583775111607, max block_count: 3205.0, count: 57344"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.390921456473214, max segment_count: 30.0, count: 57344"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.488269184305561, max cpu: 18.897638, count: 57344"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.32803678512573, max mem: 39.6171875, count: 57344"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6065873473344245, max cpu: 4.8168592, count: 57344"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 36.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.03237131663731, max mem: 36.83203125, count: 57344"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9165041216370997, max cpu: 4.729064, count: 57344"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.87135260445731, max mem: 34.5390625, count: 57344"
           }
         ]
       }

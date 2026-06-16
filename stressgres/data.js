@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781627508116,
+  "lastUpdate": 1781628168358,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17946,6 +17946,40 @@ window.BENCHMARK_DATA = {
             "value": 7.362826252172159,
             "unit": "median tps",
             "extra": "avg tps: 6.86946407095615, max tps: 7.794902758870828, count: 58932"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e",
+          "message": "ci: enable logical replication merge stressgres repro",
+          "timestamp": "2026-06-16T16:08:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e"
+        },
+        "date": 1781628140484,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.370351599576646,
+            "unit": "median tps",
+            "extra": "avg tps: 8.07443869038889, max tps: 12.295516582678937, count: 58923"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.331063045137705,
+            "unit": "median tps",
+            "extra": "avg tps: 6.886194635268749, max tps: 7.894423910464469, count: 58923"
           }
         ]
       }

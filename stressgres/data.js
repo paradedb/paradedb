@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781652043184,
+  "lastUpdate": 1781652074094,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24806,6 +24806,66 @@ window.BENCHMARK_DATA = {
             "value": 130,
             "unit": "median segment_count",
             "extra": "avg segment_count: 134.23242711197094, max segment_count: 188.0, count: 58926"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95",
+          "message": "perf: apply ctid sorting by default (#5354)\n\nRefs: 5265\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nApplied `ctid` sorting by default to give best performance when\nperforming visibility checks.\n\n## Why\n\nFor aggregate / scan queries of shuffled / non ctid sorted indexes the\nvisibility checking algorithm ends up accessing / releasing the same\nheap buffer multiple times.\n\nBy applying `ctid` sorting by default it minimizes the number of buffer\naccess for a given block number across batches. Only at the boundary of\nthe batch size could we access a buffer at the end of a batch and then\nbeginning of the next after this change.\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-16T15:50:36-07:00",
+          "tree_id": "e5474984f21280323d39ee46cbc5febcec53033f",
+          "url": "https://github.com/paradedb/paradedb/commit/07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95"
+        },
+        "date": 1781652045370,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.981712,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.34045637924024, max cpu: 43.373497, count: 58917"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 96.17751965954224, max mem: 97.859375, count: 58917"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.680315,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.88435197307229, max cpu: 33.267326, count: 58917"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 40.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 39.95815584582973, max mem: 40.91796875, count: 58917"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 36886,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33814.28278765042, max block_count: 38736.0, count: 58917"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 131,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.5847717976136, max segment_count: 185.0, count: 58917"
           }
         ]
       }

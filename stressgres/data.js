@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781637657199,
+  "lastUpdate": 1781638026046,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51612,6 +51612,54 @@ window.BENCHMARK_DATA = {
             "value": 411.70894024109964,
             "unit": "median tps",
             "extra": "avg tps: 407.7982941212029, max tps: 777.1295397229765, count: 113000"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a9c8e09f0caf22d5ef27d2cd65c549f96716589c",
+          "message": "feat: moved the MPP transport into the datafusion-distributed fork. (#5256)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR deletes `pg_search`'s shared-memory MPP transport and consumes\nit from `datafusion_distributed::embedded` instead.\n\n## Why\n\nRebase safety. The transport core\n(`mpp/{transport,dsm_mpsc_ring,dsm,mesh,runtime,worker}.rs`, about\n`4600` lines) duplicated code that now lives in the fork, where an\nin-process test runs a real distributed query through the same transport\nwith no Postgres and no Flight. An upstream rebase that breaks the\n`WorkerTransport` contract, the boundary routing, or\n`prepare_in_process_plan` now fails in the fork's CI, before `pg_search`\nrebuilds. Stacks on #5244 and depends on\n`paradedb/datafusion-distributed#21`.\n\n## How\n\n- The customscan keeps its integration: `glue.rs` (DSM alloc +\nparallel-worker lifecycle) wraps `embedded::leader_setup` /\n`embedded::worker_setup` and times them under `paradedb.mpp_trace`;\n`exec_worker.rs` runs fragments through `run_worker_fragment` with\n`MppPartitionSink`s; `dispatch.rs` and `worker_fragments.rs` are\nuntouched.\n- The only Postgres-specific transport code left is `mpp/pg_seams.rs`:\n`PgWakeup` (`SetLatch` via `(pgprocno, pid)`) and `PgInterrupt`\n(`check_for_interrupts!`), the two extension points the library leaves\nto the embedder. A `const` assert pins `MAXIMUM_ALIGNOF == 8`, which the\nembedded layout assumes.\n- The dep flips to `default-features = false`: `pg_search` never dials\ngRPC, so `tonic` and `arrow-flight` drop out of the build graph\nentirely.\n\n## Tests\n\nThe MPP regress suites are behavior-preserving on pg15 through pg18\n(same plan shapes, same results). The moved code is exercised by the\nfork's unit and in-process distributed tests at the pinned rev,\nincluding a worker-to-worker shuffle and a producer-loss case.\n\nThis is a draft: the dep rev points at\n`paradedb/datafusion-distributed#21`'s tip, so that PR lands first and\nthe rev gets repinned to the merge commit.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-16T11:19:45-07:00",
+          "tree_id": "02f100c664809952df5fafd6ec9872d77c2dda28",
+          "url": "https://github.com/paradedb/paradedb/commit/a9c8e09f0caf22d5ef27d2cd65c549f96716589c"
+        },
+        "date": 1781637996370,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 228.69374006364873,
+            "unit": "median tps",
+            "extra": "avg tps: 229.1303632394396, max tps: 252.7748912157024, count: 56503"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 753.5589458053281,
+            "unit": "median tps",
+            "extra": "avg tps: 756.2316794553554, max tps: 978.5097316357383, count: 56503"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 243.1569209618828,
+            "unit": "median tps",
+            "extra": "avg tps: 243.6628484288856, max tps: 267.9693935878924, count: 56503"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 423.5999352496849,
+            "unit": "median tps",
+            "extra": "avg tps: 408.02743086371214, max tps: 759.847036533982, count: 113006"
           }
         ]
       }

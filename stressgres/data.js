@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781646592358,
+  "lastUpdate": 1781646949793,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28398,6 +28398,54 @@ window.BENCHMARK_DATA = {
             "value": 12.280076619783637,
             "unit": "median tps",
             "extra": "avg tps: 11.533228881022184, max tps: 13.374202667651899, count: 58237"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92a49399a01a2643acf3c34a15cb2a586ab9aa29",
+          "message": "fix: Flip sign so parallel state is only passed on first query (#5352)\n\n## What\nFix the sign comparison direction. This worked before because not using\nthe shared threshold on the first query _also_ has the effect of the\nreturning the correct rows since only 2 queries are necessary in the\ntest checking this. However, this PR corrects for the actual behavior we\nwant.",
+          "timestamp": "2026-06-16T15:12:19-06:00",
+          "tree_id": "602f4187e077c7e3811cc6200c56f8ca1496b2af",
+          "url": "https://github.com/paradedb/paradedb/commit/92a49399a01a2643acf3c34a15cb2a586ab9aa29"
+        },
+        "date": 1781646918720,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1404.3771922075696,
+            "unit": "median tps",
+            "extra": "avg tps: 1420.315090152242, max tps: 1516.9076868781908, count: 58241"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 818.4019233732524,
+            "unit": "median tps",
+            "extra": "avg tps: 758.066593470945, max tps: 1732.0917757706181, count: 58241"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2215.0124471409695,
+            "unit": "median tps",
+            "extra": "avg tps: 2191.309915051591, max tps: 2385.9999771688617, count: 58241"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 12.289189133236238,
+            "unit": "median tps",
+            "extra": "avg tps: 11.569516038496607, max tps: 13.168847665976813, count: 58241"
           }
         ]
       }

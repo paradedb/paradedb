@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781638311940,
+  "lastUpdate": 1781638348696,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65560,6 +65560,184 @@ window.BENCHMARK_DATA = {
             "value": 18.078125,
             "unit": "median mem",
             "extra": "avg mem: 18.03871337583845, max mem: 18.078125, count: 56503"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123",
+            "email": "balavignesh449@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d453f45b157fe9286838cba35678d294100dbce7",
+          "message": "fix: eager detoast in index_memory_segment to prevent TOAST race with VACUUM (#5076) (#5086)\n\n## Problem\n\n`index_memory_segment` calls `ExecFetchSlotHeapTuple(slot, true, ...)`\nwhich **materializes** the tuple into palloc memory, **releasing the\nbuffer pin** held by the `BufferHeapTupleTableSlot`. Without the pin,\nVACUUM's `LockBufferForCleanup` proceeds immediately, removes the heap\ntuple, and deletes its TOAST chunks — while `row_to_search_document`\nhasn't detoasted yet.\n\nThis causes the crash:\n`\nmissing chunk number 0 for toast value XXXXX in pg_toast_17265\nLOCATION: heaptoast.c:782\n`\n\nReproduced consistently by the `logical-replication-merge.toml`\nstressgres suite.\n\n## Root Cause\n\nThe race window:\n\n1. `table_index_fetch_tuple` → slot holds buffer **pin**\n2. `HeapTupleSatisfiesVacuum` → tuple is alive, share lock dropped but\n**pin still held**\n3. `ExecFetchSlotHeapTuple(slot, true)` → materializes tuple →\n**releases pin** ⚡\n4. VACUUM calls `LockBufferForCleanup` → pin count is 0 → proceeds\n5. VACUUM removes heap tuple → deletes TOAST chunks\n6. `row_to_search_document` → `String::from_datum` → `pg_detoast_datum`\n→ reads deleted TOAST → **CRASH**\n\n## Fix\n\nTwo changes:\n\n1. **Don't materialize** — pass `false` to `ExecFetchSlotHeapTuple` to\nkeep the buffer pin held by the slot. While the pin is held,\n`LockBufferForCleanup` blocks, so VACUUM can't remove the heap tuple or\nits TOAST chunks.\n\n2. **Eager detoast** — immediately after `heap_deform_tuple`, loop\nthrough all varlena (`attlen == -1`) datums and call `pg_detoast_datum`\nwhile the pin protects the TOAST data. `pg_detoast_datum` is a no-op for\nnon-TOASTed / already-inline data.\n\n## Why This Is Safe\n\n- **No deadlock**: buffer pin blocks only `LockBufferForCleanup` (VACUUM\ncleanup), not normal reads/writes\n- **Heap tuple immutability**: tuple data in the buffer page is\nimmutable once written — updates create new tuples\n- **Expression eval safe**: `expression_state.evaluate(slot)` still\nworks because the slot has a valid buffer-backed tuple with pin held\n- **Memory**: only allocates palloc copies for actually-TOASTed datums;\nfreed at memory context reset\n- **HOT chains**: handled by `table_index_fetch_tuple` before we see the\ntuple\n\n## Verification\n\n- `rustfmt --check` passes\n- 1 file changed, 28 insertions, 6 deletions\n- Should be validated against `logical-replication-merge.toml`\nstressgres suite\n\nCloses #5076\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-15T15:24:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d453f45b157fe9286838cba35678d294100dbce7"
+        },
+        "date": 1781638315334,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.07605855181775, max cpu: 9.329447, count: 53829"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.93825093118951, max mem: 58.8671875, count: 53829"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.166688375140047, max cpu: 4.597701, count: 53829"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.22955947595627, max mem: 30.30859375, count: 53829"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.719743099467161, max cpu: 18.443804, count: 53829"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.65971619909807, max mem: 61.82421875, count: 53829"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.046569614270101, max cpu: 9.311348, count: 53829"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.08912765133571, max mem: 58.03125, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.661462148076963, max cpu: 9.248554, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.63846814101135, max mem: 38.84765625, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1096,
+            "unit": "median pages",
+            "extra": "avg pages: 1103.7231603782348, max pages: 1837.0, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.622837625861525, max relation_size:MB: 14.3515625, count: 53829"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.366921176317598, max segment_count: 12.0, count: 53829"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.277006083588251, max cpu: 4.6021094, count: 53829"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.327836615718294, max mem: 29.421875, count: 53829"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.432076384594181, max cpu: 4.624277, count: 53829"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.30072733215367, max mem: 29.39453125, count: 53829"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.505638525679624, max cpu: 23.188406, count: 53829"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.92200373520779, max mem: 56.859375, count: 53829"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00004336518994538841, max replication_lag:MB: 0.3190155029296875, count: 53829"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.2494085479200665, max cpu: 13.872832, count: 107658"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 52.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.04605647194124, max mem: 58.58203125, count: 107658"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.339985167715179, max cpu: 4.6021094, count: 53829"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.045339393612178, max mem: 31.1484375, count: 53829"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3861403477320575, max cpu: 4.619827, count: 53829"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.178020836236044, max mem: 30.98046875, count: 53829"
           }
         ]
       }

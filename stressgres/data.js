@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781645914945,
+  "lastUpdate": 1781646030087,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -53134,6 +53134,54 @@ window.BENCHMARK_DATA = {
             "value": 287.57239028282856,
             "unit": "median tps",
             "extra": "avg tps: 279.52393702995244, max tps: 575.7840058679141, count: 107658"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "660a874856091997f2f271887bf7cba371544032",
+          "message": "fix: Don't use shared threshold on top-k query over-reads (#5346)\n\n## What\nFixes an issue surfaced by\n[antithesis](https://paradedb.antithesis.com/report/qM4XfIcVDJoPGAFSZREiDm9U/LgjIW-gYHYB7ySu0KCJW4yvuptlwQ0xzzqLu6jnwa8Q.html?auth=v2.public.eyJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoiTGdqSVctZ1lIWUI3eVN1MEtDSlc0eXZ1cHRsd1EweHp6cUx1Nmpud2E4US5odG1sIiwicmVwb3J0X2lkIjoicU00WGZJY1ZESm9QR0FGU1pSRWlEbTlVIn19LCJuYmYiOiIyMDI2LTA2LTE1VDEyOjQ5OjAxLjk3Nzg0MzIwNloifTNl3Fuh9tFkyoFE9WoW_5_Vb01awmv9XdIbEEypN6sC7c-hUqnFhYs9F2UhY0czHmOhQjW-nnRu6koE3ZWiCAk#/run/13adf2ad41f558e789ff486f7f44f9d6-55-14/finding/342f29e442a6534057f60e56fb353695fc319247).\n\n## Why\nDuring parallelized top_k queries that encounter deleted tuples, we need\nto issue additional queries to fill the remaining slots. The use of a\nshared threshold was causing all tuples encountered by these additional\nqueries to be skipped as they would always be below the threshold.\n\n## How\nOn retries (any case where we are on a query number >1), don't use the\nshared threshold.\n\n## Tests\n- Added a test that repros the fast-field case of this.\n- All existing tests pass",
+          "timestamp": "2026-06-16T14:35:47-06:00",
+          "tree_id": "5afde2a7de640db244aa35a8a7801a026f0336f1",
+          "url": "https://github.com/paradedb/paradedb/commit/660a874856091997f2f271887bf7cba371544032"
+        },
+        "date": 1781646000930,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 229.80872389458534,
+            "unit": "median tps",
+            "extra": "avg tps: 230.64653735857794, max tps: 250.31409258636103, count: 56514"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 775.0056478411623,
+            "unit": "median tps",
+            "extra": "avg tps: 783.5247067308088, max tps: 1030.31505475345, count: 56514"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 244.34978450027972,
+            "unit": "median tps",
+            "extra": "avg tps: 245.15871306482646, max tps: 268.1945366981881, count: 56514"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 429.3904615095178,
+            "unit": "median tps",
+            "extra": "avg tps: 421.06735642827806, max tps: 833.4888240524691, count: 113028"
           }
         ]
       }

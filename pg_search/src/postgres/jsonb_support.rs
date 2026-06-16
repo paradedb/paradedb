@@ -340,4 +340,30 @@ mod tests {
             }
         });
     }
+
+    /// Regression test for https://github.com/paradedb/paradedb/issues/5217.
+    ///
+    /// `f64::MAX` (`1.7976931348623157e308`) is a valid, finite float, but
+    /// Postgres stores jsonb numbers as `numeric` and `numeric_out` expands it to
+    /// a 309-digit plain-decimal string. serde_json's default float parser
+    /// reconstructs that string via an `f64` multiply that rounds up to infinity,
+    /// so `Number::from_str(...).unwrap()` in `jsonb_value_to_serde_value` errors
+    /// out and panics (which aborts the backend across the FFI boundary during a
+    /// real index build). The value must instead round-trip back to `f64::MAX`.
+    #[pg_test]
+    fn jsonb_f64_max_round_trips() {
+        // Build the Value with `from_f64` (no string parsing), then let Postgres
+        // store it as `numeric` — mirroring how a real row reaches the index. The
+        // crashing path is the conversion *back* out of the jsonb datum.
+        let value = serde_json::json!({"a": {"max": f64::MAX, "min": 0}});
+        let datum = JsonB(value.clone()).into_datum().unwrap();
+
+        let result = unsafe {
+            jsonb_datum_to_serde_json_value(datum)
+                .unwrap()
+                .expect("f64::MAX inside jsonb must round-trip instead of crashing")
+        };
+
+        assert_eq!(result, value);
+    }
 }

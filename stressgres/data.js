@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781628168358,
+  "lastUpdate": 1781628202772,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22416,6 +22416,64 @@ window.BENCHMARK_DATA = {
             "value": 130,
             "unit": "median segment_count",
             "extra": "avg segment_count: 134.20029864929072, max segment_count: 186.0, count: 58932"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e",
+          "message": "ci: enable logical replication merge stressgres repro",
+          "timestamp": "2026-06-16T16:08:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e"
+        },
+        "date": 1781628170760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.20795287429071, max cpu: 43.90244, count: 58923"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 96.65526665892351, max mem: 98.25390625, count: 58923"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.890671595921063, max cpu: 33.6, count: 58923"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 40.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.08009559350763, max mem: 41.15234375, count: 58923"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37244,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34128.64743818204, max block_count: 39253.0, count: 58923"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 130,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.1099910052102, max segment_count: 189.0, count: 58923"
           }
         ]
       }

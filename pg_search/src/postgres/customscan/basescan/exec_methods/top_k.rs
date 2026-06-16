@@ -391,7 +391,7 @@ impl ExecMethod for TopKScanExecState {
             // We are passing parallel_state because it contains the shared threshold. We only want
             // to use the shared threshold on the first query, as additional queries will
             // necessarily be below it.
-            let maybe_parallel_state = if state.query_count() > 1 {
+            let maybe_parallel_state = if state.query_count() == 1 {
                 state.parallel_state
             } else {
                 None

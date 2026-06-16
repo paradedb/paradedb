@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781631198644,
+  "lastUpdate": 1781631861281,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18184,6 +18184,42 @@ window.BENCHMARK_DATA = {
             "value": 7.331063045137705,
             "unit": "median tps",
             "extra": "avg tps: 6.886194635268749, max tps: 7.894423910464469, count: 58923"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "toaadijoshi@gmail.com",
+            "name": "Aadi",
+            "username": "aadi-joshi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bae73bb82b0a06fade31b4e196386d9d47b58e2e",
+          "message": "fix: preserve null semantics for @@@ (#5297)\n\n# Ticket(s) Closed\n- closes #5264\n- closes #3111\n\n## What\n\nThis fixes `@@@` so nullable predicates follow PostgreSQL null semantics\nmatch.\n\nThe fix covers both:\n- the custom scan negation path\n- the direct operator path used outside the custom scan\n\n## Why\n\nBefore this change, `@@@` could collapse `NULL` into `FALSE`.\n\nThat caused wrong results for queries like:\n\n```sql\nWHERE NOT (color @@@ 'blue')\n```\n\nIt also showed up in the non-custom-scan path that `qgen` exercises.\n\n## How\n\n- keep an existence guard when negating fielded predicates in the custom\nscan rewrite\n- make `search_with_query_input` distinguish between:\n  - matched rows\n  - existing non-matching rows\n  - rows where the indexed field is missing\n\nThat lets the operator return `NULL` when the indexed field is missing\ninstead of always returning `FALSE`.\n\n## Tests\n\nAdded regressions for:\n- direct `NOT (field @@@ ...)` null semantics\n- negated boolean composition on nullable indexed fields\n- bitmap/index path null semantics\n- negated `paradedb.exists()` returning the missing-field rows\n- empty-array columns staying NOT NULL under negation\n\nAlso re-enabled nullable indexed columns in the `qgen` single-relation\nsurface.\n\n## Fast-field caveat\nThe existence guard relies on tantivy's `Exists` query, which only works\non **fast fields**. When a negated predicate references a non-fast\nfield, we fall back to the previous generic negation (`must: [All],\nmust_not: [q]`) instead of erroring. So exact NULL semantics apply to\nfast fields; non-fast fields keep their prior behavior. The custom-scan\npath mirrors the graceful degradation the direct operator path\n(`search_with_query_input`) already does.\n\nThe guard also skips array and JSON columns: an empty `'{}'::text[]` or\n`'{}'::jsonb` is NOT NULL in SQL but has no indexed values, so equating\n\"no indexed value\" with NULL there would drop rows that should be\nreturned. Both paths use the column-level (`field.root()`) existence\ncheck, and the guard is wrapped in `ConstScore { score: 0.0 }` so it\ndoes not shift relevance scores.\n\n## Regenerated test fixtures\n`cargo pgrx regress` expected output was regenerated for the files whose\nEXPLAIN `Tantivy Query` changed (negated fast-field predicates now show\nan `exists` guard; the `WithIndex` wrapper is hoisted to the top of the\nnegated subquery). No behavioral change in those plans; only the\nserialized query shape.",
+          "timestamp": "2026-06-16T10:13:39-07:00",
+          "tree_id": "62bc92637216549b28d5ecafd1889956988daf8d",
+          "url": "https://github.com/paradedb/paradedb/commit/bae73bb82b0a06fade31b4e196386d9d47b58e2e"
+        },
+        "date": 1781631830763,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.358369488524403,
+            "unit": "median tps",
+            "extra": "avg tps: 8.057493659486882, max tps: 12.240457929006531, count: 58931"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.379126576644616,
+            "unit": "median tps",
+            "extra": "avg tps: 6.89384752048595, max tps: 7.9118764074496735, count: 58931"
           }
         ]
       }

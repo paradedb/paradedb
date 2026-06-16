@@ -156,6 +156,16 @@ impl PostgresDateTime {
         Ok(Self::from(date))
     }
 
+    pub fn try_from_time_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let time = pgrx::datum::Time::from_str(s)?;
+        Ok(Self::from(time))
+    }
+
+    pub fn try_from_timetz_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let time = pgrx::datum::TimeWithTimeZone::from_str(s)?;
+        Ok(Self::from(time))
+    }
+
     pub fn add_days(&self, days: i64) -> Result<Self, DateTimeConversionError> {
         let plus_days_micros = ONE_DAY_MICROS
             .checked_mul(days)

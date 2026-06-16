@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781653428786,
+  "lastUpdate": 1781653461418,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50310,6 +50310,114 @@ window.BENCHMARK_DATA = {
             "value": 36.109375,
             "unit": "median mem",
             "extra": "avg mem: 36.024821338176245, max mem: 36.109375, count: 57782"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95",
+          "message": "perf: apply ctid sorting by default (#5354)\n\nRefs: 5265\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nApplied `ctid` sorting by default to give best performance when\nperforming visibility checks.\n\n## Why\n\nFor aggregate / scan queries of shuffled / non ctid sorted indexes the\nvisibility checking algorithm ends up accessing / releasing the same\nheap buffer multiple times.\n\nBy applying `ctid` sorting by default it minimizes the number of buffer\naccess for a given block number across batches. Only at the boundary of\nthe batch size could we access a buffer at the end of a batch and then\nbeginning of the next after this change.\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-16T15:50:36-07:00",
+          "tree_id": "e5474984f21280323d39ee46cbc5febcec53033f",
+          "url": "https://github.com/paradedb/paradedb/commit/07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95"
+        },
+        "date": 1781653431347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 14.278632,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.545504817912935, max cpu: 38.17097, count: 57766"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 42.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.11820892966884, max mem: 42.29296875, count: 57766"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.270273541310862, max cpu: 43.02789, count: 57766"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.58753418966174, max mem: 20.59375, count: 57766"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.743083,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.358223520676947, max cpu: 19.028742, count: 57766"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.19675967751359, max mem: 43.55078125, count: 57766"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 17210,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18067.535401447218, max block_count: 34438.0, count: 57766"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.806909359002154, max cpu: 4.7151275, count: 57766"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 20.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.81978748312156, max mem: 20.8515625, count: 57766"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.851400477789703, max segment_count: 36.0, count: 57766"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.530838413049683, max cpu: 38.38081, count: 115532"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 40.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.843922334558826, max mem: 44.05859375, count: 115532"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 11.424039,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.21137343354624, max cpu: 23.738873, count: 57766"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 36.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.72414041672437, max mem: 36.99609375, count: 57766"
           }
         ]
       }

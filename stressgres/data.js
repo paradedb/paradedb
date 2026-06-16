@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781633962202,
+  "lastUpdate": 1781634815920,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5464,6 +5464,78 @@ window.BENCHMARK_DATA = {
             "value": 136.52348716397375,
             "unit": "median tps",
             "extra": "avg tps: 149.55198925197286, max tps: 1320.9725528322972, count: 57331"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b7dfca431a8ed174bf9c4e5e5d4b3f006299757",
+          "message": "fix: error instead of hang if unable to acquire FSM root lock (#5145)\n\n# Ticket(s) Closed\n\n- Closes #\n\nIn production we've seen rare situations where parallel index builds\nhang because workers lock on trying to acquire the FSM root lock. The\nroot cause is still TBD, so in the meantime just throw an error if we're\nstuck.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-06-16T11:14:35-07:00",
+          "tree_id": "b45d63906e7dbf9ac8f9979880c6dd9c651df69f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b7dfca431a8ed174bf9c4e5e5d4b3f006299757"
+        },
+        "date": 1781634786124,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 221.14611671137195,
+            "unit": "median tps",
+            "extra": "avg tps: 221.24411397381647, max tps: 237.2275055718633, count: 57318"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 222.00479736699572,
+            "unit": "median tps",
+            "extra": "avg tps: 222.03847792760155, max tps: 239.3366393654189, count: 57318"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5046.896706242055,
+            "unit": "median tps",
+            "extra": "avg tps: 5049.149396452543, max tps: 6761.492601672946, count: 57318"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 623.6990230026648,
+            "unit": "median tps",
+            "extra": "avg tps: 620.4602471906993, max tps: 728.9546908188795, count: 57318"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4287.309486784192,
+            "unit": "median tps",
+            "extra": "avg tps: 4231.808886246269, max tps: 5272.211508200287, count: 114636"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 693.913804679532,
+            "unit": "median tps",
+            "extra": "avg tps: 693.5956356842289, max tps: 817.8103811516396, count: 57318"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2658.6083847349637,
+            "unit": "median tps",
+            "extra": "avg tps: 2679.497541152958, max tps: 2995.193911849047, count: 57318"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 134.36604373004744,
+            "unit": "median tps",
+            "extra": "avg tps: 172.47844797493667, max tps: 558.6283216738293, count: 57318"
           }
         ]
       }

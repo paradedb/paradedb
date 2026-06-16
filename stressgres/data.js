@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781637550123,
+  "lastUpdate": 1781637657199,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47864,6 +47864,112 @@ window.BENCHMARK_DATA = {
             "value": 36.1171875,
             "unit": "median mem",
             "extra": "avg mem: 36.13248256767399, max mem: 36.34765625, count: 57777"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123",
+            "email": "balavignesh449@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d453f45b157fe9286838cba35678d294100dbce7",
+          "message": "fix: eager detoast in index_memory_segment to prevent TOAST race with VACUUM (#5076) (#5086)\n\n## Problem\n\n`index_memory_segment` calls `ExecFetchSlotHeapTuple(slot, true, ...)`\nwhich **materializes** the tuple into palloc memory, **releasing the\nbuffer pin** held by the `BufferHeapTupleTableSlot`. Without the pin,\nVACUUM's `LockBufferForCleanup` proceeds immediately, removes the heap\ntuple, and deletes its TOAST chunks — while `row_to_search_document`\nhasn't detoasted yet.\n\nThis causes the crash:\n`\nmissing chunk number 0 for toast value XXXXX in pg_toast_17265\nLOCATION: heaptoast.c:782\n`\n\nReproduced consistently by the `logical-replication-merge.toml`\nstressgres suite.\n\n## Root Cause\n\nThe race window:\n\n1. `table_index_fetch_tuple` → slot holds buffer **pin**\n2. `HeapTupleSatisfiesVacuum` → tuple is alive, share lock dropped but\n**pin still held**\n3. `ExecFetchSlotHeapTuple(slot, true)` → materializes tuple →\n**releases pin** ⚡\n4. VACUUM calls `LockBufferForCleanup` → pin count is 0 → proceeds\n5. VACUUM removes heap tuple → deletes TOAST chunks\n6. `row_to_search_document` → `String::from_datum` → `pg_detoast_datum`\n→ reads deleted TOAST → **CRASH**\n\n## Fix\n\nTwo changes:\n\n1. **Don't materialize** — pass `false` to `ExecFetchSlotHeapTuple` to\nkeep the buffer pin held by the slot. While the pin is held,\n`LockBufferForCleanup` blocks, so VACUUM can't remove the heap tuple or\nits TOAST chunks.\n\n2. **Eager detoast** — immediately after `heap_deform_tuple`, loop\nthrough all varlena (`attlen == -1`) datums and call `pg_detoast_datum`\nwhile the pin protects the TOAST data. `pg_detoast_datum` is a no-op for\nnon-TOASTed / already-inline data.\n\n## Why This Is Safe\n\n- **No deadlock**: buffer pin blocks only `LockBufferForCleanup` (VACUUM\ncleanup), not normal reads/writes\n- **Heap tuple immutability**: tuple data in the buffer page is\nimmutable once written — updates create new tuples\n- **Expression eval safe**: `expression_state.evaluate(slot)` still\nworks because the slot has a valid buffer-backed tuple with pin held\n- **Memory**: only allocates palloc copies for actually-TOASTed datums;\nfreed at memory context reset\n- **HOT chains**: handled by `table_index_fetch_tuple` before we see the\ntuple\n\n## Verification\n\n- `rustfmt --check` passes\n- 1 file changed, 28 insertions, 6 deletions\n- Should be validated against `logical-replication-merge.toml`\nstressgres suite\n\nCloses #5076\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-15T15:24:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d453f45b157fe9286838cba35678d294100dbce7"
+        },
+        "date": 1781637553416,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.904077331353488, max cpu: 42.814667, count: 55557"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 160.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 147.77406242125204, max mem: 179.58203125, count: 55557"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.291497931940238, max cpu: 36.994217, count: 55557"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.70311445339921, max mem: 120.01171875, count: 55557"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3510794283892995, max cpu: 18.972332, count: 55557"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 147.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.70150201876, max mem: 181.078125, count: 55557"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15363,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16210.87027737279, max block_count: 30357.0, count: 55557"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.140660149748462, max cpu: 4.6875, count: 55557"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 94.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.24845049341216, max mem: 136.37890625, count: 55557"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.536962038986985, max segment_count: 35.0, count: 55557"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.91682317922912, max cpu: 41.618496, count: 111114"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.71452148103523, max mem: 183.13671875, count: 111114"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.972453013433356, max cpu: 27.906979, count: 55557"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.40226275210594, max mem: 174.8203125, count: 55557"
           }
         ]
       }

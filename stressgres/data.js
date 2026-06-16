@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781634965530,
+  "lastUpdate": 1781635223316,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5606,6 +5606,78 @@ window.BENCHMARK_DATA = {
             "value": 111.57954955073878,
             "unit": "median tps",
             "extra": "avg tps: 122.64241101370517, max tps: 742.1425655868492, count: 55210"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a9c8e09f0caf22d5ef27d2cd65c549f96716589c",
+          "message": "feat: moved the MPP transport into the datafusion-distributed fork. (#5256)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR deletes `pg_search`'s shared-memory MPP transport and consumes\nit from `datafusion_distributed::embedded` instead.\n\n## Why\n\nRebase safety. The transport core\n(`mpp/{transport,dsm_mpsc_ring,dsm,mesh,runtime,worker}.rs`, about\n`4600` lines) duplicated code that now lives in the fork, where an\nin-process test runs a real distributed query through the same transport\nwith no Postgres and no Flight. An upstream rebase that breaks the\n`WorkerTransport` contract, the boundary routing, or\n`prepare_in_process_plan` now fails in the fork's CI, before `pg_search`\nrebuilds. Stacks on #5244 and depends on\n`paradedb/datafusion-distributed#21`.\n\n## How\n\n- The customscan keeps its integration: `glue.rs` (DSM alloc +\nparallel-worker lifecycle) wraps `embedded::leader_setup` /\n`embedded::worker_setup` and times them under `paradedb.mpp_trace`;\n`exec_worker.rs` runs fragments through `run_worker_fragment` with\n`MppPartitionSink`s; `dispatch.rs` and `worker_fragments.rs` are\nuntouched.\n- The only Postgres-specific transport code left is `mpp/pg_seams.rs`:\n`PgWakeup` (`SetLatch` via `(pgprocno, pid)`) and `PgInterrupt`\n(`check_for_interrupts!`), the two extension points the library leaves\nto the embedder. A `const` assert pins `MAXIMUM_ALIGNOF == 8`, which the\nembedded layout assumes.\n- The dep flips to `default-features = false`: `pg_search` never dials\ngRPC, so `tonic` and `arrow-flight` drop out of the build graph\nentirely.\n\n## Tests\n\nThe MPP regress suites are behavior-preserving on pg15 through pg18\n(same plan shapes, same results). The moved code is exercised by the\nfork's unit and in-process distributed tests at the pinned rev,\nincluding a worker-to-worker shuffle and a producer-loss case.\n\nThis is a draft: the dep rev points at\n`paradedb/datafusion-distributed#21`'s tip, so that PR lands first and\nthe rev gets repinned to the merge commit.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-16T11:19:45-07:00",
+          "tree_id": "02f100c664809952df5fafd6ec9872d77c2dda28",
+          "url": "https://github.com/paradedb/paradedb/commit/a9c8e09f0caf22d5ef27d2cd65c549f96716589c"
+        },
+        "date": 1781635194339,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 216.7869571683929,
+            "unit": "median tps",
+            "extra": "avg tps: 218.49965968387784, max tps: 237.4658405388385, count: 57313"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 217.64112243781787,
+            "unit": "median tps",
+            "extra": "avg tps: 219.42478758909766, max tps: 242.28068967916073, count: 57313"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4987.345692372076,
+            "unit": "median tps",
+            "extra": "avg tps: 4988.173292248703, max tps: 5885.7490983032385, count: 57313"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 590.2947890738295,
+            "unit": "median tps",
+            "extra": "avg tps: 600.2700948596073, max tps: 675.8558277865283, count: 57313"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4299.7897469316,
+            "unit": "median tps",
+            "extra": "avg tps: 4219.650283873506, max tps: 5190.983585947683, count: 114626"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 663.5672943376828,
+            "unit": "median tps",
+            "extra": "avg tps: 673.0349625720127, max tps: 756.0546893474417, count: 57313"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2729.142571953352,
+            "unit": "median tps",
+            "extra": "avg tps: 2708.4196343513004, max tps: 3153.6821958327896, count: 57313"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 114.7773168292394,
+            "unit": "median tps",
+            "extra": "avg tps: 138.03310222672724, max tps: 1265.0349402650502, count: 57313"
           }
         ]
       }

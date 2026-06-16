@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781649349124,
+  "lastUpdate": 1781651347568,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5894,6 +5894,78 @@ window.BENCHMARK_DATA = {
             "value": 72.71071947097862,
             "unit": "median tps",
             "extra": "avg tps: 91.16576240424301, max tps: 391.7476346067957, count: 57344"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95",
+          "message": "perf: apply ctid sorting by default (#5354)\n\nRefs: 5265\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nApplied `ctid` sorting by default to give best performance when\nperforming visibility checks.\n\n## Why\n\nFor aggregate / scan queries of shuffled / non ctid sorted indexes the\nvisibility checking algorithm ends up accessing / releasing the same\nheap buffer multiple times.\n\nBy applying `ctid` sorting by default it minimizes the number of buffer\naccess for a given block number across batches. Only at the boundary of\nthe batch size could we access a buffer at the end of a batch and then\nbeginning of the next after this change.\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-16T15:50:36-07:00",
+          "tree_id": "e5474984f21280323d39ee46cbc5febcec53033f",
+          "url": "https://github.com/paradedb/paradedb/commit/07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95"
+        },
+        "date": 1781651316894,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 220.1605419651633,
+            "unit": "median tps",
+            "extra": "avg tps: 220.22224426394388, max tps: 235.51613613572863, count: 57338"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 221.16583070909337,
+            "unit": "median tps",
+            "extra": "avg tps: 221.13817868237862, max tps: 237.6593693747112, count: 57338"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5018.334373812879,
+            "unit": "median tps",
+            "extra": "avg tps: 5006.212356135094, max tps: 6929.324241905943, count: 57338"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 609.4491223117287,
+            "unit": "median tps",
+            "extra": "avg tps: 608.9288559770965, max tps: 802.5862539447115, count: 57338"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4296.104971059727,
+            "unit": "median tps",
+            "extra": "avg tps: 4256.147598475102, max tps: 4806.230699725279, count: 114676"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 681.3700290583033,
+            "unit": "median tps",
+            "extra": "avg tps: 681.0908172039387, max tps: 803.8479387523099, count: 57338"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2553.812506694532,
+            "unit": "median tps",
+            "extra": "avg tps: 2554.9827900997475, max tps: 2668.047470167394, count: 57338"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 71.6547253016839,
+            "unit": "median tps",
+            "extra": "avg tps: 87.8328254603865, max tps: 475.27982495760904, count: 57338"
           }
         ]
       }

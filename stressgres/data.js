@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781643787388,
+  "lastUpdate": 1781643820063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16374,6 +16374,138 @@ window.BENCHMARK_DATA = {
             "value": 34.8515625,
             "unit": "median mem",
             "extra": "avg mem: 33.9761474460314, max mem: 35.30078125, count: 57325"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5688a25119c119d92918fae9bc20ffc432c5d354",
+          "message": "feat: showed MPP worker metrics in EXPLAIN ANALYZE. (#5316)\n\n## What\n\nThis PR surfaces worker fragment metrics in `EXPLAIN ANALYZE` for MPP\nqueries. Workers report a `TaskMetrics` frame per fragment over the\nshared-memory mesh as they exit, and the leader folds them into the plan\nit displays.\n\n## Why\n\nUntil now only the leader's own nodes carried metrics: the worker\nfragments executed in parallel workers and their numbers died with the\nprocess. With the mesh able to carry control frames, the metrics can\ncome home, which is the first production use of that channel (dynamic\nfilters ride the same one later).\n\n## How\n\n- Workers keep each fragment's prepared plan through execution and,\nafter the fragments join, send `collect_task_metrics(plan, task,\ntask_count)` to the leader via the bounded best-effort sender. Frames go\nout even after a fragment error; partial metrics still show where the\ntime went.\n- The leader caches its executed plan in the scan state (the planner\nalready enables metrics collection on the `DistributedExec`).\n- `mpp::glue::merge_worker_metrics` does the shared work at explain\ntime: sweep the leader inbox (nothing drains it after the gather\nfinishes), file the frames into the plan's metrics store keyed by the\nquery id from the plan's own stages, and run the fork's metrics rewrite\nunder a 250 ms bound so a worker that never reported cannot hang\n`EXPLAIN`.\n- Both customscans use it: joinscan's existing `EXPLAIN ANALYZE`\nrendering now shows worker rows, and aggregatescan gains the display.\n\n## Tests\n\nA regress check shows that worker row counts appear in `EXPLAIN ANALYZE`\noutput (presence, not values: the numbers vary run to run).",
+          "timestamp": "2026-06-16T13:44:38-07:00",
+          "tree_id": "302782ec05b1d0096c8e2fe81da4590245332540",
+          "url": "https://github.com/paradedb/paradedb/commit/5688a25119c119d92918fae9bc20ffc432c5d354"
+        },
+        "date": 1781643790017,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.3339815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.487780506319286, max cpu: 24.20575, count: 57310"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.13876375468941, max mem: 40.4375, count: 57310"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.279845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.4212529071862665, max cpu: 24.279211, count: 57310"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 40.379871123058805, max mem: 40.63671875, count: 57310"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.67096756949619, max cpu: 9.343065, count: 57310"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.792761202778745, max mem: 20.80078125, count: 57310"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.544765253698409, max cpu: 4.7808766, count: 57310"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.12580940008288, max mem: 38.48828125, count: 57310"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.741315893407823, max cpu: 9.614422, count: 114620"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 36.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.636411859568575, max mem: 38.609375, count: 114620"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1786,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1791.4927586808585, max block_count: 3187.0, count: 57310"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.36171697783982, max segment_count: 31.0, count: 57310"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.464412943703341, max cpu: 14.626715, count: 57310"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.26056221100157, max mem: 39.546875, count: 57310"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.408131794072272, max cpu: 4.8755717, count: 57310"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 28.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.02808144575554, max mem: 28.7890625, count: 57310"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9403728508133966, max cpu: 4.68979, count: 57310"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.4055654008899, max mem: 35.046875, count: 57310"
           }
         ]
       }

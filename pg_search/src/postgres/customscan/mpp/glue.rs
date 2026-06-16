@@ -411,10 +411,9 @@ pub unsafe fn worker_setup(
     // Same backend-thread story as `leader_setup`: this runs on the parallel-worker backend
     // before tokio starts.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
-    let attach = unsafe {
-        shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt)
-    }
-    .map_err(|e| e.to_string())?;
+    let attach =
+        unsafe { shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt) }
+            .map_err(|e| e.to_string())?;
     if let Some(t) = t_setup {
         pgrx::warning!(
             "mpp trace: worker_setup (attach) took {:.3} ms",

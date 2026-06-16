@@ -181,9 +181,9 @@ LIMIT 10;
 
 -- =====================================================================
 -- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
--- The values vary run to run, so assert presence, not content: the
--- worker fragments' nodes must show row counts, which only happens
--- when their TaskMetrics frames crossed the mesh.
+-- Asserts presence, not content: how many workers launch and how they
+-- split the rows isn't pinned, so per-fragment metrics vary run to run.
+-- A fragment's row counts appear only once its TaskMetrics crossed the mesh.
 -- =====================================================================
 CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
 DECLARE r record;

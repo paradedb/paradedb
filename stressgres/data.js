@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781644482175,
+  "lastUpdate": 1781644512599,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24206,6 +24206,66 @@ window.BENCHMARK_DATA = {
             "value": 130,
             "unit": "median segment_count",
             "extra": "avg segment_count: 134.11345315072214, max segment_count: 190.0, count: 58923"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5688a25119c119d92918fae9bc20ffc432c5d354",
+          "message": "feat: showed MPP worker metrics in EXPLAIN ANALYZE. (#5316)\n\n## What\n\nThis PR surfaces worker fragment metrics in `EXPLAIN ANALYZE` for MPP\nqueries. Workers report a `TaskMetrics` frame per fragment over the\nshared-memory mesh as they exit, and the leader folds them into the plan\nit displays.\n\n## Why\n\nUntil now only the leader's own nodes carried metrics: the worker\nfragments executed in parallel workers and their numbers died with the\nprocess. With the mesh able to carry control frames, the metrics can\ncome home, which is the first production use of that channel (dynamic\nfilters ride the same one later).\n\n## How\n\n- Workers keep each fragment's prepared plan through execution and,\nafter the fragments join, send `collect_task_metrics(plan, task,\ntask_count)` to the leader via the bounded best-effort sender. Frames go\nout even after a fragment error; partial metrics still show where the\ntime went.\n- The leader caches its executed plan in the scan state (the planner\nalready enables metrics collection on the `DistributedExec`).\n- `mpp::glue::merge_worker_metrics` does the shared work at explain\ntime: sweep the leader inbox (nothing drains it after the gather\nfinishes), file the frames into the plan's metrics store keyed by the\nquery id from the plan's own stages, and run the fork's metrics rewrite\nunder a 250 ms bound so a worker that never reported cannot hang\n`EXPLAIN`.\n- Both customscans use it: joinscan's existing `EXPLAIN ANALYZE`\nrendering now shows worker rows, and aggregatescan gains the display.\n\n## Tests\n\nA regress check shows that worker row counts appear in `EXPLAIN ANALYZE`\noutput (presence, not values: the numbers vary run to run).",
+          "timestamp": "2026-06-16T13:44:38-07:00",
+          "tree_id": "302782ec05b1d0096c8e2fe81da4590245332540",
+          "url": "https://github.com/paradedb/paradedb/commit/5688a25119c119d92918fae9bc20ffc432c5d354"
+        },
+        "date": 1781644484241,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.972332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.328891704319247, max cpu: 43.570347, count: 58910"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 95.9923927919708, max mem: 97.50390625, count: 58910"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.680315,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.96738847834845, max cpu: 33.650475, count: 58910"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 39.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 39.83224602412579, max mem: 40.8046875, count: 58910"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37100,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34125.31644882023, max block_count: 39280.0, count: 58910"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 131,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.25109489051096, max segment_count: 188.0, count: 58910"
           }
         ]
       }

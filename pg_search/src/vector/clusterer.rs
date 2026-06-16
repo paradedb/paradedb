@@ -18,7 +18,9 @@
 use std::sync::Arc;
 
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, SuperKMeansError};
-use tantivy::vector::{IvfCentroids, IvfClusterer, IvfMatrix, IvfVectors, Metric, VectorOptions};
+use tantivy::vector::{
+    IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfVectors, Metric, VectorOptions,
+};
 use tantivy::{Index, TantivyError};
 
 use crate::postgres::options::BM25IndexOptions;
@@ -31,6 +33,12 @@ pub struct SuperKMeansIvfClusterer {
     centroid_ratio: f32,
     training_samples_per_centroid: usize,
     assign_batch_size: usize,
+    /// Hard cap on primary cluster size. `None` defers to tantivy's default
+    /// merge band, preserving the pre-option behavior.
+    max_posting_len: Option<usize>,
+    /// Floor on primary cluster size. `None` defers to tantivy's default
+    /// merge band.
+    min_posting_len: Option<usize>,
 }
 
 impl Default for SuperKMeansIvfClusterer {
@@ -45,6 +53,8 @@ impl Default for SuperKMeansIvfClusterer {
             centroid_ratio: 0.01,
             training_samples_per_centroid: 32,
             assign_batch_size: DEFAULT_ASSIGN_BATCH_SIZE,
+            max_posting_len: None,
+            min_posting_len: None,
         }
     }
 }
@@ -66,6 +76,16 @@ impl SuperKMeansIvfClusterer {
         self.training_samples_per_centroid = training_samples_per_centroid;
         self
     }
+
+    pub fn with_max_posting_len(mut self, max_posting_len: Option<usize>) -> Self {
+        self.max_posting_len = max_posting_len;
+        self
+    }
+
+    pub fn with_min_posting_len(mut self, min_posting_len: Option<usize>) -> Self {
+        self.min_posting_len = min_posting_len;
+        self
+    }
 }
 
 impl IvfClusterer for SuperKMeansIvfClusterer {
@@ -79,6 +99,49 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
 
     fn assign_batch_size(&self) -> usize {
         self.assign_batch_size
+    }
+
+    fn merge_settings(&self, total_target_docs: usize) -> tantivy::Result<IvfMergeSettings> {
+        let centroid_ratio = self.centroid_ratio;
+        let training_samples_per_centroid = self.training_samples_per_centroid;
+        let assign_batch_size = self.assign_batch_size;
+
+        // Mirror tantivy's default `IvfClusterer::merge_settings` exactly, so
+        // an index that sets neither `max_posting_len` nor `min_posting_len`
+        // behaves byte-identically to the default path. Only the band fields
+        // diverge, and only when the option is explicitly set.
+        assert!(
+            centroid_ratio > 0.0 && centroid_ratio <= 1.0,
+            "centroid_ratio must be in (0, 1], got {centroid_ratio}"
+        );
+        assert!(
+            training_samples_per_centroid > 1,
+            "training_samples_per_centroid must be > 1, got {training_samples_per_centroid}"
+        );
+        assert!(assign_batch_size > 0, "assign_batch_size must be > 0");
+
+        let num_centroids =
+            ((total_target_docs as f64) * f64::from(centroid_ratio)).ceil() as usize;
+        let num_centroids = num_centroids.clamp(1, total_target_docs);
+
+        // Default band: max = 4×mean, min = mean/4 (tantivy's private
+        // MAX_POSTING_FACTOR / MIN_POSTING_DIVISOR, replicated here). When an
+        // option is set, it wins; otherwise the default is preserved.
+        let mean_posting_len = (total_target_docs / num_centroids).max(1);
+        let max_posting_len = self
+            .max_posting_len
+            .unwrap_or_else(|| mean_posting_len.saturating_mul(2));
+        let min_posting_len = self
+            .min_posting_len
+            .unwrap_or_else(|| (mean_posting_len / 2).max(1));
+
+        Ok(IvfMergeSettings {
+            num_centroids,
+            training_samples_per_centroid,
+            assign_batch_size,
+            max_posting_len,
+            min_posting_len,
+        })
     }
 
     fn train(
@@ -206,7 +269,9 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
         .with_centroid_ratio(options.centroid_ratio())
-        .with_training_samples_per_centroid(options.training_samples_per_centroid());
+        .with_training_samples_per_centroid(options.training_samples_per_centroid())
+        .with_max_posting_len(options.max_posting_len())
+        .with_min_posting_len(options.min_posting_len());
     index.set_ivf_clusterer(Arc::new(clusterer));
 }
 

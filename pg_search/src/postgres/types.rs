@@ -43,6 +43,8 @@ use std::str::FromStr;
 use tantivy::schema::{Facet, IntoIpv6Addr};
 use thiserror::Error;
 
+use super::jsonb_support::JsonbConversionError;
+
 /// A row-oriented wrapper around Tantivy's OwnedValue.
 ///
 /// When working with large batches of TantivyValues, consider using the `types_arrow` module
@@ -238,7 +240,7 @@ impl TantivyValue {
                 PgBuiltInOids::JSONBOID => {
                     let serde_json_value = jsonb_datum_to_serde_json_value(datum)
                         .ok_or(TantivyValueError::DatumDeref)?
-                        .map_err(TantivyValueError::Utf8ConversionError)?;
+                        .map_err(TantivyValueError::from)?;
                     Self::try_json_value_to_tantivy_value(serde_json_value)
                 }
                 PgBuiltInOids::JSONOID => {
@@ -1309,6 +1311,14 @@ pub enum TantivyValueError {
 
     #[error("UTF8 conversion error: {0}")]
     Utf8ConversionError(#[from] std::str::Utf8Error),
+}
+impl From<JsonbConversionError> for TantivyValueError {
+    fn from(value: JsonbConversionError) -> Self {
+        match value {
+            JsonbConversionError::Utf8(v) => Self::Utf8ConversionError(v),
+            JsonbConversionError::Serde(v) => Self::SerdeJsonError(v),
+        }
+    }
 }
 
 /// Check if the given OID is a date/time type that requires special conversion

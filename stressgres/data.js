@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781646061558,
+  "lastUpdate": 1781646239447,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19618,6 +19618,42 @@ window.BENCHMARK_DATA = {
             "value": 7.147758519414413,
             "unit": "median tps",
             "extra": "avg tps: 6.683952245239442, max tps: 7.701291895843432, count: 58910"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92a49399a01a2643acf3c34a15cb2a586ab9aa29",
+          "message": "fix: Flip sign so parallel state is only passed on first query (#5352)\n\n## What\nFix the sign comparison direction. This worked before because not using\nthe shared threshold on the first query _also_ has the effect of the\nreturning the correct rows since only 2 queries are necessary in the\ntest checking this. However, this PR corrects for the actual behavior we\nwant.",
+          "timestamp": "2026-06-16T15:12:19-06:00",
+          "tree_id": "602f4187e077c7e3811cc6200c56f8ca1496b2af",
+          "url": "https://github.com/paradedb/paradedb/commit/92a49399a01a2643acf3c34a15cb2a586ab9aa29"
+        },
+        "date": 1781646122222,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.358940134347627,
+            "unit": "median tps",
+            "extra": "avg tps: 8.061600093246431, max tps: 12.251065962311817, count: 58926"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.342910449651473,
+            "unit": "median tps",
+            "extra": "avg tps: 6.86375590484028, max tps: 7.913884479319471, count: 58926"
           }
         ]
       }

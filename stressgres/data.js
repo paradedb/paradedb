@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781635259817,
+  "lastUpdate": 1781635509111,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18828,6 +18828,42 @@ window.BENCHMARK_DATA = {
             "value": 7.379126576644616,
             "unit": "median tps",
             "extra": "avg tps: 6.89384752048595, max tps: 7.9118764074496735, count: 58931"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b7dfca431a8ed174bf9c4e5e5d4b3f006299757",
+          "message": "fix: error instead of hang if unable to acquire FSM root lock (#5145)\n\n# Ticket(s) Closed\n\n- Closes #\n\nIn production we've seen rare situations where parallel index builds\nhang because workers lock on trying to acquire the FSM root lock. The\nroot cause is still TBD, so in the meantime just throw an error if we're\nstuck.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-06-16T11:14:35-07:00",
+          "tree_id": "b45d63906e7dbf9ac8f9979880c6dd9c651df69f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b7dfca431a8ed174bf9c4e5e5d4b3f006299757"
+        },
+        "date": 1781635479666,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.2372499786295,
+            "unit": "median tps",
+            "extra": "avg tps: 7.969584729981967, max tps: 12.214698267167783, count: 58913"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.522688056478989,
+            "unit": "median tps",
+            "extra": "avg tps: 7.036229427680631, max tps: 8.03528278798597, count: 58913"
           }
         ]
       }

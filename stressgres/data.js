@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781628911984,
+  "lastUpdate": 1781629553174,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37704,6 +37704,58 @@ window.BENCHMARK_DATA = {
             "value": 21.231076457919144,
             "unit": "median tps",
             "extra": "avg tps: 21.09834667762145, max tps: 34.52304940023969, count: 57779"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e",
+          "message": "ci: enable logical replication merge stressgres repro",
+          "timestamp": "2026-06-16T16:08:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e"
+        },
+        "date": 1781629524231,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 71.13084397940105,
+            "unit": "median tps",
+            "extra": "avg tps: 69.98542541052832, max tps: 83.92040954790312, count: 57780"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 300.14636222206,
+            "unit": "median tps",
+            "extra": "avg tps: 357.7087219130463, max tps: 5920.2641600339975, count: 57780"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 952.0554743253263,
+            "unit": "median tps",
+            "extra": "avg tps: 939.1917831556669, max tps: 1912.6145536579234, count: 57780"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 227.150576866494,
+            "unit": "median tps",
+            "extra": "avg tps: 245.1089702516428, max tps: 1623.9295084678963, count: 115560"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.066948555934914,
+            "unit": "median tps",
+            "extra": "avg tps: 21.741801375099865, max tps: 34.70435550419928, count: 57780"
           }
         ]
       }

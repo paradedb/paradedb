@@ -388,6 +388,11 @@ impl ExecMethod for TopKScanExecState {
                     vischeck,
                 }
             });
+            let maybe_parallel_state = if state.query_count() > 1 {
+                state.parallel_state
+            } else {
+                None
+            };
             self.search_reader
                 .as_ref()
                 .unwrap()
@@ -400,8 +405,7 @@ impl ExecMethod for TopKScanExecState {
                     local_limit,
                     self.offset,
                     maybe_aux_collector,
-                    state.parallel_state,
-                    state.query_count() > 1,
+                    maybe_parallel_state,
                 )
         } else {
             self.search_reader

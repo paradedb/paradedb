@@ -14,7 +14,6 @@ USING bm25 (
     owner_user_id
 ) WITH (
     key_field = 'id',
-    sort_by = 'owner_user_id ASC NULLS FIRST'
 );
 
 CREATE INDEX badges_idx ON badges
@@ -27,7 +26,6 @@ USING bm25 (
     tag_based
 ) WITH (
     key_field = 'id',
-    sort_by = 'user_id ASC NULLS FIRST'
  );
 
 CREATE INDEX comments_idx ON comments
@@ -40,7 +38,6 @@ USING bm25 (
     (user_display_name::pdb.literal)
 ) WITH (
     key_field = 'id',
-    sort_by = 'post_id ASC NULLS FIRST'
 );
 
 CREATE INDEX users_idx ON users
@@ -51,5 +48,4 @@ USING bm25 (
     reputation
 ) WITH (
     key_field = 'id',
-    sort_by = 'id ASC NULLS FIRST'
 );

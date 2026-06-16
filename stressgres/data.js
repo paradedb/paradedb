@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781638026046,
+  "lastUpdate": 1781638057151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65334,6 +65334,186 @@ window.BENCHMARK_DATA = {
             "value": 18.34375,
             "unit": "median mem",
             "extra": "avg mem: 18.292149474557522, max mem: 18.34375, count: 56500"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a9c8e09f0caf22d5ef27d2cd65c549f96716589c",
+          "message": "feat: moved the MPP transport into the datafusion-distributed fork. (#5256)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR deletes `pg_search`'s shared-memory MPP transport and consumes\nit from `datafusion_distributed::embedded` instead.\n\n## Why\n\nRebase safety. The transport core\n(`mpp/{transport,dsm_mpsc_ring,dsm,mesh,runtime,worker}.rs`, about\n`4600` lines) duplicated code that now lives in the fork, where an\nin-process test runs a real distributed query through the same transport\nwith no Postgres and no Flight. An upstream rebase that breaks the\n`WorkerTransport` contract, the boundary routing, or\n`prepare_in_process_plan` now fails in the fork's CI, before `pg_search`\nrebuilds. Stacks on #5244 and depends on\n`paradedb/datafusion-distributed#21`.\n\n## How\n\n- The customscan keeps its integration: `glue.rs` (DSM alloc +\nparallel-worker lifecycle) wraps `embedded::leader_setup` /\n`embedded::worker_setup` and times them under `paradedb.mpp_trace`;\n`exec_worker.rs` runs fragments through `run_worker_fragment` with\n`MppPartitionSink`s; `dispatch.rs` and `worker_fragments.rs` are\nuntouched.\n- The only Postgres-specific transport code left is `mpp/pg_seams.rs`:\n`PgWakeup` (`SetLatch` via `(pgprocno, pid)`) and `PgInterrupt`\n(`check_for_interrupts!`), the two extension points the library leaves\nto the embedder. A `const` assert pins `MAXIMUM_ALIGNOF == 8`, which the\nembedded layout assumes.\n- The dep flips to `default-features = false`: `pg_search` never dials\ngRPC, so `tonic` and `arrow-flight` drop out of the build graph\nentirely.\n\n## Tests\n\nThe MPP regress suites are behavior-preserving on pg15 through pg18\n(same plan shapes, same results). The moved code is exercised by the\nfork's unit and in-process distributed tests at the pinned rev,\nincluding a worker-to-worker shuffle and a producer-loss case.\n\nThis is a draft: the dep rev points at\n`paradedb/datafusion-distributed#21`'s tip, so that PR lands first and\nthe rev gets repinned to the merge commit.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-16T11:19:45-07:00",
+          "tree_id": "02f100c664809952df5fafd6ec9872d77c2dda28",
+          "url": "https://github.com/paradedb/paradedb/commit/a9c8e09f0caf22d5ef27d2cd65c549f96716589c"
+        },
+        "date": 1781638028234,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.726472579296308, max cpu: 14.271556, count: 56503"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 38.875,
+            "unit": "median mem",
+            "extra": "avg mem: 38.86021545592712, max mem: 38.93359375, count: 56503"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9848279760825607, max cpu: 4.6624575, count: 56503"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.75,
+            "unit": "median mem",
+            "extra": "avg mem: 17.701936180379803, max mem: 17.75, count: 56503"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.288824,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.4045427405774955, max cpu: 19.057072, count: 56503"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 35.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.52039590265119, max mem: 35.55859375, count: 56503"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.231857031805144, max cpu: 14.194184, count: 56503"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 38.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.76812147972232, max mem: 38.86328125, count: 56503"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.726431166907922, max cpu: 9.397944, count: 56503"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.34302402914447, max mem: 21.390625, count: 56503"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1109,
+            "unit": "median pages",
+            "extra": "avg pages: 1108.3540519972391, max pages: 1831.0, count: 56503"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6640625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.65901603122843, max relation_size:MB: 14.3046875, count: 56503"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.269861777250766, max segment_count: 16.0, count: 56503"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6026278192321084, max cpu: 4.685212, count: 56503"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 17.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.638474740832343, max mem: 17.6875, count: 56503"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.7732066120957426, max cpu: 4.7244096, count: 56503"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 17.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.638126791940252, max mem: 17.6875, count: 56503"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.561920884087292, max cpu: 14.271556, count: 56503"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 36.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.17887995161761, max mem: 36.32421875, count: 56503"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003997009859577423, max replication_lag:MB: 0.31896209716796875, count: 56503"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.444268157414063, max cpu: 14.243324, count: 113006"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 35.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.15767383894439, max mem: 36.65234375, count: 113006"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.394085356536788, max cpu: 4.6829267, count: 56503"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 17.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.834327864781518, max mem: 17.8828125, count: 56503"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.012724996038053, max cpu: 4.7081904, count: 56503"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 18.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 18.03871337583845, max mem: 18.078125, count: 56503"
           }
         ]
       }

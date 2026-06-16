@@ -777,6 +777,7 @@ impl SearchIndexReader {
     /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
     /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
     /// results for MVCC visibility, and re-query if necessary.
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -785,6 +786,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        is_retry: bool,
     ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -808,7 +810,7 @@ impl SearchIndexReader {
                         // `offset` monotonically from 0, so any later (retry) pass reads
                         // strictly past the first-pass threshold; reusing it there would
                         // prune the very rows a deeper page must surface.
-                        if let Some(state) = parallel_state.filter(|_| offset == 0) {
+                        if let Some(state) = parallel_state.filter(|_| !is_retry) {
                             computer = computer.with_shared_threshold(Some(std::sync::Arc::new(
                                 crate::postgres::shared_threshold::new_fast_value_threshold(
                                     state,
@@ -878,7 +880,7 @@ impl SearchIndexReader {
                 // `offset` monotonically from 0, so any later (retry) pass reads
                 // strictly past the first-pass threshold; reusing it there would
                 // prune the very rows a deeper page must surface.
-                if let Some(state) = parallel_state.filter(|_| offset == 0) {
+                if let Some(state) = parallel_state.filter(|_| !is_retry) {
                     computer =
                         SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
                             crate::postgres::shared_threshold::new_score_threshold(state),
@@ -907,6 +909,7 @@ impl SearchIndexReader {
                 offset,
                 aux_collector,
                 parallel_state,
+                is_retry,
             ),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
@@ -1082,6 +1085,7 @@ impl SearchIndexReader {
     /// special case it.
     ///
     /// NOTE: Scores cannot be NULL, so we do not need to differentiate the nulls-first/last cases.
+    #[allow(clippy::too_many_arguments)]
     fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1090,6 +1094,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        is_retry: bool,
     ) -> TopKSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
@@ -1120,7 +1125,7 @@ impl SearchIndexReader {
                 // `offset` monotonically from 0, so any later (retry) pass reads
                 // strictly past the first-pass threshold; reusing it there would
                 // prune the very rows a deeper page must surface.
-                if let Some(state) = parallel_state.filter(|_| offset == 0) {
+                if let Some(state) = parallel_state.filter(|_| !is_retry) {
                     computer =
                         SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
                             crate::postgres::shared_threshold::new_score_threshold(state),

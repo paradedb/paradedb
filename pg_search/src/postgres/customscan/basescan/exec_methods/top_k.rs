@@ -401,6 +401,7 @@ impl ExecMethod for TopKScanExecState {
                     self.offset,
                     maybe_aux_collector,
                     state.parallel_state,
+                    state.query_count() > 1,
                 )
         } else {
             self.search_reader

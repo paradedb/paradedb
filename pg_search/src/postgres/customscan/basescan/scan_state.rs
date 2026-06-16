@@ -351,6 +351,10 @@ impl BaseScanState {
         }
     }
 
+    pub fn query_count(&self) -> usize {
+        self.query_count
+    }
+
     pub fn increment_query_count(&mut self) {
         self.query_count += 1;
         if let Some(parallel_state) = self.parallel_state {

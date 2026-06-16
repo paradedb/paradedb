@@ -64,6 +64,8 @@ runs:
         STANZA: ${{ steps.backrest.outputs.stanza }}
       run: |
         set -euo pipefail
-        pgbackrest --config="${CONF}" --stanza="${STANZA}" stanza-create
+        # --no-online everywhere: the cluster is stopped, so pgBackRest reads pg_control from
+        # pg1-path instead of connecting to a running Postgres.
+        pgbackrest --config="${CONF}" --stanza="${STANZA}" --no-online stanza-create
         pgbackrest --config="${CONF}" --stanza="${STANZA}" --type=full --no-online backup
         pgbackrest --config="${CONF}" --stanza="${STANZA}" info

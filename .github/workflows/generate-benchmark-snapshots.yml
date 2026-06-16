@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   generate-snapshot:
-    name: Generate ${{ inputs.dataset || 'stackoverflow' }} snapshot (${{ matrix.size }})
+    name: Generate ${{ inputs.dataset }} snapshot (${{ matrix.size }})
     runs-on:
       # See https://runs-on.com/configuration/job-labels/ (runs in us-east-1)
       - runs-on=${{ github.run_id }}
@@ -40,16 +40,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TEMP fallback for push test (inputs.sizes is empty on push): generate only 100k.
-        size: ${{ fromJSON(inputs.sizes || '["100k"]') }}
+        size: ${{ fromJSON(inputs.sizes) }}
     env:
       pg_version: 18
 
     steps:
-      - name: Checkout Git Repository at ref=${{ inputs.ref || github.sha }}
+      - name: Checkout Git Repository at ref=${{ inputs.ref }}
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
 
       - name: Configure AWS Credentials
@@ -67,6 +66,6 @@ jobs:
       - name: Generate heap snapshot
         uses: ./.github/actions/benchmark-generate-backrest
         with:
-          dataset: ${{ inputs.dataset || 'stackoverflow' }}
+          dataset: ${{ inputs.dataset }}
           size: ${{ matrix.size }}
           pg_version: ${{ env.pg_version }}

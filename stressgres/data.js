@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781635990310,
+  "lastUpdate": 1781636475163,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27308,6 +27308,52 @@ window.BENCHMARK_DATA = {
             "value": 12.278619660684395,
             "unit": "median tps",
             "extra": "avg tps: 11.530467592153611, max tps: 13.069488845037705, count: 58252"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123",
+            "email": "balavignesh449@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d453f45b157fe9286838cba35678d294100dbce7",
+          "message": "fix: eager detoast in index_memory_segment to prevent TOAST race with VACUUM (#5076) (#5086)\n\n## Problem\n\n`index_memory_segment` calls `ExecFetchSlotHeapTuple(slot, true, ...)`\nwhich **materializes** the tuple into palloc memory, **releasing the\nbuffer pin** held by the `BufferHeapTupleTableSlot`. Without the pin,\nVACUUM's `LockBufferForCleanup` proceeds immediately, removes the heap\ntuple, and deletes its TOAST chunks — while `row_to_search_document`\nhasn't detoasted yet.\n\nThis causes the crash:\n`\nmissing chunk number 0 for toast value XXXXX in pg_toast_17265\nLOCATION: heaptoast.c:782\n`\n\nReproduced consistently by the `logical-replication-merge.toml`\nstressgres suite.\n\n## Root Cause\n\nThe race window:\n\n1. `table_index_fetch_tuple` → slot holds buffer **pin**\n2. `HeapTupleSatisfiesVacuum` → tuple is alive, share lock dropped but\n**pin still held**\n3. `ExecFetchSlotHeapTuple(slot, true)` → materializes tuple →\n**releases pin** ⚡\n4. VACUUM calls `LockBufferForCleanup` → pin count is 0 → proceeds\n5. VACUUM removes heap tuple → deletes TOAST chunks\n6. `row_to_search_document` → `String::from_datum` → `pg_detoast_datum`\n→ reads deleted TOAST → **CRASH**\n\n## Fix\n\nTwo changes:\n\n1. **Don't materialize** — pass `false` to `ExecFetchSlotHeapTuple` to\nkeep the buffer pin held by the slot. While the pin is held,\n`LockBufferForCleanup` blocks, so VACUUM can't remove the heap tuple or\nits TOAST chunks.\n\n2. **Eager detoast** — immediately after `heap_deform_tuple`, loop\nthrough all varlena (`attlen == -1`) datums and call `pg_detoast_datum`\nwhile the pin protects the TOAST data. `pg_detoast_datum` is a no-op for\nnon-TOASTed / already-inline data.\n\n## Why This Is Safe\n\n- **No deadlock**: buffer pin blocks only `LockBufferForCleanup` (VACUUM\ncleanup), not normal reads/writes\n- **Heap tuple immutability**: tuple data in the buffer page is\nimmutable once written — updates create new tuples\n- **Expression eval safe**: `expression_state.evaluate(slot)` still\nworks because the slot has a valid buffer-backed tuple with pin held\n- **Memory**: only allocates palloc copies for actually-TOASTed datums;\nfreed at memory context reset\n- **HOT chains**: handled by `table_index_fetch_tuple` before we see the\ntuple\n\n## Verification\n\n- `rustfmt --check` passes\n- 1 file changed, 28 insertions, 6 deletions\n- Should be validated against `logical-replication-merge.toml`\nstressgres suite\n\nCloses #5076\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-15T15:24:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d453f45b157fe9286838cba35678d294100dbce7"
+        },
+        "date": 1781636441858,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1099.227937089096,
+            "unit": "median tps",
+            "extra": "avg tps: 1090.607846447611, max tps: 1163.9392375749403, count: 56406"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1212.3055430347001,
+            "unit": "median tps",
+            "extra": "avg tps: 1175.868167845973, max tps: 1228.7090884383883, count: 56406"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1859.5756467360852,
+            "unit": "median tps",
+            "extra": "avg tps: 1809.6102786018707, max tps: 2045.6224408367657, count: 56406"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.255217100632137,
+            "unit": "median tps",
+            "extra": "avg tps: 5.299972945316864, max tps: 7.271486492713925, count: 56406"
           }
         ]
       }

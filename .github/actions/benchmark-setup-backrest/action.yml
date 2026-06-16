@@ -43,6 +43,7 @@ runs:
         set -euo pipefail
         PGDATA="/home/runner/.pgrx/data-${{ inputs.pg_version }}"
         CONF="${RUNNER_TEMP}/pgbackrest.conf"
+        PROCESS_MAX="$(nproc)"
         mkdir -p "${RUNNER_TEMP}/pgbackrest-log" "${RUNNER_TEMP}/pgbackrest-spool"
 
         # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are exported into the env by the
@@ -59,10 +60,13 @@ runs:
         repo1-path=${{ inputs.repo_path_prefix }}/${{ inputs.dataset }}/${{ inputs.size }}
         repo1-cipher-type=none
         repo1-retention-full=1
+        repo1-bundle=y
         log-path=${RUNNER_TEMP}/pgbackrest-log
         spool-path=${RUNNER_TEMP}/pgbackrest-spool
         log-level-console=info
         start-fast=y
+        process-max=${PROCESS_MAX}
+        compress-type=lz4
 
         [bench]
         pg1-path=${PGDATA}

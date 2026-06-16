@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781631168031,
+  "lastUpdate": 1781631198644,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15358,6 +15358,138 @@ window.BENCHMARK_DATA = {
             "value": 34.2421875,
             "unit": "median mem",
             "extra": "avg mem: 34.159145020877695, max mem: 34.6640625, count: 57298"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "toaadijoshi@gmail.com",
+            "name": "Aadi",
+            "username": "aadi-joshi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bae73bb82b0a06fade31b4e196386d9d47b58e2e",
+          "message": "fix: preserve null semantics for @@@ (#5297)\n\n# Ticket(s) Closed\n- closes #5264\n- closes #3111\n\n## What\n\nThis fixes `@@@` so nullable predicates follow PostgreSQL null semantics\nmatch.\n\nThe fix covers both:\n- the custom scan negation path\n- the direct operator path used outside the custom scan\n\n## Why\n\nBefore this change, `@@@` could collapse `NULL` into `FALSE`.\n\nThat caused wrong results for queries like:\n\n```sql\nWHERE NOT (color @@@ 'blue')\n```\n\nIt also showed up in the non-custom-scan path that `qgen` exercises.\n\n## How\n\n- keep an existence guard when negating fielded predicates in the custom\nscan rewrite\n- make `search_with_query_input` distinguish between:\n  - matched rows\n  - existing non-matching rows\n  - rows where the indexed field is missing\n\nThat lets the operator return `NULL` when the indexed field is missing\ninstead of always returning `FALSE`.\n\n## Tests\n\nAdded regressions for:\n- direct `NOT (field @@@ ...)` null semantics\n- negated boolean composition on nullable indexed fields\n- bitmap/index path null semantics\n- negated `paradedb.exists()` returning the missing-field rows\n- empty-array columns staying NOT NULL under negation\n\nAlso re-enabled nullable indexed columns in the `qgen` single-relation\nsurface.\n\n## Fast-field caveat\nThe existence guard relies on tantivy's `Exists` query, which only works\non **fast fields**. When a negated predicate references a non-fast\nfield, we fall back to the previous generic negation (`must: [All],\nmust_not: [q]`) instead of erroring. So exact NULL semantics apply to\nfast fields; non-fast fields keep their prior behavior. The custom-scan\npath mirrors the graceful degradation the direct operator path\n(`search_with_query_input`) already does.\n\nThe guard also skips array and JSON columns: an empty `'{}'::text[]` or\n`'{}'::jsonb` is NOT NULL in SQL but has no indexed values, so equating\n\"no indexed value\" with NULL there would drop rows that should be\nreturned. Both paths use the column-level (`field.root()`) existence\ncheck, and the guard is wrapped in `ConstScore { score: 0.0 }` so it\ndoes not shift relevance scores.\n\n## Regenerated test fixtures\n`cargo pgrx regress` expected output was regenerated for the files whose\nEXPLAIN `Tantivy Query` changed (negated fast-field predicates now show\nan `exists` guard; the `WithIndex` wrapper is hoisted to the top of the\nnegated subquery). No behavioral change in those plans; only the\nserialized query shape.",
+          "timestamp": "2026-06-16T10:13:39-07:00",
+          "tree_id": "62bc92637216549b28d5ecafd1889956988daf8d",
+          "url": "https://github.com/paradedb/paradedb/commit/bae73bb82b0a06fade31b4e196386d9d47b58e2e"
+        },
+        "date": 1781631170087,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.440901651250659, max cpu: 24.254673, count: 57331"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.081852599924126, max mem: 40.3984375, count: 57331"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.324915,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.474125295832203, max cpu: 24.20575, count: 57331"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.07083318797858, max mem: 40.41015625, count: 57331"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606486350583881, max cpu: 7.6281285, count: 57331"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.808341922890758, max mem: 20.81640625, count: 57331"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6334056897196, max cpu: 4.807211, count: 57331"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 38.26192853778933, max mem: 38.60546875, count: 57331"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.696635830787827, max cpu: 9.4627905, count: 114662"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 28.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.604643668728524, max mem: 38.828125, count: 114662"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1765,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1756.901868099283, max block_count: 3101.0, count: 57331"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.79414278488078, max segment_count: 30.0, count: 57331"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.429675268892047, max cpu: 18.906942, count: 57331"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 39.03710750128639, max mem: 39.3828125, count: 57331"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.569314249752366, max cpu: 4.863222, count: 57331"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 28.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.952007244662575, max mem: 29.01171875, count: 57331"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 57331"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 34.452793454893516, max mem: 35.12890625, count: 57331"
           }
         ]
       }

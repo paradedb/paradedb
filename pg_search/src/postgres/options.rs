@@ -397,7 +397,7 @@ impl BM25IndexOptions {
     }
 
     /// Returns the sort_by configuration.
-    /// - Not specified: defaults to none (no segment sorting)
+    /// - Not specified: defaults to `ctid ASC NULLS FIRST`
     /// - "none": returns empty vec (no sorting)
     /// - Otherwise: returns parsed sort fields
     pub fn sort_by(&self) -> Vec<SortByField> {
@@ -729,7 +729,7 @@ impl BM25IndexOptionsData {
     }
 
     /// Returns the sort_by configuration.
-    /// - Empty string (not specified): defaults to none (no segment sorting)
+    /// - Empty string (not specified): defaults to `ctid ASC NULLS FIRST`
     /// - "none": returns empty vec (no sorting)
     /// - Otherwise: returns parsed sort fields
     ///
@@ -738,8 +738,12 @@ impl BM25IndexOptionsData {
     pub fn sort_by(&self) -> Vec<SortByField> {
         let sort_by_str = self.get_str(self.sort_by_offset, "".to_string());
         if sort_by_str.is_empty() {
-            // Default: no segment sorting
-            return vec![];
+            // Default: sort segments by ctid ascending so they're laid out in
+            // heap (tid) order unless the user explicitly opts out with 'none'.
+            return vec![SortByField::new(
+                FieldName::from("ctid".to_string()),
+                SortByDirection::Asc,
+            )];
         }
         parse_sort_by_string(&sort_by_str)
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781651380953,
+  "lastUpdate": 1781652043184,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19858,6 +19858,42 @@ window.BENCHMARK_DATA = {
             "value": 7.342910449651473,
             "unit": "median tps",
             "extra": "avg tps: 6.86375590484028, max tps: 7.913884479319471, count: 58926"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95",
+          "message": "perf: apply ctid sorting by default (#5354)\n\nRefs: 5265\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nApplied `ctid` sorting by default to give best performance when\nperforming visibility checks.\n\n## Why\n\nFor aggregate / scan queries of shuffled / non ctid sorted indexes the\nvisibility checking algorithm ends up accessing / releasing the same\nheap buffer multiple times.\n\nBy applying `ctid` sorting by default it minimizes the number of buffer\naccess for a given block number across batches. Only at the boundary of\nthe batch size could we access a buffer at the end of a batch and then\nbeginning of the next after this change.\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-16T15:50:36-07:00",
+          "tree_id": "e5474984f21280323d39ee46cbc5febcec53033f",
+          "url": "https://github.com/paradedb/paradedb/commit/07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95"
+        },
+        "date": 1781652013691,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.283778128440735,
+            "unit": "median tps",
+            "extra": "avg tps: 7.9995289331889845, max tps: 12.124002187554288, count: 58917"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.524613220619629,
+            "unit": "median tps",
+            "extra": "avg tps: 7.012855118489632, max tps: 8.060802576595046, count: 58917"
           }
         ]
       }

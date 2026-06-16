@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781633931118,
+  "lastUpdate": 1781633962202,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -63598,6 +63598,186 @@ window.BENCHMARK_DATA = {
             "value": 18.40234375,
             "unit": "median mem",
             "extra": "avg mem: 18.377027896686972, max mem: 18.40234375, count: 56474"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "toaadijoshi@gmail.com",
+            "name": "Aadi",
+            "username": "aadi-joshi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bae73bb82b0a06fade31b4e196386d9d47b58e2e",
+          "message": "fix: preserve null semantics for @@@ (#5297)\n\n# Ticket(s) Closed\n- closes #5264\n- closes #3111\n\n## What\n\nThis fixes `@@@` so nullable predicates follow PostgreSQL null semantics\nmatch.\n\nThe fix covers both:\n- the custom scan negation path\n- the direct operator path used outside the custom scan\n\n## Why\n\nBefore this change, `@@@` could collapse `NULL` into `FALSE`.\n\nThat caused wrong results for queries like:\n\n```sql\nWHERE NOT (color @@@ 'blue')\n```\n\nIt also showed up in the non-custom-scan path that `qgen` exercises.\n\n## How\n\n- keep an existence guard when negating fielded predicates in the custom\nscan rewrite\n- make `search_with_query_input` distinguish between:\n  - matched rows\n  - existing non-matching rows\n  - rows where the indexed field is missing\n\nThat lets the operator return `NULL` when the indexed field is missing\ninstead of always returning `FALSE`.\n\n## Tests\n\nAdded regressions for:\n- direct `NOT (field @@@ ...)` null semantics\n- negated boolean composition on nullable indexed fields\n- bitmap/index path null semantics\n- negated `paradedb.exists()` returning the missing-field rows\n- empty-array columns staying NOT NULL under negation\n\nAlso re-enabled nullable indexed columns in the `qgen` single-relation\nsurface.\n\n## Fast-field caveat\nThe existence guard relies on tantivy's `Exists` query, which only works\non **fast fields**. When a negated predicate references a non-fast\nfield, we fall back to the previous generic negation (`must: [All],\nmust_not: [q]`) instead of erroring. So exact NULL semantics apply to\nfast fields; non-fast fields keep their prior behavior. The custom-scan\npath mirrors the graceful degradation the direct operator path\n(`search_with_query_input`) already does.\n\nThe guard also skips array and JSON columns: an empty `'{}'::text[]` or\n`'{}'::jsonb` is NOT NULL in SQL but has no indexed values, so equating\n\"no indexed value\" with NULL there would drop rows that should be\nreturned. Both paths use the column-level (`field.root()`) existence\ncheck, and the guard is wrapped in `ConstScore { score: 0.0 }` so it\ndoes not shift relevance scores.\n\n## Regenerated test fixtures\n`cargo pgrx regress` expected output was regenerated for the files whose\nEXPLAIN `Tantivy Query` changed (negated fast-field predicates now show\nan `exists` guard; the `WithIndex` wrapper is hoisted to the top of the\nnegated subquery). No behavioral change in those plans; only the\nserialized query shape.",
+          "timestamp": "2026-06-16T10:13:39-07:00",
+          "tree_id": "62bc92637216549b28d5ecafd1889956988daf8d",
+          "url": "https://github.com/paradedb/paradedb/commit/bae73bb82b0a06fade31b4e196386d9d47b58e2e"
+        },
+        "date": 1781633933321,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.719870083314467, max cpu: 14.378431, count: 56500"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 38.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.56672110066372, max mem: 38.63671875, count: 56500"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7611937669232227, max cpu: 4.733728, count: 56500"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 18.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 18.062448907632742, max mem: 18.09765625, count: 56500"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.356726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.756156095053693, max cpu: 19.113987, count: 56500"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 35.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 35.15480503318584, max mem: 35.17578125, count: 56500"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.281762317125154, max cpu: 14.131501, count: 56500"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 38.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.475729604535395, max mem: 38.55078125, count: 56500"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.707072649031361, max cpu: 9.407154, count: 56500"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.16958400165929, max mem: 21.1796875, count: 56500"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1116,
+            "unit": "median pages",
+            "extra": "avg pages: 1110.7790973451326, max pages: 1835.0, count: 56500"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.71875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.677961698008849, max relation_size:MB: 14.3359375, count: 56500"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.528495575221239, max segment_count: 14.0, count: 56500"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.02108330371681414, max cpu: 4.68979, count: 56500"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 17.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.791384264380532, max mem: 17.8203125, count: 56500"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6629224489258023, max cpu: 4.6647234, count: 56500"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 17.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.741541551438054, max mem: 17.7890625, count: 56500"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5563095408291145, max cpu: 14.364091, count: 56500"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 35.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.89957798672567, max mem: 35.96484375, count: 56500"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003388950044074945, max replication_lag:MB: 0.3190155029296875, count: 56500"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4157863640467205, max cpu: 14.356929, count: 113000"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 35.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.76295734236726, max mem: 36.20703125, count: 113000"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.577024932666722, max cpu: 4.7313952, count: 56500"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 18.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 18.18478788716814, max mem: 18.22265625, count: 56500"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7869195324336453, max cpu: 4.7220855, count: 56500"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 18.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 18.292149474557522, max mem: 18.34375, count: 56500"
           }
         ]
       }

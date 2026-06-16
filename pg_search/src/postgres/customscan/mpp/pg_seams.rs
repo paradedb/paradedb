@@ -24,6 +24,9 @@
 use datafusion::common::{DataFusionError, Result};
 use datafusion_distributed::shm::{Interrupt, Wakeup};
 
+/// A receiver backend as `(pgprocno, pid)`. The `pid` rules out a recycled `PGPROC` slot.
+type ReceiverProc = (i32, i32);
+
 /// Pack `pgprocno` (low 32 bits) + `pid` (high 32 bits) into the one `u64` token the ring stores.
 /// A producer's single `Acquire` load then can't observe a torn `(new_pgprocno, old_pid)` pair and
 /// wake the wrong backend.
@@ -33,7 +36,7 @@ pub fn pack_receiver(pgprocno: i32, pid: i32) -> u64 {
 }
 
 #[inline]
-fn unpack_receiver(packed: u64) -> (i32, i32) {
+fn unpack_receiver(packed: u64) -> ReceiverProc {
     (packed as u32 as i32, (packed >> 32) as u32 as i32)
 }
 

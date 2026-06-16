@@ -172,13 +172,6 @@ pub(crate) fn build_mpp_session_context(
     SessionContext::new_with_state(state_builder.build())
 }
 
-/// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
-/// pgrx::error!s on fatal failures, returns normally on EOF (the customscan's
-/// `exec_custom_scan` then returns `null_mut()` to signal end-of-stream to PG).
-///
-/// `seed_ctx` is a bare serial `SessionContext` used only for plan deserialization
-/// (`ctx.task_ctx()`). The distributed planner config is built separately via
-/// [`build_mpp_session_context`] over the same seed.
 /// Take one fragment's `SetPlan` frame off the mesh, draining this proc's inbox while waiting:
 /// nothing else drains during the plan-wait phase, and the frame can't route itself.
 async fn take_set_plan_draining(
@@ -197,6 +190,13 @@ async fn take_set_plan_draining(
     }
 }
 
+/// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
+/// pgrx::error!s on fatal failures, returns normally on EOF (the customscan's
+/// `exec_custom_scan` then returns `null_mut()` to signal end-of-stream to PG).
+///
+/// `seed_ctx` is a bare serial `SessionContext` used only for plan deserialization
+/// (`ctx.task_ctx()`). The distributed planner config is built separately via
+/// [`build_mpp_session_context`] over the same seed.
 pub(crate) fn run_mpp_worker(
     inputs: MppWorkerInputs,
     seed_ctx: SessionContext,

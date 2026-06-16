@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781629585398,
+  "lastUpdate": 1781630236517,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49398,6 +49398,52 @@ window.BENCHMARK_DATA = {
             "value": 434.11005419863676,
             "unit": "median tps",
             "extra": "avg tps: 425.0421527696314, max tps: 871.4980792888953, count: 113014"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e",
+          "message": "ci: enable logical replication merge stressgres repro",
+          "timestamp": "2026-06-16T16:08:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e"
+        },
+        "date": 1781630201504,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 226.32860009557288,
+            "unit": "median tps",
+            "extra": "avg tps: 226.69887877897793, max tps: 245.45867642264045, count: 56474"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 805.6873564484393,
+            "unit": "median tps",
+            "extra": "avg tps: 810.2672437148399, max tps: 1077.3191827857681, count: 56474"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 239.39420400307566,
+            "unit": "median tps",
+            "extra": "avg tps: 239.91344553031533, max tps: 261.3103591846381, count: 56474"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 438.6791736451218,
+            "unit": "median tps",
+            "extra": "avg tps: 427.67282331129303, max tps: 803.8700004132837, count: 112948"
           }
         ]
       }

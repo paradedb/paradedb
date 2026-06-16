@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781645351772,
+  "lastUpdate": 1781645385623,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48924,6 +48924,114 @@ window.BENCHMARK_DATA = {
             "value": 173.984375,
             "unit": "median mem",
             "extra": "avg mem: 171.40226275210594, max mem: 174.8203125, count: 55557"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "660a874856091997f2f271887bf7cba371544032",
+          "message": "fix: Don't use shared threshold on top-k query over-reads (#5346)\n\n## What\nFixes an issue surfaced by\n[antithesis](https://paradedb.antithesis.com/report/qM4XfIcVDJoPGAFSZREiDm9U/LgjIW-gYHYB7ySu0KCJW4yvuptlwQ0xzzqLu6jnwa8Q.html?auth=v2.public.eyJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoiTGdqSVctZ1lIWUI3eVN1MEtDSlc0eXZ1cHRsd1EweHp6cUx1Nmpud2E4US5odG1sIiwicmVwb3J0X2lkIjoicU00WGZJY1ZESm9QR0FGU1pSRWlEbTlVIn19LCJuYmYiOiIyMDI2LTA2LTE1VDEyOjQ5OjAxLjk3Nzg0MzIwNloifTNl3Fuh9tFkyoFE9WoW_5_Vb01awmv9XdIbEEypN6sC7c-hUqnFhYs9F2UhY0czHmOhQjW-nnRu6koE3ZWiCAk#/run/13adf2ad41f558e789ff486f7f44f9d6-55-14/finding/342f29e442a6534057f60e56fb353695fc319247).\n\n## Why\nDuring parallelized top_k queries that encounter deleted tuples, we need\nto issue additional queries to fill the remaining slots. The use of a\nshared threshold was causing all tuples encountered by these additional\nqueries to be skipped as they would always be below the threshold.\n\n## How\nOn retries (any case where we are on a query number >1), don't use the\nshared threshold.\n\n## Tests\n- Added a test that repros the fast-field case of this.\n- All existing tests pass",
+          "timestamp": "2026-06-16T14:35:47-06:00",
+          "tree_id": "5afde2a7de640db244aa35a8a7801a026f0336f1",
+          "url": "https://github.com/paradedb/paradedb/commit/660a874856091997f2f271887bf7cba371544032"
+        },
+        "date": 1781645353885,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 14.250371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.975180684165272, max cpu: 38.30424, count: 57777"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 42.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.30494157493466, max mem: 42.40234375, count: 57777"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.683900496649495, max cpu: 42.687748, count: 57777"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.98830957820586, max mem: 20.99609375, count: 57777"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.736063,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.862275379435028, max cpu: 14.450577, count: 57777"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 44.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.02031896342835, max mem: 44.140625, count: 57777"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18919,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19302.503781781677, max block_count: 36272.0, count: 57777"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.763929217095654, max cpu: 4.738401, count: 57777"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.146652282158126, max mem: 21.18359375, count: 57777"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.570261522751267, max segment_count: 36.0, count: 57777"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.356726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.602744586747184, max cpu: 38.03863, count: 115554"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 45.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.31023949030323, max mem: 45.76171875, count: 115554"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.619239,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.045255008122954, max cpu: 19.133034, count: 57777"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 36.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.22152210762933, max mem: 36.3984375, count: 57777"
           }
         ]
       }

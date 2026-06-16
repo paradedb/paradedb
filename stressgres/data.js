@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781643997783,
+  "lastUpdate": 1781644482175,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19378,6 +19378,42 @@ window.BENCHMARK_DATA = {
             "value": 7.399365629566059,
             "unit": "median tps",
             "extra": "avg tps: 6.92788974444864, max tps: 7.951259039741016, count: 58923"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5688a25119c119d92918fae9bc20ffc432c5d354",
+          "message": "feat: showed MPP worker metrics in EXPLAIN ANALYZE. (#5316)\n\n## What\n\nThis PR surfaces worker fragment metrics in `EXPLAIN ANALYZE` for MPP\nqueries. Workers report a `TaskMetrics` frame per fragment over the\nshared-memory mesh as they exit, and the leader folds them into the plan\nit displays.\n\n## Why\n\nUntil now only the leader's own nodes carried metrics: the worker\nfragments executed in parallel workers and their numbers died with the\nprocess. With the mesh able to carry control frames, the metrics can\ncome home, which is the first production use of that channel (dynamic\nfilters ride the same one later).\n\n## How\n\n- Workers keep each fragment's prepared plan through execution and,\nafter the fragments join, send `collect_task_metrics(plan, task,\ntask_count)` to the leader via the bounded best-effort sender. Frames go\nout even after a fragment error; partial metrics still show where the\ntime went.\n- The leader caches its executed plan in the scan state (the planner\nalready enables metrics collection on the `DistributedExec`).\n- `mpp::glue::merge_worker_metrics` does the shared work at explain\ntime: sweep the leader inbox (nothing drains it after the gather\nfinishes), file the frames into the plan's metrics store keyed by the\nquery id from the plan's own stages, and run the fork's metrics rewrite\nunder a 250 ms bound so a worker that never reported cannot hang\n`EXPLAIN`.\n- Both customscans use it: joinscan's existing `EXPLAIN ANALYZE`\nrendering now shows worker rows, and aggregatescan gains the display.\n\n## Tests\n\nA regress check shows that worker row counts appear in `EXPLAIN ANALYZE`\noutput (presence, not values: the numbers vary run to run).",
+          "timestamp": "2026-06-16T13:44:38-07:00",
+          "tree_id": "302782ec05b1d0096c8e2fe81da4590245332540",
+          "url": "https://github.com/paradedb/paradedb/commit/5688a25119c119d92918fae9bc20ffc432c5d354"
+        },
+        "date": 1781644453019,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.384465039312786,
+            "unit": "median tps",
+            "extra": "avg tps: 8.076917292104831, max tps: 12.255913988304318, count: 58910"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.147758519414413,
+            "unit": "median tps",
+            "extra": "avg tps: 6.683952245239442, max tps: 7.701291895843432, count: 58910"
           }
         ]
       }

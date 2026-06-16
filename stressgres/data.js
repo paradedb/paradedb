@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781651347568,
+  "lastUpdate": 1781651380953,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16782,6 +16782,138 @@ window.BENCHMARK_DATA = {
             "value": 34.12109375,
             "unit": "median mem",
             "extra": "avg mem: 31.87135260445731, max mem: 34.5390625, count: 57344"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wwoodal@paradedb.com",
+            "name": "Walter Woodall",
+            "username": "walter-woodall"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95",
+          "message": "perf: apply ctid sorting by default (#5354)\n\nRefs: 5265\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nApplied `ctid` sorting by default to give best performance when\nperforming visibility checks.\n\n## Why\n\nFor aggregate / scan queries of shuffled / non ctid sorted indexes the\nvisibility checking algorithm ends up accessing / releasing the same\nheap buffer multiple times.\n\nBy applying `ctid` sorting by default it minimizes the number of buffer\naccess for a given block number across batches. Only at the boundary of\nthe batch size could we access a buffer at the end of a batch and then\nbeginning of the next after this change.\n\n## How\n\n## Tests",
+          "timestamp": "2026-06-16T15:50:36-07:00",
+          "tree_id": "e5474984f21280323d39ee46cbc5febcec53033f",
+          "url": "https://github.com/paradedb/paradedb/commit/07b1f2f7d18a303c4fce95b5aa9f57301f9c8a95"
+        },
+        "date": 1781651349578,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.352168,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.539452493467533, max cpu: 24.266937, count: 57338"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.22485245114496, max mem: 40.57421875, count: 57338"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.315866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.426717798448648, max cpu: 24.230188, count: 57338"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.461948228051206, max mem: 40.73828125, count: 57338"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.628794421888944, max cpu: 9.430255, count: 57338"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 20.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.67326880461038, max mem: 20.6796875, count: 57338"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623549080941059, max cpu: 9.509658, count: 57338"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.11423979298197, max mem: 38.55859375, count: 57338"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.658155104957121, max cpu: 9.509658, count: 114676"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 35.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.182110495003315, max mem: 36.18359375, count: 114676"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1770,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1783.6093341239666, max block_count: 3161.0, count: 57338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.47267082911856, max segment_count: 28.0, count: 57338"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.451386096702456, max cpu: 15.490118, count: 57338"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.31887127919094, max mem: 39.60546875, count: 57338"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.680324050200588, max cpu: 4.8780484, count: 57338"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 28.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.51627179510098, max mem: 28.5703125, count: 57338"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.615262837699859, max cpu: 4.703577, count: 57338"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 34.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.71539094383306, max mem: 35.0, count: 57338"
           }
         ]
       }

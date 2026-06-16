@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781635223316,
+  "lastUpdate": 1781635259817,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15966,6 +15966,138 @@ window.BENCHMARK_DATA = {
             "value": 57.33984375,
             "unit": "median mem",
             "extra": "avg mem: 55.60979208646531, max mem: 68.9921875, count: 55210"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a9c8e09f0caf22d5ef27d2cd65c549f96716589c",
+          "message": "feat: moved the MPP transport into the datafusion-distributed fork. (#5256)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR deletes `pg_search`'s shared-memory MPP transport and consumes\nit from `datafusion_distributed::embedded` instead.\n\n## Why\n\nRebase safety. The transport core\n(`mpp/{transport,dsm_mpsc_ring,dsm,mesh,runtime,worker}.rs`, about\n`4600` lines) duplicated code that now lives in the fork, where an\nin-process test runs a real distributed query through the same transport\nwith no Postgres and no Flight. An upstream rebase that breaks the\n`WorkerTransport` contract, the boundary routing, or\n`prepare_in_process_plan` now fails in the fork's CI, before `pg_search`\nrebuilds. Stacks on #5244 and depends on\n`paradedb/datafusion-distributed#21`.\n\n## How\n\n- The customscan keeps its integration: `glue.rs` (DSM alloc +\nparallel-worker lifecycle) wraps `embedded::leader_setup` /\n`embedded::worker_setup` and times them under `paradedb.mpp_trace`;\n`exec_worker.rs` runs fragments through `run_worker_fragment` with\n`MppPartitionSink`s; `dispatch.rs` and `worker_fragments.rs` are\nuntouched.\n- The only Postgres-specific transport code left is `mpp/pg_seams.rs`:\n`PgWakeup` (`SetLatch` via `(pgprocno, pid)`) and `PgInterrupt`\n(`check_for_interrupts!`), the two extension points the library leaves\nto the embedder. A `const` assert pins `MAXIMUM_ALIGNOF == 8`, which the\nembedded layout assumes.\n- The dep flips to `default-features = false`: `pg_search` never dials\ngRPC, so `tonic` and `arrow-flight` drop out of the build graph\nentirely.\n\n## Tests\n\nThe MPP regress suites are behavior-preserving on pg15 through pg18\n(same plan shapes, same results). The moved code is exercised by the\nfork's unit and in-process distributed tests at the pinned rev,\nincluding a worker-to-worker shuffle and a producer-loss case.\n\nThis is a draft: the dep rev points at\n`paradedb/datafusion-distributed#21`'s tip, so that PR lands first and\nthe rev gets repinned to the merge commit.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-16T11:19:45-07:00",
+          "tree_id": "02f100c664809952df5fafd6ec9872d77c2dda28",
+          "url": "https://github.com/paradedb/paradedb/commit/a9c8e09f0caf22d5ef27d2cd65c549f96716589c"
+        },
+        "date": 1781635226333,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.356726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.5590306565009815, max cpu: 27.65432, count: 57313"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 40.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.47600607083035, max mem: 40.6953125, count: 57313"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 9.343065,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.544795313425251, max cpu: 35.555557, count: 57313"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 40.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.60284438630852, max mem: 40.78515625, count: 57313"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.719188552503905, max cpu: 9.43489, count: 57313"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 21.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.126700571314537, max mem: 21.1328125, count: 57313"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.614507101337782, max cpu: 4.804805, count: 57313"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 38.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.43125959642664, max mem: 38.765625, count: 57313"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.670445476374359, max cpu: 9.425626, count: 114626"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 36.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.52452009688029, max mem: 38.9140625, count: 114626"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1799,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1806.1682515310663, max block_count: 3203.0, count: 57313"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 17,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 17.6910474063476, max segment_count: 30.0, count: 57313"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.488779881365789, max cpu: 19.753086, count: 57313"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 39.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.64186817345105, max mem: 39.8203125, count: 57313"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.661873283245, max cpu: 4.870624, count: 57313"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 38.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 37.00434415512188, max mem: 40.26171875, count: 57313"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.7347520027914207, max cpu: 4.729064, count: 57313"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 35.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.869512997705584, max mem: 35.59765625, count: 57313"
           }
         ]
       }

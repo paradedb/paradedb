@@ -1076,7 +1076,7 @@ WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}]}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}}}
 (6 rows)
@@ -1099,7 +1099,7 @@ WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}]}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}}}
 (6 rows)

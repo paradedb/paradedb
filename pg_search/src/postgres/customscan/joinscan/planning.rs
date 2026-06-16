@@ -550,7 +550,7 @@ unsafe fn collect_join_sources_join_rel(
     if raw_path.is_null() {
         return None;
     }
-    // Peel parallel/projection wrappers (Gather, GatherMerge, Material,
+    // Peel parallel/projection wrappers (Gather, GatherMerge, Sort, Material,
     // Projection) so we can recognize a JoinPath that PG wrapped for
     // parallel-mode bridging. This is the fix for issue #4910 -- without
     // peeling, the recursive 3-way reconstruction bails and the top-level
@@ -752,20 +752,21 @@ unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
 ///
 /// Parallel-mode `cheapest_total_path` for an intermediate join rel is often
 /// wrapped in a `GatherPath` / `GatherMergePath` (parallel-to-serial bridging),
-/// a `MaterialPath` (cached for inner-side replay), or a `ProjectionPath`
-/// (target-list adjustment). The actual `JoinPath` lives below; the loop peels
-/// each wrapper in turn so chains like `GatherPath -> MaterialPath -> JoinPath`
-/// are also handled. Without peeling, [`is_join_path`] returns false on the
-/// wrapper and 3-way absorption fails -- issue #4910.
+/// a `SortPath` (required by GatherMerge), a `MaterialPath` (cached for
+/// inner-side replay), or a `ProjectionPath` (target-list adjustment). The
+/// actual `JoinPath` lives below; the loop peels each wrapper in turn so
+/// chains like `GatherMergePath -> SortPath -> HashPath` are also handled.
+/// Without peeling, [`is_join_path`] returns false on the wrapper and 3-way
+/// absorption fails -- issue #4910.
 ///
 /// # Adding a new wrapper
 ///
 /// Only add path types that exist for execution mechanics (parallelism,
-/// caching, column projection) and wrap a `subpath` representing the same
-/// join. Whether the resulting plan is actually safe to push into JoinScan
-/// is decided downstream (`is_limit_pushdown_safe`, activation checks,
-/// fast-field validation) -- this helper's only job is to surface the
-/// underlying `JoinPath` so those gates can run.
+/// sorting, caching, column projection) and wrap a `subpath` representing
+/// the same join. Whether the resulting plan is actually safe to push into
+/// JoinScan is decided downstream (`is_limit_pushdown_safe`, activation
+/// checks, fast-field validation) -- this helper's only job is to surface
+/// the underlying `JoinPath` so those gates can run.
 unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path {
     loop {
         if path.is_null() {
@@ -776,6 +777,9 @@ unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path
             pg_sys::NodeTag::T_GatherPath => (*(path as *mut pg_sys::GatherPath)).subpath,
             // Sorted parallel-to-serial bridge: same rows, preserves order.
             pg_sys::NodeTag::T_GatherMergePath => (*(path as *mut pg_sys::GatherMergePath)).subpath,
+            // Required below GatherMerge when PG sorts each worker's partial
+            // path before merging: same rows, only adds ordering.
+            pg_sys::NodeTag::T_SortPath => (*(path as *mut pg_sys::SortPath)).subpath,
             // Cached materialisation for inner-side replay: same rows, same schema.
             pg_sys::NodeTag::T_MaterialPath => (*(path as *mut pg_sys::MaterialPath)).subpath,
             // Adjusts the target list above the underlying path; the join

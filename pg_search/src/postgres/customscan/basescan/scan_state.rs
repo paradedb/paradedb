@@ -495,12 +495,12 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input = self.base_search_query_input.clone();
     }
 
-    fn has_heap_filters(&mut self) -> bool {
-        self.base_search_query_input.has_heap_filters()
-    }
-
     fn has_postgres_expressions(&mut self) -> bool {
         self.search_query_input.has_postgres_expressions()
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        self.search_query_input.has_parameters()
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

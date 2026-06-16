@@ -256,6 +256,12 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             .execute(&mut utility_conn)
             .await
             .with_context(|| "Failed to vacuum")?;
+        // VACUUM FULL does not update the visibility map. Run both types so that our heap file
+        // contains no wasted space and we get an updated vm
+        sqlx::query("VACUUM ANALYZE")
+            .execute(&mut utility_conn)
+            .await
+            .with_context(|| "Failed to vacuum")?;
     }
 
     if args.prewarm {

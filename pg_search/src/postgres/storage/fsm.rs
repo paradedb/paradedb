@@ -644,6 +644,14 @@ pub mod v2 {
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
     use pgrx::pg_sys;
     use std::iter::Peekable;
+    use std::time::Duration;
+
+    /// Defensive cap on how long we'll wait for an EXCLUSIVE lock on the FSM
+    /// root. A healthy FSM op completes in microseconds; anything in the
+    /// seconds range means something upstream leaked the lock. Failing the
+    /// query is strictly better than the parallel-build-workers-all-stuck
+    /// deadlock we observed in the wild.
+    const FSM_ROOT_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
     #[derive(Debug, Copy, Clone)]
     #[repr(C)]
@@ -885,7 +893,8 @@ pub mod v2 {
                         let old_head = head_blockno;
 
                         // get mutable tree without holding any other locks
-                        let mut root = bman.get_buffer_mut(self.start_blockno);
+                        let mut root = bman
+                            .get_buffer_mut_with_timeout(self.start_blockno, FSM_ROOT_LOCK_TIMEOUT);
                         let mut page = root.page_mut();
                         let mut tree = self.avl_mut(&mut page);
 
@@ -913,7 +922,8 @@ pub mod v2 {
                     // if this was the last block in the list *and* the entire list is empty,
                     // remove the XID entry from the tree. We must hold no other locks while doing this
                     if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
-                        let mut root = bman.get_buffer_mut(self.start_blockno);
+                        let mut root = bman
+                            .get_buffer_mut_with_timeout(self.start_blockno, FSM_ROOT_LOCK_TIMEOUT);
                         let mut page = root.page_mut();
                         let mut tree = self.avl_mut(&mut page);
 
@@ -1001,7 +1011,7 @@ pub mod v2 {
 
                 match tree.get(&when_recyclable.value) {
                     None => {
-                        let mut root = root.upgrade(bman);
+                        let mut root = root.upgrade_with_timeout(bman, FSM_ROOT_LOCK_TIMEOUT);
                         let mut page = root.page_mut();
                         let mut tree = self.avl_mut(&mut page);
 

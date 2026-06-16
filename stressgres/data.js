@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781635509111,
+  "lastUpdate": 1781635540583,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23418,6 +23418,66 @@ window.BENCHMARK_DATA = {
             "value": 131,
             "unit": "median segment_count",
             "extra": "avg segment_count: 134.1593388878519, max segment_count: 189.0, count: 58931"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b7dfca431a8ed174bf9c4e5e5d4b3f006299757",
+          "message": "fix: error instead of hang if unable to acquire FSM root lock (#5145)\n\n# Ticket(s) Closed\n\n- Closes #\n\nIn production we've seen rare situations where parallel index builds\nhang because workers lock on trying to acquire the FSM root lock. The\nroot cause is still TBD, so in the meantime just throw an error if we're\nstuck.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-06-16T11:14:35-07:00",
+          "tree_id": "b45d63906e7dbf9ac8f9979880c6dd9c651df69f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b7dfca431a8ed174bf9c4e5e5d4b3f006299757"
+        },
+        "date": 1781635511504,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.851252,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.13541314045832, max cpu: 43.39528, count: 58913"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 96.70966211564087, max mem: 98.28515625, count: 58913"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.49486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.747117332991916, max cpu: 33.75188, count: 58913"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 40.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 39.91982530118565, max mem: 41.0, count: 58913"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37375,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34088.09612479419, max block_count: 39448.0, count: 58913"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 130,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.201653285353, max segment_count: 190.0, count: 58913"
           }
         ]
       }

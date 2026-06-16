@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781635782128,
+  "lastUpdate": 1781635959382,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18898,6 +18898,42 @@ window.BENCHMARK_DATA = {
             "value": 5.35005004236593,
             "unit": "median tps",
             "extra": "avg tps: 4.818221090591792, max tps: 6.014506437992527, count: 57533"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a9c8e09f0caf22d5ef27d2cd65c549f96716589c",
+          "message": "feat: moved the MPP transport into the datafusion-distributed fork. (#5256)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR deletes `pg_search`'s shared-memory MPP transport and consumes\nit from `datafusion_distributed::embedded` instead.\n\n## Why\n\nRebase safety. The transport core\n(`mpp/{transport,dsm_mpsc_ring,dsm,mesh,runtime,worker}.rs`, about\n`4600` lines) duplicated code that now lives in the fork, where an\nin-process test runs a real distributed query through the same transport\nwith no Postgres and no Flight. An upstream rebase that breaks the\n`WorkerTransport` contract, the boundary routing, or\n`prepare_in_process_plan` now fails in the fork's CI, before `pg_search`\nrebuilds. Stacks on #5244 and depends on\n`paradedb/datafusion-distributed#21`.\n\n## How\n\n- The customscan keeps its integration: `glue.rs` (DSM alloc +\nparallel-worker lifecycle) wraps `embedded::leader_setup` /\n`embedded::worker_setup` and times them under `paradedb.mpp_trace`;\n`exec_worker.rs` runs fragments through `run_worker_fragment` with\n`MppPartitionSink`s; `dispatch.rs` and `worker_fragments.rs` are\nuntouched.\n- The only Postgres-specific transport code left is `mpp/pg_seams.rs`:\n`PgWakeup` (`SetLatch` via `(pgprocno, pid)`) and `PgInterrupt`\n(`check_for_interrupts!`), the two extension points the library leaves\nto the embedder. A `const` assert pins `MAXIMUM_ALIGNOF == 8`, which the\nembedded layout assumes.\n- The dep flips to `default-features = false`: `pg_search` never dials\ngRPC, so `tonic` and `arrow-flight` drop out of the build graph\nentirely.\n\n## Tests\n\nThe MPP regress suites are behavior-preserving on pg15 through pg18\n(same plan shapes, same results). The moved code is exercised by the\nfork's unit and in-process distributed tests at the pinned rev,\nincluding a worker-to-worker shuffle and a producer-loss case.\n\nThis is a draft: the dep rev points at\n`paradedb/datafusion-distributed#21`'s tip, so that PR lands first and\nthe rev gets repinned to the merge commit.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-16T11:19:45-07:00",
+          "tree_id": "02f100c664809952df5fafd6ec9872d77c2dda28",
+          "url": "https://github.com/paradedb/paradedb/commit/a9c8e09f0caf22d5ef27d2cd65c549f96716589c"
+        },
+        "date": 1781635893478,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 9.377631798078996,
+            "unit": "median tps",
+            "extra": "avg tps: 8.07262657916192, max tps: 12.23679422496803, count: 58919"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.293331541658422,
+            "unit": "median tps",
+            "extra": "avg tps: 6.825829320992493, max tps: 7.829461153754473, count: 58919"
           }
         ]
       }

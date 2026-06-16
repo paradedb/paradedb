@@ -806,10 +806,7 @@ impl SearchIndexReader {
                 macro_rules! sort_fast_value {
                     ($type:ty) => {{
                         let mut computer = SortByStaticFastValue::<$type>::for_field(sort_field);
-                        // Only share the threshold on the first pass. `query()` advances
-                        // `offset` monotonically from 0, so any later (retry) pass reads
-                        // strictly past the first-pass threshold; reusing it there would
-                        // prune the very rows a deeper page must surface.
+                        // Only use the threshold on the first pass.
                         if let Some(state) = parallel_state.filter(|_| !is_retry) {
                             computer = computer.with_shared_threshold(Some(std::sync::Arc::new(
                                 crate::postgres::shared_threshold::new_fast_value_threshold(
@@ -876,9 +873,6 @@ impl SearchIndexReader {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: ComparatorEnum = (*direction).into();
                 let mut computer = SortBySimilarityScore::new();
-                // Only share the threshold on the first pass. `query()` advances
-                // `offset` monotonically from 0, so any later (retry) pass reads
-                // strictly past the first-pass threshold; reusing it there would
                 // prune the very rows a deeper page must surface.
                 if let Some(state) = parallel_state.filter(|_| !is_retry) {
                     computer =
@@ -1121,10 +1115,7 @@ impl SearchIndexReader {
             // can use tantivy's score directly, which allows for Block-WAND
             SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
                 let mut computer = SortBySimilarityScore::new();
-                // Only share the threshold on the first pass. `query()` advances
-                // `offset` monotonically from 0, so any later (retry) pass reads
-                // strictly past the first-pass threshold; reusing it there would
-                // prune the very rows a deeper page must surface.
+                // Only use the threshold on the first pass.
                 if let Some(state) = parallel_state.filter(|_| !is_retry) {
                     computer =
                         SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(

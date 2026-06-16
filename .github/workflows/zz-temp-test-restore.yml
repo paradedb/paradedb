@@ -1,0 +1,60 @@
+# TEMP workflow (delete before merge): validates the restore -> benchmark loop on this branch
+# using the real production actions, for the one size we have a snapshot for (100k).
+name: TEMP Test Restore
+
+on:
+  push:
+    branches: ["benchmark-pgbackrest-snapshots"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  test-restore:
+    name: Test restore + benchmark stackoverflow (100k)
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m8gd.metal-24xl
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
+    env:
+      pg_version: 18
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Set up Postgres + pg_search
+        uses: ./.github/actions/setup-pg_search
+        with:
+          pg_version: ${{ env.pg_version }}
+
+      - name: Restore "stackoverflow" Heap Snapshot (100K)
+        uses: ./.github/actions/benchmark-restore-backrest
+        with:
+          dataset: stackoverflow
+          size: 100k
+          pg_version: ${{ env.pg_version }}
+
+      - name: Benchmark "stackoverflow" Dataset (100K)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: stackoverflow
+          size: 100k
+          ref: ${{ github.sha }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ github.ref_name }}
+          fail_on_error: true

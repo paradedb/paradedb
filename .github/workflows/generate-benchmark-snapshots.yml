@@ -24,11 +24,6 @@ on:
         description: "Git ref to build pg_search from. Uses `main` if not specified."
         required: false
         default: main
-  # TEMP (remove before merge): workflow_dispatch only works once this file is on the default
-  # branch, so this lets us push-test the workflow from the branch. push events run from the
-  # branch's own ref, no default-branch requirement.
-  push:
-    branches: ["benchmark-pgbackrest-snapshots"]
 
 permissions:
   contents: read

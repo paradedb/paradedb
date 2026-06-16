@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781639058148,
+  "lastUpdate": 1781643270813,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5678,6 +5678,78 @@ window.BENCHMARK_DATA = {
             "value": 114.7773168292394,
             "unit": "median tps",
             "extra": "avg tps: 138.03310222672724, max tps: 1265.0349402650502, count: 57313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "660a874856091997f2f271887bf7cba371544032",
+          "message": "fix: Don't use shared threshold on top-k query over-reads (#5346)\n\n## What\nFixes an issue surfaced by\n[antithesis](https://paradedb.antithesis.com/report/qM4XfIcVDJoPGAFSZREiDm9U/LgjIW-gYHYB7ySu0KCJW4yvuptlwQ0xzzqLu6jnwa8Q.html?auth=v2.public.eyJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoiTGdqSVctZ1lIWUI3eVN1MEtDSlc0eXZ1cHRsd1EweHp6cUx1Nmpud2E4US5odG1sIiwicmVwb3J0X2lkIjoicU00WGZJY1ZESm9QR0FGU1pSRWlEbTlVIn19LCJuYmYiOiIyMDI2LTA2LTE1VDEyOjQ5OjAxLjk3Nzg0MzIwNloifTNl3Fuh9tFkyoFE9WoW_5_Vb01awmv9XdIbEEypN6sC7c-hUqnFhYs9F2UhY0czHmOhQjW-nnRu6koE3ZWiCAk#/run/13adf2ad41f558e789ff486f7f44f9d6-55-14/finding/342f29e442a6534057f60e56fb353695fc319247).\n\n## Why\nDuring parallelized top_k queries that encounter deleted tuples, we need\nto issue additional queries to fill the remaining slots. The use of a\nshared threshold was causing all tuples encountered by these additional\nqueries to be skipped as they would always be below the threshold.\n\n## How\nOn retries (any case where we are on a query number >1), don't use the\nshared threshold.\n\n## Tests\n- Added a test that repros the fast-field case of this.\n- All existing tests pass",
+          "timestamp": "2026-06-16T14:35:47-06:00",
+          "tree_id": "5afde2a7de640db244aa35a8a7801a026f0336f1",
+          "url": "https://github.com/paradedb/paradedb/commit/660a874856091997f2f271887bf7cba371544032"
+        },
+        "date": 1781643239774,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 225.81175393368514,
+            "unit": "median tps",
+            "extra": "avg tps: 226.3726226560926, max tps: 244.29245936272355, count: 57325"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 227.2340420995566,
+            "unit": "median tps",
+            "extra": "avg tps: 227.82701281721128, max tps: 240.44572344318289, count: 57325"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5038.74889125538,
+            "unit": "median tps",
+            "extra": "avg tps: 5048.326111383564, max tps: 7475.331119791951, count: 57325"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 642.9030207628443,
+            "unit": "median tps",
+            "extra": "avg tps: 645.5363197239551, max tps: 743.1345284360891, count: 57325"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4119.452481345948,
+            "unit": "median tps",
+            "extra": "avg tps: 4136.672014530751, max tps: 5520.021244438684, count: 114650"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 716.2294066969233,
+            "unit": "median tps",
+            "extra": "avg tps: 719.6043059636779, max tps: 834.2558377964717, count: 57325"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2630.590857064027,
+            "unit": "median tps",
+            "extra": "avg tps: 2657.5522317820414, max tps: 3096.0630977659325, count: 57325"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 101.17011439863604,
+            "unit": "median tps",
+            "extra": "avg tps: 115.35396846304985, max tps: 460.02885914376367, count: 57325"
           }
         ]
       }

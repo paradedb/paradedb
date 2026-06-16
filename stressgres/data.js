@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781645385623,
+  "lastUpdate": 1781645457261,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5822,6 +5822,78 @@ window.BENCHMARK_DATA = {
             "value": 75.9814199200635,
             "unit": "median tps",
             "extra": "avg tps: 112.68193536459943, max tps: 1391.8639981850095, count: 57310"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92a49399a01a2643acf3c34a15cb2a586ab9aa29",
+          "message": "fix: Flip sign so parallel state is only passed on first query (#5352)\n\n## What\nFix the sign comparison direction. This worked before because not using\nthe shared threshold on the first query _also_ has the effect of the\nreturning the correct rows since only 2 queries are necessary in the\ntest checking this. However, this PR corrects for the actual behavior we\nwant.",
+          "timestamp": "2026-06-16T15:12:19-06:00",
+          "tree_id": "602f4187e077c7e3811cc6200c56f8ca1496b2af",
+          "url": "https://github.com/paradedb/paradedb/commit/92a49399a01a2643acf3c34a15cb2a586ab9aa29"
+        },
+        "date": 1781645427372,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 224.95125203834337,
+            "unit": "median tps",
+            "extra": "avg tps: 224.62000755313034, max tps: 243.3688406205128, count: 57344"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 225.87902857099684,
+            "unit": "median tps",
+            "extra": "avg tps: 225.43093608637346, max tps: 244.50782127124054, count: 57344"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5065.444728939124,
+            "unit": "median tps",
+            "extra": "avg tps: 5070.759326928558, max tps: 7442.495617630504, count: 57344"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 658.5602779348518,
+            "unit": "median tps",
+            "extra": "avg tps: 655.6369995558258, max tps: 743.6598812040523, count: 57344"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4071.186083412864,
+            "unit": "median tps",
+            "extra": "avg tps: 4105.2135629654285, max tps: 5587.801828608149, count: 114688"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 730.611982878096,
+            "unit": "median tps",
+            "extra": "avg tps: 727.2568960263985, max tps: 843.5204807421586, count: 57344"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2798.959894358617,
+            "unit": "median tps",
+            "extra": "avg tps: 2787.033036412601, max tps: 3148.86211931241, count: 57344"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 72.71071947097862,
+            "unit": "median tps",
+            "extra": "avg tps: 91.16576240424301, max tps: 391.7476346067957, count: 57344"
           }
         ]
       }

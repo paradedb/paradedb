@@ -480,6 +480,7 @@ pub unsafe fn load_metas(
             index_settings: deserialized_settings,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
+            persisted_custom_extensions: Vec::new(),
         },
         pin_cushion,
         total_segments,

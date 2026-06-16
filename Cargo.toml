@@ -32,7 +32,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "6a777cf17a74574f86abcc1e8ca7e21d62ce67eb", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "4c391c2d0f00222a93a354513f0789887d6fbdad", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -45,4 +45,4 @@ pgrx-tests = "=0.18.1"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "6a777cf17a74574f86abcc1e8ca7e21d62ce67eb" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "4c391c2d0f00222a93a354513f0789887d6fbdad" }

@@ -1,0 +1,77 @@
+# workflows/generate-benchmark-snapshots.yml
+#
+# Generate Benchmark Heap Snapshots
+# Loads a dataset's heap (no index) and captures a pgBackRest backup of $PGDATA to S3, so the
+# benchmark queries workflow can restore it instead of re-loading the data each run.
+#
+# Run manually. The benchmark workflow shares the same `setup-pg_search` action, so the snapshot is
+# generated against an identically configured cluster.
+
+name: Generate Benchmark Heap Snapshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Dataset to snapshot"
+        required: false
+        default: stackoverflow
+      sizes:
+        description: 'JSON array of size labels to generate, e.g. ["100k","1m","20m"]'
+        required: false
+        default: '["100k","1m","20m"]'
+      ref:
+        description: "Git ref to build pg_search from. Uses `main` if not specified."
+        required: false
+        default: main
+  # TEMP (remove before merge): workflow_dispatch only works once this file is on the default
+  # branch, so this lets us push-test the workflow from the branch. push events run from the
+  # branch's own ref, no default-branch requirement.
+  push:
+    branches: ["benchmark-pgbackrest-snapshots"]
+
+permissions:
+  contents: read
+
+jobs:
+  generate-snapshot:
+    name: Generate ${{ inputs.dataset || 'stackoverflow' }} snapshot (${{ matrix.size }})
+    runs-on:
+      # See https://runs-on.com/configuration/job-labels/ (runs in us-east-1)
+      - runs-on=${{ github.run_id }}
+      - family=m8gd.metal-24xl # Match the benchmark runner for a representative heap layout
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        # TEMP fallback for push test (inputs.sizes is empty on push): generate only 100k.
+        size: ${{ fromJSON(inputs.sizes || '["100k"]') }}
+    env:
+      pg_version: 18
+
+    steps:
+      - name: Checkout Git Repository at ref=${{ inputs.ref || github.sha }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Set up Postgres + pg_search
+        uses: ./.github/actions/setup-pg_search
+        with:
+          pg_version: ${{ env.pg_version }}
+
+      - name: Generate heap snapshot
+        uses: ./.github/actions/benchmark-generate-backrest
+        with:
+          dataset: ${{ inputs.dataset || 'stackoverflow' }}
+          size: ${{ matrix.size }}
+          pg_version: ${{ env.pg_version }}

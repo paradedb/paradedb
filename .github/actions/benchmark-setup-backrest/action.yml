@@ -1,0 +1,71 @@
+name: Benchmark Setup pgBackRest
+description: Install pgBackRest and write an S3 repository config for a dataset/size snapshot
+
+inputs:
+  dataset:
+    description: "The benchmark dataset (e.g. stackoverflow)"
+    required: true
+  size:
+    description: "Size label, e.g. '100k', '1m', '20m'"
+    required: true
+  pg_version:
+    description: "PostgreSQL major version"
+    required: false
+    default: "18"
+  repo_bucket:
+    description: "S3 bucket for the pgBackRest repository"
+    required: false
+    default: "paradedb-ci-benchmarks"
+  repo_path_prefix:
+    description: "Path prefix within the bucket; dataset/size is appended"
+    required: false
+    default: "/snapshots"
+
+outputs:
+  config:
+    description: "Path to the generated pgBackRest config file"
+    value: ${{ steps.write.outputs.config }}
+  stanza:
+    description: "pgBackRest stanza name"
+    value: bench
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install pgBackRest
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y pgbackrest
+
+    - name: Write pgBackRest config
+      id: write
+      shell: bash
+      run: |
+        set -euo pipefail
+        PGDATA="/home/runner/.pgrx/data-${{ inputs.pg_version }}"
+        CONF="${RUNNER_TEMP}/pgbackrest.conf"
+        mkdir -p "${RUNNER_TEMP}/pgbackrest-log"
+
+        # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are exported into the env by the
+        # configure-aws-credentials step run earlier in the job. start-fast / repo1-retention-full
+        # only affect backup; they are harmless for restore.
+        cat > "${CONF}" <<EOF
+        [global]
+        repo1-type=s3
+        repo1-s3-bucket=${{ inputs.repo_bucket }}
+        repo1-s3-region=us-east-1
+        repo1-s3-endpoint=s3.us-east-1.amazonaws.com
+        repo1-s3-key=${AWS_ACCESS_KEY_ID}
+        repo1-s3-key-secret=${AWS_SECRET_ACCESS_KEY}
+        repo1-path=${{ inputs.repo_path_prefix }}/${{ inputs.dataset }}/${{ inputs.size }}
+        repo1-cipher-type=none
+        repo1-retention-full=1
+        log-path=${RUNNER_TEMP}/pgbackrest-log
+        log-level-console=info
+        start-fast=y
+
+        [bench]
+        pg1-path=${PGDATA}
+        pg1-port=288${{ inputs.pg_version }}
+        EOF
+
+        echo "config=${CONF}" >> "$GITHUB_OUTPUT"

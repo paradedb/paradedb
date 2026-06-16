@@ -25,12 +25,12 @@ Query timing is done via `pg_stat_statements`, so you'll need to configure it. T
 
 ## Usage
 
-The `benchmark` subcommand runs benchmarks. `sample` and `convert` are also available. See [DATASET_PREPARATION.md](DATASET_PREPARATION.md) for their usage.
+The `benchmark` subcommand runs benchmarks. `sample`, `convert`, and `load-heap` are also available. See [DATASET_PREPARATION.md](DATASET_PREPARATION.md) for `sample`/`convert` usage.
 
-The following command loads the 100k row Stack Overflow dataset, builds a BM25 index, runs benchmarking queries, and outputs the results to a Markdown file.
+`benchmark` assumes the dataset's heap is already present (e.g. loaded via `load-heap`, or restored from a snapshot); it builds the index and runs the queries against it. The following command builds a BM25 index over the already-loaded 100k-row Stack Overflow heap, runs benchmarking queries, and outputs the results to a Markdown file.
 
 ```bash
-cargo run -- benchmark --url POSTGRES_URL --size 100k
+cargo run -- benchmark --url POSTGRES_URL
 ```
 
 For more options:
@@ -41,17 +41,15 @@ cargo run -- --help
 
 ## Notable `benchmark` Options
 
-- `--size` is a path label, not an exact row count. It maps to a dataset on s3 of which the root table has approximately that many rows.
-- `--data-source` overwrites the configured data source. For example, we use this in CI to load from the CI account bucket, instead of the default prod account bucket.
 - `--dataset` defaults to "stackoverflow"
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
-- `--skip-setup`: Including this skips data load and index creation. Useful for testing new queries locally.
+- `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
 - `--vacuum`: Controls whether `VACUUM FULL ANALYZE` is ran before running the queries. Defaults to `true`.
 
 ## Datasets
 
-Each benchmark run uses a single dataset located under `datasets/$name`, with data loaded from the specified `data-source` (which defaults to the value in the dataset's `config.toml`), of the size specified by `--size`.
+Each benchmark run uses a single dataset located under `datasets/$name`. The heap must already be present — loaded by `load-heap` (which reads from the dataset's `data-source` at the given `--size`) or restored from a snapshot.
 
 The queries that are benchmarked for a dataset are located at `datasets/$name/queries/*.sql`. Each query file represents a single query: when a single file contains multiple queries, the first query in the file is considered to be the canonical/idiomatic way to write the query, and any additional queries in the file are considered alternative ways to write the query. The canonical query may not always be the fastest (yet!) but we strive to make the canonical query perform as well as a non-idiomatic, slightly contorted query might.
 

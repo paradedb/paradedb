@@ -1,0 +1,69 @@
+name: Benchmark Generate pgBackRest
+description: Load a dataset's heap (no index), then capture a pgBackRest backup of $PGDATA to S3
+
+inputs:
+  dataset:
+    description: "The benchmark dataset to snapshot (e.g. stackoverflow)"
+    required: true
+  size:
+    description: "Size label for the pre-sampled dataset, e.g. '100k', '1m', '20m'"
+    required: true
+  pg_version:
+    description: "PostgreSQL major version"
+    required: false
+    default: "18"
+  data_source:
+    description: "Base S3 path holding the pre-sampled CSVs (dataset name is appended)"
+    required: false
+    default: "s3://paradedb-ci-benchmarks/datasets/"
+  repo_bucket:
+    description: "S3 bucket for the pgBackRest repository"
+    required: false
+    default: "paradedb-ci-benchmarks"
+  repo_path_prefix:
+    description: "Path prefix within the bucket; dataset/size is appended"
+    required: false
+    default: "/snapshots"
+
+runs:
+  using: "composite"
+  steps:
+    # Reuse the benchmark binary's data-load path. The load-heap subcommand loads the heap
+    # but deliberately does NOT build the index or run queries, so the snapshot is heap-only (the
+    # benchmark job rebuilds the index after restore).
+    - name: Load heap (no index)
+      working-directory: benchmarks/
+      shell: bash
+      run: |
+        POSTGRES_URL="postgresql://localhost:288${{ inputs.pg_version }}/postgres"
+        cargo run --release -- load-heap \
+          --url "${POSTGRES_URL}" \
+          --size ${{ inputs.size }} \
+          --dataset ${{ inputs.dataset }} \
+          --data-source ${{ inputs.data_source }}${{ inputs.dataset }}/
+
+    - name: Stop Postgres
+      working-directory: pg_search/
+      shell: bash
+      run: cargo pgrx stop pg${{ inputs.pg_version }}
+
+    - name: Setup pgBackRest
+      id: backrest
+      uses: ./.github/actions/benchmark-setup-backrest
+      with:
+        dataset: ${{ inputs.dataset }}
+        size: ${{ inputs.size }}
+        pg_version: ${{ inputs.pg_version }}
+        repo_bucket: ${{ inputs.repo_bucket }}
+        repo_path_prefix: ${{ inputs.repo_path_prefix }}
+
+    - name: Back up heap snapshot to S3 with pgBackRest
+      shell: bash
+      env:
+        CONF: ${{ steps.backrest.outputs.config }}
+        STANZA: ${{ steps.backrest.outputs.stanza }}
+      run: |
+        set -euo pipefail
+        pgbackrest --config="${CONF}" --stanza="${STANZA}" stanza-create
+        pgbackrest --config="${CONF}" --stanza="${STANZA}" --type=full --no-online backup
+        pgbackrest --config="${CONF}" --stanza="${STANZA}" info

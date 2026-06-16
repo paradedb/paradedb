@@ -45,6 +45,9 @@ enum Commands {
     Convert(convert::ConvertArgs),
     /// Sample a CSV dataset to a target row count, preserving table relationships.
     Sample(sample::SampleArgs),
+    /// Load a dataset's heap without building the index or running queries, so the resulting
+    /// cluster can be captured as a snapshot (e.g. by pgBackRest).
+    LoadHeap(LoadHeapArgs),
 }
 
 #[derive(Parser)]
@@ -65,9 +68,10 @@ struct BenchmarkArgs {
     #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
-    /// Skip data setup and index creation. Assumes tables and indexes already exist.
+    /// Skip index creation (and the after-create-index hook). Assumes the index already exists;
+    /// useful for iterating on queries against an already-indexed database.
     #[arg(long, default_value_t = false)]
-    skip_setup: bool,
+    skip_index: bool,
 
     /// Number of runs to execute for each query.
     #[arg(long, default_value = "3")]
@@ -85,6 +89,17 @@ struct BenchmarkArgs {
     /// Whether to clear the OS page cache and Postgres buffer cache before each query.
     #[arg(long, default_value_t = true, num_args = 1)]
     clear_caches: bool,
+}
+
+#[derive(Parser)]
+struct LoadHeapArgs {
+    /// Postgres URL.
+    #[arg(long)]
+    url: String,
+
+    /// Dataset to load.
+    #[arg(long, default_value = "stackoverflow")]
+    dataset: String,
 
     /// Size label for the pre-sampled dataset (e.g. "10k", "100k", "1m").
     #[arg(long)]
@@ -100,22 +115,21 @@ struct BenchmarkArgs {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Benchmark(args) => run_benchmark(args).await,
+        // The dataset's heap is assumed to already be present, restored from a snapshot before this
+        // run (e.g. by the CI workflow, before Postgres started). The index is (re)built by
+        // run_sql_benchmarks, gated on `--skip-index`.
+        Commands::Benchmark(args) => run_sql_benchmarks(&args).await,
         Commands::Convert(args) => convert::run_convert(args),
         Commands::Sample(args) => sample::run_sample(args),
-    }
-}
-
-async fn run_benchmark(args: BenchmarkArgs) -> anyhow::Result<()> {
-    if !args.skip_setup {
-        load_external_data(
+        // Load the heap without building the index or running queries, leaving a heap-only cluster
+        // ready to be captured as a snapshot. The benchmark job rebuilds the index after restore.
+        Commands::LoadHeap(args) => load_external_data(
             &args.url,
             &args.dataset,
             &args.size,
             args.data_source.as_deref(),
-        )?;
+        ),
     }
-    run_sql_benchmarks(&args).await
 }
 
 async fn run_sql_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<()> {
@@ -336,7 +350,7 @@ async fn generate_markdown_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     write_benchmark_header(&mut file)?;
     write_test_info(&mut file, args).await?;
     write_postgres_settings(&mut file, &args.url).await?;
-    if !args.skip_setup {
+    if !args.skip_index {
         process_index_creation_md(&mut file, args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -347,7 +361,7 @@ async fn generate_markdown_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     write_test_info_csv(args).await?;
     write_postgres_settings_csv(&args.url).await?;
-    if !args.skip_setup {
+    if !args.skip_index {
         process_index_creation_csv(args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -356,7 +370,7 @@ async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 }
 
 async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    if !args.skip_setup {
+    if !args.skip_index {
         process_index_creation_json(args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -364,12 +378,28 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Returns the live row count of the dataset's root table, for reporting.
+async fn root_table_row_count(args: &BenchmarkArgs) -> anyhow::Result<i64> {
+    let config_path = format!("datasets/{}/config.toml", args.dataset);
+    let (config, _) = config::load_dataset_config(&config_path)
+        .with_context(|| format!("Failed to load config '{config_path}'"))?;
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+    let table = &config.root_table.name;
+    let row = sqlx::query(&format!("SELECT count(*) FROM \"{table}\""))
+        .fetch_one(&mut conn)
+        .await
+        .with_context(|| format!("Failed to count rows in '{table}'"))?;
+    Ok(row.get(0))
+}
+
 async fn write_test_info_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let filename = "results_pg_search_test_info.csv";
     let mut file = File::create(filename).with_context(|| "Failed to create test info CSV")?;
 
     writeln!(file, "Key,Value").unwrap();
-    writeln!(file, "Dataset Size,{}", args.size)?;
+    writeln!(file, "Dataset Rows,{}", root_table_row_count(args).await?)?;
     writeln!(file, "Prewarm,{}", args.prewarm)?;
     writeln!(file, "Vacuum,{}", args.vacuum)?;
 
@@ -483,7 +513,11 @@ async fn write_test_info(file: &mut File, args: &BenchmarkArgs) -> anyhow::Resul
     writeln!(file, "\n## Test Info")?;
     writeln!(file, "| Key         | Value       |")?;
     writeln!(file, "|-------------|-------------|")?;
-    writeln!(file, "| Dataset Size | {} |", args.size)?;
+    writeln!(
+        file,
+        "| Dataset Rows | {} |",
+        root_table_row_count(args).await?
+    )?;
     writeln!(file, "| Prewarm     | {} |", args.prewarm)?;
     writeln!(file, "| Vacuum      | {} |", args.vacuum)?;
 

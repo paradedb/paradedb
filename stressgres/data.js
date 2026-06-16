@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781647657274,
+  "lastUpdate": 1781648301534,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -53638,6 +53638,54 @@ window.BENCHMARK_DATA = {
             "value": 419.21860145317356,
             "unit": "median tps",
             "extra": "avg tps: 411.50669855588825, max tps: 788.1820118704314, count: 112936"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92a49399a01a2643acf3c34a15cb2a586ab9aa29",
+          "message": "fix: Flip sign so parallel state is only passed on first query (#5352)\n\n## What\nFix the sign comparison direction. This worked before because not using\nthe shared threshold on the first query _also_ has the effect of the\nreturning the correct rows since only 2 queries are necessary in the\ntest checking this. However, this PR corrects for the actual behavior we\nwant.",
+          "timestamp": "2026-06-16T15:12:19-06:00",
+          "tree_id": "602f4187e077c7e3811cc6200c56f8ca1496b2af",
+          "url": "https://github.com/paradedb/paradedb/commit/92a49399a01a2643acf3c34a15cb2a586ab9aa29"
+        },
+        "date": 1781648272619,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 228.2441744806132,
+            "unit": "median tps",
+            "extra": "avg tps: 228.86322884820427, max tps: 254.38051190898267, count: 56533"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 764.7686470249021,
+            "unit": "median tps",
+            "extra": "avg tps: 772.6382592192842, max tps: 1022.3497639050951, count: 56533"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 241.55022941160394,
+            "unit": "median tps",
+            "extra": "avg tps: 242.3107478032897, max tps: 279.51626802848483, count: 56533"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 430.39934661897144,
+            "unit": "median tps",
+            "extra": "avg tps: 418.74319786917914, max tps: 819.3707740196763, count: 113066"
           }
         ]
       }

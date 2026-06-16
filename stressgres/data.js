@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781567007627,
+  "lastUpdate": 1781627476383,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5322,6 +5322,76 @@ window.BENCHMARK_DATA = {
             "value": 68.22393303036853,
             "unit": "median tps",
             "extra": "avg tps: 91.15518169839912, max tps: 314.1783012127911, count: 57338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e",
+          "message": "ci: enable logical replication merge stressgres repro",
+          "timestamp": "2026-06-16T16:08:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e"
+        },
+        "date": 1781627444607,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 223.67121824703008,
+            "unit": "median tps",
+            "extra": "avg tps: 223.52510066080177, max tps: 243.44865775131169, count: 57298"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 225.09740756634113,
+            "unit": "median tps",
+            "extra": "avg tps: 224.9740874068352, max tps: 243.58039996347668, count: 57298"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5020.083742491053,
+            "unit": "median tps",
+            "extra": "avg tps: 5008.251550512492, max tps: 7138.577134412599, count: 57298"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 633.2579724124527,
+            "unit": "median tps",
+            "extra": "avg tps: 629.7798566720359, max tps: 743.0120874135146, count: 57298"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3947.3922726431074,
+            "unit": "median tps",
+            "extra": "avg tps: 4002.3427310392026, max tps: 5753.41398734603, count: 114596"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 702.1282012185864,
+            "unit": "median tps",
+            "extra": "avg tps: 699.4327213482957, max tps: 812.005231283234, count: 57298"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2620.333572790714,
+            "unit": "median tps",
+            "extra": "avg tps: 2638.3529363426037, max tps: 3116.245945764025, count: 57298"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 44.649071149194164,
+            "unit": "median tps",
+            "extra": "avg tps: 47.84954154526715, max tps: 1319.029774459099, count: 57298"
           }
         ]
       }

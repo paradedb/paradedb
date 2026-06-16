@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781646239447,
+  "lastUpdate": 1781646270855,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24506,6 +24506,66 @@ window.BENCHMARK_DATA = {
             "value": 131,
             "unit": "median segment_count",
             "extra": "avg segment_count: 134.25109489051096, max segment_count: 188.0, count: 58910"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92a49399a01a2643acf3c34a15cb2a586ab9aa29",
+          "message": "fix: Flip sign so parallel state is only passed on first query (#5352)\n\n## What\nFix the sign comparison direction. This worked before because not using\nthe shared threshold on the first query _also_ has the effect of the\nreturning the correct rows since only 2 queries are necessary in the\ntest checking this. However, this PR corrects for the actual behavior we\nwant.",
+          "timestamp": "2026-06-16T15:12:19-06:00",
+          "tree_id": "602f4187e077c7e3811cc6200c56f8ca1496b2af",
+          "url": "https://github.com/paradedb/paradedb/commit/92a49399a01a2643acf3c34a15cb2a586ab9aa29"
+        },
+        "date": 1781646241616,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.86051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.174797908826907, max cpu: 43.351734, count: 58926"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 96.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 96.17086240846571, max mem: 97.7578125, count: 58926"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.676566264194623, max cpu: 33.38301, count: 58926"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 39.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 39.79179692803262, max mem: 40.8984375, count: 58926"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37387,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34193.162695584295, max block_count: 39299.0, count: 58926"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 130,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 134.23242711197094, max segment_count: 188.0, count: 58926"
           }
         ]
       }

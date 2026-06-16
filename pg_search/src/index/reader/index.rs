@@ -779,7 +779,6 @@ impl SearchIndexReader {
     /// results for MVCC visibility, and re-query if necessary.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
-    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -925,7 +924,7 @@ impl SearchIndexReader {
     /// than the first sort field type: to do so, we'd likely need a macro which generated all
     /// possible permutations of `S: SortKeyComputer` types for three columns (which would be 7^3=343 copies
     /// of the method at time of writing).
-    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
     fn top_in_segments<S>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1079,7 +1078,6 @@ impl SearchIndexReader {
     /// NOTE: Scores cannot be NULL, so we do not need to differentiate the nulls-first/last cases.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
-    #[allow(clippy::too_many_arguments)]
     fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,

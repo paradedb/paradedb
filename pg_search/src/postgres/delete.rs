@@ -113,13 +113,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     // Ensure the signal advisory lock is released if a PostgreSQL ERROR
     // occurs while acquiring cleanup_lock_exclusive.
-    //
-    // Do NOT add a `.catch_others()` (or any other catcher that continues
-    // instead of re-raising) to this builder. The inner block takes an LWLock
-    // via `cleanup_lock_exclusive()`. Catching and continuing would leave that
-    // lock held in PG's shared memory with no Rust owner, and `errfinish`
-    // would have reset `InterruptHoldoffCount` to 0, putting Buffer::drop
-    // into the diagnostic skip path. The lock then stays held until xact end.
     let cleanup_lock = PgTryBuilder::new(AssertUnwindSafe(|| {
         // Acquire cleanup_lock - blocks until workers release
         let cleanup_lock = metadata.cleanup_lock_exclusive();

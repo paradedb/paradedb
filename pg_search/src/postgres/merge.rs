@@ -381,14 +381,6 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         // while the lock is held
         let merge_lock = metadata.acquire_merge_lock();
 
-        // Do NOT add a `.catch_others()` (or any other catcher that continues
-        // instead of re-raising) to this builder. `merge_index` acquires many
-        // buffer locks over its lifetime; catching an error and continuing
-        // would leave them held in PG's shared memory with no Rust owner,
-        // because `errfinish` resets `InterruptHoldoffCount` to 0 on its way
-        // to the longjmp, which puts Buffer::drop into the diagnostic skip
-        // path. Locks then stay held until xact end and parallel index work
-        // deadlocks behind them.
         PgTryBuilder::new(AssertUnwindSafe(|| {
             merge_index(
                 &index,

@@ -204,25 +204,11 @@ impl Drop for Buffer {
 
                 // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
                 // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
-                if !std::thread::panicking() && crate::postgres::utils::IsTransactionState() {
-                    if pg_sys::InterruptHoldoffCount > 0 {
-                        pg_sys::UnlockReleaseBuffer(self.pg_buffer);
-                    } else {
-                        // Reaching this branch means PG dropped the holdoff count without us
-                        // calling LWLockRelease -- almost certainly because an ereport(ERROR)
-                        // was caught upstream without re-raising. We don't release the buffer
-                        // here (calling UnlockReleaseBuffer in this state would assert in
-                        // debug or underflow the count in release). Log a backtrace so the
-                        // next repro tells us where the upstream catcher is.
-                        let blockno = pg_sys::BufferGetBlockNumber(self.pg_buffer);
-                        pgrx::warning!(
-                            "pg_search: Buffer::drop with InterruptHoldoffCount == 0 on \
-                             blockno {}. Skipping UnlockReleaseBuffer to avoid corrupting the \
-                             holdoff count. Backtrace:\n{}",
-                            blockno,
-                            std::backtrace::Backtrace::force_capture()
-                        );
-                    }
+                if !std::thread::panicking()
+                    && pg_sys::InterruptHoldoffCount > 0
+                    && crate::postgres::utils::IsTransactionState()
+                {
+                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
                 }
             }
         }

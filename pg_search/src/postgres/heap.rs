@@ -40,6 +40,7 @@ pub struct VisibilityChecker {
     heaprel: PgSearchRelation,
     bman: BufferManager,
 
+    vm_block_no: Option<pg_sys::BlockNumber>,
     vmbuff: pg_sys::Buffer,
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
@@ -83,6 +84,7 @@ impl VisibilityChecker {
                 tid: pg_sys::ItemPointerData::default(),
                 heaprel: Clone::clone(heaprel),
                 bman: BufferManager::new(heaprel),
+                vm_block_no: None,
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
                 nblocks,
@@ -169,9 +171,33 @@ impl VisibilityChecker {
             return self.blockvis.1;
         }
         self.blockvis.0 = blockno;
+
+        let vm_block_no = blockno / util::HEAPBLOCKS_PER_PAGE;
         unsafe {
-            let status =
-                pg_sys::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff);
+            let status = if Some(vm_block_no) == self.vm_block_no
+                && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
+            {
+                debug_assert_eq!(
+                    pg_sys::BufferGetBlockNumber(self.vmbuff),
+                    vm_block_no,
+                    "pinned vmbuff does not cover the expected VM mapBlock"
+                );
+                // Fast path: we already hold a pinned, valid `vmbuff` for exactly this
+                // mapBlock, so the C function is guaranteed to take its bit-math branch
+                // and will NOT call `vm_readbuf`. That makes it safe to skip the pgrx
+                // `pg_guard` wrapper and avoid its per-call overhead.
+                // See `raw::visibilitymap_get_status` for the safety contract.
+                util::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff)
+            } else {
+                // Slow path: either we have no pinned VM page yet, or `blockno` crossed a
+                // VM-page boundary. The C function may release the old buffer and call
+                // `vm_readbuf` (which can `ereport`), so we MUST go through the guarded
+                // wrapper. This also (re)pins `vmbuff` to the correct mapBlock so the
+                // fast path can be taken on subsequent calls.
+                pg_sys::visibilitymap_get_status(self.heaprel.as_ptr(), blockno, &mut self.vmbuff)
+            };
+
+            self.vm_block_no = Some(vm_block_no);
             self.blockvis.1 = status != 0;
         }
         self.blockvis.1
@@ -400,5 +426,55 @@ impl ExpressionState {
             }
         }
         expr_results
+    }
+}
+
+/// Direct `extern "C"` bindings for Postgres functions that bypass the pgrx `pg_guard` wrapper.
+///
+/// Functions declared here MUST only be called when the caller has independently established
+/// that the underlying C function will not `ereport`. The `pg_guard` wrapper exists to translate
+/// Postgres `longjmp` into a Rust panic so destructors run; bypassing it on a code path that
+/// could elog risks leaking pinned buffers, locks, and other RAII-tracked resources.
+///
+/// See `heap::VisibilityChecker::is_block_all_visible` for an example of a caller that
+/// speculatively checks the C function's fast-path precondition before bypassing the wrapper.
+mod util {
+    use pgrx::pg_sys::{self, BlockNumber, Buffer, Relation};
+
+    /// Mirrors `#define HEAPBLOCKS_PER_BYTE` from `src/backend/access/heap/visibilitymap.c`:
+    /// `BITS_PER_BYTE / BITS_PER_HEAPBLOCK`. Number of heap blocks represented in one byte.
+    pub const HEAPBLOCKS_PER_BYTE: u32 = 8 / pg_sys::BITS_PER_HEAPBLOCK;
+
+    /// Number of usable bitmap bytes on a VM page, mirroring `#define MAPSIZE` from
+    /// `src/backend/access/heap/visibilitymap.c`: `BLCKSZ - MAXALIGN(SizeOfPageHeaderData)`.
+    /// The page header is NOT available for the bitmap, so this is smaller than `BLCKSZ`.
+    const MAPSIZE: u32 = {
+        // SizeOfPageHeaderData == offsetof(PageHeaderData, pd_linp); see pgrx `SizeOfPageHeaderData`.
+        let header =
+            unsafe { pg_sys::MAXALIGN(std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp)) };
+        pg_sys::BLCKSZ - header as u32
+    };
+
+    /// Mirrors `#define HEAPBLOCKS_PER_PAGE` from `src/backend/access/heap/visibilitymap.c`:
+    /// `MAPSIZE * HEAPBLOCKS_PER_BYTE`. Number of heap blocks covered by one VM page
+    /// (~32672 for a standard 8KB build).
+    ///
+    /// This MUST equal Postgres's value: it is the divisor for the VM-buffer cache slot index in
+    /// [`crate::postgres::heap::VisibilityChecker::is_block_all_visible`]. If it disagrees with
+    /// Postgres's internal `HEAPBLK_TO_MAPBLOCK`, our slot index points at the wrong VM page near
+    /// every page boundary, and the unguarded fast path forces a `vm_readbuf` (a safety-contract
+    /// violation that also thrashes the VM cache).
+    pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
+
+    extern "C" {
+        /// Raw binding to Postgres `visibilitymap_get_status`. Safe to call without the
+        /// pgrx wrapper ONLY when the caller has confirmed `*buf` is valid and already
+        /// holds the correct mapBlock for `heapBlk` — i.e. the C function will take its
+        /// fast bit-math branch and will not invoke `vm_readbuf`.
+        pub fn visibilitymap_get_status(
+            rel: Relation,
+            heapBlk: BlockNumber,
+            buf: *mut Buffer,
+        ) -> u8;
     }
 }

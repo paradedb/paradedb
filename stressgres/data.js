@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781628202772,
+  "lastUpdate": 1781628881724,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26022,6 +26022,52 @@ window.BENCHMARK_DATA = {
             "value": 12.324870611811857,
             "unit": "median tps",
             "extra": "avg tps: 11.580757336886306, max tps: 13.268071713224403, count: 58244"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e",
+          "message": "ci: enable logical replication merge stressgres repro",
+          "timestamp": "2026-06-16T16:08:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/dfca0dbe974ca4cd36c2a4a3f5007b147485fe4e"
+        },
+        "date": 1781628851695,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1415.9949723135692,
+            "unit": "median tps",
+            "extra": "avg tps: 1434.2934088260013, max tps: 1535.682379736239, count: 58222"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1877.841101829759,
+            "unit": "median tps",
+            "extra": "avg tps: 1833.6165927796035, max tps: 1891.4213576659104, count: 58222"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2230.6887863932525,
+            "unit": "median tps",
+            "extra": "avg tps: 2201.923434707207, max tps: 2400.228335684732, count: 58222"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 12.24557909463902,
+            "unit": "median tps",
+            "extra": "avg tps: 11.503033347778477, max tps: 12.97514865884826, count: 58222"
           }
         ]
       }

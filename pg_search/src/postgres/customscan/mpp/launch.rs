@@ -107,8 +107,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
 ) {
-    let (state_manager, _mq_sender) =
-        generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
+    let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
     run_launched_worker(state_manager, create_aggregate_session_context);
     // `_mq_sender` drops here, detaching the completion queue so the leader's `wait_for_finish`
     // recv loop terminates.
@@ -122,8 +121,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
 ) {
-    let (state_manager, _mq_sender) =
-        generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
+    let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
     run_launched_worker(state_manager, || {
         create_datafusion_session_context(SessionContextProfile::Join)
     });

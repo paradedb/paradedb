@@ -441,8 +441,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name_c
 LIMIT 5;
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: s INNER p
@@ -454,13 +454,12 @@ LIMIT 5;
            :   TantivyLookupExec: decode=[name_c]
            :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5
            :       VisibilityFilterExec: tables=[s, p]
-           :         ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, name_c@1 as name_c]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, name_c@2, ctid_0@3]
-           :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(17 rows)
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, name_c@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 \echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
 Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)
@@ -499,8 +498,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                       QUERY PLAN                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          ->  Custom Scan (ParadeDB Join Scan)
@@ -512,13 +511,12 @@ LIMIT 5;
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[s, p]
-                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, id@1, ctid_0@2]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(17 rows)
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 RESET paradedb.enable_join_custom_scan;
 -- =============================================================================

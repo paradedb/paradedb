@@ -25,12 +25,48 @@ Query timing is done via `pg_stat_statements`, so you'll need to configure it. T
 
 ## Usage
 
-The `benchmark` subcommand runs benchmarks. `sample`, `convert`, and `load-heap` are also available. See [DATASET_PREPARATION.md](DATASET_PREPARATION.md) for `sample`/`convert` usage.
+The `benchmark` subcommand runs benchmarks against an already-loaded heap. `load-heap` bulk-loads CSV data into Postgres, `snapshot-heap` and `restore-heap` manage pgBackRest heap snapshots, and `sample`/`convert` prepare source data. See [DATASET_PREPARATION.md](DATASET_PREPARATION.md) for the full dataset flow.
 
-`benchmark` assumes the dataset's heap is already present (e.g. loaded via `load-heap`, or restored from a snapshot); it builds the index and runs the queries against it. The following command builds a BM25 index over the already-loaded 100k-row Stack Overflow heap, runs benchmarking queries, and outputs the results to a Markdown file.
+To reproduce a benchmark locally from existing CSV data, load the heap once and then run `benchmark`:
 
 ```bash
-cargo run -- benchmark --url POSTGRES_URL
+POSTGRES_URL="postgresql://localhost:28818/postgres"
+
+cargo run --release -- load-heap \
+  --url "${POSTGRES_URL}" \
+  --dataset stackoverflow \
+  --size 100k
+
+cargo run --release -- benchmark \
+  --url "${POSTGRES_URL}" \
+  --dataset stackoverflow
+```
+
+To reuse that heap through pgBackRest, stop Postgres before snapshotting or restoring:
+
+```bash
+PGDATA="/home/runner/.pgrx/data-18"
+BACKREST_ARGS=(
+  --stanza bench
+  --repo-bucket paradedb-ci-benchmarks
+  --repo-path-prefix /snapshots
+  --repo-region us-east-1
+  --repo-endpoint s3.us-east-1.amazonaws.com
+  --repo-s3-key-type shared
+)
+
+(cd ../pg_search && cargo pgrx stop pg18)
+cargo run --release -- snapshot-heap \
+  --dataset stackoverflow \
+  --size 100k \
+  --pgdata "${PGDATA}" \
+  "${BACKREST_ARGS[@]}"
+cargo run --release -- restore-heap \
+  --dataset stackoverflow \
+  --size 100k \
+  --pgdata "${PGDATA}" \
+  "${BACKREST_ARGS[@]}"
+(cd ../pg_search && cargo pgrx start pg18)
 ```
 
 For more options:
@@ -46,6 +82,14 @@ cargo run -- --help
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
 - `--vacuum`: Controls whether `VACUUM FULL ANALYZE` is ran before running the queries. Defaults to `true`.
+
+## Notable Heap Options
+
+- `load-heap --size`: Selects `sampled/{size}/csv` under the data source.
+- `load-heap --data-source`: Overrides `s3_base_path` in `datasets/{dataset}/config.toml`.
+- `snapshot-heap --pgdata` / `restore-heap --pgdata`: Points pgBackRest at the stopped Postgres data directory. This can also be provided with `PGDATA`.
+- `snapshot-heap --config` / `restore-heap --config`: Uses an existing pgBackRest config instead of generating one.
+- `snapshot-heap --repo-*` / `restore-heap --repo-*`: Provides the S3 repository settings when generating a pgBackRest config.
 
 ## Datasets
 

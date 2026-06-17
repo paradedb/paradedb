@@ -25,6 +25,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 
+mod backrest;
 mod config;
 mod convert;
 mod sample;
@@ -48,6 +49,10 @@ enum Commands {
     /// Load a dataset's heap without building the index or running queries, so the resulting
     /// cluster can be captured as a snapshot (e.g. by pgBackRest).
     LoadHeap(LoadHeapArgs),
+    /// Capture a loaded heap as a pgBackRest snapshot.
+    SnapshotHeap(backrest::SnapshotHeapArgs),
+    /// Restore a heap snapshot with pgBackRest.
+    RestoreHeap(backrest::RestoreHeapArgs),
 }
 
 #[derive(Parser)]
@@ -129,6 +134,8 @@ async fn main() -> anyhow::Result<()> {
             &args.size,
             args.data_source.as_deref(),
         ),
+        Commands::SnapshotHeap(args) => backrest::run_snapshot_heap(args),
+        Commands::RestoreHeap(args) => backrest::run_restore_heap(args),
     }
 }
 

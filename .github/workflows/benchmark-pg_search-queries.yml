@@ -61,6 +61,12 @@ jobs:
       )
     env:
       pg_version: 18
+      BACKREST_STANZA: bench
+      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_PATH_PREFIX: /snapshots
+      BACKREST_REPO_REGION: us-east-1
+      BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
+      BACKREST_REPO_S3_KEY_TYPE: shared
 
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
@@ -209,6 +215,9 @@ jobs:
         with:
           pg_version: ${{ env.pg_version }}
 
+      - name: Install pgBackRest
+        run: sudo apt-get update && sudo apt-get install -y pgbackrest
+
       # Benchmark "stackoverflow" dataset at multiple scales (100K, 1M, 20M). Each size restores its
       # heap snapshot from S3 (replacing the whole cluster), then the benchmark builds the index and
       # runs queries against it.
@@ -216,11 +225,20 @@ jobs:
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
-        uses: ./.github/actions/benchmark-restore-backrest
-        with:
-          dataset: stackoverflow
-          size: 100k
-          pg_version: ${{ env.pg_version }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset stackoverflow \
+            --size 100k \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (100K)
         if: >-
@@ -241,11 +259,20 @@ jobs:
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
-        uses: ./.github/actions/benchmark-restore-backrest
-        with:
-          dataset: stackoverflow
-          size: 1m
-          pg_version: ${{ env.pg_version }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset stackoverflow \
+            --size 1m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (1M)
         if: >-
@@ -266,11 +293,20 @@ jobs:
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
-        uses: ./.github/actions/benchmark-restore-backrest
-        with:
-          dataset: stackoverflow
-          size: 20m
-          pg_version: ${{ env.pg_version }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset stackoverflow \
+            --size 20m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (20M)
         if: >-

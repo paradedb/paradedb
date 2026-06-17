@@ -49,7 +49,7 @@ use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTas
 
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
+use crate::postgres::customscan::mpp::glue::mpp_is_active;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -1306,16 +1306,9 @@ impl AggregateScan {
             }
         };
 
-        // Activate MPP at planning time if the GUC is on. Must be set on
-        // the builder *before* `.build()` — PG's path-builder freezes the
-        // parallel flags at build time, and setting them after produces a
-        // `Single Copy: true` Gather where the customscan never actually
-        // runs in multiple workers.
-        let builder = if mpp_is_active() {
-            builder.set_parallel(producer_worker_count() as usize)
-        } else {
-            builder
-        };
+        // MPP launches its own producer workers from `exec_custom_scan` through the builder, so the
+        // path stays serial to PG. Marking it parallel-aware would make PG plan a Gather over it and
+        // spawn a redundant second worker set whose serial aggregates duplicate the result.
 
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();

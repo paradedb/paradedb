@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781711770879,
+  "lastUpdate": 1781712450667,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29094,6 +29094,54 @@ window.BENCHMARK_DATA = {
             "value": 12.32913251769148,
             "unit": "median tps",
             "extra": "avg tps: 11.597723140492537, max tps: 13.295949731949666, count: 58245"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5da90bf9bb8c24216167afd7730234d920cd7aa",
+          "message": "fix: ORDER BY pushdown accounting for collation (#5180)\n\n# Ticket(s) Closed\n\n- Closes #3155\n\n## What\n\nAdd collation-awareness to all ORDER BY pushdown paths so that ParadeDB\nonly claims sorted output when the collation is byte-order compatible\n(C/POSIX). When a non-C collation is in use, PostgreSQL's own Sort node\nis used instead, ensuring correct results.\n\n## Why\n\nTantivy sorts text fields by raw byte values, which is equivalent to\nC/POSIX collation ordering. Previously, ParadeDB's custom scans would\nadvertise sorted output regardless of collation, causing incorrect query\nresults when users had non-C collations (e.g., ICU locales, `en_US`,\n`C.UTF-8`, etc.). For example, a column with an ICU collation should\nproduce case-insensitive linguistic ordering, but Tantivy would produce\nASCII byte order instead — with no Sort node to fix it up.\n\nThis affected all ORDER BY pushdown paths: TopK base scan, aggregate\nscan, sorted index scan, JoinScan, and aggregate-on-join TopK.\n\n## How\n\n**New catalog helpers** (`pg_search/src/postgres/catalog.rs`):\n- `lookup_database_datcollate_and_provider()` — retrieves the current\ndatabase's `datcollate` string and `datlocprovider` from `pg_database`\n- `lookup_collation_collcollate_and_provider(oid)` — retrieves the\n`collcollate` string and `collprovider` for a specific collation OID\nfrom `pg_collation`\n\n**Collation safety check**\n(`pg_search/src/postgres/customscan/orderby.rs`):\n- `is_collation_pushdown_safe(collation)` — determines if a collation\nOID is byte-order compatible:\n  - `InvalidOid` (non-collatable types like integers): always safe\n  - `C_COLLATION_OID`: always safe\n- `DEFAULT_COLLATION_OID`: checks the database's locale provider —\nbuiltin is safe, ICU is unsafe, libc checks `datcollate` for \"C\"/\"POSIX\"\n- Any other OID: checks the collation's provider — builtin is safe, ICU\nis unsafe, libc checks `collcollate` for \"C\"/\"POSIX\"\n\n**Applied at all ORDER BY pushdown decision points:**\n\n1. **TopK base scan** (`orderby.rs:\nextract_pathkey_styles_with_sortability_check`) — refuses to push down\nORDER BY when pathkey collation is unsafe\n2. **Sorted index scan** (`orderby.rs: pathkey_matches_sort_by`) —\nrefuses to match sort_by pathkeys with unsafe collation\n3. **TopK validation** (`orderby.rs: validate_topk_compatibility`) —\nuses `exprCollation` to check parse-tree-level TopK compatibility\n4. **JoinScan** (`joinscan/mod.rs` + `joinscan/planning.rs`) — declines\nthe entire JoinScan path when any ORDER BY column has an unsafe\ncollation (necessary because JoinScan couples sorting with LIMIT, so\nincorrect sorting would permanently drop correct rows)\n5. **Aggregate-on-join TopK** (`aggregatescan/mod.rs:\ndetect_join_aggregate_topk`) — prevents TopK pre-limiting when the group\ncolumn has an unsafe collation, falling back to PostgreSQL Sort + Limit\n\n## Tests\n\nAdded `pg_search/tests/pg_regress/sql/order_by_collation.sql` with\nplan-level and result-correctness assertions covering all paths:\n\n- **TopK base scan**: C collation pushes down, ICU collation gets Sort\nnode, integers unaffected\n- **Explicit COLLATE overrides**: `COLLATE \"C\"` on ICU column pushes\ndown, `COLLATE <icu>` on C column gets Sort node\n- **Aggregate scan**: C collation gets aggregate ORDER BY pushdown, ICU\ncollation gets Sort node above aggregate\n- **Sorted index scan (`sort_by`)**: C collation matches pathkey (no\nSort), ICU override forces Sort\n- **JoinScan**: C collation allows JoinScan with sorted output, ICU\ncollation causes JoinScan to decline entirely, integers unaffected\n- **Aggregate-on-join TopK**: C collation allows TopK pre-limiting, ICU\ncollation prevents TopK (Sort + Limit applied by PostgreSQL instead)\n- **Result correctness**: verifies C collation produces byte order vs\nICU produces linguistic order\n\nUpdated `.out` files for existing tests to reflect the new behavior\nwhere JoinScan and aggregate TopK correctly decline pushdown when the\ndatabase default collation is not byte-safe.",
+          "timestamp": "2026-06-17T11:25:17-04:00",
+          "tree_id": "2d16fb8cf072d2010a476c298830fd6178ebe6e7",
+          "url": "https://github.com/paradedb/paradedb/commit/c5da90bf9bb8c24216167afd7730234d920cd7aa"
+        },
+        "date": 1781712419442,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1433.168492462089,
+            "unit": "median tps",
+            "extra": "avg tps: 1411.0707029359808, max tps: 1479.040375236803, count: 58232"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1971.5557283096216,
+            "unit": "median tps",
+            "extra": "avg tps: 1958.155130341331, max tps: 1977.0538263532194, count: 58232"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1281.8164712466362,
+            "unit": "median tps",
+            "extra": "avg tps: 1168.0933551924832, max tps: 1767.9598984316972, count: 58232"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 12.262075595974148,
+            "unit": "median tps",
+            "extra": "avg tps: 11.52120100226613, max tps: 13.284328596449509, count: 58232"
           }
         ]
       }

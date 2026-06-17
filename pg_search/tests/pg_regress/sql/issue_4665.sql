@@ -6,6 +6,12 @@
 --
 -- This test reproduces the scenario with multiple segments and asserts that CUSTOM
 -- and GENERIC prepared plans return the same rows.
+--
+-- NOTE: with the TopK query-expense cost model (#5150), CUSTOM mode now plans
+-- this query serial while GENERIC mode (whose query is an unresolved Param at
+-- plan time) still falls back to parallel. All matches here tie on score, so
+-- the two modes return different -- but equally valid -- top-10 row sets.
+-- Unifying the GENERIC-mode decision is tracked in #5275.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 

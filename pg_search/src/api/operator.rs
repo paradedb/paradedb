@@ -336,8 +336,8 @@ pub(crate) fn estimate_selectivity(
     // We estimate both the number of matching docs and the total number of docs.
     // If reltuples is Known, total_rows will match it. If Unknown, total_rows
     // will be estimated from the index (by scaling the largest segment).
-    let (estimate, total_rows) = search_reader.estimate_docs(row_estimate);
-    let total_rows = total_rows as f64;
+    let estimate = search_reader.estimate_docs(row_estimate);
+    let total_rows = estimate.total_docs as f64;
 
     if total_rows <= 0.0 {
         // We still don't have a valid total count (e.g. index is empty), so we can't
@@ -345,12 +345,56 @@ pub(crate) fn estimate_selectivity(
         return None;
     }
 
-    let mut selectivity = estimate as f64 / total_rows;
+    let mut selectivity = estimate.matching_docs as f64 / total_rows;
     if selectivity > 1.0 {
         selectivity = 1.0;
     }
 
     Some(selectivity)
+}
+
+/// Tantivy's `DocSet::cost()` for the query, used by the score-DESC TopK worker
+/// decision (`decide_topk_workers`) during path generation.
+///
+/// NOTE: this opens a `LargestSegment` reader even though the planner's
+/// restriction-selectivity phase already opened one for the same index+query and
+/// computed this exact value -- `estimate_docs` returns `query_cost` right next to
+/// the `size_hint` that feeds selectivity. We re-open because there is no way to
+/// carry the cost forward: PostgreSQL's `oprrest` API accepts only the selectivity
+/// `f64`, which Postgres caches on `RestrictInfo.norm_selec`. `matches` rides that
+/// carrier into path generation; `cost()` has no equivalent slot. Avoiding the
+/// second open would require our own per-plan side channel (a cost cache keyed by
+/// index+query, cleared once per planner run) -- see @jamessewell's review on
+/// paradedb#5150. Until then this is one extra cheap single-segment scan per
+/// planned TopK.
+pub(crate) fn estimate_query_cost(
+    indexrel: &PgSearchRelation,
+    search_query_input: SearchQueryInput,
+) -> Option<RowEstimate> {
+    let heap_rel = indexrel
+        .heap_relation()
+        .expect("indexrel should be an index");
+    let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+
+    // Best-effort: cost is only a worker-decision optimization input (the caller
+    // falls back to RowEstimate::Unknown -> general path). A failed open here would
+    // also fail in the executor, which opens the same reader to run the scan, so
+    // degrading to None doesn't hide a real problem -- it just avoids crashing
+    // planning over a transient/concurrent-DDL open failure.
+    let search_reader = SearchIndexReader::open(
+        indexrel,
+        search_query_input,
+        false,
+        MvccSatisfies::LargestSegment,
+    )
+    .ok()?;
+
+    let estimate = search_reader.estimate_docs(row_estimate);
+    if estimate.total_docs == 0 {
+        return None;
+    }
+
+    Some(RowEstimate::Known(estimate.query_cost))
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

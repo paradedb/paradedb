@@ -448,6 +448,59 @@ impl SearchQueryInput {
         }
     }
 
+    /// Whether a score-DESC TopK over this query can be Block-WAND-pruned by the
+    /// collector, making it sublinear and not worth parallelizing. `can_prune` is
+    /// true only when the ORDER BY is score-DESC. Everything that returns false has
+    /// a non-trivial docset already weighted by Tantivy's `DocSet::cost()`.
+    pub fn is_topk_prunable(&self, can_prune: bool) -> bool {
+        // Mirror pdb::Query::is_topk_prunable: the reliably-cheap (Block-WAND-pruning) set is
+        // a single bare term. Transparent wrappers (FieldedQuery, WithIndex) pass through to
+        // the inner weight; the score-modifying / filtering wrappers (Boost, ConstScore,
+        // ScoreFilter, HeapFilter) build their OWN non-pruning weight, so they do NOT inherit
+        // the inner term's pruning and must be cost()-weighted -- they fall through to false.
+        if !can_prune {
+            return false;
+        }
+        // A bare single term keeps a SHOULD union collapsing to a prunable TermWeight.
+        fn is_bare_term(q: &SearchQueryInput) -> bool {
+            matches!(
+                q,
+                SearchQueryInput::FieldedQuery {
+                    query: pdb::Query::Term { .. },
+                    ..
+                }
+            )
+        }
+
+        match self {
+            // Transparent: the final weight is the inner query's.
+            SearchQueryInput::FieldedQuery { query, .. } => query.is_topk_prunable(can_prune),
+            SearchQueryInput::WithIndex { query, .. } => query.is_topk_prunable(can_prune),
+
+            // Pure SHOULD union that collapses to a single bare term.
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                must.is_empty()
+                    && must_not.is_empty()
+                    && should.len() <= 1
+                    && should.iter().all(is_bare_term)
+            }
+
+            // A single plain parser term -> TermQuery.
+            SearchQueryInput::Parse { query_string, .. } => {
+                crate::query::pdb_query::is_plain_single_term(query_string)
+            }
+
+            // Everything else -- All, Empty, TermSet, the Boost/ConstScore/ScoreFilter/
+            // HeapFilter score-modifying wrappers, DisjunctionMax, MoreLikeThis, ... -- has
+            // no reliably-pruning weight, so route to DocSet::cost().
+            _ => false,
+        }
+    }
+
     pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
         match self {
             SearchQueryInput::Boolean {

@@ -42,6 +42,9 @@ use crate::parallel_worker::{
     WorkerStyle,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregate_session_context;
+use crate::postgres::customscan::joinscan::scan_state::{
+    create_datafusion_session_context, SessionContextProfile,
+};
 use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
 use crate::postgres::customscan::mpp::glue::{
@@ -109,6 +112,21 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     run_launched_worker(state_manager, create_aggregate_session_context);
     // `_mq_sender` drops here, detaching the completion queue so the leader's `wait_for_finish`
     // recv loop terminates.
+}
+
+/// JoinScan worker entry point. PG resolves this symbol by name; it must match the string in
+/// [`launch_mpp_join`].
+#[no_mangle]
+#[pgrx::pg_guard]
+pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
+    seg: *mut pg_sys::dsm_segment,
+    toc: *mut pg_sys::shm_toc,
+) {
+    let (state_manager, _mq_sender) =
+        generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
+    run_launched_worker(state_manager, || {
+        create_datafusion_session_context(SessionContextProfile::Join)
+    });
 }
 
 /// Shared worker body: wait for the leader's go signal, attach to the ring mesh, reconstruct the
@@ -284,5 +302,20 @@ pub fn launch_mpp_aggregate(
         partitioning_source_idx,
         create_aggregate_session_context(),
         "mpp_launched_worker_agg",
+    )
+}
+
+/// JoinScan launch entry: join seed context + join worker symbol.
+pub fn launch_mpp_join(
+    plan_bytes: Vec<u8>,
+    args: ParallelScanArgs,
+    partitioning_source_idx: usize,
+) -> Option<MppLeaderState> {
+    launch_mpp(
+        plan_bytes,
+        args,
+        partitioning_source_idx,
+        create_datafusion_session_context(SessionContextProfile::Join),
+        "mpp_launched_worker_join",
     )
 }

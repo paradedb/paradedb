@@ -777,7 +777,10 @@ impl JoinScan {
             custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
-        if nworkers > 0 {
+        // For MPP the customscan launches its own producer workers from exec via the builder, so
+        // the path stays serial to PG (no Gather). Only the regular non-MPP parallel join is marked
+        // parallel-aware; `nworkers` still feeds the per-source row estimates above either way.
+        if nworkers > 0 && !mpp_is_active() {
             custom_path.path.parallel_aware = true;
             custom_path.path.parallel_safe = true;
             custom_path.path.parallel_workers =
@@ -1116,6 +1119,39 @@ impl JoinScan {
             create_datafusion_session_context(SessionContextProfile::Join),
             mesh,
         )
+    }
+
+    /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
+    /// success, installs the resulting `MppExecState::Leader` so the consumer plan reads from the
+    /// mesh. A short launch (or any setup fallback) leaves `mpp` unset and the query runs serially.
+    fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
+        if !mpp_is_active() {
+            return;
+        }
+        let Some(plan_bytes) = state.custom_state_mut().mpp_plan_bytes.take() else {
+            return;
+        };
+        Self::ensure_source_manifests(state);
+        let partitioning_idx = state.custom_state().join_clause.partitioning_source_index();
+        let all_sources: Vec<&[tantivy::SegmentReader]> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(|manifest| manifest.segment_readers())
+            .collect();
+        let args = ParallelScanArgs {
+            all_sources,
+            partitioning_source_idx: partitioning_idx,
+            query: vec![],
+            with_aggregates: false,
+        };
+        if let Some(leader) = crate::postgres::customscan::mpp::launch::launch_mpp_join(
+            plan_bytes,
+            args,
+            partitioning_idx,
+        ) {
+            state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
+        }
     }
 }
 
@@ -1491,10 +1527,11 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        // MPP worker dispatch: producer-side fragments emit nothing back to PG. Route to the
-        // MPP exec helper and return null_mut() to signal end-of-stream.
-        if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
-            return crate::postgres::customscan::mpp::host::exec_mpp_worker(state);
+        if state.custom_state().datafusion_stream.is_none() {
+            // First exec call: the leader launches its MPP producer workers via the builder
+            // (leader-chosen count, with a serial fallback on a short launch). Done before the
+            // consumer plan is built below.
+            Self::maybe_launch_mpp(state);
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1542,20 +1579,8 @@ impl CustomScan for JoinScan {
                 // plan and the worker fragments would have nothing to consume from.
                 let ctx = match state.custom_state().mpp.as_ref() {
                     Some(MppExecState::Leader(leader)) => {
-                        let pcxt = leader.pcxt;
-                        if !pcxt.is_null() {
-                            let launched = (*pcxt).nworkers_launched as u32;
-                            let expected = producer_worker_count();
-                            if launched < expected {
-                                pgrx::error!(
-                                    "mpp join: PG launched {launched} of {expected} requested \
-                                     parallel workers because the machine is saturated; missing slots \
-                                     would hang the query. Please retry. Long-term fix tracked in \
-                                     https://github.com/paradedb/paradedb/issues/5061."
-                                );
-                            }
-                        }
-                        // Workers are up and draining; ship each fragment's plan frame now.
+                        // Workers are launched and draining (the launcher verified the full producer
+                        // set came up, else it fell back to serial); ship each fragment's plan now.
                         if let Err(e) =
                             crate::postgres::customscan::mpp::glue::deliver_set_plans(leader)
                         {
@@ -1690,6 +1715,26 @@ impl CustomScan for JoinScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Join the MPP producer workers and destroy the parallel context once nothing references
+        // the ring mesh. Take the leader out first (its mesh handle drops with it), then drop the
+        // stream/plan/runtime (all carry mesh references) before wait_for_finish destroys the DSM.
+        let finish = match state.custom_state_mut().mpp.take() {
+            Some(MppExecState::Leader(mut leader)) => leader.finish.take(),
+            _ => None,
+        };
+        if finish.is_some() {
+            let cs = state.custom_state_mut();
+            cs.datafusion_stream = None;
+            cs.current_batch = None;
+            cs.physical_plan = None;
+            cs.runtime = None;
+        }
+        if let Some(finish) = finish {
+            // The gather already drained, or early-terminated and the deadlock fix let the
+            // producers stop, so the workers have finished and detached; this returns promptly.
+            finish.wait_for_finish();
+        }
+
         unsafe {
             // Drop tuple slots that we own.
             for rel_state in state.custom_state().relations.values() {

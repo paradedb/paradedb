@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781688020155,
+  "lastUpdate": 1781711044273,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5966,6 +5966,78 @@ window.BENCHMARK_DATA = {
             "value": 71.6547253016839,
             "unit": "median tps",
             "extra": "avg tps: 87.8328254603865, max tps: 475.27982495760904, count: 57338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5da90bf9bb8c24216167afd7730234d920cd7aa",
+          "message": "fix: ORDER BY pushdown accounting for collation (#5180)\n\n# Ticket(s) Closed\n\n- Closes #3155\n\n## What\n\nAdd collation-awareness to all ORDER BY pushdown paths so that ParadeDB\nonly claims sorted output when the collation is byte-order compatible\n(C/POSIX). When a non-C collation is in use, PostgreSQL's own Sort node\nis used instead, ensuring correct results.\n\n## Why\n\nTantivy sorts text fields by raw byte values, which is equivalent to\nC/POSIX collation ordering. Previously, ParadeDB's custom scans would\nadvertise sorted output regardless of collation, causing incorrect query\nresults when users had non-C collations (e.g., ICU locales, `en_US`,\n`C.UTF-8`, etc.). For example, a column with an ICU collation should\nproduce case-insensitive linguistic ordering, but Tantivy would produce\nASCII byte order instead — with no Sort node to fix it up.\n\nThis affected all ORDER BY pushdown paths: TopK base scan, aggregate\nscan, sorted index scan, JoinScan, and aggregate-on-join TopK.\n\n## How\n\n**New catalog helpers** (`pg_search/src/postgres/catalog.rs`):\n- `lookup_database_datcollate_and_provider()` — retrieves the current\ndatabase's `datcollate` string and `datlocprovider` from `pg_database`\n- `lookup_collation_collcollate_and_provider(oid)` — retrieves the\n`collcollate` string and `collprovider` for a specific collation OID\nfrom `pg_collation`\n\n**Collation safety check**\n(`pg_search/src/postgres/customscan/orderby.rs`):\n- `is_collation_pushdown_safe(collation)` — determines if a collation\nOID is byte-order compatible:\n  - `InvalidOid` (non-collatable types like integers): always safe\n  - `C_COLLATION_OID`: always safe\n- `DEFAULT_COLLATION_OID`: checks the database's locale provider —\nbuiltin is safe, ICU is unsafe, libc checks `datcollate` for \"C\"/\"POSIX\"\n- Any other OID: checks the collation's provider — builtin is safe, ICU\nis unsafe, libc checks `collcollate` for \"C\"/\"POSIX\"\n\n**Applied at all ORDER BY pushdown decision points:**\n\n1. **TopK base scan** (`orderby.rs:\nextract_pathkey_styles_with_sortability_check`) — refuses to push down\nORDER BY when pathkey collation is unsafe\n2. **Sorted index scan** (`orderby.rs: pathkey_matches_sort_by`) —\nrefuses to match sort_by pathkeys with unsafe collation\n3. **TopK validation** (`orderby.rs: validate_topk_compatibility`) —\nuses `exprCollation` to check parse-tree-level TopK compatibility\n4. **JoinScan** (`joinscan/mod.rs` + `joinscan/planning.rs`) — declines\nthe entire JoinScan path when any ORDER BY column has an unsafe\ncollation (necessary because JoinScan couples sorting with LIMIT, so\nincorrect sorting would permanently drop correct rows)\n5. **Aggregate-on-join TopK** (`aggregatescan/mod.rs:\ndetect_join_aggregate_topk`) — prevents TopK pre-limiting when the group\ncolumn has an unsafe collation, falling back to PostgreSQL Sort + Limit\n\n## Tests\n\nAdded `pg_search/tests/pg_regress/sql/order_by_collation.sql` with\nplan-level and result-correctness assertions covering all paths:\n\n- **TopK base scan**: C collation pushes down, ICU collation gets Sort\nnode, integers unaffected\n- **Explicit COLLATE overrides**: `COLLATE \"C\"` on ICU column pushes\ndown, `COLLATE <icu>` on C column gets Sort node\n- **Aggregate scan**: C collation gets aggregate ORDER BY pushdown, ICU\ncollation gets Sort node above aggregate\n- **Sorted index scan (`sort_by`)**: C collation matches pathkey (no\nSort), ICU override forces Sort\n- **JoinScan**: C collation allows JoinScan with sorted output, ICU\ncollation causes JoinScan to decline entirely, integers unaffected\n- **Aggregate-on-join TopK**: C collation allows TopK pre-limiting, ICU\ncollation prevents TopK (Sort + Limit applied by PostgreSQL instead)\n- **Result correctness**: verifies C collation produces byte order vs\nICU produces linguistic order\n\nUpdated `.out` files for existing tests to reflect the new behavior\nwhere JoinScan and aggregate TopK correctly decline pushdown when the\ndatabase default collation is not byte-safe.",
+          "timestamp": "2026-06-17T11:25:17-04:00",
+          "tree_id": "2d16fb8cf072d2010a476c298830fd6178ebe6e7",
+          "url": "https://github.com/paradedb/paradedb/commit/c5da90bf9bb8c24216167afd7730234d920cd7aa"
+        },
+        "date": 1781711013307,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 227.4348369559788,
+            "unit": "median tps",
+            "extra": "avg tps: 227.00016393767874, max tps: 245.28548932334886, count: 57303"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 229.13972056532617,
+            "unit": "median tps",
+            "extra": "avg tps: 228.8405266374773, max tps: 247.42549068472385, count: 57303"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 5007.836828823308,
+            "unit": "median tps",
+            "extra": "avg tps: 5016.592862214379, max tps: 6540.513387412299, count: 57303"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 622.4844793571925,
+            "unit": "median tps",
+            "extra": "avg tps: 620.8927749336686, max tps: 753.0735756648792, count: 57303"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 4318.9647682687855,
+            "unit": "median tps",
+            "extra": "avg tps: 4297.209244920424, max tps: 5876.497991840368, count: 114606"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 696.980130716461,
+            "unit": "median tps",
+            "extra": "avg tps: 695.8723193721211, max tps: 834.8224320354457, count: 57303"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2581.604915869521,
+            "unit": "median tps",
+            "extra": "avg tps: 2586.033169542377, max tps: 3126.5529476828538, count: 57303"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 65.6909162569883,
+            "unit": "median tps",
+            "extra": "avg tps: 86.14089996407758, max tps: 1327.1787630163058, count: 57303"
           }
         ]
       }

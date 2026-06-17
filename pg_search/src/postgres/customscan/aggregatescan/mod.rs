@@ -628,6 +628,20 @@ impl CustomScan for AggregateScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Drop the gather stream first (fires the leader-inbox detach on an early-terminated LIMIT
+        // query so blocked producers stop), then wait for the workers to finish and flush their
+        // `TaskMetrics`: `recv` blocks until every worker detaches its completion queue, which it
+        // does only after sending metrics. The builder-launched workers need this explicit join so
+        // the metrics land before the EXPLAIN render (which runs before end_custom_scan, where the
+        // context is finally destroyed). Harmless when the gather already reached EOF.
+        if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
+            df_state.stream = None;
+            if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_mut() {
+                if let Some(finish) = leader.finish.as_mut() {
+                    let _ = finish.recv();
+                }
+            }
+        }
         // PG destroys the parallel DSM right after this hook, so everything that reads or
         // releases ring memory must happen now: drain the workers' metrics frames off the mesh
         // (the EXPLAIN hook runs after teardown and only reads the store), then drop the

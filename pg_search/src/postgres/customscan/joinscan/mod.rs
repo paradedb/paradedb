@@ -1702,10 +1702,23 @@ impl CustomScan for JoinScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // PG destroys the parallel DSM right after this hook, so everything that reads or
-        // releases ring memory must happen now: drain the workers' metrics frames off the mesh
-        // (the EXPLAIN hook runs after teardown and only reads the store), then drop the
-        // leader's control senders, whose drop decrements counters inside the mapping.
+        // Drop the gather stream first. On an early-terminated query (LIMIT) this fires the
+        // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
+        // already reached EOF.
+        state.custom_state_mut().datafusion_stream = None;
+        // Wait for the producer workers to finish and flush their `TaskMetrics` before draining:
+        // `recv` blocks until every worker detaches its completion queue, which it does only after
+        // sending metrics. PG's parallel teardown joins Gather-spawned workers here; the
+        // builder-launched workers need this explicit join so the metrics land before the EXPLAIN
+        // render (which runs before end_custom_scan, where the context is finally destroyed).
+        if let Some(MppExecState::Leader(leader)) = state.custom_state_mut().mpp.as_mut() {
+            if let Some(finish) = leader.finish.as_mut() {
+                let _ = finish.recv();
+            }
+        }
+        // The EXPLAIN hook runs after teardown and only reads the store, so drain the workers'
+        // metrics frames off the mesh now, then drop the leader's control senders (their drop
+        // decrements counters inside the still-mapped DSM).
         if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);

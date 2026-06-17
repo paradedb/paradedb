@@ -264,10 +264,10 @@ pub struct JoinScanState {
     pub mpp_partitioning_source_idx: Option<usize>,
 }
 
-/// Per-query MPP state for JoinScan. Same shape as `aggregatescan::scan_state::MppExecState`.
+/// Per-query MPP state for JoinScan held by the leader. Same shape as
+/// `aggregatescan::scan_state::MppExecState`; builder-launched workers never carry it.
 pub enum MppExecState {
     Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
-    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 impl JoinScanState {

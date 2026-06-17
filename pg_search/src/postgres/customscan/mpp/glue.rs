@@ -85,75 +85,10 @@ pub fn mpp_worker_count() -> u32 {
     gucs_mpp_worker_count() as u32
 }
 
-/// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
-/// `leader_setup` / workers see in `initialize_worker_custom_scan`. Tells workers where the
-/// MPP region begins (past the customscan's `ParallelScanState` block) and which entry in
-/// `plan.sources()` is the partitioning source.
-///
-/// DSM layout used by every customscan opting into MPP:
-///
-/// ```text
-/// [0 .. 8)                       u64 mpp_offset            (offset to MPP region)
-/// [8 .. 16)                      u64 partitioning_source_idx
-/// [pscan_offset .. mpp_offset)   ParallelScanState (variable size)
-/// [mpp_offset .. total)          MPP region (MppDsmHeader + queues + plan_bytes)
-/// ```
-///
-/// Workers don't carry the source manifests the leader saw, so these two `u64`s let them skip
-/// past the `ParallelScanState` block and key `index_segment_ids` the same way as the leader.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CustomScanMppHeader {
-    /// Byte offset of the MPP region within the coordinate. Always a real, initialized region:
-    /// the leader errors out of `initialize_dsm_custom_scan` on any setup failure, before
-    /// `LaunchParallelWorkers`, so no worker ever reads a half-written header.
-    pub mpp_offset: u64,
-    pub partitioning_source_idx: u64,
-}
-
-const CUSTOM_SCAN_MPP_HEADER_SIZE: usize = std::mem::size_of::<CustomScanMppHeader>();
-
-/// Round `n` up to the nearest `MAXIMUM_ALIGNOF` boundary. Used to align section boundaries
-/// inside the customscan's DSM coordinate so the `ParallelScanState` block and the MPP region
-/// each start on aligned bytes.
-pub fn mpp_align(n: usize) -> usize {
-    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
-    n.next_multiple_of(a)
-}
-
-// The shared-memory transport's layout pins 8-byte alignment (its ring headers hold `u64` atomics).
-// `mpp_align` hands it MAXALIGN-aligned bases, so the two must agree or the rings would be
-// misaligned, which is UB-class.
+// The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
+// builder's `shm_toc_allocate` hands out MAXALIGN-aligned blobs for the mesh region, so the two
+// must agree or the rings would be misaligned, which is UB-class.
 const _: () = assert!(pg_sys::MAXIMUM_ALIGNOF == 8);
-
-/// Byte offset of the `ParallelScanState` block within the customscan's DSM coordinate. Lives
-/// right after the [`CustomScanMppHeader`], MAXALIGN-padded.
-pub fn pscan_offset() -> usize {
-    mpp_align(CUSTOM_SCAN_MPP_HEADER_SIZE)
-}
-
-/// Read the [`CustomScanMppHeader`] stamped by the leader at offset 0 of the DSM coordinate.
-///
-/// # Safety
-/// `coordinate` must point at a DSM coordinate that the leader populated via
-/// [`write_custom_scan_header`]. Callers in `initialize_worker_custom_scan` get this pointer
-/// from PG and are responsible for confirming it's the expected layout.
-pub unsafe fn read_custom_scan_header(coordinate: *const c_void) -> CustomScanMppHeader {
-    unsafe { *(coordinate as *const CustomScanMppHeader) }
-}
-
-/// Stamp the [`CustomScanMppHeader`] at offset 0 of the DSM coordinate so workers can read
-/// `mpp_offset` and `partitioning_source_idx` without re-deriving them from manifests.
-///
-/// # Safety
-/// `coordinate` must point at the leader's DSM coordinate from `initialize_dsm_custom_scan`,
-/// with at least `size_of::<CustomScanMppHeader>()` bytes writable. The customscan's
-/// `estimate_dsm_custom_scan` is responsible for reserving the space.
-pub unsafe fn write_custom_scan_header(coordinate: *mut c_void, header: CustomScanMppHeader) {
-    unsafe {
-        *(coordinate as *mut CustomScanMppHeader) = header;
-    }
-}
 
 /// Per-edge queue size from the GUC.
 pub(super) fn mpp_queue_size() -> usize {
@@ -205,16 +140,11 @@ pub struct MppLeaderState {
     /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
     /// path before workers relaunch.
     pub plans_delivered: std::sync::atomic::AtomicBool,
-    /// The builder handle owning the launched producer workers on the leader-driven launch path
-    /// (see [`crate::postgres::customscan::mpp::launch`]). The leader controls the launch, so it
-    /// owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join the
-    /// workers and destroy the parallel context. `None` on the legacy callback path and until
-    /// `launch` installs it on the success path.
+    /// The builder handle owning the launched producer workers. The leader controls the launch, so
+    /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
+    /// the workers and destroy the parallel context. `None` until `launch` installs it on the
+    /// success path.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
-    /// Parallel-context pointer for the legacy PG-callback path (JoinScan), used to read
-    /// `nworkers_launched` for short-launch detection. Null on the leader-driven launch path, where
-    /// `finish` owns the context.
-    pub pcxt: *mut pg_sys::ParallelContext,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
@@ -231,19 +161,15 @@ unsafe fn self_receiver_token() -> u64 {
     pack_receiver(my_pgprocno, my_pid)
 }
 
-/// Initialize the leader's ring mesh in a DSM region and build its [`MppLeaderState`].
-///
-/// Two callers: the legacy `initialize_dsm_custom_scan` (JoinScan), which passes PG's parallel
-/// context, and the leader-driven [`crate::postgres::customscan::mpp::launch`], which passes a
-/// builder-allocated region and a null `pcxt` (the builder `finish` handle owns the context there).
+/// Initialize the leader's ring mesh in a DSM region and build its [`MppLeaderState`]. Called by
+/// the leader-driven [`crate::postgres::customscan::mpp::launch`] on a builder-allocated region.
 ///
 /// # Safety
-/// - `coordinate` must be the MPP region pointer (PG's coordinate, or a `ParallelState` byte blob).
+/// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
-    pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
     stage_plans: Vec<StagePlan>,
 ) -> Result<MppLeaderState, String> {
@@ -292,7 +218,6 @@ pub unsafe fn leader_setup(
         stage_plans: std::sync::Mutex::new(stage_plans),
         plans_delivered: std::sync::atomic::AtomicBool::new(false),
         finish: None,
-        pcxt,
     })
 }
 

@@ -26,7 +26,6 @@ pub mod groupby;
 pub mod join_targetlist;
 pub mod json_rewrite;
 pub mod limit_offset;
-pub mod mpp;
 pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 pub mod privdat;

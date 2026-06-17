@@ -28,7 +28,6 @@
 pub mod dispatch;
 pub mod exec_worker;
 pub mod glue;
-pub mod host;
 pub mod launch;
 pub mod pg_seams;
 pub mod task_estimator;

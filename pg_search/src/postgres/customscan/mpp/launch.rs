@@ -274,12 +274,10 @@ fn launch_mpp(
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp: mesh region missing"),
     };
-    // Null pcxt: on the leader-driven path the builder `finish` handle owns the parallel context.
-    let mut leader =
-        match unsafe { leader_setup(mesh_ptr, std::ptr::null_mut(), payload, stage_plans) } {
-            Ok(l) => l,
-            Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
-        };
+    let mut leader = match unsafe { leader_setup(mesh_ptr, payload, stage_plans) } {
+        Ok(l) => l,
+        Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
+    };
 
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);

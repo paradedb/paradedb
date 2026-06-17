@@ -92,12 +92,10 @@ pub struct DataFusionAggState {
     pub mpp_plan_bytes: Option<Vec<u8>>,
 }
 
-/// Per-query MPP state. Distinct variants for leader vs worker because the
-/// two participate differently: the leader runs the consumer plan plus a
-/// producer subplan (as worker 0); workers run only the producer subplan.
+/// Per-query MPP state held by the leader. Producer workers are builder-launched (see
+/// `mpp::launch`) and reconstruct their own state from the DSM, so they never carry this.
 pub enum MppExecState {
     Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
-    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own
@@ -142,19 +140,6 @@ pub struct AggregateScanState {
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
-
-    /// MPP-only: shared state for slicing the partitioning source's segments
-    /// across parallel workers. Set by `initialize_dsm_custom_scan` (leader)
-    /// or `initialize_worker_custom_scan` (worker). Threaded into
-    /// `deserialize_logical_plan_with_runtime` so each worker's
-    /// `PgSearchTableProvider` sees only its slice.
-    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-
-    /// MPP-only: canonical segment ID sets for non-partitioning sources, in
-    /// the same order they appear in `plan.sources()` (partitioning source
-    /// excluded). Populated alongside `parallel_state` and injected into
-    /// the codec so all workers replicate the same segment view.
-    pub non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>>,
 
     /// MPP-only: captured source manifests held by the leader. Serves two
     /// purposes (mirrors JoinScan):

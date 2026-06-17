@@ -205,13 +205,15 @@ pub struct MppLeaderState {
     /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
     /// path before workers relaunch.
     pub plans_delivered: std::sync::atomic::AtomicBool,
-    /// Borrowed pointer to the parallel context PG passed to
-    /// `initialize_dsm_custom_scan`. Lifetime: valid for the duration of
-    /// the parallel exec; PG destroys it after `ExecParallelFinish`. The
-    /// leader reads `(*pcxt).nworkers_launched` at exec time to detect
-    /// short worker launches (see #5061 for the long-term plan); the
-    /// raw pointer is the only way to get at that field since the
-    /// CustomScan exec callback doesn't get `ParallelContext` directly.
+    /// The builder handle owning the launched producer workers on the leader-driven launch path
+    /// (see [`crate::postgres::customscan::mpp::launch`]). The leader controls the launch, so it
+    /// owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join the
+    /// workers and destroy the parallel context. `None` on the legacy callback path and until
+    /// `launch` installs it on the success path.
+    pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
+    /// Parallel-context pointer for the legacy PG-callback path (JoinScan), used to read
+    /// `nworkers_launched` for short-launch detection. Null on the leader-driven launch path, where
+    /// `finish` owns the context.
     pub pcxt: *mut pg_sys::ParallelContext,
 }
 
@@ -229,14 +231,16 @@ unsafe fn self_receiver_token() -> u64 {
     pack_receiver(my_pgprocno, my_pid)
 }
 
-/// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
-/// the [`MppMesh`] handle, and serializes the worker plan into DSM.
+/// Initialize the leader's ring mesh in a DSM region and build its [`MppLeaderState`].
+///
+/// Two callers: the legacy `initialize_dsm_custom_scan` (JoinScan), which passes PG's parallel
+/// context, and the leader-driven [`crate::postgres::customscan::mpp::launch`], which passes a
+/// builder-allocated region and a null `pcxt` (the builder `finish` handle owns the context there).
 ///
 /// # Safety
-/// - `coordinate` must be the DSM region pointer PG supplied to
-///   `initialize_dsm_custom_scan`.
+/// - `coordinate` must be the MPP region pointer (PG's coordinate, or a `ParallelState` byte blob).
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
-///   so the leader doesn't overrun the DSM region PG allocated.
+///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     pcxt: *mut pg_sys::ParallelContext,
@@ -287,6 +291,7 @@ pub unsafe fn leader_setup(
         control_senders,
         stage_plans: std::sync::Mutex::new(stage_plans),
         plans_delivered: std::sync::atomic::AtomicBool::new(false),
+        finish: None,
         pcxt,
     })
 }

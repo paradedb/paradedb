@@ -661,8 +661,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 1 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -703,8 +703,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 0 - c.id DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -745,8 +745,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + c.id DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -842,8 +842,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0::bigint DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

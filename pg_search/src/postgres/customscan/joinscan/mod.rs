@@ -587,7 +587,7 @@ impl JoinScan {
 
         if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
             return Err(JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields",
+                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
             ));
         }
 

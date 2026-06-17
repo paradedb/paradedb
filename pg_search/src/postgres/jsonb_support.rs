@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys, AnyNumeric, FromDatum};
+use serde_json::Error as SerdeError;
 use std::str::{FromStr, Utf8Error};
+use thiserror::Error;
 
 // we redefine these functions because we don't want pgrx' per-function FFI wrappers -- we intend
 // to use them, together, in a single FFI wrapper closure
@@ -30,6 +32,14 @@ extern "C-unwind" {
 
 }
 
+#[derive(Error, Debug)]
+pub enum JsonbConversionError {
+    #[error(transparent)]
+    Utf8(#[from] Utf8Error),
+    #[error(transparent)]
+    Serde(#[from] SerdeError),
+}
+
 /// Efficiently convert a raw `jsonb` [`pg_sys::Datum`] given to us by Postgres into a [`serde_json::Value`]
 /// structure.  The provided datum does not need to be detoasted as this function handles it.
 ///
@@ -39,7 +49,7 @@ extern "C-unwind" {
 /// the caller's responsibility.
 pub unsafe fn jsonb_datum_to_serde_json_value(
     datum: pg_sys::Datum,
-) -> Option<Result<serde_json::Value, Utf8Error>> {
+) -> Option<Result<serde_json::Value, JsonbConversionError>> {
     if datum.is_null() {
         return None;
     }
@@ -61,7 +71,7 @@ pub unsafe fn jsonb_datum_to_serde_json_value(
 
 unsafe fn jsonb_iterate(
     iter: &mut *mut pg_sys::JsonbIterator,
-) -> Result<serde_json::Value, Utf8Error> {
+) -> Result<serde_json::Value, JsonbConversionError> {
     let mut jsonb_value = pg_sys::JsonbValue::default();
 
     let mut stack = Vec::new();
@@ -173,7 +183,7 @@ unsafe fn jsonb_iterate(
 
 unsafe fn jsonb_value_to_serde_value(
     value: &pg_sys::JsonbValue,
-) -> Result<serde_json::Value, Utf8Error> {
+) -> Result<serde_json::Value, JsonbConversionError> {
     let value = match value.type_ {
         pg_sys::jbvType::jbvNull => serde_json::Value::Null,
         pg_sys::jbvType::jbvString => {
@@ -197,9 +207,7 @@ unsafe fn jsonb_value_to_serde_value(
             let num = AnyNumeric::from_datum(pg_sys::Datum::from(value.val.numeric), false)
                 .unwrap_unchecked();
             // yucko!  however, this is what Postgres does internally
-            serde_json::Value::Number(
-                serde_json::Number::from_str(num.to_string().as_str()).unwrap(),
-            )
+            serde_json::Value::Number(serde_json::Number::from_str(num.to_string().as_str())?)
         }
         pg_sys::jbvType::jbvBool => serde_json::Value::Bool(value.val.boolean),
         pg_sys::jbvType::jbvArray => {
@@ -212,7 +220,7 @@ unsafe fn jsonb_value_to_serde_value(
             let vec = elems
                 .iter()
                 .map(|value| jsonb_value_to_serde_value(value))
-                .collect::<Result<Vec<_>, Utf8Error>>()?;
+                .collect::<Result<Vec<_>, _>>()?;
             serde_json::Value::Array(vec)
         }
         pg_sys::jbvType::jbvObject => {
@@ -331,5 +339,31 @@ mod tests {
                 prop_assert_eq!(mv, cv, "parsers produced different Values for input: {}", s);
             }
         });
+    }
+
+    /// Regression test for https://github.com/paradedb/paradedb/issues/5217.
+    ///
+    /// `f64::MAX` (`1.7976931348623157e308`) is a valid, finite float, but
+    /// Postgres stores jsonb numbers as `numeric` and `numeric_out` expands it to
+    /// a 309-digit plain-decimal string. serde_json's default float parser
+    /// reconstructs that string via an `f64` multiply that rounds up to infinity,
+    /// so `Number::from_str(...).unwrap()` in `jsonb_value_to_serde_value` errors
+    /// out and panics (which aborts the backend across the FFI boundary during a
+    /// real index build). The value must instead round-trip back to `f64::MAX`.
+    #[pg_test]
+    fn jsonb_f64_max_round_trips() {
+        // Build the Value with `from_f64` (no string parsing), then let Postgres
+        // store it as `numeric` — mirroring how a real row reaches the index. The
+        // crashing path is the conversion *back* out of the jsonb datum.
+        let value = serde_json::json!({"a": {"max": f64::MAX, "min": 0}});
+        let datum = JsonB(value.clone()).into_datum().unwrap();
+
+        let result = unsafe {
+            jsonb_datum_to_serde_json_value(datum)
+                .unwrap()
+                .expect("f64::MAX inside jsonb must round-trip instead of crashing")
+        };
+
+        assert_eq!(result, value);
     }
 }

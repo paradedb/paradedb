@@ -40,7 +40,10 @@ tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
 rustc-hash = "2.1.2"
 serde = "1.0.228"
-serde_json = { version = "1.0.149", features = ["preserve_order"] }
+serde_json = { version = "1.0.149", features = [
+  "preserve_order",
+  "float_roundtrip",
+] }
 serde_cbor = "0.11.2"
 tantivy.workspace = true
 thiserror = "2.0.18"

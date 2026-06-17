@@ -1,0 +1,49 @@
+# workflows/squash-gh-pages.yml
+#
+# Squash gh-pages History
+# Periodically squash the gh-pages branch history into one commit to reclaim
+# historical benchmark packfile bloat.
+
+name: Squash gh-pages History
+
+on:
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: squash-gh-pages
+  cancel-in-progress: false
+
+jobs:
+  squash-gh-pages:
+    name: Squash gh-pages History
+    runs-on: ubuntu-latest
+    if: github.repository == 'paradedb/paradedb'
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          # Only the current tree is needed to re-orphan and squash; fetching the
+          # full (bloated) history would download the very data this job removes.
+          fetch-depth: 1
+
+      - name: Capture gh-pages Base SHA
+        run: echo "GHP_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Squash gh-pages History
+        run: |
+          git checkout --orphan squashed-gh-pages
+          git add -A
+          git commit -m "Squash gh-pages history"
+          git push --force-with-lease=gh-pages:"$GHP_BASE_SHA" origin squashed-gh-pages:gh-pages

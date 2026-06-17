@@ -1732,6 +1732,11 @@ fn validate_topk_expectation(
                  For string columns, use pdb.literal tokenizer"
                 .to_string(),
         ),
+        PathKeyInfo::Unusable(UnusableReason::UnsafeCollation) => (
+            "ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index"
+                .to_string(),
+            "Specify COLLATE \"C\" in your query, or use a byte-ordered collation instead".to_string(),
+        ),
         PathKeyInfo::UsablePrefix(matched) => (
             format!(
                 "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",

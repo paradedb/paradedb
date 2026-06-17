@@ -37,12 +37,11 @@ runs:
       run: |
         POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 
-        # Pre-sampled dataset loaded from S3.
+        # The heap is assumed to already be restored from a snapshot; the benchmark builds the
+        # index and runs queries against it.
         cargo run --release -- benchmark \
           --url "${POSTGRES_URL}" \
-          --size ${{ inputs.size }} \
           --dataset ${{ inputs.dataset }} \
-          --data-source s3://paradedb-ci-benchmarks/datasets/${{ inputs.dataset }}/ \
           --runs 10 \
           --output json \
           --fail-on-error ${{ inputs.fail_on_error }}

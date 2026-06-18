@@ -816,8 +816,9 @@ impl CustomScan for BaseScan {
             };
 
             // Cost harvested from the selectivity open below -- but only the final
-            // `else` branch opens. Every other branch leaves this `None`, so the worker
-            // decision falls back to its own `estimate_query_cost` open as before.
+            // `else` branch opens. It seeds the TopK cost memo (further down) so the worker
+            // decision reuses it; every other branch leaves this `None`, so the worker
+            // decision opens once itself, as before.
             let mut precomputed_topk_cost: Option<u64> = None;
 
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
@@ -910,7 +911,10 @@ impl CustomScan for BaseScan {
             let startup_cost = DEFAULT_STARTUP_COST;
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
-            let mut topk_query_cost_estimate = None;
+            // Seed the cost memo with the cost already computed above (if any), so the worker
+            // decision has a single source of truth: `Some(Some(cost))` = known, `None` = open
+            // once on demand. `Some(None)` would mean an open that failed.
+            let mut topk_query_cost_estimate: Option<Option<u64>> = precomputed_topk_cost.map(Some);
 
             // For each execution method variant, build one CustomPath. Most
             // methods use `compute_nworkers` for worker selection; proven
@@ -975,7 +979,6 @@ impl CustomScan for BaseScan {
                     topk_can_prune,
                     &query,
                     &bm25_index,
-                    precomputed_topk_cost,
                     &mut topk_query_cost_estimate,
                     row_estimate,
                     segment_count,

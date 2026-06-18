@@ -473,7 +473,7 @@ impl SearchQueryInput {
     /// wrappers (FieldedQuery, WithIndex) pass through to the inner query; the score-
     /// modifying / filtering wrappers (Boost, ConstScore, ScoreFilter, HeapFilter) build
     /// their OWN non-pruning weight, so they fall through to false.
-    pub fn is_topk_prunable(&self) -> bool {
+    pub(crate) fn is_topk_prunable(&self) -> bool {
         // A bare single term keeps a SHOULD union collapsing to a prunable TermWeight.
         fn is_bare_term(q: &SearchQueryInput) -> bool {
             matches!(
@@ -530,7 +530,6 @@ impl SearchQueryInput {
                 _ => false,
             },
 
-            // Transparent wrapper: the final weight is the inner query's.
             SearchQueryInput::WithIndex { query, .. } => query.is_topk_prunable(),
 
             // Pure SHOULD union that collapses to a single bare term.
@@ -545,7 +544,6 @@ impl SearchQueryInput {
                     && should.iter().all(is_bare_term)
             }
 
-            // A single plain parser term -> TermQuery.
             SearchQueryInput::Parse { query_string, .. } => is_plain_single_term(query_string),
 
             // Everything else -- All, Empty, TermSet, the Boost/ConstScore/ScoreFilter/

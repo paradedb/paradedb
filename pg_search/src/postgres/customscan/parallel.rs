@@ -27,9 +27,6 @@ use pgrx::pg_sys;
 
 use tantivy::index::SegmentId;
 
-/// Cap a worker count to the gather node's limit (`max_parallel_workers_per_gather`)
-/// and the global pool (`max_parallel_workers`). Shared by `compute_nworkers` and
-/// `max_useful_workers`.
 fn clamp_to_gather_limits(nworkers: usize) -> usize {
     unsafe {
         nworkers

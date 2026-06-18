@@ -101,9 +101,11 @@ fn set_default_costs(conn: &mut PgConnection) {
 /// (4M rows, real costs).
 fn set_scaled_costs(conn: &mut PgConnection) {
     set_default_costs(conn);
+    // The TopK work term is `Query::cost * cpu_index_tuple_cost`; inflate that per-doc
+    // constant (and lower the Gather floor) to reach the parallel branch on a small fixture.
     r#"
     SET parallel_setup_cost = 100;
-    SET cpu_operator_cost = 0.05;
+    SET cpu_index_tuple_cost = 0.05;
     "#
     .execute(conn);
 }

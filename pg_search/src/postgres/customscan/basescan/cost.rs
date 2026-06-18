@@ -125,12 +125,15 @@ pub(super) unsafe fn topk_can_prune_for_method(
     }
 }
 
-/// Worker decision for a *non-prunable, score-DESC* ordered TopK (the caller routes
-/// fast-field sorts to the general path and short-circuits prunable single terms to serial):
-/// parallelize only when the work saved by splitting the scan across workers beats
-/// PostgreSQL's fixed Gather overhead (`work/divisor + gather_overhead < work`), where `work`
-/// is Tantivy `cost()` scaled by the top-K heap depth -- a model that only holds for score
-/// sorting, which is why fast-field sorts never reach here. Unanalyzed tables stay serial.
+/// Worker decision for a *non-prunable* ordered TopK (the caller short-circuits prunable
+/// single terms, which are always serial): parallelize only when splitting the scan across
+/// workers beats PostgreSQL's fixed Gather overhead (`work/divisor + gather_overhead < work`),
+/// where `work` is Tantivy `DocSet::cost()` -- which tends to rank query shapes by drive
+/// expense (range/phrase carry explicit cost multipliers, a union sums its terms, a bare term
+/// is just its `doc_freq`; the exact order is data-dependent) -- times a per-doc examine
+/// constant. The decision
+/// is cost-vs-overhead, so it responds to the `parallel_*_cost` GUCs. Unanalyzed tables stay
+/// serial; this is the only shape considered, score and fast-field sorts alike.
 ///
 /// # Safety
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
@@ -160,13 +163,12 @@ unsafe fn decide_nonprunable_topk_workers(
     };
 
     // An unanalyzed table has no trustworthy match count, so stay serial rather
-    // than guess (matches the pre-existing unanalyzed-TopK behavior).
+    // than guess.
     let matches = match row_estimate {
         RowEstimate::Known(rows) => rows as f64,
         RowEstimate::Unknown => return WorkerDecision::Serial,
     };
 
-    // Zero estimated matches: nothing to split -> serial.
     if matches < 1.0 {
         return WorkerDecision::Serial;
     }
@@ -178,15 +180,17 @@ unsafe fn decide_nonprunable_topk_workers(
         None => matches,
     };
 
-    // Per-match work scales with the top-K heap depth: each scored doc is compared
-    // against a heap of size `min(LIMIT, matches)` (= `base_result_rows`), i.e.
-    // ~log2(K) comparisons, and that work divides across parallel workers. A flat
-    // constant here ignored the heap and under-counted the divisible work that
-    // dominates at large LIMIT (see the union-at-L100k regression analysis).
-    let comparison_cost = base_result_rows.log2().max(1.0) * pg_sys::cpu_operator_cost;
-    let work = work_units * comparison_cost;
+    // Work = the query's drive cost (`Query::cost`, `work_units`) times the cost to examine one
+    // docset entry. This basis has no top-K heap-depth (LIMIT) factor: a non-prunable TopK
+    // examines every matching doc once (the heap only touches the few that beat the running
+    // threshold). Folding a `log2(LIMIT)` factor back in is the open question for the
+    // large-LIMIT union cases (see the serial-vs-parallel sweep).
+    //
+    // `cpu_index_tuple_cost` ("process one index entry") is the per-entry unit. With it the
+    // cost-vs-overhead test below crosses into parallel once the divisible work clears the Gather
+    // setup cost: at default GUCs, roughly `matches * cpu_index_tuple_cost > parallel_setup_cost`.
+    let work = work_units * pg_sys::cpu_index_tuple_cost;
 
-    // Parallelize only when dividing the work beats PostgreSQL's Gather overhead.
     let divisor = candidate.divisor(parallel_leader_participates);
     const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
     let gather_overhead = pg_sys::parallel_setup_cost
@@ -198,16 +202,11 @@ unsafe fn decide_nonprunable_topk_workers(
     }
 }
 
-/// Final worker decision for a method: `general` (the established heuristic), which only
-/// **score-DESC** ordered TopK overrides via the query-cost threshold. A prunable
-/// single-term score TopK is always serial -- Block-WAND keeps serial scoring cheap, so it
-/// needs no cost() estimate and the reader open is skipped. Non-prunable score shapes
-/// (unions, phrases, ranges) weigh Tantivy's cost() against gather overhead.
-///
-/// Fast-field-sorted TopK keeps `general`: its work is the ORDER-BY column read, which is
-/// not in `DocSet::cost()` and which Tantivy exposes no per-doc cost for, so the query-cost
-/// model has no sound basis for it -- `compute_nworkers` (which parallelizes sorted scans by
-/// segment count) is the proven decision there.
+/// Final worker decision for a method: `general` (the established heuristic), except an
+/// ordered TopK overrides it via the query-cost threshold. A prunable single-term score-DESC
+/// TopK is always serial -- Block-WAND keeps serial scoring cheap, so it needs no cost()
+/// estimate and the reader open is skipped. Non-prunable shapes (unions, phrases, ranges)
+/// weigh Tantivy's cost() against gather overhead.
 ///
 /// `topk_query_cost_estimate` memoizes the cost across a query's methods: outer
 /// `None` = not yet computed; inner `Option<u64>` = the estimate (`None` = couldn't).
@@ -220,7 +219,6 @@ pub(super) unsafe fn decide_method_workers(
     topk_can_prune: TopKCostability,
     query: &SearchQueryInput,
     bm25_index: &PgSearchRelation,
-    precomputed_topk_cost: Option<u64>,
     topk_query_cost_estimate: &mut Option<Option<u64>>,
     row_estimate: RowEstimate,
     segment_count: usize,
@@ -234,31 +232,20 @@ pub(super) unsafe fn decide_method_workers(
         return general;
     };
 
-    // The query-cost model only has a sound basis for score-DESC TopK (see the doc above).
-    // A fast-field sort keeps the proven `compute_nworkers` decision rather than being
-    // mis-costed to serial.
-    if !score_desc {
-        return general;
-    }
-
-    if query.is_topk_prunable() {
+    if score_desc && query.is_topk_prunable() {
         return WorkerDecision::Serial;
     }
 
     // Lazy on purpose: reached only past the prunable short-circuit above, so a prunable
-    // single-term TopK never opens. `precomputed_topk_cost` is `Some` when create_custom_path's
-    // selectivity `else` branch already opened (multi-clause) and passed the cost down -- reuse
-    // it; otherwise (single-clause `norm_selec`) open once here, memoized per query.
-    let query_cost_estimate = if precomputed_topk_cost.is_some() {
-        precomputed_topk_cost
-    } else {
-        match *topk_query_cost_estimate {
-            Some(estimate) => estimate,
-            None => {
-                let estimate = estimate_query_cost(bm25_index, query.clone());
-                *topk_query_cost_estimate = Some(estimate);
-                estimate
-            }
+    // single-term TopK never opens. The memo is pre-seeded by create_custom_path when its
+    // selectivity `else` branch already opened and computed the cost; otherwise it is `None`
+    // here and we open once, memoized across the query's methods.
+    let query_cost_estimate = match *topk_query_cost_estimate {
+        Some(estimate) => estimate,
+        None => {
+            let estimate = estimate_query_cost(bm25_index, query.clone());
+            *topk_query_cost_estimate = Some(estimate);
+            estimate
         }
     };
 

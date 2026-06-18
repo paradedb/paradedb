@@ -348,7 +348,9 @@ fn open_and_estimate_docs(
 /// `estimate_query_cost` back-to-back.
 ///
 /// Returns `(selectivity, query_cost)`:
-/// - expensive-to-estimate query (#4172): `(heuristic, None)` -- no open;
+/// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
+///   -- no open; the cost is the heuristic match estimate scaled by
+///   `EXPENSIVE_QUERY_COST_FACTOR` (`None` only when the row count is unknown);
 /// - empty index / no valid total: `(None, Some(0))` -- the cost is a known 0;
 /// - open failure: `(None, None)`.
 pub(crate) fn estimate_selectivity_and_cost(
@@ -356,7 +358,17 @@ pub(crate) fn estimate_selectivity_and_cost(
     search_query_input: SearchQueryInput,
 ) -> (Option<f64>, Option<u64>) {
     if estimate_heuristically(&search_query_input) {
-        return (Some(search_query_input.selectivity_heuristic()), None);
+        // #4172 skips opening the index, so derive the work estimate from the same
+        // heuristic: these shapes drive far more docset work than they match, so scale the
+        // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
+        let selectivity = search_query_input.selectivity_heuristic();
+        let cost = indexrel
+            .heap_relation()
+            .and_then(|heap| heap.reltuples())
+            .map(|reltuples| {
+                (selectivity * reltuples as f64 * crate::gucs::expensive_query_cost_factor()) as u64
+            });
+        return (Some(selectivity), cost);
     }
 
     let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input) else {

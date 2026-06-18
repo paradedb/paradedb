@@ -914,7 +914,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
 ORDER BY p.id
 LIMIT 50;
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_2" }, valid_fields: [Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }, Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }] }, Some(""))
+ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "" }, valid_fields: [Column { relation: None, name: "col_1" }, Column { relation: None, name: "col_2" }, Column { relation: None, name: "ctid_0" }, Column { relation: None, name: "ctid_1" }, Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }] }, Some(""))
 SELECT DISTINCT p.id, p.name
 FROM persons p
 JOIN jobs j ON j.person_id = p.id
@@ -927,7 +927,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
 ORDER BY p.id
 LIMIT 50;
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_2" }, valid_fields: [Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }, Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }] }, Some(""))
+ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "" }, valid_fields: [Column { relation: None, name: "col_1" }, Column { relation: None, name: "col_2" }, Column { relation: None, name: "ctid_0" }, Column { relation: None, name: "ctid_1" }, Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }] }, Some(""))
 SET paradedb.enable_join_custom_scan = off;
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.id, p.name
@@ -1024,7 +1024,28 @@ WHERE deleted_at IS NULL
 ORDER BY profile_id
 LIMIT 50;
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_1" }, valid_fields: [Column { relation: Some(Bare { table: "pp_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "pp_0" }), name: "profile_id" }] }, Some(""))
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Custom Scan (ParadeDB Join Scan)
+               Relation Tree: pp ANTI pp2
+               Join Cond: pp2.profile_id = pp.profile_id
+               Join Predicate: heap:{CONST :consttype 16 :consttypmod -1 :constcollid 0 :constlen 1 :constbyval true :constisnull false :location -1 :constvalue 1 [ 1 0 0 0 0 0 0 0 ]}
+               Limit: 50
+               Distinct: true
+               Order By: pp.profile_id asc
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[profile_id@1 as col_1], aggr=[ctid_0]
+                 :     VisibilityFilterExec: tables=[pp]
+                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(18 rows)
+
 SELECT DISTINCT profile_id
 FROM profiles_positions pp
 WHERE deleted_at IS NULL
@@ -1041,7 +1062,11 @@ WHERE deleted_at IS NULL
 ORDER BY profile_id
 LIMIT 50;
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_1" }, valid_fields: [Column { relation: Some(Bare { table: "pp_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "pp_0" }), name: "profile_id" }] }, Some(""))
+ profile_id 
+------------
+          1
+(1 row)
+
 SET paradedb.enable_join_custom_scan = off;
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT profile_id

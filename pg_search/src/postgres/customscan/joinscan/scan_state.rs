@@ -759,14 +759,28 @@ fn apply_distinct_group_by(
         }
     }
 
+    // Postgres needs the ctids to fetch the actual tuples after DataFusion
+    // completes. Since GROUP BY collapses multiple rows into one, we use
+    // min(ctid) to arbitrarily select one representative tuple for the group.
+    //
+    // Note that we must filter out any ctids that no longer exist in the schema.
+    // In operations like SEMI JOIN or ANTI JOIN, the inner table's columns
+    // (including its ctid) are discarded from the output frame once the join
+    // condition is evaluated. Attempting to aggregate them would result in a
+    // DataFusion SchemaError.
+    let schema = df.schema();
     let agg_exprs: Vec<Expr> = ctid_map
         .values()
-        .map(|expr| {
+        .filter_map(|expr| {
             let ctid_name = match expr {
                 Expr::Column(col) => col.name.clone(),
                 _ => unreachable!("ctid_map always contains Column expressions"),
             };
-            min(expr.clone()).alias(&ctid_name)
+            if schema.field_with_unqualified_name(&ctid_name).is_ok() {
+                Some(min(expr.clone()).alias(&ctid_name))
+            } else {
+                None
+            }
         })
         .collect();
 

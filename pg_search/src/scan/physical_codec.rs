@@ -70,6 +70,7 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
     /// `SearchPredicateUDF` on decode, same as the logical codec.
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 
 // Same justification as the logical `PgSearchExtensionCodec`: Postgres extensions run
@@ -94,6 +95,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 payload,
                 self.parallel_state,
                 &self.non_partitioning_segment_ids,
+                self.expr_context,
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
             // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
@@ -360,11 +362,13 @@ pub fn deserialize_physical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
         non_partitioning_segment_ids,
         index_segment_ids,
+        expr_context,
     });
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))

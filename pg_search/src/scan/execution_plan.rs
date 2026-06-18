@@ -372,7 +372,8 @@ impl PgSearchScanPlan {
         buf: &[u8],
         parallel_state: Option<*mut ParallelScanState>,
         non_partitioning_segment_ids: &[HashSet<SegmentId>],
-    ) -> Result<Arc<dyn ExecutionPlan>> {
+        expr_context: Option<*mut pg_sys::ExprContext>,
+    ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
         })?;
@@ -427,8 +428,10 @@ impl PgSearchScanPlan {
             query.clone(),
             descriptor.score_needed,
             mvcc,
-            None, // expr_context: the query ships pre-solved
-            None, // planstate: same
+            expr_context.and_then(std::ptr::NonNull::new),
+            // The worker lacks a Postgres PlanState tree. This is safe because ExecInitExpr
+            // accepts null_mut() for expressions that do not reference external plan contexts.
+            None,
             needs_tokenizer,
         )
         .map_err(|e| {

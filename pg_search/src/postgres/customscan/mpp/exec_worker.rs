@@ -282,6 +282,7 @@ pub(crate) fn run_mpp_worker(
     };
     let decode_ctx = session.task_ctx();
     let mut plans = Vec::with_capacity(frames.len());
+    let expr_context_guard = crate::postgres::utils::ExprContextGuard::new();
     for (fragment, frame) in fragments.iter().zip(frames) {
         let Some(set_plan) = frame.set_plan else {
             pgrx::error!(
@@ -296,6 +297,7 @@ pub(crate) fn run_mpp_worker(
             parallel_state,
             non_partitioning_segments.to_vec(),
             index_segment_ids.to_vec(),
+            Some(expr_context_guard.as_ptr()),
         ) {
             Ok(plan) => plans.push(plan),
             Err(e) => pgrx::error!(

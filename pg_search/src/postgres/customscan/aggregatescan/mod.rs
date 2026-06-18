@@ -79,10 +79,6 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::{
-    estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
-    reinitialize_dsm_custom_scan, ParallelQueryCapable,
-};
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
     shutdown_custom_scan,
@@ -185,10 +181,12 @@ impl CustomScan for AggregateScan {
             ReScanCustomScan: Some(rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
-            InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
-            ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
-            InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
+            // No PG parallel callbacks: MPP launches its own workers via `mpp::launch`, and the
+            // aggregate node has no non-MPP parallel mode, so it never runs under a Gather.
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
             ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
             ExplainCustomScan: Some(explain_custom_scan::<Self>),
         }
@@ -689,40 +687,6 @@ impl CustomScan for AggregateScan {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
         }
-    }
-}
-
-impl ParallelQueryCapable for AggregateScan {
-    // MPP no longer rides PG's CustomScan-parallel callbacks. The leader launches its own producer
-    // workers from `exec_custom_scan` via `mpp::launch`, so these four callbacks are inert:
-    // AggregateScan has no non-MPP parallel mode, and the MPP node is not parallel-aware, so PG
-    // never drives them.
-    fn estimate_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-    ) -> pg_sys::Size {
-        0
-    }
-
-    fn initialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
-    ) {
-    }
-
-    fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
-    ) {
-    }
-
-    fn initialize_worker_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _toc: *mut pg_sys::shm_toc,
-        _coordinate: *mut std::os::raw::c_void,
-    ) {
     }
 }
 

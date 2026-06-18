@@ -1201,32 +1201,19 @@ impl SearchIndexReader {
             cost = cost.max(count as u64);
         }
 
-        match total_docs {
-            RowEstimate::Known(total_docs) if total_docs > 0 => {
-                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
-                let matching =
-                    scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
-                let query_cost = scale_largest_segment_estimate(cost, segment_doc_proportion);
-                DocsEstimate {
-                    matching_docs: matching,
-                    total_docs,
-                    query_cost,
-                }
-            }
-            _ => {
-                // If total docs is unknown or 0, we can't use proportion of heap.
-                // Instead, we scale by the total number of docs in the index.
-                let total_docs = self.total_docs();
-                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
-                let matching =
-                    scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
-                let query_cost = scale_largest_segment_estimate(cost, segment_doc_proportion);
-                DocsEstimate {
-                    matching_docs: matching,
-                    total_docs,
-                    query_cost,
-                }
-            }
+        // When the caller's total is unknown or 0 we can't use the heap
+        // proportion, so fall back to the index's own doc count. Either way the
+        // largest segment is then scaled up to that total.
+        let total_docs = match total_docs {
+            RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
+            _ => self.total_docs(),
+        };
+        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+        DocsEstimate {
+            matching_docs: scale_largest_segment_estimate(count as u64, segment_doc_proportion)
+                as usize,
+            total_docs,
+            query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
         }
     }
 

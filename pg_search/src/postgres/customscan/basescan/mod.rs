@@ -16,18 +16,23 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
+mod cost;
 pub mod exec_methods;
 pub mod parallel;
 pub(crate) mod privdat;
 pub mod projections;
 mod scan_state;
 
+use cost::{
+    cost_general_path, decide_method_workers, topk_can_prune_for_method, GeneralPathCostParams,
+};
+
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{estimate_query_cost, estimate_selectivity};
+use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{Cardinality, HashMap, HashSet, Varno};
 use crate::gucs;
@@ -92,245 +97,6 @@ use tantivy::Index;
 
 #[derive(Default)]
 pub struct BaseScan;
-
-#[derive(Clone, Copy)]
-enum WorkerDecision {
-    Serial,
-    Parallel { nworkers: NonZeroUsize },
-}
-
-struct PathCostBasis {
-    worker_decision: WorkerDecision,
-    parallelizable_cost: f64,
-    total_cost_multiplier: f64,
-}
-
-impl WorkerDecision {
-    fn from_worker_count(nworkers: usize) -> Self {
-        NonZeroUsize::new(nworkers)
-            .map(|nworkers| Self::Parallel { nworkers })
-            .unwrap_or(Self::Serial)
-    }
-
-    /// Effective worker count for dividing scan work. The leader is counted as a
-    /// full additional worker when `leader_participates` is true. We do not use
-    /// PostgreSQL's discounted leader formula (`1 - 0.3 * nworkers`) because the
-    /// bounded TopK cost path and the general path share the same divisor, and
-    /// uniform full-credit accounting keeps the two cost helpers comparable
-    /// across query shapes.
-    fn divisor(self, leader_participates: bool) -> f64 {
-        let Self::Parallel { nworkers } = self else {
-            return 1.0;
-        };
-        let nworkers = nworkers.get();
-        if leader_participates {
-            (nworkers + 1) as f64
-        } else {
-            nworkers as f64
-        }
-    }
-
-    fn nworkers(self) -> Option<NonZeroUsize> {
-        match self {
-            Self::Serial => None,
-            Self::Parallel { nworkers } => Some(nworkers),
-        }
-    }
-}
-
-/// # Safety
-///
-/// `root` must point to a valid `PlannerInfo` for the duration of this call.
-/// This is a planner-only helper and must not be called from execution.
-/// Returns `Some(can_prune)` when this method is an ordered TopK whose worker
-/// count should be chosen by the query-expense cost model (rather than the
-/// general worker-selection heuristic).
-///
-/// `can_prune` is true when the ORDER BY is exactly `score DESC` — the one case
-/// where Block-WAND can make a single posting list sublinear. The per-query-type
-/// expense model (`SearchQueryInput::expense`) then decides whether that pruning
-/// actually applies for the given query shape. Both are derived purely from the
-/// method + ORDER BY + `SearchQueryInput`, so no reader is opened at plan time.
-/// Whether an ordered TopK can be costed by the query-cost worker model, and if
-/// so whether its ORDER BY is the Block-WAND-prunable shape.
-enum TopkCostability {
-    /// Not a costable ordered TopK (window aggregates, parameterized LIMIT,
-    /// runtime quals, or not a TopK) -- fall back to the general worker heuristic.
-    GeneralPath,
-    /// Costable ordered TopK. `score_desc` is true for ORDER BY score DESC, the
-    /// one shape Block-WAND prunes to sublinear work.
-    Costable { score_desc: bool },
-}
-
-unsafe fn topk_can_prune_for_method(
-    method: &ExecMethodType,
-    root: *mut pg_sys::PlannerInfo,
-    quals: &Qual,
-) -> TopkCostability {
-    let ExecMethodType::TopK {
-        orderby_info: Some(orderby_info),
-        window_aggregates,
-        limit_offset,
-        ..
-    } = method
-    else {
-        return TopkCostability::GeneralPath;
-    };
-
-    if !window_aggregates.is_empty() || limit_offset.has_any_param() {
-        return TopkCostability::GeneralPath;
-    }
-
-    // `window_aggregates` is still empty here because placeholders are
-    // deserialized later in `plan_custom_path`, so inspect the target list
-    // recursively before costing. This relies on the planner hook replacing
-    // WindowFunc nodes with window_agg() placeholders before relation paths
-    // are created.
-    if query_has_window_agg_functions(root) {
-        return TopkCostability::GeneralPath;
-    }
-
-    // Runtime-dependent quals can't be costed at plan time; use the general path.
-    if quals.contains_exprs() || quals.contains_external_var() {
-        return TopkCostability::GeneralPath;
-    }
-
-    TopkCostability::Costable {
-        score_desc: SearchIndexReader::orderby_uses_score_desc_topk_collector(orderby_info),
-    }
-}
-
-/// Worker decision for a *non-prunable* ordered TopK (the caller short-circuits prunable
-/// single terms, which are always serial): parallelize only when the work saved by
-/// splitting the scan across workers beats PostgreSQL's fixed Gather overhead
-/// (`work/divisor + gather_overhead < work`), where `work` is Tantivy `cost()` scaled by
-/// the top-K heap depth. Unanalyzed tables stay serial.
-///
-/// # Safety
-/// `root` must point to a valid `PlannerInfo` for the duration of this call.
-#[allow(clippy::too_many_arguments)]
-unsafe fn decide_topk_workers(
-    row_estimate: RowEstimate,
-    query_cost_estimate: RowEstimate,
-    segment_count: usize,
-    base_result_rows: f64,
-    consider_parallel: bool,
-    quals: &Qual,
-    root: *mut pg_sys::PlannerInfo,
-    parallel_leader_participates: bool,
-) -> WorkerDecision {
-    let max_workers = if consider_parallel {
-        max_useful_workers(
-            segment_count,
-            quals.contains_external_var(),
-            quals.contains_correlated_param(root),
-        )
-    } else {
-        0
-    };
-    let candidate = WorkerDecision::from_worker_count(max_workers);
-    let WorkerDecision::Parallel { .. } = candidate else {
-        return WorkerDecision::Serial;
-    };
-
-    // An unanalyzed table has no trustworthy match count, so stay serial rather
-    // than guess (matches the pre-existing unanalyzed-TopK behavior).
-    let matches = match row_estimate {
-        RowEstimate::Known(rows) => rows as f64,
-        RowEstimate::Unknown => return WorkerDecision::Serial,
-    };
-
-    // Zero estimated matches: nothing to split -> serial.
-    if matches < 1.0 {
-        return WorkerDecision::Serial;
-    }
-
-    let work_units = match query_cost_estimate {
-        RowEstimate::Known(cost) => cost as f64,
-        // No Tantivy cost (empty/un-openable index): fall back to the raw match
-        // estimate. Only fires when matches ~ 0 anyway.
-        RowEstimate::Unknown => matches,
-    };
-
-    // Per-match work scales with the top-K heap depth: each scored doc is compared
-    // against a heap of size `min(LIMIT, matches)` (= `base_result_rows`), i.e.
-    // ~log2(K) comparisons, and that work divides across parallel workers. A flat
-    // constant here ignored the heap and under-counted the divisible work that
-    // dominates at large LIMIT (see the union-at-L100k regression analysis).
-    let comparison_cost = base_result_rows.log2().max(1.0) * pg_sys::cpu_operator_cost;
-    let work = work_units * comparison_cost;
-
-    // Parallelize only when dividing the work beats PostgreSQL's Gather overhead.
-    let divisor = candidate.divisor(parallel_leader_participates);
-    const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
-    let gather_overhead = pg_sys::parallel_setup_cost
-        + pg_sys::parallel_tuple_cost * base_result_rows * GATHER_MERGE_IPC_FACTOR;
-    if work / divisor + gather_overhead < work {
-        candidate
-    } else {
-        WorkerDecision::Serial
-    }
-}
-
-struct GeneralPathCostParams<'a> {
-    method: &'a ExecMethodType,
-    is_sorted: bool,
-    float_limit: Option<Cardinality>,
-    row_estimate: RowEstimate,
-    segment_count: usize,
-    per_tuple_cost: f64,
-    base_result_rows: f64,
-    consider_parallel: bool,
-    quals: &'a Qual,
-    root: *mut pg_sys::PlannerInfo,
-    is_join_context: bool,
-}
-
-/// # Safety
-///
-/// `params.root` must point to a valid `PlannerInfo` for the duration of this
-/// call. This is a planner-only helper and reads PostgreSQL planner cost GUCs.
-unsafe fn cost_general_path(params: GeneralPathCostParams<'_>) -> PathCostBasis {
-    let GeneralPathCostParams {
-        method,
-        is_sorted,
-        float_limit,
-        row_estimate,
-        segment_count,
-        per_tuple_cost,
-        base_result_rows,
-        consider_parallel,
-        quals,
-        root,
-        is_join_context,
-    } = params;
-
-    let nworkers = if consider_parallel {
-        compute_nworkers(
-            is_sorted,
-            float_limit,
-            row_estimate,
-            segment_count,
-            quals.contains_external_var(),
-            quals.contains_correlated_param(root),
-            is_join_context,
-        )
-    } else {
-        0
-    };
-
-    let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge() {
-        1.01
-    } else {
-        1.0
-    };
-
-    PathCostBasis {
-        worker_decision: WorkerDecision::from_worker_count(nworkers),
-        parallelizable_cost: base_result_rows * per_tuple_cost,
-        total_cost_multiplier,
-    }
-}
 
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
@@ -614,7 +380,7 @@ impl BaseScan {
 /// entry itself is pdb.agg(), the planner hook did not replace it (e.g. not a
 /// TopK query), and we reject it. Recursive detection is only for window_agg()
 /// placeholders because plan_custom_path deserializes those recursively later.
-unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
+pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
 
@@ -1049,6 +815,11 @@ impl CustomScan for BaseScan {
                 UNASSIGNED_SELECTIVITY
             };
 
+            // Cost harvested from the selectivity open below -- but only the final
+            // `else` branch opens. Every other branch leaves this `None`, so the worker
+            // decision falls back to its own `estimate_query_cost` open as before.
+            let mut precomputed_topk_cost: Option<u64> = None;
+
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
@@ -1060,8 +831,11 @@ impl CustomScan for BaseScan {
                 // if the query has expressions then it's parameterized and we have to guess something
                 PARAMETERIZED_SELECTIVITY
             } else {
-                // ask the index
-                estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
+                // Ask the index. This is the one branch that opens, so reuse that same
+                // open's cost for the TopK worker decision instead of opening twice.
+                let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
+                precomputed_topk_cost = cost;
+                sel.unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
             // Use planning_estimate for costing so parameterized limits still
@@ -1162,6 +936,7 @@ impl CustomScan for BaseScan {
                     *builder.args(),
                 );
 
+                // we must use this path if we need to do const projections for scores or snippets
                 path_builder = path_builder.set_force_path(
                     maybe_needs_const_projections
                         || matches!(method, ExecMethodType::TopK { .. })
@@ -1172,21 +947,17 @@ impl CustomScan for BaseScan {
                 method_private.set_exec_method_type(method.clone());
                 method_private.set_use_sorted_path(is_sorted);
 
+                // Our BaseScan is always parallel-safe (can run in a worker),
+                // even if it's not parallel-aware (splitting segments).
                 if consider_parallel_local {
                     path_builder = path_builder.set_parallel_safe(true);
                 }
 
-                // Decide worker count and path cost. The path cost comes from
-                // the general estimator for every method; everything but
-                // ordered TopK (columnar, normal, unordered) also takes its
-                // worker count from the established heuristic. For ordered TopK
-                // we then override only the worker decision with the query-cost
-                // threshold: parallelize only when estimated scoring work
-                // outweighs the fixed cost of starting workers. A Block-WAND-
-                // pruned single term has ~0 collector work -> serial; expensive
-                // docsets such as unions, phrases, and large ranges can exceed
-                // the threshold -> parallel.
-                let mut cost_basis = cost_general_path(GeneralPathCostParams {
+                // The path cost basis comes from the general estimator for every
+                // method. The worker decision defaults to the general heuristic, but
+                // an ordered TopK overrides it via the query-cost threshold (see
+                // `decide_method_workers`).
+                let cost_basis = cost_general_path(GeneralPathCostParams {
                     method: &method,
                     is_sorted,
                     float_limit,
@@ -1199,47 +970,29 @@ impl CustomScan for BaseScan {
                     root: builder.args().root,
                     is_join_context,
                 });
-                if let TopkCostability::Costable { score_desc } = topk_can_prune {
-                    // A prunable single-term score-DESC TopK is always serial (Block-WAND
-                    // keeps serial scoring cheap), so it needs no cost() estimate -- skip the
-                    // reader open entirely for the common single-term case. Only non-prunable
-                    // shapes (unions, phrases, ranges) need Tantivy's cost() to weigh
-                    // parallelism.
-                    if query.is_topk_prunable(score_desc) {
-                        cost_basis.worker_decision = WorkerDecision::Serial;
-                    } else {
-                        let query_cost_estimate = match topk_query_cost_estimate {
-                            Some(estimate) => estimate,
-                            None => {
-                                let estimate = estimate_query_cost(&bm25_index, query.clone())
-                                    .unwrap_or(RowEstimate::Unknown);
-                                topk_query_cost_estimate = Some(estimate);
-                                estimate
-                            }
-                        };
+                let worker_decision = decide_method_workers(
+                    cost_basis.worker_decision,
+                    topk_can_prune,
+                    &query,
+                    &bm25_index,
+                    precomputed_topk_cost,
+                    &mut topk_query_cost_estimate,
+                    row_estimate,
+                    segment_count,
+                    base_result_rows,
+                    consider_parallel_local,
+                    &quals,
+                    builder.args().root,
+                    parallel_leader_participates,
+                );
 
-                        cost_basis.worker_decision = decide_topk_workers(
-                            row_estimate,
-                            query_cost_estimate,
-                            segment_count,
-                            base_result_rows,
-                            consider_parallel_local,
-                            &quals,
-                            builder.args().root,
-                            parallel_leader_participates,
-                        );
-                    }
-                }
-
-                let scan_work_divisor = cost_basis
-                    .worker_decision
-                    .divisor(parallel_leader_participates);
+                let scan_work_divisor = worker_decision.divisor(parallel_leader_participates);
                 let method_result_rows = base_result_rows / scan_work_divisor;
                 let total_cost = (startup_cost
                     + cost_basis.parallelizable_cost / scan_work_divisor)
                     * cost_basis.total_cost_multiplier;
 
-                if let Some(nworkers) = cost_basis.worker_decision.nworkers() {
+                if let Some(nworkers) = worker_decision.nworkers() {
                     path_builder = path_builder.set_parallel(nworkers.get());
                 }
 

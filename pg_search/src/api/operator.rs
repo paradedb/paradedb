@@ -34,7 +34,7 @@ use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
@@ -307,80 +307,30 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     }
 }
 
-pub(crate) fn estimate_selectivity(
-    indexrel: &PgSearchRelation,
-    search_query_input: SearchQueryInput,
-) -> Option<f64> {
-    // For queries where scorer construction is expensive (fuzzy, regex, range),
-    // return a heuristic selectivity without opening the index.
-    if crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
-    {
-        return Some(search_query_input.selectivity_heuristic());
-    }
-
-    let heap_rel = indexrel
-        .heap_relation()
-        .expect("indexrel should be an index");
-    let reltuples = heap_rel.reltuples().map(|r| r as f64);
-
-    let row_estimate = RowEstimate::from_reltuples(reltuples);
-
-    let search_reader = SearchIndexReader::open(
-        indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::LargestSegment,
-    )
-    .expect("estimate_selectivity: should be able to open a SearchIndexReader");
-
-    // We estimate both the number of matching docs and the total number of docs.
-    // If reltuples is Known, total_rows will match it. If Unknown, total_rows
-    // will be estimated from the index (by scaling the largest segment).
-    let estimate = search_reader.estimate_docs(row_estimate);
-    let total_rows = estimate.total_docs as f64;
-
-    if total_rows <= 0.0 {
-        // We still don't have a valid total count (e.g. index is empty), so we can't
-        // estimate selectivity.
-        return None;
-    }
-
-    let mut selectivity = estimate.matching_docs as f64 / total_rows;
-    if selectivity > 1.0 {
-        selectivity = 1.0;
-    }
-
-    Some(selectivity)
+/// #4172: for queries whose scorer is expensive to build (fuzzy, regex, range),
+/// estimate heuristically rather than opening the index. Both selectivity and the
+/// TopK worker decision honor this so neither pays full scorer construction at
+/// plan time.
+fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
+    crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
 }
 
-/// Tantivy's `DocSet::cost()` for the query, used by the score-DESC TopK worker
-/// decision (`decide_topk_workers`) during path generation.
+/// Open a single-segment (`LargestSegment`) reader and estimate matching docs,
+/// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
+/// source for both `estimate_selectivity` and `estimate_query_cost`.
 ///
-/// NOTE: this opens a `LargestSegment` reader even though the planner's
-/// restriction-selectivity phase already opened one for the same index+query and
-/// computed this exact value -- `estimate_docs` returns `query_cost` right next to
-/// the `size_hint` that feeds selectivity. We re-open because there is no way to
-/// carry the cost forward: PostgreSQL's `oprrest` API accepts only the selectivity
-/// `f64`, which Postgres caches on `RestrictInfo.norm_selec`. `matches` rides that
-/// carrier into path generation; `cost()` has no equivalent slot. Avoiding the
-/// second open would require our own per-plan side channel (a cost cache keyed by
-/// index+query, cleared once per planner run) -- see @jamessewell's review on
-/// paradedb#5150. Until then this is one extra cheap single-segment scan per
-/// planned TopK.
-pub(crate) fn estimate_query_cost(
+/// Returns `None` if the reader can't be opened (e.g. a transient/concurrent-DDL
+/// failure); callers degrade gracefully rather than crash planning. The same open
+/// would also fail in the executor, so `None` here doesn't mask a real problem.
+fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
-) -> Option<RowEstimate> {
+) -> Option<DocsEstimate> {
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
     let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
-    // Best-effort: cost is only a worker-decision optimization input (the caller
-    // falls back to RowEstimate::Unknown -> general path). A failed open here would
-    // also fail in the executor, which opens the same reader to run the scan, so
-    // degrading to None doesn't hide a real problem -- it just avoids crashing
-    // planning over a transient/concurrent-DDL open failure.
     let search_reader = SearchIndexReader::open(
         indexrel,
         search_query_input,
@@ -389,12 +339,52 @@ pub(crate) fn estimate_query_cost(
     )
     .ok()?;
 
-    let estimate = search_reader.estimate_docs(row_estimate);
-    if estimate.total_docs == 0 {
-        return None;
+    Some(search_reader.estimate_docs(row_estimate))
+}
+
+/// One index open, both planning answers: selectivity (matching/total docs) and the
+/// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
+/// combined query, so it opens once here instead of calling `estimate_selectivity` and
+/// `estimate_query_cost` back-to-back.
+///
+/// Returns `(selectivity, query_cost)`:
+/// - expensive-to-estimate query (#4172): `(heuristic, None)` -- no open;
+/// - empty index / no valid total: `(None, Some(0))` -- the cost is a known 0;
+/// - open failure: `(None, None)`.
+pub(crate) fn estimate_selectivity_and_cost(
+    indexrel: &PgSearchRelation,
+    search_query_input: SearchQueryInput,
+) -> (Option<f64>, Option<u64>) {
+    if estimate_heuristically(&search_query_input) {
+        return (Some(search_query_input.selectivity_heuristic()), None);
     }
 
-    Some(RowEstimate::Known(estimate.query_cost))
+    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input) else {
+        return (None, None);
+    };
+
+    let total_rows = estimate.total_docs as f64;
+    let selectivity =
+        (total_rows > 0.0).then(|| (estimate.matching_docs as f64 / total_rows).min(1.0));
+    (selectivity, Some(estimate.query_cost))
+}
+
+pub(crate) fn estimate_selectivity(
+    indexrel: &PgSearchRelation,
+    search_query_input: SearchQueryInput,
+) -> Option<f64> {
+    estimate_selectivity_and_cost(indexrel, search_query_input).0
+}
+
+/// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
+/// driving the docset takes -- for the score-DESC TopK worker decision
+/// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker
+/// path) for expensive-to-estimate queries (#4172) and when the index can't be opened.
+pub(crate) fn estimate_query_cost(
+    indexrel: &PgSearchRelation,
+    search_query_input: SearchQueryInput,
+) -> Option<u64> {
+    estimate_selectivity_and_cost(indexrel, search_query_input).1
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {

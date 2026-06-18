@@ -31,7 +31,6 @@ use tantivy::index::SegmentId;
 /// and the global pool (`max_parallel_workers`). Shared by `compute_nworkers` and
 /// `max_useful_workers`.
 fn clamp_to_gather_limits(nworkers: usize) -> usize {
-    // SAFETY: reading planner GUC globals during planning (single-threaded backend).
     unsafe {
         nworkers
             .min(pg_sys::max_parallel_workers_per_gather as usize)
@@ -64,19 +63,16 @@ pub fn compute_nworkers(
     // we don't need any workers.
     let mut nworkers = segment_count.saturating_sub(1);
 
-    // Reverts #4457 only: the row-based `min_rows_per_worker` cap applies to sorted
-    // output again (pre-#4457 / #4077 behavior, restoring #3055 protection for sorted
-    // scans). The LIMIT cap KEEPS the sorted exemption introduced by #4101 ("Use
-    // parallel workers for the join scan"): sorted output must scan ALL segments to
-    // produce a correct global order, so "segments needed to reach LIMIT" never
-    // applies to it. #4457 only moved the row cap under the sorted bypass; it did not
-    // touch the LIMIT cap's exemption, so neither does this revert.
+    // For scans with reliable row estimates (RowEstimate::Known) we cap workers two
+    // ways; an Unknown estimate (table not ANALYZEd) caps nothing, since we can't
+    // trust it:
     //
-    // For scans with reliable row estimates (RowEstimate::Known):
-    // 1. Limit-based (UNSORTED only): cap workers to the segments needed to reach LIMIT.
+    // 1. Limit-based (UNSORTED only): cap to the segments needed to reach LIMIT.
+    //    Sorted output must scan every segment to produce a correct global order, so
+    //    it is exempt (#4101).
     // 2. Row-based: cap so each worker processes at least `min_rows_per_worker` rows
-    //    (~300K default). Skipped in join contexts to avoid preventing Parallel Hash Join.
-    // When RowEstimate::Unknown (table not ANALYZEd), we don't cap (can't trust it).
+    //    (~300K default), for both sorted and unsorted output. Skipped in join
+    //    contexts to avoid preventing Parallel Hash Join.
     //
     // See: https://github.com/paradedb/paradedb/issues/3055
     if let RowEstimate::Known(total_rows) = estimated_total_rows {

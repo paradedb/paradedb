@@ -737,87 +737,6 @@ impl pdb::Query {
             _ => crate::UNKNOWN_SELECTIVITY,
         }
     }
-
-    /// Whether a score-DESC TopK over this query collapses to a single posting
-    /// list that the Block-WAND collector can prune to sublinear work — the one
-    /// case where parallelism doesn't pay. Derived purely from the query shape;
-    /// no reader/scorer is constructed.
-    ///
-    /// Everything that returns false has a non-trivial docset whose relative cost
-    /// (phrase > range > union > term) Tantivy's `DocSet::cost()` already weights,
-    /// so the decision uses that runtime cost rather than a static per-shape table.
-    ///
-    /// `can_prune` must be true only when the ORDER BY is score-DESC: that is the
-    /// one case where Block-WAND makes a single posting list sublinear.
-    pub fn is_topk_prunable(&self, can_prune: bool) -> bool {
-        // `is_topk_prunable` must mean "the final Tantivy weight Block-WAND prunes," because
-        // a `true` here skips the cost model and forces serial. In this fork only TermWeight
-        // (a single term) and BooleanWeight (a SHOULD-union) override `for_each_pruning`;
-        // every other weight uses the default full scan. And a union only prunes when sparse
-        // (a dense union has high block-maxes and skips nothing), so it is data-dependent and
-        // belongs in the cost model. Net: only a single bare term is reliably cheap. Term-set,
-        // all, exists, ranges, regex/fuzzy, phrases, and the boost / const-score / score-
-        // filter / heap-filter / score-adjusted wrappers all fall through to DocSet::cost().
-        if !can_prune {
-            return false;
-        }
-        match self {
-            pdb::Query::Term { .. } => true,
-
-            // A Match/MatchArray is a single posting list only when it collapses to one token
-            // with none of the modifiers that expand it into an automaton/union -- fuzzy
-            // (`distance`), `prefix`, or a custom `tokenizer` whose split a whitespace count
-            // can't predict. Otherwise it is cost()-weighted.
-            pdb::Query::Match {
-                value,
-                tokenizer,
-                distance,
-                prefix,
-                ..
-            } => {
-                estimate_term_count(value) <= 1
-                    && distance.is_none()
-                    && *prefix != Some(true)
-                    && tokenizer.is_none()
-            }
-            pdb::Query::MatchArray {
-                tokens,
-                distance,
-                prefix,
-                ..
-            } => tokens.len() <= 1 && distance.is_none() && *prefix != Some(true),
-
-            // Query-parser strings: a single *plain* term parses to a TermQuery; any
-            // metacharacter (wildcard/regex/range/fuzzy/phrase) expands past one posting
-            // list -- see is_plain_single_term. Fuzzy ParseWithField expands via automaton.
-            pdb::Query::Parse { query_string, .. }
-            | pdb::Query::ParseWithField {
-                query_string,
-                fuzzy_data: None,
-                ..
-            } => is_plain_single_term(query_string),
-            pdb::Query::UnclassifiedString { string, .. } => is_plain_single_term(string),
-            pdb::Query::UnclassifiedArray { array, .. } => array.len() <= 1,
-
-            _ => false,
-        }
-    }
-}
-
-/// Cheap whitespace-based term-count estimate (avoids constructing a tokenizer/reader).
-pub fn estimate_term_count(s: &str) -> usize {
-    s.split_whitespace().count().max(1)
-}
-
-/// True when a query-parser string is a single *plain* term: non-empty and composed only
-/// of term characters (alphanumeric or `_`). This allowlist conservatively rejects *every*
-/// Tantivy query metacharacter -- boolean ops (`-` `!` `+`), field (`:`), grouping (`(`
-/// `)`), boost (`^`), escape (`\`), and the wildcard/regex/range/fuzzy/phrase set -- any of
-/// which can turn one whitespace token into a non-single-posting-list query (e.g. `-foo` is
-/// a negation over the whole complement). Flagged strings fall back to the (correct,
-/// slightly costlier) `DocSet::cost()` path.
-pub fn is_plain_single_term(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
 impl InOutFuncs for pdb::Query {
@@ -2354,17 +2273,26 @@ mod tests {
         }
     }
 
+    // Wrap a bare pdb::Query into a SearchQueryInput so the single `is_topk_prunable`
+    // impl (on SearchQueryInput) can evaluate it. The field name is irrelevant to
+    // prunability.
+    fn fielded(query: Query) -> crate::query::SearchQueryInput {
+        crate::query::SearchQueryInput::FieldedQuery {
+            field: crate::api::FieldName::from("field"),
+            query,
+        }
+    }
+
     #[pg_test]
-    fn topk_prunable_only_for_single_posting_list_under_score_desc() {
-        // A 1-token match is a single posting list: Block-WAND prunes it under
-        // score-DESC, but not under score-ASC / field sort.
-        assert!(match_query("help").is_topk_prunable(true));
-        assert!(!match_query("help").is_topk_prunable(false));
+    fn topk_prunable_only_for_single_posting_list() {
+        // A 1-token match is a single posting list: Block-WAND prunes it. (Score-ASC /
+        // field-sort gating is the caller's responsibility, not this method's.)
+        assert!(fielded(match_query("help")).is_topk_prunable());
 
         // Multi-term unions are not prunable (Tantivy's cost() weights them).
-        assert!(!match_query("a b c d e").is_topk_prunable(true));
+        assert!(!fielded(match_query("a b c d e")).is_topk_prunable());
 
-        // Non-trivial docsets never prune, even under score-DESC.
+        // Non-trivial docsets never prune.
         let range = Query::Range {
             lower_bound: Bound::Unbounded,
             upper_bound: Bound::Unbounded,
@@ -2376,13 +2304,13 @@ mod tests {
             phrases: vec!["help".into(), "common".into()],
             slop: None,
         };
-        assert!(!range.is_topk_prunable(true));
-        assert!(!regex.is_topk_prunable(true));
-        assert!(!phrase.is_topk_prunable(true));
+        assert!(!fielded(range).is_topk_prunable());
+        assert!(!fielded(regex).is_topk_prunable());
+        assert!(!fielded(phrase).is_topk_prunable());
 
         // A single-token Match with a modifier that expands it past one posting list is
-        // NOT prunable, even under score-DESC: fuzzy (`distance`), `prefix`, or a custom
-        // `tokenizer` whose split a whitespace count can't predict.
+        // NOT prunable: fuzzy (`distance`), `prefix`, or a custom `tokenizer` whose split
+        // a whitespace count can't predict.
         let with = |f: fn(&mut Query)| {
             let mut q = match_query("help");
             f(&mut q);
@@ -2403,15 +2331,14 @@ mod tests {
                 *tokenizer = Some(serde_json::Value::Null)
             }
         });
-        assert!(!fuzzy.is_topk_prunable(true));
-        assert!(!prefix.is_topk_prunable(true));
-        assert!(!custom_tok.is_topk_prunable(true));
+        assert!(!fielded(fuzzy).is_topk_prunable());
+        assert!(!fielded(prefix).is_topk_prunable());
+        assert!(!fielded(custom_tok).is_topk_prunable());
 
         // All / Exists have no Block-WAND-pruning weight (AllWeight / ExistsWeight use
-        // Tantivy's default full scan), so they are NOT prunable even under score-DESC --
-        // they must route to the cost model, never unconditional serial.
-        assert!(!Query::All.is_topk_prunable(true));
-        assert!(!Query::Exists.is_topk_prunable(true));
+        // Tantivy's default full scan), so they route to the cost model, never serial.
+        assert!(!fielded(Query::All).is_topk_prunable());
+        assert!(!fielded(Query::Exists).is_topk_prunable());
 
         // Parse strings: a plain token prunes; a parser metacharacter (wildcard/regex)
         // does not -- it can expand past a single posting list.
@@ -2420,30 +2347,29 @@ mod tests {
             lenient: None,
             conjunction_mode: None,
         };
-        assert!(parse("alpha").is_topk_prunable(true));
-        assert!(parse("alpha_2").is_topk_prunable(true));
-        assert!(!parse("alpha*").is_topk_prunable(true));
-        assert!(!parse("/al.*/").is_topk_prunable(true));
-        assert!(!parse("-foo").is_topk_prunable(true)); // negation, not a single posting list
-        assert!(!parse("foo:bar").is_topk_prunable(true)); // field qualifier
-        assert!(!parse("(foo)").is_topk_prunable(true)); // grouping
+        assert!(fielded(parse("alpha")).is_topk_prunable());
+        assert!(fielded(parse("alpha_2")).is_topk_prunable());
+        assert!(!fielded(parse("alpha*")).is_topk_prunable());
+        assert!(!fielded(parse("/al.*/")).is_topk_prunable());
+        assert!(!fielded(parse("-foo")).is_topk_prunable()); // negation, not a single posting list
+        assert!(!fielded(parse("foo:bar")).is_topk_prunable()); // field qualifier
+        assert!(!fielded(parse("(foo)")).is_topk_prunable()); // grouping
     }
 
     #[pg_test]
-    fn topk_prunable_searchqueryinput_mirrors_pdb_query() {
+    fn topk_prunable_searchqueryinput_top_level_variants() {
         use crate::query::SearchQueryInput;
-        // All / TermSet have no reliably-pruning weight, so they are NOT prunable even under
-        // score-DESC (they previously, incorrectly, returned prunable and forced serial).
-        assert!(!SearchQueryInput::All.is_topk_prunable(true));
-        assert!(!SearchQueryInput::TermSet { terms: vec![] }.is_topk_prunable(true));
-        // A single plain parser term prunes; a metacharacter / operator does not.
+        // Top-level (non-fielded) variants have no reliably-pruning weight.
+        assert!(!SearchQueryInput::All.is_topk_prunable());
+        assert!(!SearchQueryInput::TermSet { terms: vec![] }.is_topk_prunable());
+        // A top-level plain parser term prunes; a metacharacter / operator does not.
         let parse = |s: &str| SearchQueryInput::Parse {
             query_string: s.to_string(),
             lenient: None,
             conjunction_mode: None,
         };
-        assert!(parse("alpha").is_topk_prunable(true));
-        assert!(!parse("alpha*").is_topk_prunable(true));
-        assert!(!parse("-foo").is_topk_prunable(true));
+        assert!(parse("alpha").is_topk_prunable());
+        assert!(!parse("alpha*").is_topk_prunable());
+        assert!(!parse("-foo").is_topk_prunable());
     }
 }

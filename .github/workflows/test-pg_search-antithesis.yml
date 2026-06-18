@@ -29,7 +29,7 @@ on:
       duration:
         type: string
         required: false
-        description: Test duration (minutes, default 480, i.e., 8 hours)
+        description: Test duration (minutes, default 360, i.e., 6 hours)
       notebook:
         type: string
         required: false
@@ -364,7 +364,7 @@ jobs:
           tags: ${{ steps.extract-driver-metadata.outputs.tags }}
           labels: ${{ steps.extract-driver-metadata.outputs.labels }}
 
-      # antithesis.duration is in minutes, 480 minutes = 8 hours
+      # antithesis.duration is in minutes, 360 minutes = 6 hours
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
       # antithesis.source ensures Community and Enteprise have separate histories
       - name: Trigger Antithesis Test
@@ -380,7 +380,7 @@ jobs:
           description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
-            antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '480' }}
+            antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '360' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
             custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}

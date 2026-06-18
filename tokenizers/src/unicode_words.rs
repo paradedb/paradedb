@@ -44,6 +44,13 @@ impl Tokenizer for UnicodeWordsTokenizer {
     type TokenStream<'a> = UnicodeWordsTokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
+        // tantivy reuses a single tokenizer instance across every document in a segment, and the
+        // `Token` (with its `position` counter) lives on the tokenizer. Reset it per call so
+        // positions restart at 0 for each document, matching tantivy's built-in tokenizers
+        // (`SimpleTokenizer`/`WhitespaceTokenizer` both call `self.token.reset()` here). Without
+        // this the counter accumulates across the whole segment, producing huge position values
+        // that bloat the positions index (and risk a u32 overflow on very large segments).
+        self.token.reset();
         UnicodeWordsTokenStream {
             remove_emojis: self.remove_emojis,
             iter: text.split_word_bounds(),
@@ -152,5 +159,29 @@ mod tests {
                 ("hurray".into(), 4, 35, 41)
             ]
         )
+    }
+
+    /// Regression test: tantivy reuses one tokenizer instance across every document in a segment,
+    /// so token positions must restart at 0 for each `token_stream` call. Previously the position
+    /// counter leaked across documents, producing ever-growing positions that bloat the positions
+    /// index (~2.7x on a real corpus) and risk a u32 overflow on large segments.
+    #[test]
+    fn test_position_resets_between_documents() {
+        fn positions(stream: &mut impl TokenStream) -> Vec<usize> {
+            let mut p = vec![];
+            while stream.advance() {
+                p.push(stream.token().position);
+            }
+            p
+        }
+
+        // One tokenizer instance reused across two "documents", as tantivy does during indexing.
+        let mut tokenizer = UnicodeWordsTokenizer::default();
+        let first = positions(&mut tokenizer.token_stream("alpha beta gamma"));
+        let second = positions(&mut tokenizer.token_stream("delta epsilon"));
+
+        assert_eq!(first, vec![0, 1, 2]);
+        // The second document must start at position 0 again, not continue from 3.
+        assert_eq!(second, vec![0, 1]);
     }
 }

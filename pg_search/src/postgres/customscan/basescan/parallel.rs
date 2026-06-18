@@ -22,13 +22,10 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::ParallelScanState;
 
-use pgrx::pg_sys::{shm_toc, ParallelContext, Size};
+use pgrx::pg_sys::{shm_toc, Size};
 
 impl ParallelQueryCapable for BaseScan {
-    fn estimate_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut ParallelContext,
-    ) -> Size {
+    fn estimate_dsm_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> Size {
         if state.custom_state().search_reader.is_none() {
             BaseScan::init_search_reader(state);
         }
@@ -44,7 +41,6 @@ impl ParallelQueryCapable for BaseScan {
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
@@ -59,7 +55,6 @@ impl ParallelQueryCapable for BaseScan {
 
     fn reinitialize_dsm_custom_scan(
         _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();

@@ -787,10 +787,7 @@ impl JoinScan {
 }
 
 impl ParallelQueryCapable for JoinScan {
-    fn estimate_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-    ) -> pg_sys::Size {
+    fn estimate_dsm_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> pg_sys::Size {
         // Size DSM from actual execution-time segment counts (via manifests) rather
         // than planning-time scan_info.segment_count, which can diverge under
         // concurrent inserts.
@@ -812,7 +809,6 @@ impl ParallelQueryCapable for JoinScan {
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
         Self::ensure_source_manifests(state);
@@ -849,7 +845,6 @@ impl ParallelQueryCapable for JoinScan {
 
     fn reinitialize_dsm_custom_scan(
         _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();

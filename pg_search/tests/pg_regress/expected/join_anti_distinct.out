@@ -1,0 +1,219 @@
+-- Setup
+CREATE TABLE persons (id SERIAL PRIMARY KEY, name TEXT);
+CREATE TABLE jobs (id SERIAL PRIMARY KEY, person_id INT REFERENCES persons(id), title TEXT);
+INSERT INTO persons VALUES (1,'Alice'), (2,'Bob'), (3,'Charlie');
+INSERT INTO jobs VALUES
+  (1, 1, 'Senior Developer'),  -- Alice
+  (2, 1, 'Tech Lead'),         -- Alice
+  (3, 2, 'Developer'),         -- Bob  ← matches "developer"
+  (4, 2, 'Recruiter'),         -- Bob  ← should exclude Bob
+  (5, 3, 'Recruiter');         -- Charlie
+CREATE INDEX jobs_bm25 ON jobs USING bm25 (id, person_id, title) WITH (key_field='id');
+CREATE INDEX persons_bm25 ON persons USING bm25 (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+-- Extra setup for the second query
+CREATE TABLE profiles_positions (
+    id SERIAL PRIMARY KEY,
+    profile_id INT,
+    group_id TEXT,
+    deleted_at TIMESTAMP,
+    title TEXT
+);
+INSERT INTO profiles_positions (profile_id, group_id, deleted_at, title) VALUES
+  (1, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Senior Developer'),
+  (1, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Tech Lead'),
+  (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Developer'),
+  (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter'),
+  (3, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter');
+CREATE INDEX profiles_positions_bm25 ON profiles_positions USING bm25 (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
+-- Query 1
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_2" }, valid_fields: [Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }, Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }] }, Some(""))
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_2" }, valid_fields: [Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }, Column { relation: Some(Bare { table: "j_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "j_0" }), name: "person_id" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "p_1" }), name: "id" }, Column { relation: Some(Bare { table: "p_1" }), name: "name" }] }, Some(""))
+SET paradedb.enable_join_custom_scan = off;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Incremental Sort
+               Sort Key: p.id, p.name
+               Presorted Key: p.id
+               ->  Merge Join
+                     Merge Cond: (p.id = j.person_id)
+                     ->  Sort
+                           Sort Key: p.id
+                           ->  Seq Scan on persons p
+                                 Filter: (NOT (ANY (id = (hashed SubPlan 1).col1)))
+                                 SubPlan 1
+                                   ->  Custom Scan (ParadeDB Base Scan) on jobs j2
+                                         Table: jobs
+                                         Index: jobs_bm25
+                                         Exec Method: ColumnarExecState
+                                         Fast Fields: person_id
+                                         Scores: false
+                                         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                     ->  Sort
+                           Sort Key: j.person_id
+                           ->  Custom Scan (ParadeDB Base Scan) on jobs j
+                                 Table: jobs
+                                 Index: jobs_bm25
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: person_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+(28 rows)
+
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+ id | name  
+----+-------
+  1 | Alice
+(1 row)
+
+-- Query 2
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_1" }, valid_fields: [Column { relation: Some(Bare { table: "pp_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "pp_0" }), name: "profile_id" }] }, Some(""))
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ERROR:  Failed to build DataFusion logical plan: SchemaError(FieldNotFound { field: Column { relation: None, name: "ctid_1" }, valid_fields: [Column { relation: Some(Bare { table: "pp_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "pp_0" }), name: "profile_id" }] }, Some(""))
+SET paradedb.enable_join_custom_scan = off;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Merge Anti Join
+               Merge Cond: (pp.profile_id = pp2.profile_id)
+               ->  Sort
+                     Sort Key: pp.profile_id
+                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp
+                           Table: profiles_positions
+                           Index: profiles_positions_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+               ->  Sort
+                     Sort Key: pp2.profile_id
+                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp2
+                           Table: profiles_positions
+                           Index: profiles_positions_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(20 rows)
+
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+ profile_id 
+------------
+          1
+(1 row)
+
+-- Teardown
+DROP TABLE persons CASCADE;
+DROP TABLE jobs CASCADE;
+DROP TABLE profiles_positions CASCADE;

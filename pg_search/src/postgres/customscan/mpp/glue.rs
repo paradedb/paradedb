@@ -206,6 +206,9 @@ pub unsafe fn leader_setup(
         );
     }
     let control_senders = Arc::new(std::sync::Mutex::new(attach.outbound_senders));
+    // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
+    // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
+    mesh.set_cancel_senders(Arc::clone(&control_senders));
     // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
     // are cleaned up; release the DSM-backed senders while the mapping is still alive.
     let on_abort = Arc::clone(&control_senders);

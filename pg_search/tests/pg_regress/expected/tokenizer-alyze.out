@@ -1,0 +1,61 @@
+-- Tests the `alyze` tokenizer (UAX #29 word segmentation via the alyze crate)
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Inline tokenization. The default lowercases and keeps only word-like spans,
+-- dropping punctuation and whitespace.
+SELECT 'Hello, world! 123'::pdb.alyze::text[];
+       text        
+-------------------
+ {hello,world,123}
+(1 row)
+
+-- Contractions stay together; CJK ideographs split per-character; emoji are kept.
+SELECT 'won''t 中文 👍'::pdb.alyze::text[];
+       text       
+------------------
+ {won't,中,文,👍}
+(1 row)
+
+-- With word_like=false, every UAX #29 segment is emitted, including punctuation
+-- and whitespace.
+SELECT 'a, b'::pdb.alyze('word_like=false')::text[];
+     text      
+---------------
+ {a,","," ",b}
+(1 row)
+
+-- Standard filters still apply on top of the tokenizer.
+SELECT 'The Quick Brown Foxes'::pdb.alyze('stemmer=English')::text[];
+         text          
+-----------------------
+ {the,quick,brown,fox}
+(1 row)
+
+-- The tokenizer is usable in a BM25 index.
+DROP TABLE IF EXISTS alyze_items;
+CREATE TABLE alyze_items(
+    id serial8 not null primary key,
+    description text
+);
+INSERT INTO alyze_items(description) VALUES
+    ('Running shoes for athletes'),
+    ('A quick brown fox'),
+    ('Database indexing strategies');
+CREATE INDEX idxalyze ON alyze_items USING bm25 (id, (description::pdb.alyze)) WITH (key_field = 'id');
+SELECT id, description FROM alyze_items WHERE description @@@ 'running' ORDER BY id;
+ id |        description         
+----+----------------------------
+  1 | Running shoes for athletes
+(1 row)
+
+SELECT id, description FROM alyze_items WHERE description @@@ 'quick' ORDER BY id;
+ id |    description    
+----+-------------------
+  2 | A quick brown fox
+(1 row)
+
+DROP TABLE alyze_items;

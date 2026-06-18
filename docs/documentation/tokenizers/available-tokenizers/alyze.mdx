@@ -1,0 +1,46 @@
+---
+title: Alyze
+description: A high-performance UAX #29 word tokenizer
+canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/alyze
+---
+
+The `alyze` tokenizer splits text according to the word boundaries defined by [Unicode Standard Annex #29](https://www.unicode.org/reports/tr29/),
+using the [`alyze`](https://github.com/turbopuffer/alyze) crate's hand-rolled deterministic finite automaton (DFA). It produces
+the same word boundaries as the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, but is implemented
+for high throughput. All characters are [lowercased](/documentation/token-filters/lowercase) by default.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.alyze))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Tokenize me!'::pdb.alyze::text[];
+```
+
+```ini Expected Response
+     text
+---------------
+ {tokenize,me}
+(1 row)
+```
+
+## Word-like filtering
+
+By default, only "word-like" spans are kept — runs containing letters, digits, CJK ideographs, or emoji.
+Whitespace and punctuation segments that UAX #29 also emits are discarded. To instead emit every UAX #29
+segment (including punctuation and whitespace), set `word_like` to `false`.
+
+```sql
+SELECT 'a, b'::pdb.alyze('word_like=false')::text[];
+```
+
+```ini Expected Response
+     text
+---------------
+ {a,","," ",b}
+(1 row)
+```

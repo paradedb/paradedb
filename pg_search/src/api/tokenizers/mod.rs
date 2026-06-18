@@ -37,8 +37,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod,
-    RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
+    AliasTypmod, AlyzeTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod,
+    NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -122,6 +122,10 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
         "source_code" => SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
         "unicode_words" | "unicode" => SearchTokenizer::UnicodeWords {
             remove_emojis: false,
+            filters: SearchTokenizerFilters::default(),
+        },
+        "alyze" => SearchTokenizer::Alyze {
+            word_like: true,
             filters: SearchTokenizerFilters::default(),
         },
         _ => return None,
@@ -253,6 +257,12 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         } => {
             if let Some(v) = parsed.try_get("remove_emojis", 0).and_then(|p| p.as_bool()) {
                 *remove_emojis = v;
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::Alyze { word_like, filters } => {
+            if let Some(v) = parsed.try_get("word_like", 0).and_then(|p| p.as_bool()) {
+                *word_like = v;
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
@@ -492,6 +502,14 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             });
             *remove_emojis = unicode_typmod.remove_emojis;
             *filters = unicode_typmod.filters;
+        }
+
+        SearchTokenizer::Alyze { word_like, filters } => {
+            let alyze_typmod = AlyzeTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *word_like = alyze_typmod.word_like;
+            *filters = alyze_typmod.filters;
         }
 
         SearchTokenizer::Keyword => {}

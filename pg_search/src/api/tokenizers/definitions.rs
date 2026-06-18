@@ -712,6 +712,24 @@ pub(crate) mod pdb {
         custom_typmod = false
     );
 
+    define_tokenizer_type!(
+        "AlyzeDef",
+        Alyze,
+        SearchTokenizer::Alyze {
+            word_like: true,
+            filters: SearchTokenizerFilters::default()
+        },
+        tokenize_alyze,
+        json_to_alyze,
+        jsonb_to_alyze,
+        uuid_to_alyze,
+        text_array_to_alyze,
+        varchar_array_to_alyze,
+        "alyze",
+        preferred = false,
+        custom_typmod = false
+    );
+
     struct AliasMarker;
     impl SqlNameMarker for AliasMarker {
         const SQL_NAME: &'static str = "pdb.alias";

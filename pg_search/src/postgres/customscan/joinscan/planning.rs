@@ -1701,7 +1701,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
 
         let te = te?;
 
-        let expr = (*te).expr as *mut pg_sys::Node;
+        let expr = strip_wrappers((*te).expr as *mut pg_sys::Node);
 
         // Case 1: Plain column reference (Var node)
         if let Some(var) = nodecast!(Var, T_Var, expr) {
@@ -1897,7 +1897,7 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
 }
 
 /// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
-unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub(super) unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if node.is_null() {
             return node;
@@ -2150,24 +2150,29 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
 /// and orders by `b.id`, the planner considers sorting by `a.id` equally valid. Both variables
 /// will be present in the `ec_members` list for that `PathKey`.
 ///
-/// # Interaction with Pruned Relations (e.g., `SEMI JOIN`)
-/// Certain join types, such as `LeftSemi` or `LeftAnti` joins, discard columns from one side
-/// of the join. Continuing the above example, if the relation `b` is on the right side of a
-/// Semi-Join, `b.id` will *not* be available in the output schema of the join operation.
-/// If DataFusion attempts to sort on `b.id`, it will panic with a `SchemaError(FieldNotFound)`.
+/// # Schema Pruning (e.g., `SEMI JOIN` and `DISTINCT`)
+/// When DataFusion executes operations like `SEMI JOIN`, `ANTI JOIN`, or `DISTINCT` (`Aggregate`),
+/// columns that are not part of the output requirements are discarded to save memory and compute.
+/// For example:
+/// 1. If relation `b` is on the right side of a Semi-Join, `b.id` will *not* be available in the output.
+/// 2. If `DISTINCT` groups by `a.id`, then an equivalent column `b.id` (from an equi-join `a.id = b.id`)
+///    will *not* be preserved by the `Aggregate` node.
 ///
-/// To prevent this, this function accepts `output_rtis`, a list of the Range Table Identifiers
-/// (RTIs) that actually survive the entire relational tree defined in `JoinCSClause`.
-/// When inspecting an Equivalence Class, the function searches for *any* member that belongs
-/// to an RTI in `output_rtis`.
+/// If DataFusion subsequently attempts to sort on a discarded column like `b.id`, it will panic with a
+/// `SchemaError(FieldNotFound)`.
+///
+/// To prevent this, this function applies two filters when inspecting Equivalence Class members:
+/// - **RTI Filtering:** It accepts `output_rtis` (the Range Table Identifiers that survive the join tree)
+///   and ignores members from pruned relations.
+/// - **DISTINCT Target List Filtering:** If `has_distinct` is true, it further restricts members to only
+///   those explicitly present in the query's `SELECT` target list, as these are the only expressions
+///   preserved by the `Aggregate` node.
 ///
 /// # Returns
 /// - `Some(Vec<OrderByInfo>)`: The translated sort instructions containing valid, available columns.
 /// - `None`: If the function encounters an `ORDER BY` pathkey where *none* of its Equivalence
-///   Class members belong to the `output_rtis` list. This can happen in edge cases or complex
-///   projections where Postgres asks for a sort on a variable not present in the local execution
-///   context. Returning `None` signals the planner to abandon `JoinScan` and fall back to native
-///   PostgreSQL execution.
+///   Class members survived the schema pruning. This signals the planner to abandon `JoinScan` and
+///   fall back to native PostgreSQL execution.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -2219,6 +2224,21 @@ pub(super) unsafe fn extract_orderby(
             let expr = (*member).em_expr;
 
             let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
+
+            // For DISTINCT queries, the sort expression must match what was actually selected
+            // and grouped. Since DataFusion drops non-grouping columns after aggregation,
+            // we cannot sort by EquivalenceClass members that were not in the target list.
+            if has_distinct {
+                let parse = (*root).parse;
+                let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                let found_in_tlist = target_list.iter_ptr().any(|te| {
+                    let te_expr = strip_wrappers((*te).expr.cast()).cast::<pg_sys::Expr>();
+                    pg_sys::equal(check_expr as *const _, te_expr as *const _)
+                });
+                if !found_in_tlist {
+                    continue;
+                }
+            }
 
             match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
                 JoinSortExprKind::Resolved(info) => {

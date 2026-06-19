@@ -323,8 +323,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name
    ->  Unique
@@ -337,20 +337,19 @@ ORDER BY p.name
                Distinct: true
                Order By: p.name asc, s.name asc, c.name asc
                DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
-                 :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       VisibilityFilterExec: tables=[s, c, p]
-                 :         ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
+                 : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_1, ctid_2]
+                 :     VisibilityFilterExec: tables=[s, c, p]
+                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query="all"
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, query="all"
-                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, query="all"
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(24 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p

@@ -2188,6 +2188,13 @@ pub(super) unsafe fn extract_orderby(
 
     let source_rtis = collect_source_rtis(sources);
 
+    let distinct_target_list = if has_distinct {
+        let parse = (*root).parse;
+        Some(PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList))
+    } else {
+        None
+    };
+
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
@@ -2228,12 +2235,13 @@ pub(super) unsafe fn extract_orderby(
             // For DISTINCT queries, the sort expression must match what was actually selected
             // and grouped. Since DataFusion drops non-grouping columns after aggregation,
             // we cannot sort by EquivalenceClass members that were not in the target list.
-            if has_distinct {
-                let parse = (*root).parse;
-                let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+            if let Some(ref target_list) = distinct_target_list {
                 let found_in_tlist = target_list.iter_ptr().any(|te| {
                     let te_expr = strip_wrappers((*te).expr.cast()).cast::<pg_sys::Expr>();
-                    pg_sys::equal(check_expr as *const _, te_expr as *const _)
+                    crate::postgres::customscan::opexpr::expr_equal_ignoring_context(
+                        check_expr as *mut _,
+                        te_expr as *mut _,
+                    )
                 });
                 if !found_in_tlist {
                     continue;

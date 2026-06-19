@@ -19,6 +19,23 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::HashSet;
 
+#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoadFormat {
+    #[default]
+    Csv,
+    Parquet,
+}
+
+impl LoadFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LoadFormat::Csv => "csv",
+            LoadFormat::Parquet => "parquet",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct DatasetConfig {
     pub root_table: RootTableConfig,
@@ -26,6 +43,9 @@ pub struct DatasetConfig {
     pub tables: Vec<TableConfig>,
     #[serde(default)]
     pub s3_base_path: Option<String>,
+    /// Storage format LoadHeap reads from `sampled/{size}/{load_format}/`. Defaults to CSV.
+    #[serde(default)]
+    pub load_format: LoadFormat,
 }
 
 impl DatasetConfig {
@@ -136,6 +156,7 @@ mod tests {
             sampling_seed: 42,
             tables,
             s3_base_path: None,
+            load_format: LoadFormat::default(),
         }
     }
 

@@ -31,6 +31,8 @@ mod convert;
 mod sample;
 mod utils;
 
+use config::LoadFormat;
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -586,7 +588,7 @@ fn load_external_data(
     let (config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
-    // Determine CSV data source path.
+    // Determine data source path.
     let base_path = match data_source {
         Some(path) => path,
         None => config.s3_base_path.as_deref().with_context(|| {
@@ -597,9 +599,10 @@ fn load_external_data(
         })?,
     };
     let source_path = format!(
-        "{}/sampled/{}/csv",
+        "{}/sampled/{}/{}",
         base_path.trim_end_matches('/'),
-        size_label
+        size_label,
+        config.load_format.as_str(),
     );
     println!("Data source: {source_path}");
 
@@ -620,7 +623,22 @@ fn load_external_data(
         bail!("Failed to create tables from {create_tables_sql}");
     }
 
-    // Download CSV data from source and load into PostgreSQL.
+    match config.load_format {
+        LoadFormat::Csv => load_tables_csv(url, dataset, &config, &source_path)?,
+        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path)?,
+    }
+
+    println!("External data loaded successfully.");
+    Ok(())
+}
+
+/// Download each table's CSV files locally via DuckDB, then `psql \copy` them into Postgres.
+fn load_tables_csv(
+    url: &str,
+    dataset: &str,
+    config: &config::DatasetConfig,
+    source_path: &str,
+) -> anyhow::Result<()> {
     let temp_dir = format!("/tmp/benchmark_data/{dataset}");
     if Path::new(&temp_dir).exists() {
         std::fs::remove_dir_all(&temp_dir)
@@ -688,7 +706,32 @@ fn load_external_data(
         eprintln!("Warning: Failed to clean up temp directory '{temp_dir}': {e}");
     }
 
-    println!("External data loaded successfully.");
+    Ok(())
+}
+
+/// Load each table's parquet files directly into Postgres via DuckDB's postgres extension,
+/// preserving native column types (e.g. embedding vectors) and float precision.
+fn load_tables_parquet(
+    url: &str,
+    config: &config::DatasetConfig,
+    source_path: &str,
+) -> anyhow::Result<()> {
+    let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    conn.execute_batch("INSTALL postgres; LOAD postgres;")
+        .with_context(|| "Failed to load DuckDB postgres extension")?;
+    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
+        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+
+    for table_name in config.all_table_names() {
+        let glob = format!("{source_path}/{table_name}/*.parquet");
+        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
+        conn.execute_batch(&format!(
+            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
+        ))
+        .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
+        println!("  Loaded '{table_name}'.");
+    }
+
     Ok(())
 }
 

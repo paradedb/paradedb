@@ -1,0 +1,8 @@
+sampling_seed = 0                                         # unused (no sampling), required by parser
+load_format = "parquet"
+s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
+tables = []
+
+[root_table]
+name = "cohere_wiki"
+primary_key = "_id"  # used only if sampled later

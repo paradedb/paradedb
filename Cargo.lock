@@ -2096,7 +2096,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?rev=9d1c4ce1c7fc68b816a4646e1392f9f535385f5b#9d1c4ce1c7fc68b816a4646e1392f9f535385f5b"
+source = "git+https://github.com/paradedb/datafusion-distributed?rev=99cd81c200685f7139489e4a78a6b9b4d6f613a8#99cd81c200685f7139489e4a78a6b9b4d6f613a8"
 dependencies = [
  "arrow-ipc",
  "arrow-select",

@@ -664,7 +664,7 @@ fn build_clause_df<'a>(
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
         // 4. Apply DISTINCT via GROUP BY
-        let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause, &ctid_map)?;
+        let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
 
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
@@ -709,6 +709,22 @@ unsafe fn translate_custom_exprs(
     Ok(translated)
 }
 
+/// Helper to yield the names of ctid columns that survived schema pruning
+/// (e.g., were not discarded by a Semi/Anti join).
+fn surviving_ctid_columns<'a>(
+    schema: &'a datafusion::common::DFSchema,
+    num_sources: usize,
+) -> impl Iterator<Item = String> + 'a {
+    (0..num_sources).filter_map(move |i| {
+        let ctid_name = CtidColumn::new(i).to_string();
+        if schema.field_with_unqualified_name(&ctid_name).is_ok() {
+            Some(ctid_name)
+        } else {
+            None
+        }
+    })
+}
+
 /// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the
 /// MIN of each ctid column as a stable representative. Returns the rewritten
 /// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
@@ -719,7 +735,6 @@ unsafe fn translate_custom_exprs(
 fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
-    ctid_map: &crate::api::HashMap<pg_sys::Index, Expr>,
 ) -> Result<(DataFrame, DistinctColMap)> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
@@ -759,16 +774,19 @@ fn apply_distinct_group_by(
         }
     }
 
-    let agg_exprs: Vec<Expr> = ctid_map
-        .values()
-        .map(|expr| {
-            let ctid_name = match expr {
-                Expr::Column(col) => col.name.clone(),
-                _ => unreachable!("ctid_map always contains Column expressions"),
-            };
-            min(expr.clone()).alias(&ctid_name)
-        })
-        .collect();
+    // Postgres needs the ctids to fetch the actual tuples after DataFusion
+    // completes. Since GROUP BY collapses multiple rows into one, we use
+    // min(ctid) to arbitrarily select one representative tuple for the group.
+    //
+    // Note that we must filter out any ctids that no longer exist in the schema.
+    // In operations like SEMI JOIN or ANTI JOIN, the inner table's columns
+    // (including its ctid) are discarded from the output frame once the join
+    // condition is evaluated. Attempting to aggregate them would result in a
+    // DataFusion SchemaError.
+    let agg_exprs: Vec<Expr> =
+        surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
+            .map(|ctid_name| min(col(&ctid_name)).alias(&ctid_name))
+            .collect();
 
     let df = df.aggregate(group_exprs, agg_exprs)?;
     Ok((df, distinct_col_map))
@@ -920,11 +938,8 @@ fn apply_output_projection(
         }
 
         // ALWAYS carry forward all CTID columns from both sides
-        for (i, _) in plan_sources.iter().enumerate() {
-            let ctid_name = CtidColumn::new(i).to_string();
-            if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
-                final_cols.push(col(&ctid_name));
-            }
+        for ctid_name in surviving_ctid_columns(df.schema(), plan_sources.len()) {
+            final_cols.push(col(&ctid_name));
         }
     } else {
         for field in df.schema().fields() {

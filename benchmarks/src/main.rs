@@ -233,13 +233,26 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         .with_context(|| "Failed to get index size")?;
         let index_size: i64 = row.get(0);
 
-        let row = sqlx::query(&format!(
-            "SELECT count(*) FROM paradedb.index_info('{index_name}')"
-        ))
+        // `paradedb.index_info()` only applies to pg_search (bm25) indexes. Other access methods
+        // (e.g. pgvector's hnsw) have no segments, so report 0 rather than erroring.
+        let amname: String = sqlx::query_scalar(
+            "SELECT am.amname FROM pg_class c JOIN pg_am am ON am.oid = c.relam WHERE c.relname = $1",
+        )
+        .bind(&index_name)
         .fetch_one(&mut conn)
         .await
-        .with_context(|| "Failed to get segment count")?;
-        let segment_count: i64 = row.get(0);
+        .with_context(|| "Failed to get index access method")?;
+        let segment_count: i64 = if amname == "bm25" {
+            let row = sqlx::query(&format!(
+                "SELECT count(*) FROM paradedb.index_info('{index_name}')"
+            ))
+            .fetch_one(&mut conn)
+            .await
+            .with_context(|| "Failed to get segment count")?;
+            row.get(0)
+        } else {
+            0
+        };
 
         results.push(IndexCreationResult {
             duration_min_ms,

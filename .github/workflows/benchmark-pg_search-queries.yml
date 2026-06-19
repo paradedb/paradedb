@@ -320,6 +320,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
+      # Cohere (vector): restore a snapshot like stackoverflow, then benchmark (HNSW index + kNN).
       - name: Restore "cohere" Heap Snapshot (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
         run: |
@@ -336,6 +337,49 @@ jobs:
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      - name: Benchmark "cohere" Dataset (1M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: cohere
+          size: 1m
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Restore "cohere" Heap Snapshot (10M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset cohere \
+            --size 10m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      - name: Benchmark "cohere" Dataset (10M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: cohere
+          size: 10m
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

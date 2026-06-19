@@ -24,7 +24,8 @@ pub mod projections;
 mod scan_state;
 
 use cost::{
-    cost_general_path, decide_method_workers, topk_can_prune_for_method, GeneralPathCostParams,
+    decide_scan_parallelism, estimate_path_cost, topk_can_prune_for_method, CostMemo,
+    ScanParallelismInputs,
 };
 
 use std::ffi::CStr;
@@ -34,7 +35,7 @@ use std::sync::atomic::Ordering;
 
 use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{Cardinality, HashMap, HashSet, Varno};
+use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -819,7 +820,7 @@ impl CustomScan for BaseScan {
             // `else` branch opens. It seeds the TopK cost memo (further down) so the worker
             // decision reuses it; every other branch leaves this `None`, so the worker
             // decision opens once itself, as before.
-            let mut precomputed_topk_cost: Option<u64> = None;
+            let mut precomputed_query_cost: Option<u64> = None;
 
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
@@ -835,7 +836,7 @@ impl CustomScan for BaseScan {
                 // Ask the index. This is the one branch that opens, so reuse that same
                 // open's cost for the TopK worker decision instead of opening twice.
                 let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, query.clone());
-                precomputed_topk_cost = cost;
+                precomputed_query_cost = cost;
                 sel.unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
@@ -911,10 +912,9 @@ impl CustomScan for BaseScan {
             let startup_cost = DEFAULT_STARTUP_COST;
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
-            // Seed the cost memo with the cost already computed above (if any), so the worker
-            // decision has a single source of truth: `Some(Some(cost))` = known, `None` = open
-            // once on demand. `Some(None)` would mean an open that failed.
-            let mut topk_query_cost_estimate: Option<Option<u64>> = precomputed_topk_cost.map(Some);
+            // Seed the cost memo from the open create_custom_path already did for selectivity (if
+            // any), so the worker decision opens the index at most once per query.
+            let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
 
             // For each execution method variant, build one CustomPath. Most
             // methods use `compute_nworkers` for worker selection; proven
@@ -932,8 +932,7 @@ impl CustomScan for BaseScan {
                 let is_sorted = method.declares_sorted_output();
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
 
-                let topk_can_prune =
-                    topk_can_prune_for_method(&method, builder.args().root, &quals);
+                let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
                 let mut path_builder = CustomPathBuilder::<Self>::new(
                     builder.args().root,
                     builder.args().rel,
@@ -957,36 +956,28 @@ impl CustomScan for BaseScan {
                     path_builder = path_builder.set_parallel_safe(true);
                 }
 
-                // The path cost basis comes from the general estimator for every
-                // method. The worker decision defaults to the general heuristic, but
-                // an ordered TopK overrides it via the query-cost threshold (see
-                // `decide_method_workers`).
-                let cost_basis = cost_general_path(GeneralPathCostParams {
-                    method: &method,
-                    is_sorted,
-                    float_limit,
-                    row_estimate,
-                    segment_count,
-                    per_tuple_cost,
-                    base_result_rows,
-                    consider_parallel: consider_parallel_local,
-                    quals: &quals,
-                    root: builder.args().root,
-                    is_join_context,
-                });
-                let worker_decision = decide_method_workers(
-                    cost_basis.worker_decision,
-                    topk_can_prune,
-                    &query,
-                    &bm25_index,
-                    &mut topk_query_cost_estimate,
-                    row_estimate,
-                    segment_count,
-                    base_result_rows,
-                    consider_parallel_local,
-                    &quals,
-                    builder.args().root,
-                    parallel_leader_participates,
+                // The path's intrinsic cost and its worker decision are computed separately: the
+                // cost doesn't depend on the worker count, and `decide_scan_parallelism` owns all
+                // of the serial-vs-parallel logic (including the `compute_nworkers` fallback).
+                let cost_basis =
+                    estimate_path_cost(&method, is_sorted, per_tuple_cost, base_result_rows);
+                let worker_decision = decide_scan_parallelism(
+                    ScanParallelismInputs {
+                        prunability,
+                        query: &query,
+                        bm25_index: &bm25_index,
+                        row_estimate,
+                        is_sorted,
+                        limit: float_limit,
+                        segment_count,
+                        base_result_rows,
+                        consider_parallel: consider_parallel_local,
+                        quals: &quals,
+                        root: builder.args().root,
+                        parallel_leader_participates,
+                        is_join_context,
+                    },
+                    &mut cost_memo,
                 );
 
                 let scan_work_divisor = worker_decision.divisor(parallel_leader_participates);

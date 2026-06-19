@@ -359,9 +359,12 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         assert_plan_case(&mut conn, case);
     }
 
-    // Parameterized LIMIT also routes to the general path and is serial via the row cap,
-    // but needs a generic plan so the LIMIT stays a runtime Param.
+    // The runtime-bound forms below need a generic plan so the Param survives to planning.
     "SET plan_cache_mode = force_generic_plan;".execute(&mut conn);
+
+    // Parameterized LIMIT: not a prunable candidate (the LIMIT is a runtime Param), so it goes
+    // through the cost model with an estimated LIMIT. On this small fixture the scan work is below
+    // the Gather threshold, so it is serial.
     r#"
     PREPARE topk_desc_param_limit(int) AS
     SELECT id FROM topk_desc_large WHERE body @@@ 'alpha'
@@ -371,18 +374,35 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     assert_plan_case(
         &mut conn,
         PlanCase {
-            name: "parameterized_limit_routes_to_general_path_serial_on_small_data",
+            name: "parameterized_limit_is_serial_on_small_data",
             query: "EXECUTE topk_desc_param_limit(10)",
+            expected_workers: None,
+        },
+    );
+
+    // Runtime-bound WHERE predicate (`@@@ $1`), UNSORTED: the predicate has no plan-time value to
+    // open a scorer for, so the cost model can't run. An unsorted scan can skip segments once the
+    // LIMIT is met, so it defers to the row-based heuristic, which is serial on this small fixture.
+    r#"
+    PREPARE unsorted_param_pred(text) AS
+    SELECT id FROM topk_desc_large WHERE body @@@ $1 LIMIT 10;
+    "#
+    .execute(&mut conn);
+    assert_plan_case(
+        &mut conn,
+        PlanCase {
+            name: "runtime_bound_predicate_unsorted_defers_to_row_heuristic_serial",
+            query: "EXECUTE unsorted_param_pred('alpha')",
             expected_workers: None,
         },
     );
     "RESET plan_cache_mode;".execute(&mut conn);
 
-    // ---- Parallel decisions. The cost model parallelizes a TopK only when scan work clears
-    // Gather overhead, which at real costs needs scale. Scale the parallel knobs down to reach
-    // that branch on this small fixture; this asserts the model's *relative* choice (these
-    // shapes parallelize, the serial ones above do not). All five route through the cost model
-    // (`decide_topk_workers`), not the general path. See `set_scaled_costs`.
+    // ---- Parallel decisions. The cost model parallelizes only when scan work clears Gather
+    // overhead, which at real costs needs scale. Scale the parallel knobs down to reach that branch
+    // on this small fixture; this asserts the model's *relative* choice (these shapes parallelize,
+    // the serial ones above do not). They all route through the cost model (`cost_test`), not the
+    // row-cap path. See `set_scaled_costs`.
     set_scaled_costs(&mut conn);
     for case in [
         PlanCase {
@@ -435,9 +455,53 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     ORDER BY paradedb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
+        // UNSORTED scans are cost-modeled too (no ORDER BY). A cheap term serializes (a small
+        // LIMIT finds its rows in a sliver of the docset), but an expensive phrase must drive its
+        // matches to find a full LIMIT, so its work clears the Gather threshold and it parallelizes.
+        PlanCase {
+            name: "unsorted_expensive_phrase_parallelizes",
+            query: "SELECT id FROM topk_desc_large
+                    WHERE body @@@ pdb.phrase(ARRAY['alpha', 'beta']) LIMIT 100",
+            expected_workers: Some(2),
+        },
     ] {
         assert_plan_case(&mut conn, case);
     }
+
+    // Runtime-bound WHERE predicate (`@@@ $1`), SORTED: can't be costed, but a sorted scan must
+    // visit every segment, so workers always help -- it parallelizes via the no-cost fallback
+    // (the fix for parameterized score-DESC paging queries that previously serialized).
+    "SET plan_cache_mode = force_generic_plan;".execute(&mut conn);
+    r#"
+    PREPARE sorted_param_pred(text) AS
+    SELECT id FROM topk_desc_large WHERE body @@@ $1
+    ORDER BY paradedb.score(id) DESC LIMIT 10;
+    "#
+    .execute(&mut conn);
+    assert_plan_case(
+        &mut conn,
+        PlanCase {
+            name: "runtime_bound_predicate_sorted_parallelizes",
+            query: "EXECUTE sorted_param_pred('gamma')",
+            expected_workers: Some(2),
+        },
+    );
+    "RESET plan_cache_mode;".execute(&mut conn);
+
+    // Unanalyzed table with a NON-prunable shape (score ASC): no match count, so the cost model
+    // can't run and it defers to the row-based heuristic. With no row stats the heuristic applies
+    // no caps, so it parallelizes by structure alone -- matching the pre-cost-model behavior.
+    // (The prunable `unanalyzed_small_limit` case above stays serial via the short-circuit, which
+    // runs before this fallback, so this case is what actually exercises the unanalyzed path.)
+    assert_plan_case(
+        &mut conn,
+        PlanCase {
+            name: "unanalyzed_nonprunable_defers_to_row_heuristic_parallel",
+            query: "SELECT id FROM topk_unanalyzed WHERE body @@@ 'alpha'
+                    ORDER BY paradedb.score(id) ASC LIMIT 10",
+            expected_workers: Some(2),
+        },
+    );
 }
 
 #[rstest]

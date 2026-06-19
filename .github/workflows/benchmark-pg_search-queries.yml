@@ -18,6 +18,14 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      dataset:
+        description: "Which dataset to benchmark (manual runs only; push/PR-label runs benchmark all)."
+        required: true
+        type: choice
+        options:
+          - all
+          - stackoverflow
+          - cohere
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
@@ -67,6 +75,10 @@ jobs:
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
       BACKREST_REPO_S3_KEY_TYPE: shared
+      # Which datasets this run benchmarks, resolved once. Automatic triggers (push/PR-label) run all;
+      # a manual run benchmarks only the chosen dataset, so cohere can run without waiting on stackoverflow.
+      RUN_STACKOVERFLOW: ${{ github.event_name != 'workflow_dispatch' || inputs.dataset == 'all' || inputs.dataset == 'stackoverflow' }}
+      RUN_COHERE: ${{ github.event_name != 'workflow_dispatch' || inputs.dataset == 'all' || inputs.dataset == 'cohere' }}
 
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
@@ -219,9 +231,7 @@ jobs:
       # heap snapshot from S3 (replacing the whole cluster), then the benchmark builds the index and
       # runs queries against it.
       - name: Restore "stackoverflow" Heap Snapshot (100K)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         run: |
           set -euo pipefail
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -238,9 +248,7 @@ jobs:
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (100K)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: stackoverflow
@@ -253,9 +261,7 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         run: |
           set -euo pipefail
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -272,9 +278,7 @@ jobs:
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (1M)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: stackoverflow
@@ -287,9 +291,7 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         run: |
           set -euo pipefail
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -306,9 +308,7 @@ jobs:
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (20M)
-        if: >-
-          github.event_name != 'pull_request' ||
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: stackoverflow
@@ -319,6 +319,23 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Restore "cohere" Heap Snapshot (1M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset cohere \
+            --size 1m \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

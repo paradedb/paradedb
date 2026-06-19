@@ -51,7 +51,8 @@ jobs:
             {"dataset":"stackoverflow","size":"100k"},
             {"dataset":"stackoverflow","size":"1m"},
             {"dataset":"stackoverflow","size":"20m"},
-            {"dataset":"cohere","size":"1m"}
+            {"dataset":"cohere","size":"1m"},
+            {"dataset":"cohere","size":"10m"}
           ]'
           include=$(echo "$all" | jq -c \
             --arg ds "${DATASET:-all}" --arg sz "${SIZE}" \

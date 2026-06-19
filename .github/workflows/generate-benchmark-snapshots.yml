@@ -107,6 +107,21 @@ jobs:
             --url "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}")
 
+      # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
+      # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
+      # (error 028: "info files exist but do not match the database"). Regenerating intentionally
+      # replaces the old snapshot. Also aborts orphaned multipart uploads from any failed prior run.
+      - name: Clear existing snapshot
+        run: |
+          set -euo pipefail
+          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/${{ matrix.size }}/"
+          aws s3api list-multipart-uploads --bucket "${BACKREST_REPO_BUCKET}" --prefix "$prefix" \
+            --query 'Uploads[].{Key:Key,UploadId:UploadId}' --output text 2>/dev/null \
+            | while read -r key uid; do
+                [ -n "$key" ] && aws s3api abort-multipart-upload --bucket "${BACKREST_REPO_BUCKET}" --key "$key" --upload-id "$uid" || true
+              done
+          aws s3 rm --recursive "s3://${BACKREST_REPO_BUCKET}/${prefix}"
+
       # Stop Postgres (required for the --no-online cold backup) and upload the snapshot to S3.
       - name: Snapshot Heap
         run: |

@@ -1680,8 +1680,9 @@ unsafe fn compute_output_columns(
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
     for te in original_entries.iter_ptr() {
-        if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
-            let var = (*te).expr as *mut pg_sys::Var;
+        let check_expr = planning::strip_wrappers((*te).expr.cast());
+        if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
+            let var = check_expr as *mut pg_sys::Var;
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
             if let Some(plan_position) = join_clause.plan_position(root.into(), rti, attno) {
@@ -1701,8 +1702,8 @@ unsafe fn compute_output_columns(
         } else {
             let mut found_score = false;
             for source in join_clause.plan.sources() {
-                if expr_uses_scores_from_source((*te).expr.cast(), source) {
-                    let rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
+                if expr_uses_scores_from_source(check_expr.cast(), source) {
+                    let rti = get_score_func_rti(check_expr.cast()).unwrap_or(0);
                     output_columns.push(privdat::OutputColumnInfo::Score {
                         plan_position: source.plan_position,
                         rti,

@@ -65,7 +65,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere"]'), github.event.label.name)
       )
     env:
       pg_version: 18
@@ -75,10 +75,11 @@ jobs:
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
       BACKREST_REPO_S3_KEY_TYPE: shared
-      # Which datasets this run benchmarks, resolved once. Automatic triggers (push/PR-label) run all;
-      # a manual run benchmarks only the chosen dataset, so cohere can run without waiting on stackoverflow.
-      RUN_STACKOVERFLOW: ${{ github.event_name != 'workflow_dispatch' || inputs.dataset == 'all' || inputs.dataset == 'stackoverflow' }}
-      RUN_COHERE: ${{ github.event_name != 'workflow_dispatch' || inputs.dataset == 'all' || inputs.dataset == 'cohere' }}
+      # Which datasets this run benchmarks, resolved once.
+      # stackoverflow: push to main, the benchmark/benchmark-queries PR labels, or a manual run.
+      # cohere: opt-in only -- the dedicated benchmark-cohere PR label, or a manual run.
+      RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)) }}
+      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-cohere') }}
 
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
@@ -86,14 +87,15 @@ jobs:
       - name: Maybe Remove Label
         if: >-
           github.event_name == 'pull_request' &&
-          contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
             --remove-label benchmark \
-            --remove-label benchmark-queries || true
+            --remove-label benchmark-queries \
+            --remove-label benchmark-cohere || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -136,7 +138,7 @@ jobs:
       # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch the Latest Composite Actions
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere"]'), github.event.label.name)
         uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
@@ -147,18 +149,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch latest benchmark code, suites
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

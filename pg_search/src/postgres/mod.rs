@@ -26,7 +26,6 @@ use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
@@ -44,7 +43,6 @@ pub mod options;
 mod ps_status;
 mod range;
 mod scan;
-pub mod shared_threshold;
 mod vacuum;
 mod validate;
 
@@ -539,9 +537,6 @@ pub struct ParallelScanState {
     /// the one from which workers claim segments via `checkout_segment`.
     partitioning_source_idx: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
-    /// Top-K Shared Threshold Fields
-    pub shared_threshold: ParallelScanThresholdState,
-
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
@@ -584,7 +579,6 @@ impl ParallelScanState {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
-        self.shared_threshold.init();
         self.populate(
             &args.all_sources,
             args.partitioning_source_idx,
@@ -609,7 +603,6 @@ impl ParallelScanState {
         self.payload
             .init(all_sources, partitioning_source_idx, query, with_aggregates);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
-        self.shared_threshold.reset();
         let partitioning_count = all_sources
             .get(partitioning_source_idx)
             .expect("partitioning_source_idx out of bounds")
@@ -641,9 +634,7 @@ impl ParallelScanState {
     /// The leader will call `populate` to set up the segment data; workers wait for that.
     pub fn create(&mut self) {
         self.mutex.init();
-        self.aggregation_cv.init();
         self.init_cv.init();
-        self.shared_threshold.init();
         // Mark as uninitialized so workers know to wait for the leader
         self.mark_uninitialized();
     }

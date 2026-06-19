@@ -777,8 +777,6 @@ impl SearchIndexReader {
     /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
     /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
     /// results for MVCC visibility, and re-query if necessary.
-    ///
-    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -786,7 +784,6 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
-        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -805,15 +802,7 @@ impl SearchIndexReader {
 
                 macro_rules! sort_fast_value {
                     ($type:ty) => {{
-                        let mut computer = SortByStaticFastValue::<$type>::for_field(sort_field);
-                        if let Some(state) = parallel_state_holding_shared_threshold {
-                            computer = computer.with_shared_threshold(Some(std::sync::Arc::new(
-                                crate::postgres::shared_threshold::new_fast_value_threshold(
-                                    state,
-                                    order.clone(),
-                                ),
-                            )));
-                        }
+                        let computer = SortByStaticFastValue::<$type>::for_field(sort_field);
                         TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (computer, order),
@@ -871,13 +860,7 @@ impl SearchIndexReader {
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: ComparatorEnum = (*direction).into();
-                let mut computer = SortBySimilarityScore::new();
-                if let Some(state) = parallel_state_holding_shared_threshold {
-                    computer =
-                        SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
-                            crate::postgres::shared_threshold::new_score_threshold(state),
-                        )));
-                }
+                let computer = SortBySimilarityScore;
                 let (top_docs, aggregation_results) = self.top_in_segments(
                     segment_ids,
                     (computer, order),
@@ -894,14 +877,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score { .. },
                 direction,
-            } => self.top_by_score_in_segments(
-                segment_ids,
-                *direction,
-                n,
-                offset,
-                aux_collector,
-                parallel_state_holding_shared_threshold,
-            ),
+            } => self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
                 ..
@@ -1076,8 +1052,6 @@ impl SearchIndexReader {
     /// special case it.
     ///
     /// NOTE: Scores cannot be NULL, so we do not need to differentiate the nulls-first/last cases.
-    ///
-    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1085,7 +1059,6 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
-        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
@@ -1111,14 +1084,7 @@ impl SearchIndexReader {
 
             // can use tantivy's score directly, which allows for Block-WAND
             SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
-                let mut computer = SortBySimilarityScore::new();
-                if let Some(state) = parallel_state_holding_shared_threshold {
-                    computer =
-                        SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
-                            crate::postgres::shared_threshold::new_score_threshold(state),
-                        )));
-                }
-
+                let computer = SortBySimilarityScore;
                 let top_docs_collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by::<Score>(computer);

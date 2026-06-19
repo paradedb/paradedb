@@ -265,17 +265,23 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
     Ok(results)
 }
 
+/// Run any post-index setup SQL the dataset provides, each via psql if present. These run after
+/// index creation and before the benchmark queries (e.g. after_create_index.sql builds a metadata
+/// table; set_query_vector.sql sets the kNN query vector as a database-level GUC).
 async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
-    if Path::new(&after_create_index_sql).exists() {
+    for name in ["after_create_index.sql", "set_query_vector.sql"] {
+        let path = format!("datasets/{}/{name}", args.dataset);
+        if !Path::new(&path).exists() {
+            continue;
+        }
         let status = Command::new("psql")
             .arg(&args.url)
             .arg("-f")
-            .arg(&after_create_index_sql)
+            .arg(&path)
             .status()
-            .with_context(|| "Failed to execute after_create_index.sql")?;
+            .with_context(|| format!("Failed to execute {name}"))?;
         if !status.success() {
-            bail!("Failed to create tables from {after_create_index_sql}");
+            bail!("Failed to run {path}");
         }
     }
     Ok(())

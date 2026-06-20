@@ -138,6 +138,31 @@ WHERE line LIKE '%output_rows%';
 DROP FUNCTION mpp_explain_analyze_lines(text);
 
 -- =====================================================================
+-- Pass 4: MPP with heap filter
+--
+-- A heap filter (like `length(f.title) > 0`) must be evaluated in the
+-- worker. This tests that the expression context is properly provided
+-- to the worker.
+-- =====================================================================
+
+SET paradedb.enable_mpp TO on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 0
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 0
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

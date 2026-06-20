@@ -67,6 +67,11 @@ struct BenchmarkArgs {
     #[arg(long, default_value = "stackoverflow")]
     dataset: String,
 
+    /// Which index variant to build and benchmark (e.g. "bm25", "hnsw", "ivfflat"). Required;
+    /// resolves to `datasets/{dataset}/indexes/{index}.sql`.
+    #[arg(long)]
+    index: String,
+
     /// Whether to pre-warm the dataset using `pg_prewarm`.
     #[arg(long, default_value_t = true, num_args = 1)]
     prewarm: bool,
@@ -210,7 +215,7 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
     let mut conn = PgConnection::connect(&args.url)
         .await
         .with_context(|| "Failed to connect to database")?;
-    let index_sql = format!("datasets/{}/create_index.sql", args.dataset);
+    let index_sql = format!("datasets/{}/indexes/{}.sql", args.dataset, args.index);
     let mut results = Vec::new();
 
     for statement in queries(Path::new(&index_sql)) {

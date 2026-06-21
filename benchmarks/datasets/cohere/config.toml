@@ -8,4 +8,4 @@ name = "cohere_wiki"
 primary_key = "_id"  # used only if sampled later
 
 [params]
-lists = "{{ dataset_size }} / 100"
+lists = "sqrt({{ dataset_size }})::int"

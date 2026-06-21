@@ -11,13 +11,7 @@
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
 #
 # This workflow is dispatched by `publish-pg_search-debian.yml` (once the .deb is published) via
-# `workflow_dispatch` pinned to the release ref. We deliberately avoid a `workflow_run` trigger: it
-# always loads the workflow — and its local `uses: ./...` reusable workflows (e.g.
-# test-pg_search-docker.yml) — from the default branch (main). That means a release cut from a stable
-# branch (e.g. 0.24.x) would run main's definitions and tests against the release's artifacts.
-# `workflow_dispatch` honors the dispatched ref, so a release runs entirely from its own branch's
-# workflows. The ref is forwarded dynamically by the upstream, so nothing here needs to change when new
-# stable branches (0.25.x, etc.) are created.
+# `workflow_dispatch` pinned to the release ref so that it runs on the same commit as the other deploy jobs.
 
 name: Publish ParadeDB (Docker)
 
@@ -346,8 +340,7 @@ jobs:
     needs:
       - generate-dockerfiles
       - publish-paradedb-docker-image
-    # Skip for beta (`-rc.`) releases — we don't want to open Dockerfile-update PRs for prereleases
-    # (and a beta only regenerates the PG 18 Dockerfiles).
+    # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
     if: ${{ needs.generate-dockerfiles.outputs.has_changes == 'true' && !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
     steps:
       - name: Generate GitHub App Token

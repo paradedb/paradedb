@@ -15,14 +15,14 @@ set -euo pipefail
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   echo "Error: PG_SEARCH_VERSION is required"
   echo "Usage: $0 <pg_search_version> [pg_majors]"
-  echo "Example: $0 0.24.0            # generate all supported PG majors"
+  echo "Example: $0 0.24.0              # generate all supported PG majors"
   echo "Example: $0 0.24.0-rc.1 \"18\"  # generate only PG 18 (e.g. beta releases)"
   exit 1
 fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 all_versions=(15 16 17 18)
-# `latest_version` decides which PG major gets the antithesis flavor; keep it tied to the true latest
+# `latest_version` decides which PG major gets the Antithesis flavor; keep it tied to the true latest
 # regardless of any version restriction below.
 latest_version=${all_versions[${#all_versions[@]} - 1]}
 PG_SEARCH_VERSION="${1}"

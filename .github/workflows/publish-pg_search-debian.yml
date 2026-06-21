@@ -42,8 +42,7 @@ jobs:
     container:
       image: ${{ matrix.image }}
     # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
-    # Docker image needs — the Debian 13 (Trixie) .deb for both arches — so betas still ship a
-    # PG 18 Docker image without spending CI on the other 14 combinations.
+    # Docker image needs (the Debian 13 (Trixie) .deb for both arches).
     if: ${{ !contains(github.ref, '-rc.') || (matrix.pg_version == 18 && matrix.name == 'Debian 13 (Trixie)') }}
     strategy:
       matrix:

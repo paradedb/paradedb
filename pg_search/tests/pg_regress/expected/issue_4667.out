@@ -113,13 +113,14 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c,
                Filter: ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 1).col1)))
                Table: people
                Index: people_search_idx
+               Worker Selection: Row-capped
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                SubPlan 1
                  ->  Seq Scan on public.companies c
                        Output: c.id
-(16 rows)
+(17 rows)
 
 SELECT DISTINCT
     p.id AS id,

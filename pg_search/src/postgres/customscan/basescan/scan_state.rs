@@ -20,6 +20,7 @@ use std::cell::UnsafeCell;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
@@ -67,6 +68,7 @@ pub struct BaseScanState {
 
     pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
+    pub(crate) worker_selection_reason: Option<WorkerDecisionReason>,
     pub quals: Option<Qual>,
 
     pub need_scores: bool,

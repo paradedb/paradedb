@@ -39,6 +39,7 @@
 //!     the phrase `size_hint` under-counts matches.
 
 use super::*;
+use serde::{Deserialize, Serialize};
 
 /// Read-only accessor for a PostgreSQL planner cost GUC (a mutable static). Centralizing the read
 /// here keeps the cost helpers safe (no `unsafe` for a config read).
@@ -52,10 +53,46 @@ fn parallel_tuple_cost() -> f64 {
     unsafe { pg_sys::parallel_tuple_cost }
 }
 
+/// Which branch of [`decide_scan_parallelism`] produced a [`WorkerDecision`]. Surfaced in EXPLAIN
+/// VERBOSE so the serial-vs-parallel choice is observable: the worker *count* alone doesn't reveal
+/// whether a serial scan was a top-K short-circuit, a cost-model verdict, or a heuristic fallback.
+/// One variant per decision leaf.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum WorkerDecisionReason {
+    /// Prunable score-DESC single term: Block-WAND keeps serial scoring sublinear (#4664), so
+    /// workers would only add overhead.
+    BlockWandPrunable,
+    /// The cost model weighed the query's drive cost against PostgreSQL's fixed Gather overhead.
+    CostModel,
+    /// Uncostable sorted scan: it must k-way-merge across segments, so it parallelizes one worker
+    /// per segment (the structural ceiling) -- no cost or row test.
+    SortedPerSegment,
+    /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
+    /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
+    RowHeuristic,
+}
+
+impl WorkerDecisionReason {
+    /// Reader-facing label for EXPLAIN VERBOSE: each names the signal the worker count is keyed on.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::BlockWandPrunable => "Prunable top-K",
+            Self::CostModel => "Cost model",
+            Self::SortedPerSegment => "Per-segment",
+            Self::RowHeuristic => "Row-capped",
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum WorkerDecision {
-    Serial,
-    Parallel { nworkers: NonZeroUsize },
+    Serial {
+        reason: WorkerDecisionReason,
+    },
+    Parallel {
+        nworkers: NonZeroUsize,
+        reason: WorkerDecisionReason,
+    },
 }
 
 pub(super) struct PathCostBasis {
@@ -97,17 +134,20 @@ impl CostMemo {
 }
 
 impl WorkerDecision {
-    fn from_worker_count(nworkers: usize) -> Self {
-        NonZeroUsize::new(nworkers)
-            .map(|nworkers| Self::Parallel { nworkers })
-            .unwrap_or(Self::Serial)
+    /// `0` workers serializes; any positive count parallelizes. The `reason` is stamped on either
+    /// outcome so EXPLAIN can explain a serial verdict, not just a parallel one.
+    fn from_count(nworkers: usize, reason: WorkerDecisionReason) -> Self {
+        match NonZeroUsize::new(nworkers) {
+            Some(nworkers) => Self::Parallel { nworkers, reason },
+            None => Self::Serial { reason },
+        }
     }
 
     /// How many ways the parallel scan work is divided. The leader runs a full share
     /// of the scan when it participates, so it counts as one more worker beyond
     /// `nworkers` -- not a partial contribution. (Serial scans don't divide: 1.0.)
     pub(super) fn divisor(self, leader_participates: bool) -> f64 {
-        let Self::Parallel { nworkers } = self else {
+        let Self::Parallel { nworkers, .. } = self else {
             return 1.0;
         };
         let nworkers = nworkers.get();
@@ -120,8 +160,14 @@ impl WorkerDecision {
 
     pub(super) fn nworkers(self) -> Option<NonZeroUsize> {
         match self {
-            Self::Serial => None,
-            Self::Parallel { nworkers } => Some(nworkers),
+            Self::Serial { .. } => None,
+            Self::Parallel { nworkers, .. } => Some(nworkers),
+        }
+    }
+
+    pub(super) fn reason(self) -> WorkerDecisionReason {
+        match self {
+            Self::Serial { reason } | Self::Parallel { reason, .. } => reason,
         }
     }
 }
@@ -194,20 +240,22 @@ pub(super) unsafe fn topk_can_prune_for_method(
 
 /// Cost-model leaf: parallelize when splitting the scan across workers saves more than PostgreSQL's
 /// fixed Gather overhead (`work/divisor + gather_overhead < work`). `work` is the query's drive cost
-/// (`Query::cost`) in PostgreSQL units, scaled by the early-termination `fraction`. `segment_workers`
-/// is the structural ceiling: serial (0 workers) if it can't parallelize, otherwise the workers to
-/// split across.
+/// (`Query::cost`) in PostgreSQL units, scaled by the early-termination `fraction`. `structural_workers`
+/// is the structural ceiling: `0` if it can't parallelize, otherwise the workers to split across.
 fn cost_test(
     drive_cost: u64,
     matches: f64,
-    segment_workers: WorkerDecision,
+    structural_workers: usize,
     is_sorted: bool,
     limit: Option<f64>,
     base_result_rows: f64,
     parallel_leader_participates: bool,
 ) -> WorkerDecision {
-    let WorkerDecision::Parallel { .. } = segment_workers else {
-        return WorkerDecision::Serial;
+    let candidate = WorkerDecision::from_count(structural_workers, WorkerDecisionReason::CostModel);
+    let WorkerDecision::Parallel { .. } = candidate else {
+        return WorkerDecision::Serial {
+            reason: WorkerDecisionReason::CostModel,
+        };
     };
 
     // `fraction` is the share of the docset the scan must drive before it can stop: a sorted scan
@@ -228,14 +276,16 @@ fn cost_test(
 
     // Parallelize only when splitting the work across workers saves more than the fixed Gather
     // overhead (`parallel_setup_cost` plus per-row transport; the 1.05 covers Gather-Merge IPC).
-    let divisor = segment_workers.divisor(parallel_leader_participates);
+    let divisor = candidate.divisor(parallel_leader_participates);
     const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
     let gather_overhead =
         parallel_setup_cost() + parallel_tuple_cost() * base_result_rows * GATHER_MERGE_IPC_FACTOR;
     if work / divisor + gather_overhead < work {
-        segment_workers
+        candidate
     } else {
-        WorkerDecision::Serial
+        WorkerDecision::Serial {
+            reason: WorkerDecisionReason::CostModel,
+        }
     }
 }
 
@@ -291,7 +341,9 @@ pub(super) unsafe fn decide_scan_parallelism(
     //    term sublinear (#4664), so parallel workers would only add overhead. The predicate must
     //    actually prune, not just look like a term.
     if matches!(prunability, TopKPrunability::PrunableCandidate) && query.is_topk_prunable() {
-        return WorkerDecision::Serial;
+        return WorkerDecision::Serial {
+            reason: WorkerDecisionReason::BlockWandPrunable,
+        };
     }
 
     let external_var = quals.contains_external_var();
@@ -313,7 +365,7 @@ pub(super) unsafe fn decide_scan_parallelism(
         } else {
             0
         };
-        WorkerDecision::from_worker_count(nworkers)
+        WorkerDecision::from_count(nworkers, WorkerDecisionReason::RowHeuristic)
     };
 
     // 2. No row stats (table never ANALYZEd) -> the row heuristic. Routing every unanalyzed scan
@@ -323,16 +375,13 @@ pub(super) unsafe fn decide_scan_parallelism(
     };
     let matches = matches as f64;
 
-    // Structural ceiling: the most workers the segments can use. Serial (0) when parallelism is
-    // disabled, there is a single segment, or the predicate is correlated/external.
-    let segment_workers = if consider_parallel {
-        WorkerDecision::from_worker_count(max_useful_workers(
-            segment_count,
-            external_var,
-            correlated,
-        ))
+    // Structural ceiling: the most workers the segments can use. 0 (serial) when parallelism is
+    // disabled, there is a single segment, or the predicate is correlated/external. Stays a plain
+    // count because the two branches that use it stamp different reasons (cost model vs sorted).
+    let structural_workers = if consider_parallel {
+        max_useful_workers(segment_count, external_var, correlated)
     } else {
-        WorkerDecision::Serial
+        0
     };
 
     // 3. Cost the query if we can. `None` for a runtime-bound `$1`/subquery or correlated/external
@@ -348,14 +397,16 @@ pub(super) unsafe fn decide_scan_parallelism(
         (Some(drive_cost), _) => cost_test(
             drive_cost,
             matches,
-            segment_workers,
+            structural_workers,
             is_sorted,
             limit,
             base_result_rows,
             parallel_leader_participates,
         ),
         // Sorted, no usable cost: it must visit every segment, so workers always help.
-        (None, true) => segment_workers,
+        (None, true) => {
+            WorkerDecision::from_count(structural_workers, WorkerDecisionReason::SortedPerSegment)
+        }
         // Unsorted, no usable cost: it can stop early at LIMIT, so the row heuristic's caps fit;
         // full structural parallelism would over-do it.
         (None, false) => heuristic_workers(),

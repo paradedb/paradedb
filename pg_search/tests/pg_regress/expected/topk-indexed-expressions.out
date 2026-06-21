@@ -395,10 +395,11 @@ WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byt
                            Output: p.name, p.category, p.id
                            Table: expr_products
                            Index: expr_products_bm25
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(21 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p

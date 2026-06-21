@@ -42,10 +42,11 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
    Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
    Table: test_items
    Index: test_items_idx
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
-(7 rows)
+(8 rows)
 
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -82,12 +83,13 @@ LIMIT 1;
          Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
          Table: test_items
          Index: test_items_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: true
             TopK Order By: id asc
             TopK Limit: 1
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -115,10 +117,11 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
    Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
    Table: test_items
    Index: test_items_idx
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
-(7 rows)
+(8 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
@@ -148,12 +151,13 @@ LIMIT 1;
          Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
          Table: test_items
          Index: test_items_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: true
             TopK Order By: id asc
             TopK Limit: 1
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
@@ -197,6 +201,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
          Output: i.id, paradedb.score(i.id), paradedb.score(i.id)
          Table: test_items
          Index: test_items_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}
@@ -206,10 +211,11 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
                Output: o.order_id, o.item_id, paradedb.score(o.order_id), paradedb.score(o.order_id)
                Table: test_orders
                Index: test_orders_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"customer","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT i.id,
        paradedb.score(i.id) as item_score,

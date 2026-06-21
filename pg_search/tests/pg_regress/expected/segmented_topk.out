@@ -309,11 +309,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Output: d.id
                      Table: stk_documents
                      Index: stk_documents_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: ColumnarExecState
                      Fast Fields: id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 -- =============================================================================
 -- TEST 8: GUC toggle — disabling segmented_topk removes the node

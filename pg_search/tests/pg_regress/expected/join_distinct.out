@@ -557,10 +557,11 @@ WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                  Output: p.name, p.description, p.supplier_id
                                  Table: dist_products
                                  Index: dist_products_bm25_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 -- =============================================================================
 -- TEST 11: Fallback — COUNT(*) with LIMIT
@@ -640,11 +641,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
                            Output: p.name, p.supplier_id
                            Table: dist_products
                            Index: dist_products_bm25_idx
+                           Worker Selection: Cost model
                            Exec Method: ColumnarExecState
                            Fast Fields: name, supplier_id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(21 rows)
 
 -- =============================================================================
 -- TEST 14: DISTINCT with search predicates on both sides

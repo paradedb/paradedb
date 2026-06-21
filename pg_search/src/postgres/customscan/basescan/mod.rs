@@ -979,6 +979,7 @@ impl CustomScan for BaseScan {
                     },
                     &mut cost_memo,
                 );
+                method_private.set_worker_selection_reason(worker_decision.reason());
 
                 let scan_work_divisor = worker_decision.divisor(parallel_leader_participates);
                 let method_result_rows = base_result_rows / scan_work_divisor;
@@ -1203,6 +1204,8 @@ impl CustomScan for BaseScan {
             builder.custom_state().targetlist_len = builder.target_list().len();
 
             builder.custom_state().segment_count = builder.custom_private().segment_count();
+            builder.custom_state().worker_selection_reason =
+                builder.custom_private().worker_selection_reason();
             builder.custom_state().var_attname_lookup = builder
                 .custom_private()
                 .var_attname_lookup()
@@ -1326,6 +1329,12 @@ impl CustomScan for BaseScan {
                 state.custom_state().segment_count as u64,
                 None,
             );
+        }
+
+        if explainer.is_verbose() {
+            if let Some(reason) = state.custom_state().worker_selection_reason {
+                explainer.add_text("Worker Selection", reason.label());
+            }
         }
 
         if explainer.is_analyze() {

@@ -38,10 +38,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHER
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"sho","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, title FROM autocomplete WHERE title ||| 'sho' ORDER BY id;
  id |   title   
@@ -62,10 +63,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHER
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"s","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, title FROM autocomplete WHERE title ||| 's' ORDER BY id;
  id |   title   
@@ -89,10 +91,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHER
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match_array":{"field":"title","tokens":["s","sh","sho"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, title FROM autocomplete WHERE title ||| 'sho'::pdb.ngram(1, 10, 'prefix_only=true') ORDER BY id;
  id |   title   
@@ -131,10 +134,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete_plai
          Output: id, title
          Table: autocomplete_plain
          Index: idx_autocomplete_plain
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"sho","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, title FROM autocomplete_plain WHERE title ||| 'sho' ORDER BY id;
  id |   title   
@@ -176,10 +180,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, description FROM case_test W
          Output: id, description
          Table: case_test
          Index: idx_case_test
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"Running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, description FROM case_test WHERE description ||| 'Running' ORDER BY id;
  id | description 
@@ -221,10 +226,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, content FROM combined_test W
          Output: id, content
          Table: combined_test
          Index: idx_combined
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"Hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, content FROM combined_test WHERE content ||| 'Hello' ORDER BY id;
  id | content 

@@ -29,7 +29,9 @@ permissions:
   attestations: write
 
 jobs:
-  publish-pg_search:
+  # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
+  # Docker image needs (the Debian 13 (Trixie) .deb for both arches).
+  publish-pg_search-debian:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
@@ -41,8 +43,6 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
-    # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
-    # Docker image needs (the Debian 13 (Trixie) .deb for both arches).
     if: ${{ !contains(github.ref, '-rc.') || (matrix.pg_version == 18 && matrix.name == 'Debian 13 (Trixie)') }}
     strategy:
       matrix:
@@ -358,19 +358,13 @@ jobs:
           MESSAGE="<!here> \`publish-pg_search-debian\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
 
-  # Once every .deb is published, kick off the ParadeDB Docker publish. We dispatch it explicitly
-  # (rather than letting it chain via `workflow_run`) so it runs pinned to *this* release ref:
-  # `workflow_dispatch` honors `--ref`, whereas `workflow_run` always loads the workflow from the
-  # default branch (main). github.ref_name is the tag that triggered this run, so a release from
-  # 0.24.x publishes using 0.24.x's workflows — and nothing here needs to change when future stable
-  # branches (0.25.x, ...) are cut. This runs for both stable and beta (`-rc.`) tags: betas publish a
-  # PG 18 Docker image (the docker workflow's matrix resolves to [18] for `-rc.` versions). We gate on
-  # an actual version-tag push so manual/test dispatches of this workflow don't kick off a publish.
+  # Once the Debian packages are published, kick off the ParadeDB Docker publish. The Docker
+  # image publishing runs after Debian since it installs the Debian packages to avoid needing to build
+  # them from source again.
   trigger-docker-publish:
     name: Trigger ParadeDB Docker Publish
     runs-on: ubuntu-latest
-    needs: publish-pg_search
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: publish-pg_search-debian
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -397,5 +391,4 @@ jobs:
           gh workflow run publish-paradedb-docker.yml \
             --repo "${{ github.repository }}" \
             --ref "${{ github.ref_name }}" \
-            -f version="${{ steps.version.outputs.version }}" \
-            -f pg_version="[15, 16, 17, 18]"
+            -f version="${{ steps.version.outputs.version }}"

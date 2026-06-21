@@ -23,8 +23,8 @@ on:
         required: true
         default: ""
       pg_version:
-        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18])."
-        required: true
+        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18] regardless of this value."
+        required: false
         default: "[15, 16, 17, 18]"
 
 concurrency:
@@ -80,8 +80,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
-          # github.ref is the ref this workflow was dispatched on — the release tag (or branch), which
-          # is exactly the code we want to build and test against.
           ref: ${{ github.ref }}
           token: ${{ steps.app-token.outputs.token }}
 
@@ -135,10 +133,9 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
+      # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
+      # is [18], and only the PG 18 .deb is published.
       - name: Generate Dockerfiles
-        # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
-        # is [18], and only the PG 18 .deb is published — generating the others would 404 on the
-        # checksum fetch and fail the script.
         run: |
           PG_MAJORS=$(echo '${{ needs.set-matrix.outputs.matrix }}' | jq -r 'map(tostring) | join(" ")')
           docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}" "$PG_MAJORS"
@@ -240,13 +237,13 @@ jobs:
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
 
+  # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
   publish-extension-image:
     name: Publish ParadeDB Extension Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     needs:
       - generate-dockerfiles
       - test-generated-dockerfiles
-    # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
     if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
     strategy:
       matrix:
@@ -334,13 +331,13 @@ jobs:
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
 
+  # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
   open-dockerfile-prs:
     name: Open Dockerfile Update PRs
     runs-on: ubuntu-latest
     needs:
       - generate-dockerfiles
       - publish-paradedb-docker-image
-    # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
     if: ${{ needs.generate-dockerfiles.outputs.has_changes == 'true' && !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
     steps:
       - name: Generate GitHub App Token

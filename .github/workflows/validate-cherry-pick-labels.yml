@@ -16,7 +16,10 @@ jobs:
           labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
           echo "Labels: $labels"
 
-          has_cherry_pick=$(echo "$labels" | jq 'any(.[]; startswith("cherry-pick/"))')
+          # Match the exact pattern the backport action acts on (cherry-pick.yml's
+          # `^cherry-pick/([^ ]+)$`) so a malformed label like `cherry-pick/` or one with a
+          # space can't pass validation but then be silently ignored by the backport job.
+          has_cherry_pick=$(echo "$labels" | jq 'any(.[]; test("^cherry-pick/[^ ]+$"))')
           has_do_not_cherry_pick=$(echo "$labels" | jq 'contains(["Do Not Cherry Pick"])')
 
           echo "Has cherry pick: $has_cherry_pick"

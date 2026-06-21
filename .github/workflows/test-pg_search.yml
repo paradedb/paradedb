@@ -39,13 +39,9 @@ jobs:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          if [[ ${{ github.event_name }} == "push" ]]; then
-            echo "Push event detected; using only PostgreSQL version 18."
-            echo "matrix=[18]" >> $GITHUB_OUTPUT
-          else
-            echo "Pull request or schedule event detected, using all PostgreSQL versions."
-            echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
-          fi
+          # This workflow runs on pull_request, schedule, and workflow_dispatch (no push trigger),
+          # all of which test every supported PostgreSQL version.
+          echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
 
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})

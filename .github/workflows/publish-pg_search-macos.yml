@@ -29,7 +29,7 @@ permissions:
   attestations: write
 
 jobs:
-  publish-pg_search:
+  publish-pg_search-macos:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} arm64
     runs-on: ${{ matrix.runner }}
     if: ${{ !contains(github.ref, '-rc.') }}

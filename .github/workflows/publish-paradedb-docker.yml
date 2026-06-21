@@ -10,17 +10,31 @@
 # so they can run compatibility checks against the new version. This is done in
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
 #
-# This workflow is dispatched by `publish-pg_search-debian.yml` (once the Debian binaries are published) via
-# `workflow_dispatch` pinned to the release ref so that it runs on the same commit as the other deploy jobs.
+# This workflow is called by `publish-pg_search-debian.yml` (once the Debian binaries are published) via
+# `workflow_call`. Because it's a local reusable workflow, it runs on the same commit as the caller — the
+# release tag — so the Docker images (and the reusable test workflow it calls) build from the release ref.
+# Version is derived from that tag; the caller passes nothing. It also keeps `workflow_dispatch` for manual runs.
 
 name: Publish ParadeDB (Docker)
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The version to publish (e.g. 0.22.0). Omit to derive it from the release tag the caller ran on."
+        required: false
+        type: string
+        default: ""
+      pg_version:
+        description: "The Postgres major version(s) to build for, as a JSON array (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18]."
+        required: false
+        type: string
+        default: "[15, 16, 17, 18]"
   workflow_dispatch:
     inputs:
       version:
         description: "The version to set for the ParadeDB release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and tags it with the provided version."
-        required: true
+        required: false
         default: ""
       pg_version:
         description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18] regardless of this value."
@@ -28,7 +42,7 @@ on:
         default: "[15, 16, 17, 18]"
 
 concurrency:
-  group: publish-paradedb-docker-${{ github.event.inputs.version || github.ref }}
+  group: publish-paradedb-docker-${{ inputs.version || github.ref }}
   cancel-in-progress: true
 
 # Used by actions/attest-build-provenance to sign the builds
@@ -48,14 +62,14 @@ jobs:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          REF_NAME="${{ github.event.inputs.version || github.ref_name }}"
+          REF_NAME="${{ inputs.version || github.ref_name }}"
           echo "Evaluating ref: $REF_NAME"
           if [[ "$REF_NAME" == *"-"* ]]; then
             echo "Pre-release version (contains a dash, e.g. a beta -rc. tag); publishing PostgreSQL 18 only."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
-            echo "matrix=${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
+            echo "matrix=${{ inputs.pg_version || '[15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
           fi
 
   generate-dockerfiles:
@@ -87,7 +101,7 @@ jobs:
         id: version
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version.
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${{ inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
               TAG=${GITHUB_REF#refs/tags/}
@@ -97,8 +111,8 @@ jobs:
               TAG="v0.0.0"
             fi
           else
-            VERSION=${{ github.event.inputs.version }}
-            TAG=v${{ github.event.inputs.version }}
+            VERSION=${{ inputs.version }}
+            TAG=v${{ inputs.version }}
           fi
           RELEASE_VERSION=${VERSION%%-*}
           IFS=. read -r MAJOR MINOR _ <<< "$RELEASE_VERSION"
@@ -396,7 +410,7 @@ jobs:
     name: Notify ORM Repos of New Release
     runs-on: ubuntu-latest
     needs: publish-paradedb-docker-image
-    if: ${{ !contains(github.event.inputs.version || github.ref, '-rc.') }}
+    if: ${{ !contains(inputs.version || github.ref, '-rc.') }}
     env:
       # ORM repos to notify on new releases
       ORM_REPOS: |
@@ -410,10 +424,10 @@ jobs:
       - name: Retrieve GitHub Release Version
         id: version
         run: |
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ -z "${{ inputs.version }}" ]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           else
-            VERSION=${{ github.event.inputs.version }}
+            VERSION=${{ inputs.version }}
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 

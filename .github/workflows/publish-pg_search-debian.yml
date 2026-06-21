@@ -22,11 +22,14 @@ concurrency:
   group: publish-pg_search-debian-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-# Used by actions/attest-build-provenance to sign the builds
+# contents/id-token/attestations are used by actions/attest-build-provenance to sign the builds.
+# pull-requests is required by the reusable publish-paradedb-docker workflow (a called workflow can't
+# have more GITHUB_TOKEN permission than its caller).
 permissions:
   contents: write
   id-token: write
   attestations: write
+  pull-requests: write
 
 jobs:
   # Stable releases build the full matrix. Beta releases (`-rc.` tags) build only what the PG 18
@@ -358,33 +361,14 @@ jobs:
           MESSAGE="<!here> \`publish-pg_search-debian\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
 
-  # Once the Debian packages are published, kick off the ParadeDB Docker publish. The Docker
-  # image publishing runs after Debian since it installs the Debian packages to avoid needing to build
-  # them from source again.
-  trigger-docker-publish:
-    name: Trigger ParadeDB Docker Publish
-    runs-on: ubuntu-latest
+  # Once the Debian packages are published, publish the ParadeDB Docker images. The Docker image
+  # publishing runs after Debian since it installs the published Debian packages rather than rebuilding
+  # from source. We call it as a reusable workflow (rather than dispatching it) so it runs in this same
+  # run on this same commit — the release tag — and derives its version from that tag. Gated to actual
+  # version-tag pushes so a manual .deb rebuild doesn't also republish the Docker images.
+  publish-docker:
+    name: Publish ParadeDB Docker Images
     needs: publish-pg_search-debian
-    # Only on release-tag pushes, so a manual .deb rebuild doesn't also republish the Docker images.
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-
-      # This job only runs on a version-tag push, so the version is always the tag.
-      - name: Resolve Release Version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
-      - name: Dispatch ParadeDB Docker Publish on This Release Ref
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          gh workflow run publish-paradedb-docker.yml \
-            --repo "${{ github.repository }}" \
-            --ref "${{ github.ref_name }}" \
-            -f version="${{ steps.version.outputs.version }}"
+    uses: ./.github/workflows/publish-paradedb-docker.yml
+    secrets: inherit

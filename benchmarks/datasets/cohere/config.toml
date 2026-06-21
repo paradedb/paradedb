@@ -7,7 +7,5 @@ tables = []
 name = "cohere_wiki"
 primary_key = "_id"  # used only if sampled later
 
-# Index parameters referenced from indexes/*.sql via {{ name }}. Values are SQL-scalar expressions
-# over recognized variables (dataset_size = nominal row count from --size).
 [params]
 lists = "{{ dataset_size }} / 100"

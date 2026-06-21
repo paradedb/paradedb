@@ -29,17 +29,16 @@
 //!     pre-filter memoization).
 //!   - State 2 (materialized): already-decoded strings/bytes — always kept.
 //!
-//! For States 0 and 1, a per-segment bounded heap of size K retains only the
-//! top rows per segment. All batches are collected during the input phase,
-//! and survivors are emitted in a single pass once all input is consumed.
+//! For States 0 and 1, a per-segment buffer (a `Vec` with capacity 2 * K) and
+//! QuickSelect retain only the top K rows per segment. All batches are
+//! collected during the input phase, and survivors are emitted in a single
+//! pass once all input is consumed.
 //!
 //! ## Global threshold
 //!
-//! As rows are ingested, a global threshold is published to the scanner:
-//!
-//! Once the global heap across all segments reaches K entries, the worst
-//!
-//! entry's deferred ordinals are converted back to strings via
+//! As rows are ingested, a global threshold is published to the scanner.
+//! Once a segment's buffer fills to 2 * K and undergoes its first QuickSelect,
+//! the K-th best row's deferred ordinals are converted back to strings via
 //! `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
 //! DataFusion's standard filter pushdown mechanism routes this to
 //! `PgSearchScanPlan`, where `pre_filter::try_rewrite_binary` translates
@@ -47,15 +46,15 @@
 //!
 //! ## Output bound
 //!
-//! The cutoff for each segment is the worst (K-th best) `OwnedRow` in that
-//! segment's heap. All rows with `OwnedRow <= cutoff` survive. When sort keys
+//! The cutoff for each segment is the K-th best `OwnedRow` selected from that
+//! segment's buffer. All rows with `OwnedRow <= cutoff` survive. When sort keys
 //! are unique, this is exactly K rows per segment. With ties at the boundary,
 //! all tied rows are conservatively retained:
 //!
 //!   survivors_s = K + (T_s - H_s)
 //!
 //! where `T_s` is the total number of rows in segment `s` sharing the cutoff
-//! value, and `H_s` is how many of those occupy heap slots (`H_s >= 1`).
+//! value, and `H_s` is how many of those occupy buffer slots (`H_s >= 1`).
 //! Total ordinal-comparable rows reaching `TantivyLookupExec`:
 //!
 //!   sum_s(survivors_s) <= K * S  (when no boundary ties)
@@ -99,7 +98,6 @@ use datafusion::physical_plan::metrics::{
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use std::any::Any;
-use std::collections::BinaryHeap;
 use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
@@ -390,7 +388,8 @@ impl ExecutionPlan for SegmentedTopKExec {
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
-            segment_heaps: HashMap::default(),
+            segment_bufs: HashMap::default(),
+            segment_cutoffs: HashMap::default(),
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
@@ -477,10 +476,17 @@ struct SegmentedTopKState {
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
-    /// Per-segment max-heaps of comparable Rows. We maintain max heaps so that
-    /// the 'worst' element (the boundary) is always at the root. We also store the
-    /// `(batch_idx, row_idx)` to allow for compaction.
-    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<OwnedRow>>,
+    /// Per-segment rolling buffers of comparable Rows. Each buffer grows up to 2 * K
+    /// rows; when it reaches 2 * K, `select_nth_unstable(k - 1)` partitions it so the
+    /// K best rows occupy the front, the K-th best is recorded in `segment_cutoffs`,
+    /// and the buffer is truncated back to K. Row locations `(batch_idx, row_idx)`
+    /// are tracked separately in `row_ordinals` for compaction.
+    segment_bufs: HashMap<SegmentOrdinal, Vec<OwnedRow>>,
+    /// Per-segment K-th best row (the cutoff threshold) after the most recent
+    /// QuickSelect. Absent for segments that have not yet accumulated 2 * K rows, i.e.
+    /// segments whose buffer has not been partitioned. Updated by the inline
+    /// QuickSelect in `collect_batch` and consulted to pre-filter clearly worse rows.
+    segment_cutoffs: HashMap<SegmentOrdinal, OwnedRow>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
@@ -493,8 +499,8 @@ struct SegmentedTopKState {
     /// ordinal comparison. These are included in the final sort + limit.
     pass_through_rows: Vec<(usize, usize)>,
 
-    /// For each segment heap that has reached size `k`, we cache the resolved values
-    /// of its current worst row (the root of the heap).
+    /// For each segment that has a cutoff, we cache the resolved values of its current
+    /// K-th best row (the cutoff threshold).
     /// Tuple: (local ordinal OwnedRow, materialized ScalarValues, materialized OwnedRow)
     last_segment_cutoffs:
         HashMap<SegmentOrdinal, (OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>,
@@ -514,21 +520,7 @@ struct SegmentedTopKState {
 }
 
 impl SegmentedTopKState {
-    /// Update the per-segment cutoff heap with a new ordinal. The heap tracks
-    /// the K best transformed ordinals to determine the boundary. Row locations
-    /// are tracked separately in `row_ordinals`.
-    fn update_cutoff_heap(heap: &mut BinaryHeap<OwnedRow>, heap_val: OwnedRow, k: usize) {
-        if heap.len() < k {
-            heap.push(heap_val);
-        } else if let Some(worst) = heap.peek() {
-            if &heap_val < worst {
-                heap.pop();
-                heap.push(heap_val);
-            }
-        }
-    }
-
-    /// Ingest a single batch: extract ordinals, update per-segment heaps,
+    /// Ingest a single batch: extract ordinals, update per-segment buffers,
     /// and publish thresholds. The batch is buffered for the final emission
     /// phase. Pass-through rows (State 2 and NULL ordinals) are buffered
     /// in `pass_through_rows` for the final sort + limit.
@@ -575,15 +567,36 @@ impl SegmentedTopKState {
                 continue;
             }
             if let Some(seg_ord) = row_to_seg[row_idx] {
-                if !self.segment_heaps.contains_key(&seg_ord) {
+                let heap_val = converted_rows.row(row_idx).owned();
+
+                // Pre-filter: rows already worse than this segment's cutoff cannot
+                // enter the top K, so drop them before they reach the buffer.
+                let is_worse = self
+                    .segment_cutoffs
+                    .get(&seg_ord)
+                    .is_some_and(|cutoff| &heap_val > cutoff);
+                if is_worse {
+                    continue;
+                }
+
+                if !self.segment_bufs.contains_key(&seg_ord) {
                     self.segments_seen.add(1);
                 }
-                let heap = self.segment_heaps.entry(seg_ord).or_default();
-
-                let heap_val = converted_rows.row(row_idx).owned();
-                Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+                let buf = self.segment_bufs.entry(seg_ord).or_default();
+                buf.push(heap_val.clone());
                 self.row_ordinals
                     .push((batch_idx, row_idx, seg_ord, heap_val));
+
+                // QuickSelect: when the buffer reaches 2 * K, partition it around the
+                // K-th element (index k - 1). That element becomes the new segment
+                // cutoff and the buffer is truncated to its K best rows, mirroring
+                // Tantivy's TopNComputer.
+                if self.k > 0 && buf.len() >= 2 * self.k {
+                    buf.select_nth_unstable(self.k - 1);
+                    let cutoff = buf[self.k - 1].clone();
+                    buf.truncate(self.k);
+                    self.segment_cutoffs.insert(seg_ord, cutoff);
+                }
             }
         }
 
@@ -824,16 +837,16 @@ impl SegmentedTopKState {
             .reduce(|a, b| Arc::new(BinaryExpr::new(a, Operator::Or, b)) as Arc<dyn PhysicalExpr>)
     }
 
-    /// Build the set of all survivors across all segments. A row survives if
-    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment.
+    /// Build the set of all survivors across all segments. A row survives if its
+    /// `OwnedRow` is <= the cutoff (K-th best row) for its segment. Segments without
+    /// a cutoff have not yet accumulated 2 * K rows, so all of their rows survive.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
         for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
             let dominated = self
-                .segment_heaps
+                .segment_cutoffs
                 .get(seg_ord)
-                .and_then(|h| h.peek())
-                .is_some_and(|cutoff| heap_val <= cutoff);
+                .is_none_or(|cutoff| heap_val <= cutoff);
             if dominated {
                 survivors.insert((*batch_idx, *row_idx));
             }
@@ -852,16 +865,16 @@ impl SegmentedTopKState {
         let mut best_worst_mat_row: Option<OwnedRow> = None;
         let mut best_worst_values: Option<Vec<datafusion::common::ScalarValue>> = None;
 
-        // 1. Examine the "worst" row (the root of the heap) for each segment that
-        //    has reached size `K`.
-        let full_segment_heaps: Vec<(SegmentOrdinal, OwnedRow)> = self
-            .segment_heaps
+        // 1. Examine the K-th best row (the cutoff) for each segment that has one.
+        //    A cutoff exists only after a segment has accumulated 2 * K rows and been
+        //    partitioned, so every cutoff already reflects a full K rows.
+        let full_segment_cutoffs: Vec<(SegmentOrdinal, OwnedRow)> = self
+            .segment_cutoffs
             .iter()
-            .filter(|(_, heap)| heap.len() >= self.k)
-            .filter_map(|(&seg_ord, heap)| heap.peek().map(|row| (seg_ord, row.clone())))
+            .map(|(&seg_ord, cutoff)| (seg_ord, cutoff.clone()))
             .collect();
 
-        for (seg_ord, worst_local) in full_segment_heaps {
+        for (seg_ord, worst_local) in full_segment_cutoffs {
             // 2. Resolve the local ordinal threshold into a materialized row.
             let (mat_values, mat_row) = self.resolve_segment_cutoff(seg_ord, &worst_local)?;
 
@@ -1025,7 +1038,7 @@ impl SegmentedTopKState {
     /// instead of O(N) for large inputs — analogous to the batch compaction
     /// step in upstream DataFusion Top K.
     fn maybe_compact(&mut self) {
-        let num_segments = self.segment_heaps.len().max(1);
+        let num_segments = self.segment_bufs.len().max(1);
         if self.row_ordinals.len() <= self.k * num_segments * 4 {
             return;
         }
@@ -1036,10 +1049,10 @@ impl SegmentedTopKState {
 
         // Use take() so we own row_ordinals and can move the OwnedRows.
         for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
-            let keep = match self.segment_heaps.get(&seg_ord).and_then(|h| h.peek()) {
-                Some(cutoff_val) => &heap_val <= cutoff_val,
-                None => true,
-            };
+            let keep = self
+                .segment_cutoffs
+                .get(&seg_ord)
+                .is_none_or(|cutoff| &heap_val <= cutoff);
             if keep {
                 survivors.insert((batch_idx, row_idx));
                 new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));

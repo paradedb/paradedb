@@ -10,7 +10,7 @@
 # so they can run compatibility checks against the new version. This is done in
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
 #
-# This workflow is dispatched by `publish-pg_search-debian.yml` (once the .deb is published) via
+# This workflow is dispatched by `publish-pg_search-debian.yml` (once the Debian binaries are published) via
 # `workflow_dispatch` pinned to the release ref so that it runs on the same commit as the other deploy jobs.
 
 name: Publish ParadeDB (Docker)
@@ -134,7 +134,7 @@ jobs:
           fi
 
       # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
-      # is [18], and only the PG 18 .deb is published.
+      # is [18], and only the PG 18 .deb are published.
       - name: Generate Dockerfiles
         run: |
           PG_MAJORS=$(echo '${{ needs.set-matrix.outputs.matrix }}' | jq -r 'map(tostring) | join(" ")')

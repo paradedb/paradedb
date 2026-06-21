@@ -375,9 +375,9 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
+      # This job only runs on a version-tag push, so the version is always the tag.
       - name: Resolve Release Version
         id: version
-        # This job only runs on a version-tag push, so the version is always the tag.
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch ParadeDB Docker Publish on This Release Ref

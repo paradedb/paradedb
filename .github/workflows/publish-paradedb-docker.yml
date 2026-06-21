@@ -48,9 +48,6 @@ jobs:
   set-matrix:
     name: Define the PostgreSQL Version Matrix
     runs-on: ubuntu-latest
-    # Release candidates never publish Docker images. The upstream debian publish already skips them, so
-    # it won't dispatch for an -rc. tag; this guard also covers manual dispatches.
-    if: ${{ !contains(github.event.inputs.version || github.ref_name, '-rc.') }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -60,7 +57,7 @@ jobs:
           REF_NAME="${{ github.event.inputs.version || github.ref_name }}"
           echo "Evaluating ref: $REF_NAME"
           if [[ "$REF_NAME" == *"-"* ]]; then
-            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 18."
+            echo "Pre-release version (contains a dash, e.g. a beta -rc. tag); publishing PostgreSQL 18 only."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
@@ -145,7 +142,12 @@ jobs:
           fi
 
       - name: Generate Dockerfiles
-        run: docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}"
+        # Only generate the PG majors we're publishing this run. For beta (`-rc.`) releases the matrix
+        # is [18], and only the PG 18 .deb is published — generating the others would 404 on the
+        # checksum fetch and fail the script.
+        run: |
+          PG_MAJORS=$(echo '${{ needs.set-matrix.outputs.matrix }}' | jq -r 'map(tostring) | join(" ")')
+          docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}" "$PG_MAJORS"
 
       - name: Commit Generated Dockerfiles
         id: generated_branch
@@ -250,6 +252,8 @@ jobs:
     needs:
       - generate-dockerfiles
       - test-generated-dockerfiles
+    # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
+    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
     strategy:
       matrix:
         # Mounted extension images require PostgreSQL 18+ because
@@ -342,7 +346,9 @@ jobs:
     needs:
       - generate-dockerfiles
       - publish-paradedb-docker-image
-    if: ${{ needs.generate-dockerfiles.outputs.has_changes == 'true' }}
+    # Skip for beta (`-rc.`) releases — we don't want to open Dockerfile-update PRs for prereleases
+    # (and a beta only regenerates the PG 18 Dockerfiles).
+    if: ${{ needs.generate-dockerfiles.outputs.has_changes == 'true' && !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
     steps:
       - name: Generate GitHub App Token
         id: app-token

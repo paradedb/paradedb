@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -46,6 +46,11 @@ pub struct DatasetConfig {
     /// Storage format LoadHeap reads from `sampled/{size}/{load_format}/`. Defaults to CSV.
     #[serde(default)]
     pub load_format: LoadFormat,
+    /// Named index parameters. Each value is an expression (evaluated as a SQL scalar) over
+    /// recognized variables such as `dataset_size`, e.g. `lists = "{{ dataset_size }} / 100"`.
+    /// Index SQL references them with `{{ name }}`.
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 impl DatasetConfig {
@@ -157,6 +162,7 @@ mod tests {
             tables,
             s3_base_path: None,
             load_format: LoadFormat::default(),
+            params: HashMap::new(),
         }
     }
 

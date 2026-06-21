@@ -46,6 +46,7 @@ runs:
           --url "${POSTGRES_URL}" \
           --dataset ${{ inputs.dataset }} \
           --index ${{ inputs.index }} \
+          --size ${{ inputs.size }} \
           --runs 10 \
           --output json \
           --fail-on-error ${{ inputs.fail_on_error }}

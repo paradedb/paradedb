@@ -21,6 +21,8 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
 fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Supported PostgreSQL majors. Keep in sync with the canonical list in pg_search/Cargo.toml
+# (also duplicated in flake.nix's supportedPgVersions).
 all_versions=(15 16 17 18)
 # `latest_version` decides which PG major gets the Antithesis flavor; keep it tied to the true latest
 # regardless of any version restriction below.

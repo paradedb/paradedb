@@ -87,6 +87,3 @@ prost = "0.14.3"
 pgrx-tests.workspace = true
 rstest = "0.25.0"
 proptest = "1.11.0"
-
-[package.metadata.cargo-machete]
-ignored = ["indexmap", "libc", "tantivy-common"]

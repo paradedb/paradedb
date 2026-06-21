@@ -84,3 +84,6 @@ rm -rf /tmp/ephemeral_postgres_logs/*
 
 # Export the PG_CONFIG variable for use by sourcing scripts
 export PG_CONFIG="${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
+
+# Disable command tracing (enabled above) so it doesn't leak into the scripts that source this file.
+{ set +x; } 2>/dev/null

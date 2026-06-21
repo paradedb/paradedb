@@ -6,7 +6,7 @@ There are three flavors of files generated:
 
 - `paradedb`: The default ParadeDB Docker image, published to `paradedb/paradedb`. Includes Barman Cloud which is used in our CNPG deployments.
 - `official`: The image for Docker Official Images which will be published to `paradedb` once approved by Docker. Does not include Barman.
-- `antithesis`: The image used by Antithesis test runs. Includes `libvoidstar`, Antithesis' instrumentation library.
+- `antithesis`: The image used by Antithesis test runs. It is built from a `.deb` that CI instruments with `libvoidstar` (Antithesis' instrumentation library).
 
 `paradedb` and `official` both install Debian artifacts published to GitHub Releases. `antithesis` installs a locally built `.deb` so that it can be run on a per-commit basis.
 

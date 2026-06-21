@@ -290,6 +290,66 @@ where
     }
 }
 
+/// Normalize a pair of numeric bounds to a common type when they parse to
+/// different numeric "shapes".
+///
+/// JSON numeric values are inferred independently per bound (see
+/// [`string_to_json_numeric`]), so a range like `[35.1 TO 40]` yields an
+/// `F64` lower bound and an `I64`/`U64` upper bound. Tantivy's `RangeQuery`
+/// requires both bound terms to share the same value type; a mismatch causes a
+/// downstream `Option::unwrap()` panic when the typed bounds are extracted.
+///
+/// When exactly one bound is a float and the other is an integer, the integer
+/// bound is promoted to `F64` so both bounds agree on type. Bounds that already
+/// agree (or where either side is unbounded / non-numeric) are returned
+/// unchanged.
+pub fn normalize_numeric_bound_pair(
+    lower: Bound<PdbOwnedValue>,
+    upper: Bound<PdbOwnedValue>,
+) -> (Bound<PdbOwnedValue>, Bound<PdbOwnedValue>) {
+    fn bound_value(bound: &Bound<PdbOwnedValue>) -> Option<&PdbOwnedValue> {
+        match bound {
+            Bound::Included(v) | Bound::Excluded(v) => Some(v),
+            Bound::Unbounded => None,
+        }
+    }
+
+    fn is_float(value: &PdbOwnedValue) -> bool {
+        matches!(value, PdbOwnedValue::F64(_))
+    }
+
+    fn integer_to_f64(value: &PdbOwnedValue) -> Option<f64> {
+        match value {
+            PdbOwnedValue::I64(i) => Some(*i as f64),
+            PdbOwnedValue::U64(u) => Some(*u as f64),
+            _ => None,
+        }
+    }
+
+    fn promote_bound(bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
+        match bound {
+            Bound::Included(v) => match integer_to_f64(&v) {
+                Some(f) => Bound::Included(PdbOwnedValue::F64(f)),
+                None => Bound::Included(v),
+            },
+            Bound::Excluded(v) => match integer_to_f64(&v) {
+                Some(f) => Bound::Excluded(PdbOwnedValue::F64(f)),
+                None => Bound::Excluded(v),
+            },
+            Bound::Unbounded => Bound::Unbounded,
+        }
+    }
+
+    let lower_is_float = bound_value(&lower).map(is_float).unwrap_or(false);
+    let upper_is_float = bound_value(&upper).map(is_float).unwrap_or(false);
+
+    match (lower_is_float, upper_is_float) {
+        (true, false) => (lower, promote_bound(upper)),
+        (false, true) => (promote_bound(lower), upper),
+        _ => (lower, upper),
+    }
+}
+
 /// Scale a numeric bound value for Numeric64 storage.
 pub fn scale_numeric_bound(
     bound: Bound<PdbOwnedValue>,

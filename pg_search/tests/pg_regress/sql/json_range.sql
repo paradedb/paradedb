@@ -102,3 +102,81 @@ WHERE id @@@ '{
 ORDER BY id;
 
 DROP TABLE json_range_test;
+
+-- ============================================================================
+-- Regression: mixed-type numeric range bounds (issue #5077)
+-- ============================================================================
+-- A JSON numeric subpath whose lower and upper bounds are written with
+-- different numeric "shapes" (e.g. [35.1 TO 40]) used to panic with
+-- `called Option::unwrap() on a None value` because each bound was inferred
+-- independently (F64 lower, I64 upper) and Tantivy's RangeQuery requires both
+-- bounds to share a value type. The bounds are now normalized to a common
+-- numeric type, so these queries return the same rows as the all-float form
+-- instead of panicking.
+
+CREATE TABLE json_mixed_range_test (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+
+-- Float values force the fast field to store the subpath as F64.
+INSERT INTO json_mixed_range_test (metadata) VALUES
+    ('{"price": 35.0}'),
+    ('{"price": 35.1}'),
+    ('{"price": 36.0}'),
+    ('{"price": 39.9}'),
+    ('{"price": 40.0}'),
+    ('{"price": 41.0}');
+
+CREATE INDEX json_mixed_range_test_idx ON json_mixed_range_test
+USING bm25 (id, metadata)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata": {"fast": true}}'
+);
+
+-- float lower bound, integer upper bound ([35.1 TO 40])
+SELECT id, metadata->>'price' AS price FROM json_mixed_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.price",
+        "lower_bound": {"included": 35.1},
+        "upper_bound": {"included": 40}
+    }
+}'::jsonb
+ORDER BY id;
+
+-- integer lower bound, float upper bound ([35 TO 40.5])
+SELECT id, metadata->>'price' AS price FROM json_mixed_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.price",
+        "lower_bound": {"included": 35},
+        "upper_bound": {"included": 40.5}
+    }
+}'::jsonb
+ORDER BY id;
+
+-- excluded integer upper bound parity with the JSON builder repro from #5077
+SELECT id, metadata->>'price' AS price FROM json_mixed_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.price",
+        "lower_bound": {"included": 35.1},
+        "upper_bound": {"excluded": 36}
+    }
+}'::jsonb
+ORDER BY id;
+
+-- all-float control form returns the same rows as the mixed-type form above
+SELECT id, metadata->>'price' AS price FROM json_mixed_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.price",
+        "lower_bound": {"included": 35.1},
+        "upper_bound": {"included": 40.0}
+    }
+}'::jsonb
+ORDER BY id;
+
+DROP TABLE json_mixed_range_test;

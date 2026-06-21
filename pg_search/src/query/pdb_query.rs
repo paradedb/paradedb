@@ -21,8 +21,9 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::query::numeric::{
-    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
-    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    convert_value_for_field, convert_value_for_range_field, map_bound,
+    normalize_numeric_bound_pair, numeric_bound_to_bytes, scale_numeric_bound, string_to_f64,
+    string_to_i64, string_to_json_numeric, string_to_u64,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -1558,9 +1559,15 @@ fn range(
             (lower, upper)
         }
         SearchFieldType::Json(_) => {
-            // For JSON fields, convert string numeric values to appropriate JSON types
+            // For JSON fields, convert string numeric values to appropriate JSON types.
+            // Each bound is inferred independently, so a mixed-shape range such as
+            // `[35.1 TO 40]` yields an F64 lower bound and an I64 upper bound. Tantivy's
+            // RangeQuery requires both bound terms to share a value type, so normalize the
+            // pair to a common numeric type before building terms (otherwise a downstream
+            // Option::unwrap() panics on the mismatched bound).
             let lower = map_bound(lower_bound, string_to_json_numeric);
             let upper = map_bound(upper_bound, string_to_json_numeric);
+            let (lower, upper) = normalize_numeric_bound_pair(lower, upper);
             check_range_bounds(typeoid, lower, upper)?
         }
         SearchFieldType::I64(_) => {

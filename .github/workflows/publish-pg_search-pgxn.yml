@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish-pg_search:
+  publish-pg_search-pgxn:
     name: Publish pg_search to PGXN
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref, '-rc.') }}

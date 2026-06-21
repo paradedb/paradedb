@@ -29,20 +29,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  set-matrix:
-    name: Define the PostgreSQL Version Matrix
-    runs-on: ubuntu-latest
-    if: ${{ !cancelled() }}
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Define the PostgreSQL Version Matrix
-        id: set-matrix
-        run: |
-          # This workflow runs on pull_request, schedule, and workflow_dispatch (no push trigger),
-          # all of which test every supported PostgreSQL version.
-          echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
-
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
     # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
@@ -56,12 +42,11 @@ jobs:
       - volume=40gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     if: ${{ !cancelled() }}
-    needs: set-matrix
     strategy:
       fail-fast: false
       matrix:
         # Base: system Postgres on ARM Ubuntu 24.04 for all versions.
-        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+        pg_version: [15, 16, 17, 18]
         pg_impl: [system]
         cpu: [8]
         ram: [16]

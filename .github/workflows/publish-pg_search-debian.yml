@@ -339,3 +339,43 @@ jobs:
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           MESSAGE="<!here> \`publish-pg_search-debian\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+
+  # Once every .deb is published, kick off the ParadeDB Docker publish. We dispatch it explicitly
+  # (rather than letting it chain via `workflow_run`) so it runs pinned to *this* release ref:
+  # `workflow_dispatch` honors `--ref`, whereas `workflow_run` always loads the workflow from the
+  # default branch (main). github.ref_name is the tag that triggered this run (or the branch, for a
+  # manual dispatch), so a release from 0.24.x publishes using 0.24.x's workflows — and nothing here
+  # needs to change when future stable branches (0.25.x, ...) are cut.
+  trigger-docker-publish:
+    name: Trigger ParadeDB Docker Publish
+    runs-on: ubuntu-latest
+    needs: publish-pg_search
+    if: ${{ !contains(github.ref, '-rc.') }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Resolve Release Version
+        id: version
+        run: |
+          # If no workflow_dispatch version is provided, derive it from the tag that triggered this run.
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch ParadeDB Docker Publish on This Release Ref
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run publish-paradedb-docker.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            -f version="${{ steps.version.outputs.version }}" \
+            -f pg_version="[15, 16, 17, 18]"

@@ -534,7 +534,6 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: grouping column "description" exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -964,6 +963,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1007,6 +1007,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  id | name  
 ----+-------
   1 | Alice
@@ -1107,6 +1108,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1146,6 +1148,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  profile_id 
 ------------
           1

@@ -24,6 +24,7 @@
 
 use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
+use super::GroupingShape;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_aggref, find_one_var_and_fieldname, VarContext};
@@ -224,38 +225,8 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
-/// Target expressions for the aggregate target list, with the
-/// `UPPERREL_DISTINCT` fallback.
-///
-/// At `UPPERREL_DISTINCT` the planner leaves `output_rel.reltarget.exprs`
-/// empty, so fall back to `parse->targetList` (non-junk entries), which
-/// always contains the DISTINCT columns at this stage. Returns an empty vec
-/// when neither source yields expressions.
-pub(crate) unsafe fn aggregate_target_exprs(
-    args: &CreateUpperPathsHookArgs,
-) -> Vec<*mut pg_sys::Expr> {
-    let reltarget = args.output_rel().reltarget;
-    let from_reltarget = if reltarget.is_null() {
-        PgList::new()
-    } else {
-        PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs)
-    };
-    if !from_reltarget.is_empty() || args.stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT {
-        return from_reltarget.iter_ptr().collect();
-    }
-    let parse = args.root().parse;
-    if parse.is_null() {
-        return Vec::new();
-    }
-    PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList)
-        .iter_ptr()
-        .filter(|te| !(**te).resjunk)
-        .map(|te| (*te).expr)
-        .collect()
-}
-
-/// Extract aggregate target list from `output_rel.reltarget.exprs` for a join
-/// aggregate query.
+/// Extract the aggregate target list for a join aggregate query from the
+/// grouping/DISTINCT output columns ([`GroupingShape::target_exprs`]).
 ///
 /// Iterates the target list and classifies each expression as either a GROUP BY
 /// column (`T_Var`) or an aggregate function (`T_Aggref`). For joins, `Var.varno`
@@ -279,8 +250,9 @@ pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    shape: GroupingShape,
 ) -> Result<JoinAggregateTargetList, String> {
-    let target_exprs = aggregate_target_exprs(args);
+    let target_exprs = shape.target_exprs();
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
@@ -426,9 +398,12 @@ pub unsafe fn extract_aggregate_targetlist(
                 order_by,
             });
         } else {
+            // The target is neither a plain column (Var) nor an aggregate
+            // (Aggref): a DISTINCT/GROUP BY on an expression such as
+            // `upper(col)`. Only plain columns are pushed down; the query
+            // still runs natively.
             return Err(format!(
-                "expression at index {} is neither a GROUP BY column (Var) nor an aggregate (Aggref)",
-                idx
+                "DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index {idx})"
             ));
         }
     }

@@ -39,7 +39,8 @@ cargo run --release -- load-heap \
 
 cargo run --release -- benchmark \
   --url "${POSTGRES_URL}" \
-  --dataset stackoverflow
+  --dataset stackoverflow \
+  --index bm25
 ```
 
 To reuse that heap through pgBackRest, stop Postgres before snapshotting or restoring:
@@ -78,6 +79,7 @@ cargo run -- --help
 ## Notable `benchmark` Options
 
 - `--dataset` defaults to "stackoverflow"
+- `--index` (required): Selects the index to build/benchmark, `datasets/{dataset}/indexes/{index}.sql` (e.g. `bm25`, `hnsw`, `ivfflat`).
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
@@ -103,7 +105,7 @@ The queries that are benchmarked for a dataset are located at `datasets/$name/qu
 
 - `config.toml`
 - `create_tables.sql`
-- `create_index.sql`
+- `indexes/{index}.sql` (one file per index variant, e.g. `bm25`, `hnsw`, `ivfflat`; chosen with `benchmark --index`)
 - `prewarm.sql`
 - `queries/*.sql`
 - `after_create_index.sql` (optional)

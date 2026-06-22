@@ -19,6 +19,7 @@ use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use paradedb::{confidence_interval_half_width, mean, Window};
 use sqlx::{Connection, PgConnection, Row};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -30,6 +31,8 @@ mod config;
 mod convert;
 mod sample;
 mod utils;
+
+use config::{load_dataset_config, LoadFormat};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -64,6 +67,16 @@ struct BenchmarkArgs {
     /// Dataset to use.
     #[arg(long, default_value = "stackoverflow")]
     dataset: String,
+
+    /// Which index variant to build and benchmark (e.g. "bm25", "hnsw", "ivfflat"). Required;
+    /// resolves to `datasets/{dataset}/indexes/{index}.sql`.
+    #[arg(long)]
+    index: String,
+
+    /// Dataset size label (e.g. "1m", "10m"). Used to scale size-dependent index parameters such as
+    /// ivfflat's `lists`; only required for indexes that reference it.
+    #[arg(long)]
+    size: Option<String>,
 
     /// Whether to pre-warm the dataset using `pg_prewarm`.
     #[arg(long, default_value_t = true, num_args = 1)]
@@ -155,11 +168,52 @@ pub struct QueryRunResults {
     pub num_results: usize,
 }
 
-struct IndexCreationResult {
-    duration_min_ms: f64,
-    index_name: String,
-    index_size: i64,
-    segment_count: i64,
+enum IndexCreationResult {
+    Bm25 {
+        duration_min_ms: f64,
+        index_name: String,
+        index_size: i64,
+        segment_count: i64,
+    },
+    /// Non-bm25 access methods (e.g. pgvector hnsw/ivfflat) have no segments.
+    Other {
+        duration_min_ms: f64,
+        index_name: String,
+        index_size: i64,
+    },
+}
+
+impl IndexCreationResult {
+    fn index_name(&self) -> &str {
+        match self {
+            Self::Bm25 { index_name, .. } | Self::Other { index_name, .. } => index_name,
+        }
+    }
+
+    fn duration_min_ms(&self) -> f64 {
+        match self {
+            Self::Bm25 {
+                duration_min_ms, ..
+            }
+            | Self::Other {
+                duration_min_ms, ..
+            } => *duration_min_ms,
+        }
+    }
+
+    fn index_size(&self) -> i64 {
+        match self {
+            Self::Bm25 { index_size, .. } | Self::Other { index_size, .. } => *index_size,
+        }
+    }
+
+    /// Segment count, or `None` for access methods without segments (non-bm25).
+    fn segment_count(&self) -> Option<i64> {
+        match self {
+            Self::Bm25 { segment_count, .. } => Some(*segment_count),
+            Self::Other { .. } => None,
+        }
+    }
 }
 
 struct QueryResult {
@@ -204,14 +258,104 @@ impl From<QueryResult> for JSONBenchmarkResult {
     }
 }
 
+/// Nominal row count for a size label like `100k`, `1m`, `20m`.
+fn dataset_rows(size: &str) -> anyhow::Result<i64> {
+    let s = size.trim().to_lowercase();
+    let (digits, mult) = if let Some(d) = s.strip_suffix('k') {
+        (d, 1_000)
+    } else if let Some(d) = s.strip_suffix('m') {
+        (d, 1_000_000)
+    } else {
+        (s.as_str(), 1)
+    };
+    let n: i64 = digits
+        .parse()
+        .with_context(|| format!("Invalid --size label `{size}`"))?;
+    Ok(n * mult)
+}
+
+/// The `{{ name }}` references in a template string.
+fn template_names(s: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = s;
+    while let Some(open) = rest.find("{{") {
+        let after = &rest[open + 2..];
+        let Some(close) = after.find("}}") else { break };
+        names.push(after[..close].trim().to_owned());
+        rest = &after[close + 2..];
+    }
+    names
+}
+
+/// Replace every `{{ name }}` in `s` with `vars[name]`, erroring on an unknown name.
+fn substitute_vars(s: &str, vars: &HashMap<String, String>) -> anyhow::Result<String> {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(open) = rest.find("{{") {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 2..];
+        let close = after
+            .find("}}")
+            .with_context(|| format!("Unterminated '{{{{' in `{s}`"))?;
+        let name = after[..close].trim();
+        let value = vars
+            .get(name)
+            .with_context(|| format!("Unknown template variable `{name}` in `{s}`"))?;
+        out.push_str(value);
+        rest = &after[close + 2..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// Resolve the dataset's `[params]` referenced by the index SQL into concrete values. Each param is
+/// an expression over recognized variables (currently `dataset_size`, from `--size`) and is
+/// evaluated as a SQL scalar — so the index DDL stays plain SQL with no inline `count(*)`.
+async fn resolve_index_params(
+    conn: &mut PgConnection,
+    args: &BenchmarkArgs,
+    statements: &[String],
+) -> anyhow::Result<HashMap<String, String>> {
+    let referenced: HashSet<String> = statements.iter().flat_map(|s| template_names(s)).collect();
+    if referenced.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let (config, _) = load_dataset_config(&format!("datasets/{}/config.toml", args.dataset))?;
+
+    let mut vars = HashMap::new();
+    if let Some(size) = &args.size {
+        vars.insert("dataset_size".to_owned(), dataset_rows(size)?.to_string());
+    }
+
+    let mut params = HashMap::new();
+    for name in referenced {
+        let expr = config.params.get(&name).with_context(|| {
+            format!(
+                "Index references `{{{{ {name} }}}}` but the dataset's [params] has no `{name}`"
+            )
+        })?;
+        let expr = substitute_vars(expr, &vars).with_context(|| format!("In [params] `{name}`"))?;
+        let value: i64 = sqlx::query_scalar(&format!("SELECT ({expr})::bigint"))
+            .fetch_one(&mut *conn)
+            .await
+            .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))?;
+        params.insert(name, value.to_string());
+    }
+    Ok(params)
+}
+
 async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<IndexCreationResult>> {
     let mut conn = PgConnection::connect(&args.url)
         .await
         .with_context(|| "Failed to connect to database")?;
-    let index_sql = format!("datasets/{}/create_index.sql", args.dataset);
+    let index_sql = format!("datasets/{}/indexes/{}.sql", args.dataset, args.index);
+    let statements = queries(Path::new(&index_sql));
+    let params = resolve_index_params(&mut conn, args, &statements).await?;
     let mut results = Vec::new();
 
-    for statement in queries(Path::new(&index_sql)) {
+    for statement in statements {
+        let statement = substitute_vars(&statement, &params)?;
         println!("{statement}");
 
         let start = Instant::now();
@@ -222,29 +366,38 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         let duration_min_ms = start.elapsed().as_secs_f64() / 60.0;
 
         let index_name = extract_index_name(&statement).to_owned();
-
-        let row = sqlx::query(&format!(
-            "SELECT pg_relation_size('{index_name}') / (1024 * 1024)"
-        ))
+        let (index_size, amname) = sqlx::query_as::<_, (i64, String)>(
+            "SELECT pg_relation_size(c.oid) / (1024 * 1024), am.amname \
+             FROM pg_class c JOIN pg_am am ON am.oid = c.relam WHERE c.relname = $1",
+        )
+        .bind(&index_name)
         .fetch_one(&mut conn)
         .await
-        .with_context(|| "Failed to get index size")?;
-        let index_size: i64 = row.get(0);
+        .with_context(|| "Failed to get index metadata")?;
 
-        let row = sqlx::query(&format!(
-            "SELECT count(*) FROM paradedb.index_info('{index_name}')"
-        ))
-        .fetch_one(&mut conn)
-        .await
-        .with_context(|| "Failed to get segment count")?;
-        let segment_count: i64 = row.get(0);
-
-        results.push(IndexCreationResult {
-            duration_min_ms,
-            index_name,
-            index_size,
-            segment_count,
-        });
+        // `paradedb.index_info()` (segment count) only applies to pg_search (bm25) indexes;
+        // other access methods (e.g. pgvector's hnsw/ivfflat) have no segments.
+        let result = if amname == "bm25" {
+            let segment_count = sqlx::query_scalar(&format!(
+                "SELECT count(*) FROM paradedb.index_info('{index_name}')"
+            ))
+            .fetch_one(&mut conn)
+            .await
+            .with_context(|| "Failed to get segment count")?;
+            IndexCreationResult::Bm25 {
+                duration_min_ms,
+                index_name,
+                index_size,
+                segment_count,
+            }
+        } else {
+            IndexCreationResult::Other {
+                duration_min_ms,
+                index_name,
+                index_size,
+            }
+        };
+        results.push(result);
     }
 
     Ok(results)
@@ -470,15 +623,16 @@ async fn process_index_creation_csv(args: &BenchmarkArgs) -> anyhow::Result<()> 
     )?;
 
     for result in process_index_creation(args).await? {
-        let IndexCreationResult {
-            duration_min_ms,
-            index_name,
-            index_size,
-            segment_count,
-        } = result;
+        let segment_count = result
+            .segment_count()
+            .map_or_else(|| "-".to_string(), |c| c.to_string());
         writeln!(
             file,
-            "{index_name},{duration_min_ms:.2},{index_size},{segment_count}"
+            "{},{:.2},{},{}",
+            result.index_name(),
+            result.duration_min_ms(),
+            result.index_size(),
+            segment_count
         )?;
     }
     Ok(())
@@ -586,7 +740,7 @@ fn load_external_data(
     let (config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
-    // Determine CSV data source path.
+    // Determine data source path.
     let base_path = match data_source {
         Some(path) => path,
         None => config.s3_base_path.as_deref().with_context(|| {
@@ -597,9 +751,10 @@ fn load_external_data(
         })?,
     };
     let source_path = format!(
-        "{}/sampled/{}/csv",
+        "{}/sampled/{}/{}",
         base_path.trim_end_matches('/'),
-        size_label
+        size_label,
+        config.load_format.as_str(),
     );
     println!("Data source: {source_path}");
 
@@ -620,7 +775,22 @@ fn load_external_data(
         bail!("Failed to create tables from {create_tables_sql}");
     }
 
-    // Download CSV data from source and load into PostgreSQL.
+    match config.load_format {
+        LoadFormat::Csv => load_tables_csv(url, dataset, &config, &source_path)?,
+        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path)?,
+    }
+
+    println!("External data loaded successfully.");
+    Ok(())
+}
+
+/// Download each table's CSV files locally via DuckDB, then `psql \copy` them into Postgres.
+fn load_tables_csv(
+    url: &str,
+    dataset: &str,
+    config: &config::DatasetConfig,
+    source_path: &str,
+) -> anyhow::Result<()> {
     let temp_dir = format!("/tmp/benchmark_data/{dataset}");
     if Path::new(&temp_dir).exists() {
         std::fs::remove_dir_all(&temp_dir)
@@ -688,7 +858,32 @@ fn load_external_data(
         eprintln!("Warning: Failed to clean up temp directory '{temp_dir}': {e}");
     }
 
-    println!("External data loaded successfully.");
+    Ok(())
+}
+
+/// Load each table's parquet files directly into Postgres via DuckDB's postgres extension,
+/// preserving native column types (e.g. embedding vectors) and float precision.
+fn load_tables_parquet(
+    url: &str,
+    config: &config::DatasetConfig,
+    source_path: &str,
+) -> anyhow::Result<()> {
+    let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    conn.execute_batch("INSTALL postgres; LOAD postgres;")
+        .with_context(|| "Failed to load DuckDB postgres extension")?;
+    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
+        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+
+    for table_name in config.all_table_names() {
+        let glob = format!("{source_path}/{table_name}/*.parquet");
+        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
+        conn.execute_batch(&format!(
+            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
+        ))
+        .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
+        println!("  Loaded '{table_name}'.");
+    }
+
     Ok(())
 }
 
@@ -704,16 +899,17 @@ async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) -> any
     )?;
 
     for result in process_index_creation(args).await? {
-        let IndexCreationResult {
-            duration_min_ms,
-            index_name,
-            index_size,
-            segment_count,
-        } = result;
+        let segment_count = result
+            .segment_count()
+            .map_or_else(|| "-".to_string(), |c| c.to_string());
 
         writeln!(
             file,
-            "| {index_name} | {duration_min_ms:.2} | {index_size} | {segment_count} |"
+            "| {} | {:.2} | {} | {} |",
+            result.index_name(),
+            result.duration_min_ms(),
+            result.index_size(),
+            segment_count
         )?;
     }
     Ok(())
@@ -814,7 +1010,7 @@ fn queries(file: &Path) -> Vec<String> {
         .filter_map(|query| {
             let query = query
                 .trim()
-                .split("\n")
+                .split('\n')
                 .map(|line| line.split("--").next().unwrap().trim())
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -827,6 +1023,13 @@ fn queries(file: &Path) -> Vec<String> {
             }
         })
         .collect()
+}
+
+fn extract_index_name(statement: &str) -> &str {
+    statement
+        .split_whitespace()
+        .nth(2)
+        .expect("Failed to parse index name")
 }
 
 fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
@@ -848,13 +1051,6 @@ fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
             (query_type, query)
         })
         .collect()
-}
-
-fn extract_index_name(statement: &str) -> &str {
-    statement
-        .split_whitespace()
-        .nth(2)
-        .expect("Failed to parse index name")
 }
 
 async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Result<()> {

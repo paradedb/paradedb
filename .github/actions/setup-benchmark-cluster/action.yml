@@ -1,0 +1,123 @@
+name: Set up benchmark cluster
+description: >-
+  Install and configure the pg_search + pgvector Postgres cluster used by both benchmark snapshot
+  generation and snapshot restore. Keeping this in one place ensures the cluster that gets
+  snapshotted matches the cluster that restores it (a pgBackRest snapshot is a whole-cluster image,
+  including installed extensions and GUCs).
+
+inputs:
+  pg_version:
+    description: "PostgreSQL major version."
+    required: false
+    default: "18"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        cache: false
+        rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+    - name: Install & Configure Supported PostgreSQL Version
+      shell: bash
+      run: |
+        wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+        sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+        sudo apt-get update && sudo apt-get install -y postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }}
+        echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> $GITHUB_PATH
+
+    # Separate prefix-key from debug workflows - benchmarks compile with --release.
+    # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+    # See test-pg_search.yml for rationale.
+    - name: Install Rust Cache
+      uses: swatinem/rust-cache@v2
+      with:
+        prefix-key: "v2-benchmarks-rust-cache"
+        shared-key: pg${{ inputs.pg_version }}
+        cache-targets: true
+        cache-all-crates: true
+        cache-on-failure: true
+
+    - name: Extract pgrx Version
+      id: pgrx
+      shell: bash
+      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+    - name: Install pgrx
+      shell: bash
+      run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+
+    - name: Initialize pgrx environment
+      shell: bash
+      run: cargo pgrx init --pg${{ inputs.pg_version }}=`which pg_config`
+
+    - name: Compile & install pg_search extension
+      shell: bash
+      run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ inputs.pg_version }} --no-default-features
+
+    - name: Start Postgres
+      shell: bash
+      working-directory: pg_search/
+      run: cargo pgrx start pg${{ inputs.pg_version }}
+
+    - name: Configure PostgreSQL settings and machine settings
+      shell: bash
+      working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
+      run: |
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM RESET ALL;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET maintenance_work_mem = '12GB';"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET shared_buffers = '12GB';"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers = 8;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET max_worker_processes = 8;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_maintenance_workers = 8;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 8;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET autovacuum = off;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET max_wal_size = '100GB';"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET jit = off;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET bgwriter_lru_maxpages = 0;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET max_wal_senders = 0;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET wal_level = minimal;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET huge_pages = on;"
+        sudo sysctl -w vm.nr_hugepages=10000
+
+    - name: Restart Postgres
+      shell: bash
+      working-directory: pg_search/
+      run: |
+        cargo pgrx stop pg${{ inputs.pg_version }}
+        cargo pgrx start pg${{ inputs.pg_version }}
+
+    - name: Install pg_stat_statements
+      shell: bash
+      working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
+      run: |
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION pg_stat_statements;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track_planning = on;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track = top ;"
+
+    - name: Install pg_search
+      shell: bash
+      working-directory: pg_search/
+      run: |
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
+
+    - name: Restart Postgres
+      shell: bash
+      working-directory: pg_search/
+      run: |
+        cargo pgrx stop pg${{ inputs.pg_version }}
+        cargo pgrx start pg${{ inputs.pg_version }}
+
+    - name: Install pgBackRest
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y pgbackrest
+
+    # Required by the "cohere" dataset, whose heap has a pgvector `vector` column. Harmless for
+    # datasets that don't use it (installs the extension binary; CREATE EXTENSION happens at load).
+    - name: Install pgvector
+      shell: bash
+      run: sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector

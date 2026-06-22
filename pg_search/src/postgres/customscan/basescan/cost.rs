@@ -68,7 +68,7 @@ fn parallel_tuple_cost() -> f64 {
 /// shape (a Gather above the scan, or not) already shows that. A branch that collapses to serial for
 /// lack of workers keeps its branch reason.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum WorkerDecisionReason {
+pub(super) enum WorkerDecisionReason {
     /// Prunable score-DESC single term: Block-WAND keeps serial scoring sublinear (#4664), so
     /// workers would only add overhead.
     BlockWandPrunable,
@@ -88,7 +88,7 @@ pub enum WorkerDecisionReason {
 
 impl WorkerDecisionReason {
     /// Reader-facing label for EXPLAIN VERBOSE: each names the decision branch the paths came from.
-    pub fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::BlockWandPrunable => "Prunable top-K",
             Self::CostModel => "Cost model",

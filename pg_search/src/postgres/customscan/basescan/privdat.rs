@@ -204,7 +204,7 @@ impl PrivateData {
         self.segment_count = segment_count;
     }
 
-    pub fn set_worker_selection_reason(&mut self, reason: WorkerDecisionReason) {
+    pub(super) fn set_worker_selection_reason(&mut self, reason: WorkerDecisionReason) {
         self.worker_selection_reason = Some(reason);
     }
 
@@ -284,7 +284,7 @@ impl PrivateData {
         &self.var_attname_lookup
     }
 
-    pub fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
+    pub(super) fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
         self.worker_selection_reason
     }
 

@@ -68,7 +68,7 @@ pub struct BaseScanState {
 
     pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
-    pub(crate) worker_selection_reason: Option<WorkerDecisionReason>,
+    pub(super) worker_selection_reason: Option<WorkerDecisionReason>,
     pub quals: Option<Qual>,
 
     pub need_scores: bool,

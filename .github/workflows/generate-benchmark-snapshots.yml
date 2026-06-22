@@ -100,13 +100,14 @@ jobs:
 
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap
+        working-directory: benchmarks/
         run: |
           set -euo pipefail
-          (cd benchmarks && cargo run --release -- load-heap \
+          cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
             --url "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}")
+            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}"
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
@@ -123,12 +124,16 @@ jobs:
               done
           aws s3 rm --recursive "s3://${BACKREST_REPO_BUCKET}/${prefix}"
 
-      # Stop Postgres (required for the --no-online cold backup) and upload the snapshot to S3.
+      # Stop Postgres -- required for the --no-online cold backup.
+      - name: Stop Postgres
+        working-directory: pg_search/
+        run: cargo pgrx stop pg${{ env.pg_version }}
+
       - name: Snapshot Heap
+        working-directory: benchmarks/
         run: |
           set -euo pipefail
-          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
-          (cd benchmarks && cargo run --release -- snapshot-heap \
+          cargo run --release -- snapshot-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
             --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
@@ -138,4 +143,4 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}" \
-            --process-max 8)
+            --process-max 8

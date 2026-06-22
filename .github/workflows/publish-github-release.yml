@@ -127,6 +127,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Beta releases should never be the latest release
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
           echo "Current latest release is $latest_tag_version"

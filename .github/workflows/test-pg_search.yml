@@ -29,24 +29,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  set-matrix:
-    name: Define the PostgreSQL Version Matrix
-    runs-on: ubuntu-latest
-    if: ${{ !cancelled() }}
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Define the PostgreSQL Version Matrix
-        id: set-matrix
-        run: |
-          if [[ ${{ github.event_name }} == "push" ]]; then
-            echo "Push event detected; using only PostgreSQL version 18."
-            echo "matrix=[18]" >> $GITHUB_OUTPUT
-          else
-            echo "Pull request or schedule event detected, using all PostgreSQL versions."
-            echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
-          fi
-
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
     # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
@@ -60,12 +42,11 @@ jobs:
       - volume=40gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     if: ${{ !cancelled() }}
-    needs: set-matrix
     strategy:
       fail-fast: false
       matrix:
         # Base: system Postgres on ARM Ubuntu 24.04 for all versions.
-        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+        pg_version: [15, 16, 17, 18]
         pg_impl: [system]
         cpu: [8]
         ram: [16]
@@ -123,7 +104,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v2-rust-cache"
+          prefix-key: "v3-rust-cache"
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true

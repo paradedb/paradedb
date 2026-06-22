@@ -88,7 +88,7 @@ LIMIT 5;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[agg_0]
+                 :   AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
 (16 rows)

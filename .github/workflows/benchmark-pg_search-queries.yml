@@ -101,15 +101,6 @@ jobs:
             echo "Determined ref as default: main"
           fi
 
-      - name: Resolve fail_on_error
-        id: fail-on-error
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ inputs.fail_on_error }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v6
         with:
@@ -344,7 +335,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ steps.fail-on-error.outputs.value }}
+          fail_on_error: ${{ inputs.fail_on_error }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: >-
@@ -378,7 +369,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ steps.fail-on-error.outputs.value }}
+          fail_on_error: ${{ inputs.fail_on_error }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: >-
@@ -412,7 +403,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ steps.fail-on-error.outputs.value }}
+          fail_on_error: ${{ inputs.fail_on_error }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

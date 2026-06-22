@@ -44,7 +44,7 @@ runs:
           --dataset ${{ inputs.dataset }} \
           --runs 10 \
           --output json \
-          --fail-on-error "${{ inputs.fail_on_error || 'true' }}"
+          --fail-on-error ${{ inputs.fail_on_error }}
 
         echo "ROWS_LABEL=${{ inputs.size }}" >> $GITHUB_ENV
 

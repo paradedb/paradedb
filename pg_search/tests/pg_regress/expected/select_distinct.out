@@ -702,7 +702,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -721,7 +721,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
     upper    
 -------------
  ACCESSORIES
@@ -747,7 +747,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -767,7 +767,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: expression at index 0 is neither a GROUP BY column (Var) nor an aggregate (Aggref). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index 0). To disable this warning: SET paradedb.check_aggregate_scan = false (table: dist_expr)
       ?column?      
 --------------------
  Accessories-BrandC

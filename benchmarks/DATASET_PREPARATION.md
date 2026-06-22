@@ -212,7 +212,8 @@ After loading or restoring the heap, run `benchmark`:
 ```bash
 cargo run --release -- benchmark \
   --url "${POSTGRES_URL}" \
-  --dataset stackoverflow
+  --dataset stackoverflow \
+  --index bm25
 ```
 
 ## Final S3 Layout

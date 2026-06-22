@@ -335,7 +335,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: >-
@@ -369,7 +369,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: >-
@@ -403,7 +403,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          fail_on_error: ${{ inputs.fail_on_error }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

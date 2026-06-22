@@ -1448,8 +1448,8 @@ ORDER BY timestamp DESC
 LIMIT 1;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.01 rows=1 width=76)
-   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
+ Limit  (cost=10.00..10.12 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.12 rows=1 width=76)
          Table: logs
          Index: logs_idx
          Segment Count: 1
@@ -1479,8 +1479,8 @@ ORDER BY timestamp DESC
 LIMIT 1;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.01 rows=1 width=76)
-   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
+ Limit  (cost=10.00..10.12 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.12 rows=1 width=76)
          Table: logs
          Index: logs_idx
          Segment Count: 1

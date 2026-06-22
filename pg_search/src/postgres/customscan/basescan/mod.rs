@@ -25,7 +25,8 @@ mod scan_state;
 
 use cost::{
     costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
-    topk_can_prune_for_method, CostMemo, ScanParallelismInputs, WorkerPathPolicy,
+    topk_can_prune_for_method, CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason,
+    WorkerPathPolicy,
 };
 
 use std::ffi::CStr;
@@ -886,15 +887,12 @@ impl CustomScan for BaseScan {
                 }
                 _ => RowEstimate::Unknown,
             };
-            let base_result_rows = match row_estimate {
-                RowEstimate::Known(rows) => {
-                    (rows as f64).min(float_limit.unwrap_or(f64::MAX)).max(1.0)
-                }
-                RowEstimate::Unknown => {
-                    // For unknown row counts, use 1.0 as a conservative estimate for costing
-                    float_limit.unwrap_or(1.0).max(1.0)
-                }
-            };
+            let base_result_rows = match row_estimate.known_rows() {
+                Some(rows) => rows.min(float_limit.unwrap_or(f64::MAX)),
+                // For unknown row counts, use 1.0 as a conservative estimate for costing.
+                None => float_limit.unwrap_or(1.0),
+            }
+            .max(1.0);
 
             let exec_method_types = choose_exec_method(
                 &custom_private,
@@ -946,11 +944,7 @@ impl CustomScan for BaseScan {
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
-                // The path's intrinsic cost and its policy are computed separately: the cost doesn't
-                // depend on the worker count, and `decide_scan_parallelism` owns the serial-vs-
-                // parallel shaping (including the `compute_nworkers` fallback).
-                let cost_basis =
-                    estimate_path_cost(&method, is_sorted, per_tuple_cost, base_result_rows);
+                // Decide the policy first: its reason gates the path cost below.
                 let policy = decide_scan_parallelism(ScanParallelismInputs {
                     prunability,
                     query: &query,
@@ -967,6 +961,36 @@ impl CustomScan for BaseScan {
                     is_join_context,
                 });
                 let reason = policy.reason();
+
+                // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
+                // the full-docset drive cost would overstate the work; the output cost (~k rows) is
+                // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
+                // applied to the cost.)
+                let path_drive_cost = match reason {
+                    // Block-WAND prunes a prunable TopK sublinear, so its full drive cost overstates
+                    // the work -- exclude it. Every other reason drives the full docset once, so the
+                    // drive cost is honest -- include it. (Listed explicitly so a new reason forces a
+                    // decision here rather than silently inheriting "include".)
+                    WorkerDecisionReason::BlockWandPrunable => None,
+                    WorkerDecisionReason::CostModel
+                    | WorkerDecisionReason::CostModelLimited
+                    | WorkerDecisionReason::SortedPerSegment
+                    | WorkerDecisionReason::RowHeuristic => drive_cost,
+                };
+                // Pair the drive cost with its match count. `.zip` yields `Some` only when both are
+                // known -- which is exactly when the scan is costable (a costable `drive_cost`
+                // implies a `Known` row estimate), so the drive term is never built without matches.
+                let drive = path_drive_cost
+                    .zip(row_estimate.known_rows())
+                    .map(|(cost, matches)| DriveCost { cost, matches });
+                let cost_basis = estimate_path_cost(
+                    &method,
+                    is_sorted,
+                    per_tuple_cost,
+                    base_result_rows,
+                    drive,
+                    float_limit,
+                );
 
                 // We must force this path (not interchangeable with native paths) if we need const
                 // projections for scores/snippets, or it's a TopK, or the predicate matches all.
@@ -1043,13 +1067,23 @@ impl CustomScan for BaseScan {
                         custom_paths.push(make_path(Some(nworkers), false, force));
                     }
                     WorkerPathPolicy::CostedBoth { nworkers, .. } => {
+                        // Force the serial sibling so the hook clears PostgreSQL's native paths (same
+                        // mechanism as TopK / score-snippet / `all()`), leaving only our serial and
+                        // partial paths for PostgreSQL to choose between -- the honest scan-work cost
+                        // would otherwise let PostgreSQL's own (correct, but fast-field/Block-WAND-
+                        // less) index scan over the BM25 index undercut us on cost (see module docs).
+                        // Today the only multi-method emitter is Columnar: it emits unsorted first
+                        // and the index-sort variant second, and the sorted variant exists only for
+                        // an ORDER BY shape where it is the useful survivor. If another multi-method
+                        // emitter is added, re-check this forced clear because a later forced serial
+                        // sibling clears paths installed by earlier methods.
+                        //
                         // Order is load-bearing (see `hook::add_path`): emit the serial sibling
-                        // FIRST so that, when the method is forced, the hook clears the native
-                        // pathlists and installs our serial complete path before the partial
-                        // sibling is added. The partial sibling (OfferParallel, never forced) then
-                        // only adds a partial path and leaves the serial in place. Reversing the
-                        // order would let the forced serial sibling clear the partial path.
-                        custom_paths.push(make_path(None, false, force));
+                        // FIRST so the forced clear happens before the partial sibling is added. The
+                        // partial sibling (OfferParallel, never forced) then only adds a partial path
+                        // and leaves the serial in place; reversing the order would let the forced
+                        // serial sibling clear the partial path.
+                        custom_paths.push(make_path(None, false, true));
                         custom_paths.push(make_path(Some(nworkers), true, false));
                     }
                 }

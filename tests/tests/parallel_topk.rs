@@ -40,6 +40,13 @@ fn root_plan(plan: &Value) -> &Value {
         .unwrap_or_else(|| panic!("EXPLAIN JSON should have /0/Plan: {plan:#?}"))
 }
 
+fn total_cost(plan: &Value) -> f64 {
+    root_plan(plan)
+        .get("Total Cost")
+        .and_then(Value::as_f64)
+        .unwrap_or_else(|| panic!("EXPLAIN JSON should have a Total Cost: {plan:#?}"))
+}
+
 fn max_workers_planned(node: &Value) -> Option<i64> {
     let here = node.get("Workers Planned").and_then(Value::as_i64);
     node.get("Plans")
@@ -544,4 +551,68 @@ fn dense_multi_term_query_accounts_for_term_union_traversal(mut conn: PgConnecti
     ] {
         assert_plan_case(&mut conn, case);
     }
+}
+
+#[rstest]
+fn no_limit_costed_both_accounts_for_scan_work(mut conn: PgConnection) {
+    set_scaled_costs(&mut conn);
+    setup_multi_term(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan = false;".execute(&mut conn);
+
+    // Same scan in both cases, so the only thing that differs is how many rows cross the Gather --
+    // isolating the transport cost as the serial-vs-parallel driver.
+    let count_plan = explain(
+        &mut conn,
+        "SELECT COUNT(*) FROM topk_desc_multi_term WHERE body @@@ 'alpha'",
+    );
+    let count_root = root_plan(&count_plan);
+    assert_eq!(
+        max_workers_planned(count_root),
+        Some(2),
+        "COUNT(*) should go parallel: the Partial Aggregate collapses rows before the Gather, so the \
+         costed scan work splits across workers with almost nothing to transport:\n{count_plan:#?}"
+    );
+
+    let select_plan = explain(
+        &mut conn,
+        "SELECT * FROM topk_desc_multi_term WHERE body @@@ 'alpha'",
+    );
+    let select_root = root_plan(&select_plan);
+    assert_eq!(
+        max_workers_planned(select_root),
+        None,
+        "bulk SELECT should serialize: every matched row crosses the Gather, so transport outweighs \
+         the scan-work split:\n{select_plan:#?}"
+    );
+}
+
+/// A prunable score-DESC TopK costs the scan by output rows, not its full drive cost: Block-WAND
+/// prunes it sublinear, so folding `drive_cost` into the path cost would overstate the work. A
+/// non-prunable score-ASC TopK over the *same* term and match set is identical except for the
+/// excluded `drive_cost`, so it must cost strictly more -- equal cost means the exclusion is gone.
+#[rstest]
+fn prunable_topk_cost_excludes_drive_work(mut conn: PgConnection) {
+    set_scaled_costs(&mut conn);
+    // Force serial so the comparison is the bare scan cost, not a Gather plan on either side.
+    "SET max_parallel_workers_per_gather = 0;".execute(&mut conn);
+    setup_multi_term(&mut conn);
+
+    // Same single term and match set; only the sort direction differs. Block-WAND prunes score DESC
+    // (cost excludes drive_cost) but not score ASC (cost includes it).
+    let prunable = total_cost(&explain(
+        &mut conn,
+        "SELECT id FROM topk_desc_multi_term WHERE body @@@ 'alpha'
+         ORDER BY paradedb.score(id) DESC LIMIT 10",
+    ));
+    let non_prunable = total_cost(&explain(
+        &mut conn,
+        "SELECT id FROM topk_desc_multi_term WHERE body @@@ 'alpha'
+         ORDER BY paradedb.score(id) ASC LIMIT 10",
+    ));
+
+    assert!(
+        prunable < non_prunable,
+        "prunable score-DESC TopK ({prunable}) must cost strictly less than the otherwise-identical \
+         non-prunable score-ASC ({non_prunable}); equal cost means drive_cost is no longer excluded"
+    );
 }

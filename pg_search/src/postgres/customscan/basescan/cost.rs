@@ -20,10 +20,15 @@
 //! For each candidate exec method, `create_custom_path` (mod.rs) computes the path's intrinsic cost
 //! ([`estimate_path_cost`]) and its [`WorkerPathPolicy`] ([`decide_scan_parallelism`]) independently.
 //!
-//! Principle: for a *costable* scan, pg_search emits both a serial and a partial path and lets
-//! PostgreSQL cost the Gather and choose -- only PostgreSQL knows the Gather's per-row transport cost
-//! (a bulk `SELECT` ships every row -> serial; a `COUNT(*)` collapses rows in a Partial Aggregate
-//! first -> parallel). pg_search forces the choice itself only where that comparison is wrong or
+//! Principle: for a *costable* scan, pg_search costs the scan by its work (keeping `rows` as output
+//! cardinality), emits both a serial and a partial path, and clears PostgreSQL's native paths so
+//! PostgreSQL chooses serial-vs-parallel among only pg_search's two. Clearing native is required:
+//! `total_cost` also decides pg_search-vs-native, so the honest scan-work cost would otherwise let
+//! PostgreSQL's own index scan over the BM25 index -- a correct path (the bm25 AM exposes `@@@` as an
+//! `Index Cond`), just one without our fast-field / Block-WAND execution -- undercut us on cost. Only
+//! PostgreSQL knows the Gather's per-row transport cost (a bulk
+//! `SELECT` ships every row -> serial; a `COUNT(*)` collapses rows in a Partial Aggregate first ->
+//! parallel). pg_search decides serial-vs-parallel itself only where that comparison is wrong or
 //! impossible: an effective LIMIT (PostgreSQL costs the Gather on `rel->rows`, not the `k` rows that
 //! cross, and discards the parallel path before the outer LIMIT can rescue it), prunable top-K
 //! (Block-WAND is invisible to the cost model), an uncostable sorted scan, or an un-ANALYZEd table.
@@ -143,6 +148,33 @@ pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool
 pub(super) struct PathCostBasis {
     pub(super) parallelizable_cost: f64,
     pub(super) total_cost_multiplier: f64,
+}
+
+/// The scan's drive-work inputs: the Tantivy drive cost and the match-count estimate it scales
+/// against. Bundled so a costable scan can't carry a drive cost without the matches that
+/// [`drive_fraction`] needs -- the two are always known together (a costable `drive_cost` implies a
+/// `Known` row estimate). Passing them separately would let the (Some drive, None matches) state
+/// exist even though the call site never builds it.
+pub(super) struct DriveCost {
+    pub(super) cost: u64,
+    pub(super) matches: f64,
+}
+
+/// The scan's drive cost in PostgreSQL units: the Tantivy drive cost scaled to PG cost units and by
+/// the early-termination `fraction`.
+fn drive_work(drive_cost: u64, fraction: f64) -> f64 {
+    drive_cost as f64 * cpu_index_tuple_cost() * fraction
+}
+
+/// Share of the docset the scan must drive before it can stop: a sorted scan scores every match
+/// (1.0); an unsorted LIMIT scan stops at ~LIMIT/matches; 1.0 otherwise. No log2(LIMIT) term -- a
+/// non-prunable scan examines each matching doc once, so LIMIT's only effect is this share.
+fn drive_fraction(is_sorted: bool, limit: Option<f64>, matches: f64) -> f64 {
+    if is_sorted {
+        1.0
+    } else {
+        limit.map_or(1.0, |limit| (limit / matches).min(1.0))
+    }
 }
 
 /// The query's `Query::cost`, memoized across a query's exec methods so we open the index at most
@@ -281,18 +313,9 @@ fn cost_test_limited(
     base_result_rows: f64,
     parallel_leader_participates: bool,
 ) -> WorkerPathPolicy {
-    // Share of the docset the scan must drive before it can stop: a sorted scan scores every match
-    // (1.0); an unsorted LIMIT scan stops at ~LIMIT/matches. No log2(LIMIT) term -- a non-prunable
-    // scan examines each matching doc once, so LIMIT's only effect is this early-termination share.
-    let fraction = if is_sorted {
-        1.0
-    } else {
-        limit.map_or(1.0, |l| (l / matches).min(1.0))
-    };
     // A zero `drive_cost` (sampled largest segment matched nothing) yields work = 0 -> serial: a
     // genuinely tiny match set reads zero too, indistinguishable from a skewed sample miss.
-    // `cpu_index_tuple_cost` converts the Tantivy cost into PG units.
-    let work = drive_cost as f64 * cpu_index_tuple_cost() * fraction;
+    let work = drive_work(drive_cost, drive_fraction(is_sorted, limit, matches));
 
     // Gather overhead: `parallel_setup_cost` plus per-row transport of the `k` crossing rows (1.05
     // covers Gather-Merge IPC).
@@ -316,9 +339,8 @@ fn cost_test_limited(
 pub(super) struct ScanParallelismInputs<'a> {
     pub(super) prunability: TopKPrunability,
     pub(super) query: &'a SearchQueryInput,
-    /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable. The
-    /// magnitude is used by [`cost_test_limited`] for effective-LIMIT scans; for no-LIMIT
-    /// `CostedBoth` paths it only marks the scan as costable ([`estimate_path_cost`] does not use it).
+    /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable and
+    /// feeds both [`cost_test_limited`] and [`estimate_path_cost`].
     pub(super) drive_cost: Option<u64>,
     pub(super) row_estimate: RowEstimate,
     pub(super) is_sorted: bool,
@@ -397,10 +419,9 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
 
     // 2. No row stats (table never ANALYZEd) -> the row heuristic. Routing every unanalyzed scan
     //    here (not just the uncostable ones) keeps the decision consistent regardless of shape.
-    let RowEstimate::Known(matches) = row_estimate else {
+    let Some(matches) = row_estimate.known_rows() else {
         return heuristic_policy();
     };
-    let matches = matches as f64;
 
     // Structural ceiling from `max_useful_workers`: 0 (serial) for a single segment, parallelism
     // off, or correlated/external -- though `debug_parallel_query` bumps a single segment to one.
@@ -465,28 +486,29 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     }
 }
 
-/// A scan path's intrinsic cost, independent of the parallel divisor: `parallelizable_cost`
-/// (`base_result_rows * per_tuple_cost`, the work mod.rs divides across workers) and a multiplier for
-/// the sorted-index merge.
-///
-/// The scan's `drive_cost` is deliberately NOT folded in: `total_cost` feeds *every* planner decision
-/// (join order, UNION strategy, sort placement), so inflating it would rebase unrelated planner
-/// choices. The worker decision uses `drive_cost` where it's needed instead -- effective-LIMIT scans
-/// in [`cost_test_limited`]; no-LIMIT scans delegate serial-vs-parallel to PostgreSQL's Gather cost.
+/// A scan path's intrinsic cost, independent of the parallel divisor: the scan work PG cannot infer
+/// from output rows, plus the local output/materialization cost PG already understands. `rows` stays
+/// `base_result_rows` at the call site so Gather costing still charges only the tuples that cross.
 pub(super) fn estimate_path_cost(
     method: &ExecMethodType,
     is_sorted: bool,
     per_tuple_cost: f64,
     base_result_rows: f64,
+    drive: Option<DriveCost>,
+    limit: Option<f64>,
 ) -> PathCostBasis {
     let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge() {
         1.01
     } else {
         1.0
     };
+    let output_cost = base_result_rows * per_tuple_cost;
+    let scan_work = drive
+        .map(|drive| drive_work(drive.cost, drive_fraction(is_sorted, limit, drive.matches)))
+        .unwrap_or(0.0);
 
     PathCostBasis {
-        parallelizable_cost: base_result_rows * per_tuple_cost,
+        parallelizable_cost: scan_work + output_cost,
         total_cost_multiplier,
     }
 }

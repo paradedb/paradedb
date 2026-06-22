@@ -15,28 +15,33 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Serial-vs-parallel worker selection and path cost for BaseScan paths (#4664).
+//! Serial-vs-parallel path policy and path cost for BaseScan paths (#4664).
 //!
-//! For each candidate exec method, `create_custom_path` (mod.rs) computes two independent things:
-//!   - the path's intrinsic cost, via [`estimate_path_cost`]; and
-//!   - the worker decision (serial, or N parallel workers), via [`decide_scan_parallelism`].
+//! For each candidate exec method, `create_custom_path` (mod.rs) computes the path's intrinsic cost
+//! ([`estimate_path_cost`]) and its [`WorkerPathPolicy`] ([`decide_scan_parallelism`]) independently.
 //!
-//! [`decide_scan_parallelism`] is the decision tree, in order:
-//!   1. Prunable short-circuit -> serial: a score-DESC single prunable term is sublinear under
-//!      Block-WAND, so parallel workers would only add overhead.
-//!   2. No row stats (un-ANALYZEd) -> the row heuristic (`compute_nworkers`); with no row count it
-//!      can't cap, so it parallelizes by segment count.
-//!   3. Otherwise, route on cost and scan shape:
-//!        - have a cost       -> cost model ([`cost_test`]): work vs Gather overhead;
-//!        - no cost, sorted   -> parallelize across every segment (it must visit them all);
-//!        - no cost, unsorted -> the row heuristic (row caps fit -- it can stop early at LIMIT).
+//! Principle: for a *costable* scan, pg_search emits both a serial and a partial path and lets
+//! PostgreSQL cost the Gather and choose -- only PostgreSQL knows the Gather's per-row transport cost
+//! (a bulk `SELECT` ships every row -> serial; a `COUNT(*)` collapses rows in a Partial Aggregate
+//! first -> parallel). pg_search forces the choice itself only where that comparison is wrong or
+//! impossible: an effective LIMIT (PostgreSQL costs the Gather on `rel->rows`, not the `k` rows that
+//! cross, and discards the parallel path before the outer LIMIT can rescue it), prunable top-K
+//! (Block-WAND is invisible to the cost model), an uncostable sorted scan, or an un-ANALYZEd table.
 //!
-//! Invariants and known limits:
-//!   - A zero structural ceiling (single segment / parallelism off / correlated) always means serial.
-//!   - The cost model's `fraction` is exact for sorted (it drives every match) and an approximation
-//!     for unsorted (it assumes LIMIT/matches of the docset is driven).
-//!   - Blind spots: a write-heavy index's mutable-segment open cost is invisible to the model, and
-//!     the phrase `size_hint` under-counts matches.
+//! [`decide_scan_parallelism`] decision tree, in order:
+//!   1. Prunable score-DESC term -> serial only (Block-WAND keeps it sublinear).
+//!   2. Un-ANALYZEd -> row heuristic (`compute_nworkers`): no row count, so parallelize by segment.
+//!   3. Otherwise by costability/shape:
+//!        - costable + effective LIMIT -> cost model forces, on `k` ([`cost_test_limited`]);
+//!        - costable + no LIMIT cap    -> emit both, PostgreSQL picks;
+//!        - uncostable sorted          -> parallel when workers exist (must visit every segment);
+//!        - uncostable unsorted        -> row heuristic (caps fit -- can stop early at LIMIT).
+//!
+//! Limits: outside `debug_parallel_query`, a zero structural ceiling (single segment / parallelism
+//! off / correlated / external) serializes; under it, `max_useful_workers` forces one worker for a
+//! single segment but still returns zero (serial) for correlated/external. `fraction` is exact for
+//! sorted, approximate for unsorted; a write-heavy index's mutable-segment open cost and phrase
+//! `size_hint` under-counts are blind spots.
 
 use super::*;
 use serde::{Deserialize, Serialize};
@@ -53,19 +58,23 @@ fn parallel_tuple_cost() -> f64 {
     unsafe { pg_sys::parallel_tuple_cost }
 }
 
-/// Which branch of [`decide_scan_parallelism`] produced a [`WorkerDecision`]. Surfaced in EXPLAIN
-/// VERBOSE so the serial-vs-parallel choice is observable: the worker *count* alone doesn't reveal
-/// whether a serial scan was a top-K short-circuit, a cost-model verdict, or a heuristic fallback.
-/// One variant per decision leaf.
+/// Which branch of [`decide_scan_parallelism`] produced a [`WorkerPathPolicy`]; surfaced in EXPLAIN
+/// VERBOSE. Each variant names the decision *branch*, not the serial-vs-parallel outcome -- the plan
+/// shape (a Gather above the scan, or not) already shows that. A branch that collapses to serial for
+/// lack of workers keeps its branch reason.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum WorkerDecisionReason {
     /// Prunable score-DESC single term: Block-WAND keeps serial scoring sublinear (#4664), so
     /// workers would only add overhead.
     BlockWandPrunable,
-    /// The cost model weighed the query's drive cost against PostgreSQL's fixed Gather overhead.
+    /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
+    /// costable scan with no workers to split across also lands here -- it just emits serial.)
     CostModel,
+    /// Costable scan with an effective LIMIT (top-K / unsorted LIMIT): pg_search costed the Gather on
+    /// `k` and forced the winner, because PostgreSQL over-costs a bounded Gather (see module docs).
+    CostModelLimited,
     /// Uncostable sorted scan: it must k-way-merge across segments, so it parallelizes one worker
-    /// per segment (the structural ceiling) -- no cost or row test.
+    /// per segment (the structural ceiling), or runs serial when no workers are available.
     SortedPerSegment,
     /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
     /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
@@ -73,26 +82,62 @@ pub enum WorkerDecisionReason {
 }
 
 impl WorkerDecisionReason {
-    /// Reader-facing label for EXPLAIN VERBOSE: each names the signal the worker count is keyed on.
+    /// Reader-facing label for EXPLAIN VERBOSE: each names the decision branch the paths came from.
     pub fn label(self) -> &'static str {
         match self {
             Self::BlockWandPrunable => "Prunable top-K",
             Self::CostModel => "Cost model",
+            Self::CostModelLimited => "Cost model (LIMIT)",
             Self::SortedPerSegment => "Per-segment",
             Self::RowHeuristic => "Row-capped",
         }
     }
 }
 
+/// How `create_custom_path` should shape the paths it emits for one exec method: one serial path,
+/// one partial path, or both (and let PostgreSQL pick).
 #[derive(Clone, Copy)]
-pub(super) enum WorkerDecision {
-    Serial {
-        reason: WorkerDecisionReason,
-    },
-    Parallel {
+pub(super) enum WorkerPathPolicy {
+    /// Emit exactly one serial path. pg_search determined parallelism is wrong or impossible here:
+    /// prunable top-K, no workers to split across, or a serial verdict from the cost-model-limited or
+    /// row-heuristic test.
+    SerialOnly { reason: WorkerDecisionReason },
+    /// Emit exactly one partial (parallel-aware) path, binding PostgreSQL to parallel. Used where
+    /// pg_search must force parallel: an uncostable sorted scan, a parallel row-heuristic verdict, a
+    /// cost-model-limited winner ([`cost_test_limited`]), or a `debug_parallel_query`-forced costable
+    /// scan.
+    ParallelOnly {
         nworkers: NonZeroUsize,
         reason: WorkerDecisionReason,
     },
+    /// Emit BOTH a serial and a partial path and let PostgreSQL cost the Gather and choose. Used for
+    /// costable scans with no effective LIMIT, where PostgreSQL can compare serial-vs-parallel fairly.
+    CostedBoth {
+        nworkers: NonZeroUsize,
+        reason: WorkerDecisionReason,
+    },
+}
+
+impl WorkerPathPolicy {
+    pub(super) fn reason(self) -> WorkerDecisionReason {
+        match self {
+            Self::SerialOnly { reason }
+            | Self::ParallelOnly { reason, .. }
+            | Self::CostedBoth { reason, .. } => reason,
+        }
+    }
+}
+
+/// How many ways a parallel scan's work is divided across the partial path's workers. The leader
+/// runs a full share of the scan when it participates, so it counts as one more worker beyond
+/// `nworkers` -- not a partial contribution.
+pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
+    let nworkers = nworkers.get();
+    if leader_participates {
+        (nworkers + 1) as f64
+    } else {
+        nworkers as f64
+    }
 }
 
 pub(super) struct PathCostBasis {
@@ -129,45 +174,6 @@ impl CostMemo {
                 *self = Self::Computed(cost);
                 cost
             }
-        }
-    }
-}
-
-impl WorkerDecision {
-    /// `0` workers serializes; any positive count parallelizes. The `reason` is stamped on either
-    /// outcome so EXPLAIN can explain a serial verdict, not just a parallel one.
-    fn from_count(nworkers: usize, reason: WorkerDecisionReason) -> Self {
-        match NonZeroUsize::new(nworkers) {
-            Some(nworkers) => Self::Parallel { nworkers, reason },
-            None => Self::Serial { reason },
-        }
-    }
-
-    /// How many ways the parallel scan work is divided. The leader runs a full share
-    /// of the scan when it participates, so it counts as one more worker beyond
-    /// `nworkers` -- not a partial contribution. (Serial scans don't divide: 1.0.)
-    pub(super) fn divisor(self, leader_participates: bool) -> f64 {
-        let Self::Parallel { nworkers, .. } = self else {
-            return 1.0;
-        };
-        let nworkers = nworkers.get();
-        if leader_participates {
-            (nworkers + 1) as f64
-        } else {
-            nworkers as f64
-        }
-    }
-
-    pub(super) fn nworkers(self) -> Option<NonZeroUsize> {
-        match self {
-            Self::Serial { .. } => None,
-            Self::Parallel { nworkers, .. } => Some(nworkers),
-        }
-    }
-
-    pub(super) fn reason(self) -> WorkerDecisionReason {
-        match self {
-            Self::Serial { reason } | Self::Parallel { reason, .. } => reason,
         }
     }
 }
@@ -238,53 +244,70 @@ pub(super) unsafe fn topk_can_prune_for_method(
     }
 }
 
-/// Cost-model leaf: parallelize when splitting the scan across workers saves more than PostgreSQL's
-/// fixed Gather overhead (`work/divisor + gather_overhead < work`). `work` is the query's drive cost
-/// (`Query::cost`) in PostgreSQL units, scaled by the early-termination `fraction`. `structural_workers`
-/// is the structural ceiling: `0` if it can't parallelize, otherwise the workers to split across.
-fn cost_test(
+/// The query's drive cost in Tantivy units when the scan is *costable*, else `None`. `None` for a
+/// runtime-bound `$1`/subquery or correlated/external predicate (no resolved value to open a scorer
+/// for) or an open failure, so the path falls back to the per-result-row cost and pg_search forces
+/// the worker decision instead of offering both paths. Memoized across the query's exec methods so
+/// the index is opened at most once.
+///
+/// # Safety
+/// `root` must point to a valid `PlannerInfo` for the duration of this call.
+pub(super) unsafe fn costable_drive_cost(
+    query: &SearchQueryInput,
+    bm25_index: &PgSearchRelation,
+    quals: &Qual,
+    root: *mut pg_sys::PlannerInfo,
+    cost_memo: &mut CostMemo,
+) -> Option<u64> {
+    if quals.contains_exprs()
+        || quals.contains_external_var()
+        || quals.contains_correlated_param(root)
+    {
+        return None;
+    }
+    cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone()))
+}
+
+/// Cost-model leaf for a costable effective-LIMIT scan (see module docs for why pg_search forces
+/// this instead of offering both paths). Parallelize when splitting the scan `work` (drive cost
+/// scaled by the early-termination `fraction`) across workers saves more than the Gather overhead,
+/// which is costed on `base_result_rows` (`= k`, the rows that actually cross).
+fn cost_test_limited(
     drive_cost: u64,
-    matches: f64,
-    structural_workers: usize,
+    nworkers: NonZeroUsize,
     is_sorted: bool,
     limit: Option<f64>,
+    matches: f64,
     base_result_rows: f64,
     parallel_leader_participates: bool,
-) -> WorkerDecision {
-    let candidate = WorkerDecision::from_count(structural_workers, WorkerDecisionReason::CostModel);
-    let WorkerDecision::Parallel { .. } = candidate else {
-        return WorkerDecision::Serial {
-            reason: WorkerDecisionReason::CostModel,
-        };
-    };
-
-    // `fraction` is the share of the docset the scan must drive before it can stop: a sorted scan
-    // scores every match (1.0), but an unsorted LIMIT scan stops once it has LIMIT matches
-    // (~LIMIT/matches). There is deliberately no log2(LIMIT) heap-depth term -- a non-prunable scan
-    // examines every matching doc once, so the only effect of LIMIT is this early-termination share.
+) -> WorkerPathPolicy {
+    // Share of the docset the scan must drive before it can stop: a sorted scan scores every match
+    // (1.0); an unsorted LIMIT scan stops at ~LIMIT/matches. No log2(LIMIT) term -- a non-prunable
+    // scan examines each matching doc once, so LIMIT's only effect is this early-termination share.
     let fraction = if is_sorted {
         1.0
     } else {
         limit.map_or(1.0, |l| (l / matches).min(1.0))
     };
-    // A zero `drive_cost` (the sampled largest segment matched none of the query) yields work = 0
-    // and serializes below. We do not special-case it to parallelize: a genuinely tiny match set
-    // reads zero too, indistinguishable from a skewed sample miss, so serial is the safe choice.
-    // `cpu_index_tuple_cost` converts the Tantivy cost into PG units, comparable to the gather
-    // overhead below.
+    // A zero `drive_cost` (sampled largest segment matched nothing) yields work = 0 -> serial: a
+    // genuinely tiny match set reads zero too, indistinguishable from a skewed sample miss.
+    // `cpu_index_tuple_cost` converts the Tantivy cost into PG units.
     let work = drive_cost as f64 * cpu_index_tuple_cost() * fraction;
 
-    // Parallelize only when splitting the work across workers saves more than the fixed Gather
-    // overhead (`parallel_setup_cost` plus per-row transport; the 1.05 covers Gather-Merge IPC).
-    let divisor = candidate.divisor(parallel_leader_participates);
+    // Gather overhead: `parallel_setup_cost` plus per-row transport of the `k` crossing rows (1.05
+    // covers Gather-Merge IPC).
+    let divisor = parallel_divisor(nworkers, parallel_leader_participates);
     const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
     let gather_overhead =
         parallel_setup_cost() + parallel_tuple_cost() * base_result_rows * GATHER_MERGE_IPC_FACTOR;
     if work / divisor + gather_overhead < work {
-        candidate
+        WorkerPathPolicy::ParallelOnly {
+            nworkers,
+            reason: WorkerDecisionReason::CostModelLimited,
+        }
     } else {
-        WorkerDecision::Serial {
-            reason: WorkerDecisionReason::CostModel,
+        WorkerPathPolicy::SerialOnly {
+            reason: WorkerDecisionReason::CostModelLimited,
         }
     }
 }
@@ -293,12 +316,17 @@ fn cost_test(
 pub(super) struct ScanParallelismInputs<'a> {
     pub(super) prunability: TopKPrunability,
     pub(super) query: &'a SearchQueryInput,
-    pub(super) bm25_index: &'a PgSearchRelation,
+    /// The costable drive cost (see [`costable_drive_cost`]); `Some` marks the scan as costable. The
+    /// magnitude is used by [`cost_test_limited`] for effective-LIMIT scans; for no-LIMIT
+    /// `CostedBoth` paths it only marks the scan as costable ([`estimate_path_cost`] does not use it).
+    pub(super) drive_cost: Option<u64>,
     pub(super) row_estimate: RowEstimate,
     pub(super) is_sorted: bool,
     pub(super) limit: Option<f64>,
-    pub(super) segment_count: usize,
+    /// The LIMIT-capped output cardinality (`min(matches, limit)`). `< matches` exactly when an
+    /// effective LIMIT is in play, which routes a costable scan to [`cost_test_limited`].
     pub(super) base_result_rows: f64,
+    pub(super) segment_count: usize,
     pub(super) consider_parallel: bool,
     pub(super) quals: &'a Qual,
     pub(super) root: *mut pg_sys::PlannerInfo,
@@ -306,30 +334,21 @@ pub(super) struct ScanParallelismInputs<'a> {
     pub(super) is_join_context: bool,
 }
 
-/// Decide serial-vs-parallel for a scan (see the module docs for the full tree). In order:
-/// 1. Prunable score-DESC single term -> serial: Block-WAND keeps serial scoring sublinear, so
-///    parallel workers would only add overhead.
-/// 2. No row stats (table never ANALYZEd) -> the row heuristic (no caps -> by segment count).
-/// 3. Otherwise route on cost and scan shape:
-///    - have a cost       -> cost model (weigh drive cost vs Gather overhead);
-///    - no cost, sorted   -> parallelize across every segment (it must visit them all);
-///    - no cost, unsorted -> the row heuristic, whose caps fit because the scan can stop early.
+/// Decide how to shape a scan's paths. The numbered steps mirror the module-level decision tree;
+/// the inline comments carry the per-branch rationale.
 ///
 /// # Safety
 /// `inputs.root` must point to a valid `PlannerInfo` for the duration of this call.
-pub(super) unsafe fn decide_scan_parallelism(
-    inputs: ScanParallelismInputs,
-    cost_memo: &mut CostMemo,
-) -> WorkerDecision {
+pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> WorkerPathPolicy {
     let ScanParallelismInputs {
         prunability,
         query,
-        bm25_index,
+        drive_cost,
         row_estimate,
         is_sorted,
         limit,
-        segment_count,
         base_result_rows,
+        segment_count,
         consider_parallel,
         quals,
         root,
@@ -337,11 +356,11 @@ pub(super) unsafe fn decide_scan_parallelism(
         is_join_context,
     } = inputs;
 
-    // 1. Prunable short-circuit -> serial. Block-WAND keeps serial scoring of a score-DESC single
-    //    term sublinear (#4664), so parallel workers would only add overhead. The predicate must
-    //    actually prune, not just look like a term.
+    // 1. Prunable short-circuit -> serial only. Block-WAND keeps a score-DESC single term sublinear
+    //    (#4664), so workers would only add overhead. A hard gate: the cost model can't see
+    //    Block-WAND, and the predicate must actually prune, not just look like a term.
     if matches!(prunability, TopKPrunability::PrunableCandidate) && query.is_topk_prunable() {
-        return WorkerDecision::Serial {
+        return WorkerPathPolicy::SerialOnly {
             reason: WorkerDecisionReason::BlockWandPrunable,
         };
     }
@@ -349,9 +368,9 @@ pub(super) unsafe fn decide_scan_parallelism(
     let external_var = quals.contains_external_var();
     let correlated = quals.contains_correlated_param(root);
 
-    // The row heuristic (`compute_nworkers`), used only by the two fallback branches below, so it
-    // is computed lazily here. With no row count it applies no caps and parallelizes by segment.
-    let heuristic_workers = || {
+    // The row heuristic (`compute_nworkers`): used by the two fallback branches below, so computed
+    // lazily here. It commits to serial or parallel itself (no cost to hand PostgreSQL).
+    let heuristic_policy = || {
         let nworkers = if consider_parallel {
             compute_nworkers(
                 is_sorted,
@@ -365,57 +384,95 @@ pub(super) unsafe fn decide_scan_parallelism(
         } else {
             0
         };
-        WorkerDecision::from_count(nworkers, WorkerDecisionReason::RowHeuristic)
+        match NonZeroUsize::new(nworkers) {
+            Some(nworkers) => WorkerPathPolicy::ParallelOnly {
+                nworkers,
+                reason: WorkerDecisionReason::RowHeuristic,
+            },
+            None => WorkerPathPolicy::SerialOnly {
+                reason: WorkerDecisionReason::RowHeuristic,
+            },
+        }
     };
 
     // 2. No row stats (table never ANALYZEd) -> the row heuristic. Routing every unanalyzed scan
     //    here (not just the uncostable ones) keeps the decision consistent regardless of shape.
     let RowEstimate::Known(matches) = row_estimate else {
-        return heuristic_workers();
+        return heuristic_policy();
     };
     let matches = matches as f64;
 
-    // Structural ceiling: the most workers the segments can use. 0 (serial) when parallelism is
-    // disabled, there is a single segment, or the predicate is correlated/external. Stays a plain
-    // count because the two branches that use it stamp different reasons (cost model vs sorted).
+    // Structural ceiling from `max_useful_workers`: 0 (serial) for a single segment, parallelism
+    // off, or correlated/external -- though `debug_parallel_query` bumps a single segment to one.
     let structural_workers = if consider_parallel {
         max_useful_workers(segment_count, external_var, correlated)
     } else {
         0
     };
 
-    // 3. Cost the query if we can. `None` for a runtime-bound `$1`/subquery or correlated/external
-    //    predicate (no resolved value to open a scorer for), or if an eligible open fails.
-    let cost = if quals.contains_exprs() || external_var || correlated {
-        None
-    } else {
-        cost_memo.get_or_compute(|| estimate_query_cost(bm25_index, query.clone()))
-    };
+    #[cfg(not(feature = "pg15"))]
+    let debug_parallel_query = unsafe { pg_sys::debug_parallel_query != 0 };
+    #[cfg(feature = "pg15")]
+    let debug_parallel_query = false;
 
-    // 4. Route on cost + shape:
-    match (cost, is_sorted) {
-        (Some(drive_cost), _) => cost_test(
-            drive_cost,
-            matches,
-            structural_workers,
-            is_sorted,
-            limit,
-            base_result_rows,
-            parallel_leader_participates,
-        ),
-        // Sorted, no usable cost: it must visit every segment, so workers always help.
-        (None, true) => {
-            WorkerDecision::from_count(structural_workers, WorkerDecisionReason::SortedPerSegment)
-        }
-        // Unsorted, no usable cost: it can stop early at LIMIT, so the row heuristic's caps fit;
+    // 3. Route on costability + shape:
+    match (drive_cost, is_sorted) {
+        // Costable -- the cost-model branch. A zero structural ceiling leaves nothing to split.
+        (Some(drive_cost), _) => match NonZeroUsize::new(structural_workers) {
+            None => WorkerPathPolicy::SerialOnly {
+                reason: WorkerDecisionReason::CostModel,
+            },
+            // `debug_parallel_query` forces parallel for testing; emit the partial path the cost
+            // model would otherwise serialize. Reason stays `CostModel` (the Gather shows the forced
+            // outcome). Only the costable branch needs this -- uncostable scans honor the GUC via
+            // `compute_nworkers` (row-capped), so handling it earlier would bypass that cap.
+            Some(nworkers) if debug_parallel_query => WorkerPathPolicy::ParallelOnly {
+                nworkers,
+                reason: WorkerDecisionReason::CostModel,
+            },
+            // Effective LIMIT (`k < matches`): PostgreSQL over-costs the bounded Gather, so pg_search
+            // costs it on `k` and forces the winner.
+            Some(nworkers) if base_result_rows < matches => cost_test_limited(
+                drive_cost,
+                nworkers,
+                is_sorted,
+                limit,
+                matches,
+                base_result_rows,
+                parallel_leader_participates,
+            ),
+            // No effective LIMIT (output == matches): every row crosses the Gather, so PostgreSQL
+            // costs it correctly -- offer both and let it choose.
+            Some(nworkers) => WorkerPathPolicy::CostedBoth {
+                nworkers,
+                reason: WorkerDecisionReason::CostModel,
+            },
+        },
+        // Uncostable sorted: must visit every segment, so workers always help. Parallel when workers
+        // exist, else serial.
+        (None, true) => match NonZeroUsize::new(structural_workers) {
+            Some(nworkers) => WorkerPathPolicy::ParallelOnly {
+                nworkers,
+                reason: WorkerDecisionReason::SortedPerSegment,
+            },
+            None => WorkerPathPolicy::SerialOnly {
+                reason: WorkerDecisionReason::SortedPerSegment,
+            },
+        },
+        // Uncostable unsorted: it can stop early at LIMIT, so the row heuristic's caps fit;
         // full structural parallelism would over-do it.
-        (None, false) => heuristic_workers(),
+        (None, false) => heuristic_policy(),
     }
 }
 
-/// A scan path's intrinsic cost, independent of the worker decision: the per-row work to divide
-/// across workers (`base_result_rows * per_tuple_cost`) and a multiplier for the sorted-index merge.
-/// The worker decision is made separately by [`decide_scan_parallelism`].
+/// A scan path's intrinsic cost, independent of the parallel divisor: `parallelizable_cost`
+/// (`base_result_rows * per_tuple_cost`, the work mod.rs divides across workers) and a multiplier for
+/// the sorted-index merge.
+///
+/// The scan's `drive_cost` is deliberately NOT folded in: `total_cost` feeds *every* planner decision
+/// (join order, UNION strategy, sort placement), so inflating it would rebase unrelated planner
+/// choices. The worker decision uses `drive_cost` where it's needed instead -- effective-LIMIT scans
+/// in [`cost_test_limited`]; no-LIMIT scans delegate serial-vs-parallel to PostgreSQL's Gather cost.
 pub(super) fn estimate_path_cost(
     method: &ExecMethodType,
     is_sorted: bool,
@@ -427,6 +484,7 @@ pub(super) fn estimate_path_cost(
     } else {
         1.0
     };
+
     PathCostBasis {
         parallelizable_cost: base_result_rows * per_tuple_cost,
         total_cost_multiplier,

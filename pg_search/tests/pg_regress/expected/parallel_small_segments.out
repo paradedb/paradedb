@@ -149,7 +149,7 @@ LIMIT 10;
                Output: id, name, paradedb.score(id)
                Table: items
                Index: items_bm25_idx
-               Worker Selection: Cost model
+               Worker Selection: Cost model (LIMIT)
                Exec Method: TopKScanExecState
                Scores: true
                   TopK Order By: pdb.score() desc, id asc
@@ -191,7 +191,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Output: id, name
                Table: items
                Index: items_bm25_idx
-               Worker Selection: Cost model
+               Worker Selection: Cost model (LIMIT)
                Exec Method: TopKScanExecState
                Scores: false
                   TopK Order By: id asc

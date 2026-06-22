@@ -24,8 +24,8 @@ pub mod projections;
 mod scan_state;
 
 use cost::{
-    decide_scan_parallelism, estimate_path_cost, topk_can_prune_for_method, CostMemo,
-    ScanParallelismInputs,
+    costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
+    topk_can_prune_for_method, CostMemo, ScanParallelismInputs, WorkerPathPolicy,
 };
 
 use std::ffi::CStr;
@@ -913,14 +913,27 @@ impl CustomScan for BaseScan {
             let mut custom_paths = Vec::new();
             let parallel_leader_participates = pg_sys::parallel_leader_participation;
             // Seed the cost memo from the open create_custom_path already did for selectivity (if
-            // any), so the worker decision opens the index at most once per query.
+            // any), so the cost computation opens the index at most once per query.
             let mut cost_memo = CostMemo::from_precomputed(precomputed_query_cost);
 
-            // For each execution method variant, build one CustomPath. Most
-            // methods use `compute_nworkers` for worker selection; proven
-            // limit-bounded TopK compares serial and parallel costs here
-            // because bounded segment work can make worker startup more
-            // expensive than the scan itself (#4664).
+            // Cost the query once (memoized) for costable scans; `None` marks the scan uncostable, so
+            // pg_search forces the worker decision (and an effective-LIMIT scan uses the magnitude in
+            // `cost_test_limited`). Skip the open entirely for un-ANALYZEd tables -- the row heuristic
+            // decides those without a cost.
+            let drive_cost = match row_estimate {
+                RowEstimate::Known(_) => costable_drive_cost(
+                    &query,
+                    &bm25_index,
+                    &quals,
+                    builder.args().root,
+                    &mut cost_memo,
+                ),
+                RowEstimate::Unknown => None,
+            };
+
+            // For each execution method variant, decide a `WorkerPathPolicy` and emit the path(s) it
+            // calls for: one serial path, one partial (parallel) path, or -- for a costable no-LIMIT
+            // scan -- both, so PostgreSQL costs the Gather and chooses serial-vs-parallel itself (#4664).
             for method in exec_method_types {
                 let per_tuple_cost = match &method {
                     // returning fields from fast fields
@@ -931,86 +944,115 @@ impl CustomScan for BaseScan {
 
                 let is_sorted = method.declares_sorted_output();
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
-
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
-                let mut path_builder = CustomPathBuilder::<Self>::new(
-                    builder.args().root,
-                    builder.args().rel,
-                    *builder.args(),
-                );
 
-                // we must use this path if we need to do const projections for scores or snippets
-                path_builder = path_builder.set_force_path(
-                    maybe_needs_const_projections
-                        || matches!(method, ExecMethodType::TopK { .. })
-                        || quals.contains_all(),
-                );
-
-                let mut method_private = custom_private.clone();
-                method_private.set_exec_method_type(method.clone());
-                method_private.set_use_sorted_path(is_sorted);
-
-                // Our BaseScan is always parallel-safe (can run in a worker),
-                // even if it's not parallel-aware (splitting segments).
-                if consider_parallel_local {
-                    path_builder = path_builder.set_parallel_safe(true);
-                }
-
-                // The path's intrinsic cost and its worker decision are computed separately: the
-                // cost doesn't depend on the worker count, and `decide_scan_parallelism` owns all
-                // of the serial-vs-parallel logic (including the `compute_nworkers` fallback).
+                // The path's intrinsic cost and its policy are computed separately: the cost doesn't
+                // depend on the worker count, and `decide_scan_parallelism` owns the serial-vs-
+                // parallel shaping (including the `compute_nworkers` fallback).
                 let cost_basis =
                     estimate_path_cost(&method, is_sorted, per_tuple_cost, base_result_rows);
-                let worker_decision = decide_scan_parallelism(
-                    ScanParallelismInputs {
-                        prunability,
-                        query: &query,
-                        bm25_index: &bm25_index,
-                        row_estimate,
-                        is_sorted,
-                        limit: float_limit,
-                        segment_count,
-                        base_result_rows,
-                        consider_parallel: consider_parallel_local,
-                        quals: &quals,
-                        root: builder.args().root,
-                        parallel_leader_participates,
-                        is_join_context,
-                    },
-                    &mut cost_memo,
-                );
-                method_private.set_worker_selection_reason(worker_decision.reason());
+                let policy = decide_scan_parallelism(ScanParallelismInputs {
+                    prunability,
+                    query: &query,
+                    drive_cost,
+                    row_estimate,
+                    is_sorted,
+                    limit: float_limit,
+                    base_result_rows,
+                    segment_count,
+                    consider_parallel: consider_parallel_local,
+                    quals: &quals,
+                    root: builder.args().root,
+                    parallel_leader_participates,
+                    is_join_context,
+                });
+                let reason = policy.reason();
 
-                let scan_work_divisor = worker_decision.divisor(parallel_leader_participates);
-                let method_result_rows = base_result_rows / scan_work_divisor;
-                let total_cost = (startup_cost
-                    + cost_basis.parallelizable_cost / scan_work_divisor)
-                    * cost_basis.total_cost_multiplier;
+                // We must force this path (not interchangeable with native paths) if we need const
+                // projections for scores/snippets, or it's a TopK, or the predicate matches all.
+                let force = maybe_needs_const_projections
+                    || matches!(method, ExecMethodType::TopK { .. })
+                    || quals.contains_all();
 
-                if let Some(nworkers) = worker_decision.nworkers() {
-                    path_builder = path_builder.set_parallel(nworkers.get());
-                }
-
-                path_builder = path_builder.set_rows(method_result_rows);
-                path_builder = path_builder.set_startup_cost(startup_cost);
-                path_builder = path_builder.set_total_cost(total_cost);
-                path_builder = path_builder.set_flag(Flags::Projection);
-
-                if matches!(
+                // Pathkeys to declare on every sibling of this method, so a Gather Merge built over
+                // the partial sibling preserves the ordering instead of degrading to a plain Gather.
+                let topk_pathkeys = matches!(
                     method,
                     ExecMethodType::TopK {
                         orderby_info: Some(..),
                         ..
                     }
-                ) {
-                    path_builder = path_builder.set_pathkeys((*builder.args().root).query_pathkeys);
-                } else if is_sorted {
-                    if let Some(ref pathkey_style) = sort_by_pathkey {
-                        path_builder = path_builder.add_path_key(pathkey_style);
+                )
+                .then(|| (*builder.args().root).query_pathkeys);
+
+                // Build one sibling path. `nworkers == None` => serial (divisor 1.0); `Some` =>
+                // parallel-aware partial path. `offer_parallel` marks a partial path PostgreSQL may
+                // reject for the serial sibling (see `hook::add_path`).
+                let make_path =
+                    |nworkers: Option<NonZeroUsize>, offer_parallel: bool, forced: bool| {
+                        let divisor = nworkers
+                            .map_or(1.0, |n| parallel_divisor(n, parallel_leader_participates));
+                        let rows = base_result_rows / divisor;
+                        let total_cost = (startup_cost + cost_basis.parallelizable_cost / divisor)
+                            * cost_basis.total_cost_multiplier;
+
+                        let mut path_builder = CustomPathBuilder::<Self>::new(
+                            builder.args().root,
+                            builder.args().rel,
+                            *builder.args(),
+                        )
+                        .set_force_path(forced);
+
+                        // Our BaseScan is always parallel-safe (can run in a worker), even when it's not
+                        // parallel-aware (splitting segments).
+                        if consider_parallel_local {
+                            path_builder = path_builder.set_parallel_safe(true);
+                        }
+                        if let Some(nworkers) = nworkers {
+                            path_builder = path_builder.set_parallel(nworkers.get());
+                        }
+                        if offer_parallel {
+                            path_builder = path_builder.set_flag(Flags::OfferParallel);
+                        }
+                        path_builder = path_builder
+                            .set_rows(rows)
+                            .set_startup_cost(startup_cost)
+                            .set_total_cost(total_cost)
+                            .set_flag(Flags::Projection);
+
+                        if let Some(pathkeys) = topk_pathkeys {
+                            path_builder = path_builder.set_pathkeys(pathkeys);
+                        } else if is_sorted {
+                            if let Some(ref pathkey_style) = sort_by_pathkey {
+                                path_builder = path_builder.add_path_key(pathkey_style);
+                            }
+                        }
+
+                        let mut method_private = custom_private.clone();
+                        method_private.set_exec_method_type(method.clone());
+                        method_private.set_use_sorted_path(is_sorted);
+                        method_private.set_worker_selection_reason(reason);
+                        path_builder.build(method_private)
+                    };
+
+                match policy {
+                    WorkerPathPolicy::SerialOnly { .. } => {
+                        custom_paths.push(make_path(None, false, force));
+                    }
+                    WorkerPathPolicy::ParallelOnly { nworkers, .. } => {
+                        custom_paths.push(make_path(Some(nworkers), false, force));
+                    }
+                    WorkerPathPolicy::CostedBoth { nworkers, .. } => {
+                        // Order is load-bearing (see `hook::add_path`): emit the serial sibling
+                        // FIRST so that, when the method is forced, the hook clears the native
+                        // pathlists and installs our serial complete path before the partial
+                        // sibling is added. The partial sibling (OfferParallel, never forced) then
+                        // only adds a partial path and leaves the serial in place. Reversing the
+                        // order would let the forced serial sibling clear the partial path.
+                        custom_paths.push(make_path(None, false, force));
+                        custom_paths.push(make_path(Some(nworkers), true, false));
                     }
                 }
-
-                custom_paths.push(path_builder.build(method_private));
             }
 
             Some(custom_paths)

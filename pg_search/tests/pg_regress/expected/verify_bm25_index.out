@@ -122,7 +122,7 @@ SELECT id, content FROM verify_test WHERE content @@@ 'test' LIMIT 5;
          Output: id, content
          Table: verify_test
          Index: verify_test_idx
-         Worker Selection: Cost model
+         Worker Selection: Cost model (LIMIT)
          Exec Method: TopKScanExecState
          Scores: false
             TopK Limit: 5

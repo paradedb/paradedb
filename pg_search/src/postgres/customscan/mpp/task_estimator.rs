@@ -109,6 +109,9 @@ mod tests {
         let inner = empty_leaf();
         let broadcast: Arc<dyn ExecutionPlan> = Arc::new(BroadcastExec::new(inner, 1));
         let est = BroadcastBuildSideOneTaskEstimator;
-        assert!(est.scale_up_leaf_node(&broadcast, 7, &cfg()).is_none());
+        assert!(est
+            .scale_up_leaf_node(&broadcast, 7, &cfg())
+            .unwrap()
+            .is_none());
     }
 }

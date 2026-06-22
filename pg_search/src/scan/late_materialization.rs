@@ -66,15 +66,13 @@ fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
 
             let provider = if let Some(default_source) =
                 source
-                    .as_any()
                     .downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
             {
                 default_source
                     .table_provider
-                    .as_any()
                     .downcast_ref::<PgSearchTableProvider>()
             } else {
-                source.as_any().downcast_ref::<PgSearchTableProvider>()
+                (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
             };
 
             if let Some(p) = provider {
@@ -385,10 +383,10 @@ impl OptimizerRule for LateMaterializationRule {
     ) -> Result<Transformed<LogicalPlan>> {
         let transformed_plan = plan.transform_up(|node| {
             if let LogicalPlan::TableScan(scan) = &node {
-                let provider = if let Some(default_source) = scan.source.as_any().downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>() {
-                    default_source.table_provider.as_any().downcast_ref::<PgSearchTableProvider>()
+                let provider = if let Some(default_source) = scan.source.downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>() {
+                    default_source.table_provider.downcast_ref::<PgSearchTableProvider>()
                 } else {
-                    scan.source.as_any().downcast_ref::<PgSearchTableProvider>()
+                    (scan.source.as_ref() as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
                 };
 
                 if let Some(provider) = provider {
@@ -648,7 +646,7 @@ fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
     helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
 ) {
-    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         if scan.has_deferred_fields() {
             if let Some(ff) = scan.ffhelper() {
                 helpers.insert(scan.indexrelid, ff);

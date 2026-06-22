@@ -92,8 +92,8 @@ FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 GROUP BY f.category
 ORDER BY f.category;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: f.category, (count(*)), (sum(p.size_bytes)), (min(p.size_bytes)), (max(p.size_bytes))
    Sort Key: f.category
@@ -109,12 +109,12 @@ ORDER BY f.category;
            : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
-           :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[agg_0, agg_1, agg_2, agg_3]
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
            :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
            :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-           :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[agg_0, agg_1, agg_2, agg_3]
+           :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
            :     │       CoalescePartitionsExec
            :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
@@ -196,12 +196,12 @@ LIMIT 10;
                  : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
                  : └──────────────────────────────────────────────────
                  :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
-                 :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category, title@1 as title], aggr=[agg_0]
+                 :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category, title@1 as title], aggr=[count(1) as agg_0]
                  :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 9), input_partitions=3
-                 :     │   AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[agg_0]
+                 :     │   AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
@@ -282,12 +282,12 @@ LIMIT 3;
                  :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
                  :   │ SortExec: TopK(fetch=3), expr=[agg_1@2 DESC], preserve_partitioning=[true]
                  :   │   FilterExec: agg_0@1 > 100
-                 :   │     AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[agg_0, agg_1]
+                 :   │     AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :   │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
                  :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-                 :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[agg_0, agg_1]
+                 :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
@@ -343,12 +343,12 @@ WHERE f.content @@@ 'Section';
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : ┌───── DistributedExec ── Tasks: t0:[p0]
-     : │ AggregateExec: mode=Final, gby=[], aggr=[agg_0]
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
      : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
-     :   │ AggregateExec: mode=Partial, gby=[], aggr=[agg_0]
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
@@ -436,21 +436,20 @@ ORDER BY c.name;
            : │   [Stage 4] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 4 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
-           :   │ AggregateExec: mode=FinalPartitioned, gby=[name@0 as name], aggr=[agg_0, agg_1]
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[name@0 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
            :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=3
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 3 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
            :     │ RepartitionExec: partitioning=Hash([name@0], 9), input_partitions=3
-           :     │   AggregateExec: mode=Partial, gby=[name@1 as name], aggr=[agg_0, agg_1]
-           :     │     ProjectionExec: expr=[size_bytes@1 as size_bytes, name@0 as name]
-           :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, category@0)], projection=[name@0, size_bytes@2]
+           :     │   AggregateExec: mode=Partial, gby=[name@1 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, category@0)], projection=[size_bytes@2, name@0]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
            :     │         CoalescePartitionsExec
-           :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
-           :     │           CoalescePartitionsExec
-           :     │             [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :     │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
@@ -460,7 +459,7 @@ ORDER BY c.name;
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
            :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
-(39 rows)
+(38 rows)
 
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f

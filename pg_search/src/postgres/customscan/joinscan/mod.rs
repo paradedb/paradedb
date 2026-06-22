@@ -1354,11 +1354,7 @@ impl CustomScan for JoinScan {
                 .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
             explainer.add_text("DataFusion Physical Plan", "");
-            let rendered = if physical_plan
-                .as_any()
-                .downcast_ref::<DistributedExec>()
-                .is_some()
-            {
+            let rendered = if physical_plan.is::<DistributedExec>() {
                 display_plan_ascii(physical_plan.as_ref(), false)
             } else {
                 displayable(physical_plan.as_ref())

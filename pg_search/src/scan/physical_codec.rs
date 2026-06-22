@@ -124,22 +124,22 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 
     fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(scan) = node.as_any().downcast_ref::<PgSearchScanPlan>() {
+        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
             buf.push(TAG_PG_SEARCH_SCAN);
             buf.extend_from_slice(&scan.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(vis) = node.as_any().downcast_ref::<VisibilityFilterExec>() {
+        if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
             buf.push(TAG_VISIBILITY_FILTER);
             buf.extend_from_slice(&vis.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(lookup) = node.as_any().downcast_ref::<TantivyLookupExec>() {
+        if let Some(lookup) = node.downcast_ref::<TantivyLookupExec>() {
             buf.push(TAG_TANTIVY_LOOKUP);
             buf.extend_from_slice(&lookup.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(topk) = node.as_any().downcast_ref::<SegmentedTopKExec>() {
+        if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
             buf.extend_from_slice(&topk.encode_for_dispatch()?);
             return Ok(());
@@ -190,7 +190,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if name == "pdb_search_predicate" {
             let udf = node
                 .inner()
-                .as_any()
                 .downcast_ref::<SearchPredicateUDF>()
                 .ok_or_else(|| {
                     DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
@@ -205,7 +204,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if name.starts_with(PG_EXPR_UDF_PREFIX) {
             let udf = node
                 .inner()
-                .as_any()
                 .downcast_ref::<PgExprUdf>()
                 .ok_or_else(|| DataFusionError::Internal("UDF is not a PgExprUdf".into()))?;
             let bytes = serde_json::to_vec(udf).map_err(|e| {
@@ -232,7 +230,7 @@ struct ScanRuntime {
 /// still `Local` at decode time, so the walk descends into them. Binding a resolver to any reader
 /// it finds is fine: canonical segment sets give every proc the same `segment_ord` layout.
 fn collect_scan_runtime(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<ScanRuntime>) {
-    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         out.push(ScanRuntime {
             indexrelid: scan.indexrelid,
             ffhelper: scan.ffhelper(),
@@ -353,7 +351,7 @@ pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> 
     // finalized it delegates to its inner node, so strip it and ship the inner directly.
     let plan = plan
         .transform_down(|node| {
-            if let Some(fp) = node.as_any().downcast_ref::<FilterPassthroughExec>() {
+            if let Some(fp) = node.downcast_ref::<FilterPassthroughExec>() {
                 Ok(Transformed::yes(Arc::clone(fp.inner())))
             } else {
                 Ok(Transformed::no(node))

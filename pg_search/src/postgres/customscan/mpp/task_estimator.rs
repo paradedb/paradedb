@@ -47,7 +47,7 @@ impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
         plan: &Arc<dyn ExecutionPlan>,
         _: &ConfigOptions,
     ) -> Option<TaskEstimation> {
-        if plan.as_any().downcast_ref::<BroadcastExec>().is_some() {
+        if plan.is::<BroadcastExec>() {
             Some(TaskEstimation::maximum(1))
         } else {
             None
@@ -59,8 +59,8 @@ impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
         _: &Arc<dyn ExecutionPlan>,
         _: usize,
         _: &ConfigOptions,
-    ) -> Option<Arc<dyn ExecutionPlan>> {
-        None
+    ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
+        Ok(None)
     }
 }
 

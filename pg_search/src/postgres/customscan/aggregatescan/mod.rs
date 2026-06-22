@@ -1044,7 +1044,7 @@ impl AggregateScan {
     /// the standard `displayable().indent(false)` tree so non-MPP expected
     /// outputs are stable.
     fn render_plan_for_explain(plan: &dyn ExecutionPlan) -> String {
-        if plan.as_any().downcast_ref::<DistributedExec>().is_some() {
+        if plan.is::<DistributedExec>() {
             display_plan_ascii(plan, false)
         } else {
             datafusion::physical_plan::displayable(plan)

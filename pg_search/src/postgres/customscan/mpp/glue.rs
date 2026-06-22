@@ -36,11 +36,12 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
+use datafusion_distributed::proto::SetPlanRequest;
 use datafusion_distributed::shm::{
     self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
     SendBatchStats, SetPlanFrame, Wakeup,
 };
-use datafusion_distributed::{SetPlanRequest, TaskKey};
+use datafusion_distributed::TaskKey;
 
 use crate::postgres::customscan::mpp::dispatch::StagePlan;
 
@@ -380,7 +381,7 @@ pub fn drain_worker_metrics(
     use datafusion_distributed::shm::CooperativeDrainSet;
     use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
 
-    let dist = plan.as_any().downcast_ref::<DistributedExec>()?;
+    let dist = plan.downcast_ref::<DistributedExec>()?;
     let store = dist.metrics_store()?;
 
     // The wire frames carry (stage, task); the query uuid lives on the plan's own stages. Count
@@ -399,7 +400,7 @@ pub fn drain_worker_metrics(
 
     // The workers send their metrics frames right after their last EOF, which may still be in
     // flight when shutdown reaches this node; wait briefly, bounded, and stop as soon as every
-    // expected (stage, task) reported.
+    // expected (stage, task) reported. Draining keeps the DSM ring from backing up before detach.
     let mut rx = mesh.take_task_metrics_receiver()?;
     let mut got = crate::api::HashSet::default();
     for _ in 0..100 {
@@ -433,7 +434,7 @@ pub fn merge_worker_metrics(
 ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
     use datafusion_distributed::DistributedExec;
 
-    plan.as_any().downcast_ref::<DistributedExec>()?;
+    plan.downcast_ref::<DistributedExec>()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

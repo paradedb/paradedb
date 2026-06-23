@@ -169,6 +169,16 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
     let mut did_delete = false;
 
+    // We periodically poll for a pending interrupt, which raises a cancel query ERROR.
+    // On PG18+, `vacuum_delay_point` requires an `is_analyze` parameter indicating whether
+    // it is being called inside an ANALYZE query.
+    let vacuum_delay_point = || unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        pg_sys::vacuum_delay_point();
+        #[cfg(feature = "pg18")]
+        pg_sys::vacuum_delay_point(false);
+    };
+
     for segment_reader in reader.segment_readers() {
         let segment_id = segment_reader.segment_id();
         if !writer_segment_ids.contains(&segment_id) {
@@ -186,26 +196,48 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             .unwrap_or_else(|| panic!("segment meta not found for segment_id: {segment_id:?}"));
         let mut deleter = SegmentDeleter::open(&index_relation, &directory, segment_meta)
             .expect("ambulkdelete: should be able to open a SegmentDeleter");
-        let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
         let mut needs_commit = false;
 
-        for doc_id in 0..segment_reader.max_doc() {
-            if doc_id % 100 == 0 {
-                // we think there's a pending interrupt, so this should raise a cancel query ERROR
-                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                pg_sys::vacuum_delay_point();
-
-                // On PG18+, vacuum_delay_point requires passing an is_analyze parameter for whether it
-                // is being called inside an ANALYZE query
-                #[cfg(feature = "pg18")]
-                pg_sys::vacuum_delay_point(false);
+        if directory.is_mutable(&segment_id) {
+            // VACUUM only ever needs each segment's ctids. Reading them from a mutable
+            // (in-memory) segment via the tantivy fast field would lazily materialize the
+            // segment, which re-fetches and detoasts its heap rows. That detoasting races
+            // with a concurrent VACUUM freeing the same TOAST chunks and surfaces as spurious
+            // "missing/unexpected chunk number ... in pg_toast_*" errors -- even though the
+            // table is physically intact. A mutable segment records its own live ctids in its
+            // add/remove log, so we read them straight from there and never touch the heap.
+            // See: https://github.com/paradedb/paradedb/issues/5365
+            let all_entries = directory.all_entries();
+            let entry = all_entries.get(&segment_id).unwrap_or_else(|| {
+                panic!("mutable segment entry not found for segment_id: {segment_id:?}")
+            });
+            let ctids = entry.mutable_snapshot(&index_relation).unwrap_or_else(|e| {
+                panic!("ambulkdelete: could not snapshot mutable segment {segment_id:?}: {e}")
+            });
+            for (i, ctid) in ctids.into_iter().enumerate() {
+                if i % 100 == 0 {
+                    vacuum_delay_point();
+                }
+                if callback(ctid) {
+                    did_delete = true;
+                    needs_commit = true;
+                    // `doc_id` is unused for mutable segments: their deletes are keyed by ctid.
+                    deleter.delete_document(ctid, 0);
+                }
             }
+        } else {
+            let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+            for doc_id in 0..segment_reader.max_doc() {
+                if doc_id % 100 == 0 {
+                    vacuum_delay_point();
+                }
 
-            let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
-            if callback(ctid) {
-                did_delete = true;
-                needs_commit = true;
-                deleter.delete_document(ctid, doc_id);
+                let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
+                if callback(ctid) {
+                    did_delete = true;
+                    needs_commit = true;
+                    deleter.delete_document(ctid, doc_id);
+                }
             }
         }
 

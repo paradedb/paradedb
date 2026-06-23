@@ -142,8 +142,13 @@ struct RecallArgs {
     #[arg(long, default_value = "cohere")]
     dataset: String,
 
-    /// Base path to the held-out query parquet (S3 or local). Overrides s3_base_path in config.toml;
-    /// queries load from `{data_source}/queries/cohere_queries.parquet`.
+    /// Dataset size label (e.g. "1m", "10m"). Selects the precomputed ground-truth parquet
+    /// (`{data_source}/queries/ground_truth_{size}.parquet`), which is corpus-size-specific.
+    #[arg(long)]
+    size: String,
+
+    /// Base path to the held-out query + ground-truth parquets (S3 or local). Overrides s3_base_path
+    /// in config.toml; files load from `{data_source}/queries/`.
     #[arg(long)]
     data_source: Option<String>,
 }
@@ -442,11 +447,12 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
 }
 
 /// Measure recall@k of an already-built vector index against a held-out query set. Assumes the
-/// corpus and its index already exist (from a prior `benchmark` run). Runs `recall.sql`; once that
-/// has created the `cohere_queries` table, the held-out vectors are loaded into it from
-/// `{data_source}/queries/cohere_queries.parquet` (via DuckDB) before the recall query reads it.
-/// `recall.sql` reuses the database-level probes/ef_search -- the same effort as the latency
-/// benchmark -- and its final statement returns the average recall@k, which is printed.
+/// corpus and its index already exist (from a prior `benchmark` run). Runs `recall.sql`; once it has
+/// created the `cohere_queries` (held-out vectors) and `recall_gt` (precomputed exact top-k)
+/// tables, the harness loads each from parquet (via DuckDB) -- the queries from
+/// `{base}/queries/cohere_queries.parquet` and the ground truth from
+/// `{base}/queries/ground_truth_{size}.parquet`. So recall runs no sequential scans; it only does
+/// the index-approx pass and the comparison, at the same probes/ef_search as the latency benchmark.
 async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
     if !Path::new(&recall_sql).exists() {
@@ -467,12 +473,19 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
                 args.dataset, args.dataset
             )
         })?;
-    // Exact key (not a glob) so a public-GetObject bucket can be read cross-account without
-    // ListBucket -- e.g. CI's sub-account reading the public paradedb-benchmarks bucket.
-    let queries_path = format!(
-        "{}/queries/cohere_queries.parquet",
-        base.trim_end_matches('/')
-    );
+    let base = base.trim_end_matches('/');
+    // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
+    // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
+    let mut fixtures = vec![
+        (
+            "cohere_queries",
+            format!("{base}/queries/cohere_queries.parquet"),
+        ),
+        (
+            "recall_gt",
+            format!("{base}/queries/ground_truth_{}.parquet", args.size),
+        ),
+    ];
 
     let mut conn = PgConnection::connect(&args.url)
         .await
@@ -483,7 +496,6 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     let params = resolve_index_params(&mut conn, &args.dataset, None, &statements).await?;
     let last = statements.len().saturating_sub(1);
     let mut recall = None;
-    let mut loaded = false;
     for (i, statement) in statements.into_iter().enumerate() {
         let statement = substitute_vars(&statement, &params)?;
         if i == last {
@@ -498,19 +510,27 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             .await
             .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
 
-        // Once the query table exists, populate it from parquet before the recall query reads it.
-        if !loaded
-            && sqlx::query_scalar::<_, bool>("SELECT to_regclass('cohere_queries') IS NOT NULL")
-                .fetch_one(&mut conn)
-                .await?
-        {
-            println!("Loading held-out queries from {queries_path}...");
-            load_queries_parquet(&args.url, &queries_path)?;
-            loaded = true;
+        // Load each fixture from parquet right after recall.sql's `CREATE TABLE` for it. (Keying on
+        // the CREATE statement, not table existence, avoids loading a leftover table from a prior
+        // run before recall.sql drops/recreates it.)
+        let is_create = statement.to_lowercase().contains("create table");
+        let mut pending = Vec::new();
+        for (table, source) in fixtures {
+            if is_create && statement.contains(table) {
+                println!("Loading {table} from {source}...");
+                load_parquet_into(&args.url, table, &source)?;
+            } else {
+                pending.push((table, source));
+            }
         }
+        fixtures = pending;
     }
-    if !loaded {
-        bail!("recall.sql must create a `cohere_queries` table for the harness to populate");
+    if !fixtures.is_empty() {
+        let missing: Vec<_> = fixtures.iter().map(|(t, _)| *t).collect();
+        bail!(
+            "recall.sql did not create expected table(s): {}",
+            missing.join(", ")
+        );
     }
 
     match recall {
@@ -520,18 +540,18 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Load held-out query vectors from `source` (a parquet path/URL) into the already-created
-/// `cohere_queries` table via DuckDB's postgres extension, preserving the embedding vector type.
-fn load_queries_parquet(url: &str, source: &str) -> anyhow::Result<()> {
+/// Load `source` (a parquet path/URL) into the already-created Postgres `table` via DuckDB's
+/// postgres extension, preserving native column types (embedding vectors, text arrays).
+fn load_parquet_into(url: &str, table: &str, source: &str) -> anyhow::Result<()> {
     let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
     conn.execute_batch("INSTALL postgres; LOAD postgres;")
         .with_context(|| "Failed to load DuckDB postgres extension")?;
     conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
         .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
     conn.execute_batch(&format!(
-        "INSERT INTO pg.public.cohere_queries SELECT * FROM read_parquet('{source}');"
+        "INSERT INTO pg.public.\"{table}\" SELECT * FROM read_parquet('{source}');"
     ))
-    .with_context(|| format!("Failed to load query vectors from '{source}'"))?;
+    .with_context(|| format!("Failed to load '{table}' from '{source}'"))?;
     Ok(())
 }
 

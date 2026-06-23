@@ -378,6 +378,7 @@ jobs:
           set -euo pipefail
           out=$(cargo run --release -- recall \
             --dataset cohere \
+            --size 1m \
             --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
           echo "$out"
           echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"
@@ -421,6 +422,7 @@ jobs:
           set -euo pipefail
           out=$(cargo run --release -- recall \
             --dataset cohere \
+            --size 10m \
             --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
           echo "$out"
           echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"

@@ -462,8 +462,18 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
                 base_result_rows,
                 parallel_leader_participates,
             ),
-            // No effective LIMIT (output == matches): every row crosses the Gather, so PostgreSQL
-            // costs it correctly -- offer both and let it choose.
+            // No effective LIMIT, join input: PostgreSQL cost-chooses a serial plan over the partial
+            // path a Parallel Hash Join needs -- `parallel_setup_cost` dwarfs the per-scan work, so
+            // the cheap serial wins even though parallel is faster at runtime. Force parallel so the
+            // partial path both exists and wins (the serial sibling becomes the 1e9 junk stub in
+            // `hook::add_path`). Mirrors main's force-parallel-for-joins (#4457); only multi-segment
+            // scans reach here (`structural_workers > 0`).
+            Some(nworkers) if is_join_context => WorkerPathPolicy::ParallelOnly {
+                nworkers,
+                reason: WorkerDecisionReason::CostModel,
+            },
+            // No effective LIMIT, non-join (output == matches): every row crosses the Gather, so
+            // PostgreSQL costs it correctly -- offer both and let it choose.
             Some(nworkers) => WorkerPathPolicy::CostedBoth {
                 nworkers,
                 reason: WorkerDecisionReason::CostModel,

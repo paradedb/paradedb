@@ -266,8 +266,8 @@ ORDER BY p.category;
          Aggregates: COUNT(*), SUM(rating)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0, agg_1]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0), (category@1, category@0)], projection=[category@0, rating@2]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec

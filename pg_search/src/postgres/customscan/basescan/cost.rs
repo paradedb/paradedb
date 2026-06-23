@@ -354,9 +354,10 @@ pub(super) struct ScanParallelismInputs<'a> {
     pub(super) root: *mut pg_sys::PlannerInfo,
     pub(super) parallel_leader_participates: bool,
     pub(super) is_join_context: bool,
-    /// True when an aggregate sits above this scan (`Query::hasAggs`). PG mis-costs the serial
-    /// aggregate plan it builds over a costable scan, so this routes it through the row heuristic.
-    pub(super) has_aggs: bool,
+    /// True when a grouping step sits above this scan: GROUP BY (`groupClause`) or SELECT DISTINCT
+    /// (`distinctClause`). PG mis-costs serial-vs-parallel for non-collapsing grouping, so this
+    /// routes the scan through the row heuristic. Scalar aggregates leave it false (CostedBoth).
+    pub(super) has_grouping: bool,
 }
 
 /// Decide how to shape a scan's paths. The numbered steps mirror the module-level decision tree;
@@ -379,7 +380,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         root,
         parallel_leader_participates,
         is_join_context,
-        has_aggs,
+        has_grouping,
     } = inputs;
 
     // 1. Prunable short-circuit -> serial only. Block-WAND keeps a score-DESC single term sublinear
@@ -476,18 +477,23 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
                 nworkers,
                 reason: WorkerDecisionReason::CostModel,
             },
-            // No effective LIMIT, aggregate input: PostgreSQL mis-costs the serial aggregate it would
-            // build over this scan. Its `cost_agg` CPU model prices a large serial HashAggregate at
-            // ~`cpu_operator_cost * rows` -- far below its true memory-bound runtime, and ~10x cheaper
-            // than the equivalent Sort -- while the parallel path pays `parallel_tuple_cost * rows` on
-            // the Gather. So PG picks the cheap-looking serial HashAgg even though parallel is faster
-            // (verified ~3x on a 5M-row GROUP BY). Both errors live above the scan in PG core, beyond
-            // this scan's cost lever. Route through the row heuristic instead -- like main, which
-            // row-caps non-join scans: a large match forces parallel, a small one stays serial (so we
-            // don't over-parallelize tiny aggregates the way an unconditional force would).
-            Some(_) if has_aggs => heuristic_policy(),
-            // No effective LIMIT, non-aggregate non-join (output == matches): every row crosses the
-            // Gather, so PostgreSQL costs it correctly -- offer both and let it choose.
+            // No effective LIMIT, grouping input (GROUP BY / SELECT DISTINCT): PostgreSQL mis-costs
+            // serial-vs-parallel when the grouping does not collapse rows (high cardinality). Then
+            // ~every matched row crosses the Gather, so the parallel path pays
+            // `parallel_tuple_cost * rows` there while the serial HashAggregate is under-costed by
+            // `cost_agg` (its CPU model has no cache/bandwidth term, pricing a large hash ~10x cheaper
+            // than the equivalent Sort). Both errors live above the scan in PG core, beyond this
+            // scan's cost lever, so PG picks serial even when parallel is ~3x faster (verified on a
+            // 5M-row GROUP BY). Route through the row heuristic like main row-caps non-join scans: a
+            // large match forces parallel, a small one stays serial -- which matches what the cost
+            // model already gets right for collapsing grouping. Scalar aggregates (COUNT(*), etc.)
+            // leave `groupClause`/`distinctClause` empty and fall to CostedBoth, where the collapse
+            // makes the Gather cheap and PG costs them correctly.
+            Some(_) if has_grouping => heuristic_policy(),
+            // No effective LIMIT, non-grouping non-join (output == matches): every row crosses the
+            // Gather, so PostgreSQL costs it correctly -- offer both and let it choose. Scalar
+            // aggregates land here too; their row-collapsing Gather is cheap, so PG parallelizes
+            // when the match is large and serializes when it is small -- both correct.
             Some(nworkers) => WorkerPathPolicy::CostedBoth {
                 nworkers,
                 reason: WorkerDecisionReason::CostModel,

@@ -761,12 +761,14 @@ impl CustomScan for BaseScan {
             // If so, we want to be aggressive with parallelism to enable Parallel Hash Join
             let is_join_context = pg_sys::bms_num_members(baserels) > 1;
 
-            // Detect an aggregate above this scan. PG mis-costs the serial aggregate plan it would
-            // build over this scan (see `decide_scan_parallelism`), so the cost model can pick a
-            // serial plan that is actually slower than parallel. Route such scans through the row
-            // heuristic instead of trusting the cost model.
-            let has_aggs =
-                !(*builder.args().root).parse.is_null() && (*(*builder.args().root).parse).hasAggs;
+            // Detect a grouping step above this scan: GROUP BY (`groupClause`) or SELECT DISTINCT
+            // (`distinctClause`). PG mis-costs the serial-vs-parallel choice for such scans when the
+            // grouping does not collapse rows (see `decide_scan_parallelism`), so route them through
+            // the row heuristic. Scalar aggregates (COUNT(*), etc.) leave both clauses empty and fall
+            // to the cost model, which costs their row-collapsing Gather correctly.
+            let parse = (*builder.args().root).parse;
+            let has_grouping = !parse.is_null()
+                && (!(*parse).groupClause.is_null() || !(*parse).distinctClause.is_null());
 
             // Push the LIMIT/OFFSET into this scan when one of:
             //   - PG already proved it safe (`limit_tuples > -1.0`)
@@ -966,7 +968,7 @@ impl CustomScan for BaseScan {
                     root: builder.args().root,
                     parallel_leader_participates,
                     is_join_context,
-                    has_aggs,
+                    has_grouping,
                 });
                 let reason = policy.reason();
 

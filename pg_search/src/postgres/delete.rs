@@ -207,13 +207,15 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             // table is physically intact. A mutable segment records its own live ctids in its
             // add/remove log, so we read them straight from there and never touch the heap.
             // See: https://github.com/paradedb/paradedb/issues/5365
+            // `is_mutable` returned true for this `segment_id`, which means `all_entries`
+            // holds a mutable entry for it -- so both lookups below are infallible.
             let all_entries = directory.all_entries();
-            let entry = all_entries.get(&segment_id).unwrap_or_else(|| {
-                panic!("mutable segment entry not found for segment_id: {segment_id:?}")
-            });
-            let ctids = entry.mutable_snapshot(&index_relation).unwrap_or_else(|e| {
-                panic!("ambulkdelete: could not snapshot mutable segment {segment_id:?}: {e}")
-            });
+            let entry = all_entries
+                .get(&segment_id)
+                .expect("is_mutable() guarantees a mutable entry exists for this segment");
+            let ctids = entry
+                .mutable_snapshot(&index_relation)
+                .expect("is_mutable() guarantees this is a mutable segment");
             for (i, ctid) in ctids.into_iter().enumerate() {
                 if i % 100 == 0 {
                     vacuum_delay_point();

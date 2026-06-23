@@ -369,6 +369,17 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
+      # Recall reuses the index the benchmark step just built (same Postgres), measuring it against a
+      # held-out query set loaded from S3. Logged only (recall is bigger-is-better, not published to
+      # the smaller-is-better dashboard).
+      - name: Measure "cohere" Recall (1M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        working-directory: benchmarks/
+        run: |
+          cargo run --release -- recall \
+            --dataset cohere \
+            --url "postgresql://localhost:288${{ env.pg_version }}/postgres"
+
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
         run: |
@@ -399,6 +410,14 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Measure "cohere" Recall (10M)
+        if: ${{ env.RUN_COHERE == 'true' }}
+        working-directory: benchmarks/
+        run: |
+          cargo run --release -- recall \
+            --dataset cohere \
+            --url "postgresql://localhost:288${{ env.pg_version }}/postgres"
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

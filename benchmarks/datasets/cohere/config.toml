@@ -9,3 +9,4 @@ primary_key = "_id"  # used only if sampled later
 
 [params]
 lists = "sqrt({{ dataset_size }})::int"
+recall_k = "10"

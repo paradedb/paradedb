@@ -45,6 +45,8 @@ struct Cli {
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
     Benchmark(BenchmarkArgs),
+    /// Measure recall@k of a built vector index against a held-out query set (cohere).
+    Recall(RecallArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
     /// Sample a CSV dataset to a target row count, preserving table relationships.
@@ -129,6 +131,23 @@ struct LoadHeapArgs {
     data_source: Option<String>,
 }
 
+#[derive(Parser)]
+struct RecallArgs {
+    /// Postgres URL. The corpus and its vector index are assumed to already exist (built by a prior
+    /// `benchmark` run), so recall measures that exact index.
+    #[arg(long)]
+    url: String,
+
+    /// Dataset to measure recall for.
+    #[arg(long, default_value = "cohere")]
+    dataset: String,
+
+    /// Base path to the held-out query parquet (S3 or local). Overrides s3_base_path in config.toml;
+    /// queries load from `{data_source}/queries/cohere_queries.parquet`.
+    #[arg(long)]
+    data_source: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -137,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
         // run (e.g. by the CI workflow, before Postgres started). The index is (re)built by
         // run_sql_benchmarks, gated on `--skip-index`.
         Commands::Benchmark(args) => run_sql_benchmarks(&args).await,
+        Commands::Recall(args) => run_recall(&args).await,
         Commands::Convert(args) => convert::run_convert(args),
         Commands::Sample(args) => sample::run_sample(args),
         // Load the heap without building the index or running queries, leaving a heap-only cluster
@@ -313,7 +333,8 @@ fn substitute_vars(s: &str, vars: &HashMap<String, String>) -> anyhow::Result<St
 /// evaluated as a SQL scalar — so the index DDL stays plain SQL with no inline `count(*)`.
 async fn resolve_index_params(
     conn: &mut PgConnection,
-    args: &BenchmarkArgs,
+    dataset: &str,
+    size: Option<&str>,
     statements: &[String],
 ) -> anyhow::Result<HashMap<String, String>> {
     let referenced: HashSet<String> = statements.iter().flat_map(|s| template_names(s)).collect();
@@ -321,10 +342,10 @@ async fn resolve_index_params(
         return Ok(HashMap::new());
     }
 
-    let (config, _) = load_dataset_config(&format!("datasets/{}/config.toml", args.dataset))?;
+    let (config, _) = load_dataset_config(&format!("datasets/{dataset}/config.toml"))?;
 
     let mut vars = HashMap::new();
-    if let Some(size) = &args.size {
+    if let Some(size) = size {
         vars.insert("dataset_size".to_owned(), dataset_rows(size)?.to_string());
     }
 
@@ -351,7 +372,8 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         .with_context(|| "Failed to connect to database")?;
     let index_sql = format!("datasets/{}/indexes/{}.sql", args.dataset, args.index);
     let statements = queries(Path::new(&index_sql));
-    let params = resolve_index_params(&mut conn, args, &statements).await?;
+    let params =
+        resolve_index_params(&mut conn, &args.dataset, args.size.as_deref(), &statements).await?;
     let mut results = Vec::new();
 
     for statement in statements {
@@ -416,6 +438,94 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
             bail!("Failed to create tables from {after_create_index_sql}");
         }
     }
+    Ok(())
+}
+
+/// Measure recall@k of an already-built vector index against a held-out query set. Assumes the
+/// corpus and its index already exist (from a prior `benchmark` run); creates the query table from
+/// `recall_queries.sql`, loads the held-out vectors from `{data_source}/queries/*.parquet`, runs
+/// `recall.sql` (which reuses the database-level probes/ef_search, i.e. the same effort as the
+/// latency benchmark), and prints the result.
+async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
+    let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
+    if !Path::new(&recall_sql).exists() {
+        bail!("Dataset '{}' has no recall.sql", args.dataset);
+    }
+    let config_path = format!("datasets/{}/config.toml", args.dataset);
+    let (config, _) = config::load_dataset_config(&config_path)
+        .with_context(|| format!("Failed to load config '{config_path}'"))?;
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+
+    // (Re)create the held-out query table, then load its vectors from parquet via DuckDB.
+    let schema_sql = format!("datasets/{}/recall_queries.sql", args.dataset);
+    for statement in queries(Path::new(&schema_sql)) {
+        sqlx::query(&statement)
+            .execute(&mut conn)
+            .await
+            .with_context(|| "Failed to create the recall query table")?;
+    }
+    let base = args
+        .data_source
+        .as_deref()
+        .or(config.s3_base_path.as_deref())
+        .with_context(|| {
+            format!(
+                "Dataset '{}' has no S3 base path. Provide --data-source or set s3_base_path in \
+                 datasets/{}/config.toml",
+                args.dataset, args.dataset
+            )
+        })?;
+    // Exact key (not a glob) so a public-GetObject bucket can be read cross-account without
+    // ListBucket -- e.g. CI's sub-account reading the public paradedb-benchmarks bucket.
+    let queries_path = format!(
+        "{}/queries/cohere_queries.parquet",
+        base.trim_end_matches('/')
+    );
+    println!("Loading held-out queries from {queries_path}...");
+    load_queries_parquet(&args.url, &queries_path)?;
+
+    // Resolve `{{ params }}` (e.g. recall_k); the final statement returns the average recall@k.
+    let statements = queries(Path::new(&recall_sql));
+    let params = resolve_index_params(&mut conn, &args.dataset, None, &statements).await?;
+    let last = statements.len().saturating_sub(1);
+    let mut recall = None;
+    for (i, statement) in statements.into_iter().enumerate() {
+        let statement = substitute_vars(&statement, &params)?;
+        if i == last {
+            recall = sqlx::query_scalar::<_, Option<f64>>(&statement)
+                .fetch_one(&mut conn)
+                .await
+                .with_context(|| "Failed to compute recall")?;
+        } else {
+            sqlx::query(&statement)
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
+        }
+    }
+
+    match recall {
+        Some(r) => println!("recall = {r:.4}"),
+        None => bail!("Recall query returned no rows"),
+    }
+    Ok(())
+}
+
+/// Load held-out query vectors from `source` (a parquet path/URL) into the already-created
+/// `cohere_queries` table via DuckDB's postgres extension, preserving the embedding vector type.
+fn load_queries_parquet(url: &str, source: &str) -> anyhow::Result<()> {
+    let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    conn.execute_batch("INSTALL postgres; LOAD postgres;")
+        .with_context(|| "Failed to load DuckDB postgres extension")?;
+    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
+        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+    conn.execute_batch(&format!(
+        "INSERT INTO pg.public.cohere_queries SELECT * FROM read_parquet('{source}');"
+    ))
+    .with_context(|| format!("Failed to load query vectors from '{source}'"))?;
     Ok(())
 }
 

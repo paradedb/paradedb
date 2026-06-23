@@ -94,11 +94,6 @@ runs:
       shell: bash
       run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ inputs.pg_version }}
 
-    # Check out the new code BEFORE installing the new cargo-pgrx so that the
-    # PR's rust-toolchain.toml is active during the install. Otherwise the prior
-    # version's pinned (older) toolchain is in effect, and installing a newer
-    # cargo-pgrx whose MSRV exceeds it fails (e.g. cargo-pgrx 0.19.0 needs rustc
-    # 1.96, while ParadeDB v0.21.0 pins 1.90).
     - name: Fetch and Checkout PR Head (PR) or Pushed Commit (push)
       shell: bash
       run: |

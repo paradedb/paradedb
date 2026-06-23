@@ -1,6 +1,11 @@
--- recall@k of the built ANN index against a held-out query set (cohere_queries, loaded by
--- recall_queries.sql). For each held-out query we compare the index's top-k to the exact top-k.
--- k comes from [params] in config.toml. The final statement returns the average recall@k.
+-- recall@k of the built ANN index against a held-out query set. For each held-out query we compare
+-- the index's top-k to the exact top-k. k comes from [params] in config.toml; the final statement
+-- returns the average recall@k.
+
+-- Held-out query set. The harness populates this table from S3 parquet (DuckDB) right after it is
+-- created, before the recall query below reads it.
+DROP TABLE IF EXISTS cohere_queries;
+CREATE TABLE cohere_queries (id int, emb vector(1024));
 
 -- Exact ground truth: force a sequential scan (no ANN index) so distances are exact.
 SET enable_indexscan = off;

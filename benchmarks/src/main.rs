@@ -442,10 +442,11 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
 }
 
 /// Measure recall@k of an already-built vector index against a held-out query set. Assumes the
-/// corpus and its index already exist (from a prior `benchmark` run); creates the query table from
-/// `recall_queries.sql`, loads the held-out vectors from `{data_source}/queries/*.parquet`, runs
-/// `recall.sql` (which reuses the database-level probes/ef_search, i.e. the same effort as the
-/// latency benchmark), and prints the result.
+/// corpus and its index already exist (from a prior `benchmark` run). Runs `recall.sql`; once that
+/// has created the `cohere_queries` table, the held-out vectors are loaded into it from
+/// `{data_source}/queries/cohere_queries.parquet` (via DuckDB) before the recall query reads it.
+/// `recall.sql` reuses the database-level probes/ef_search -- the same effort as the latency
+/// benchmark -- and its final statement returns the average recall@k, which is printed.
 async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
     if !Path::new(&recall_sql).exists() {
@@ -455,18 +456,6 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     let (config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
-    let mut conn = PgConnection::connect(&args.url)
-        .await
-        .with_context(|| "Failed to connect to database")?;
-
-    // (Re)create the held-out query table, then load its vectors from parquet via DuckDB.
-    let schema_sql = format!("datasets/{}/recall_queries.sql", args.dataset);
-    for statement in queries(Path::new(&schema_sql)) {
-        sqlx::query(&statement)
-            .execute(&mut conn)
-            .await
-            .with_context(|| "Failed to create the recall query table")?;
-    }
     let base = args
         .data_source
         .as_deref()
@@ -484,14 +473,17 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         "{}/queries/cohere_queries.parquet",
         base.trim_end_matches('/')
     );
-    println!("Loading held-out queries from {queries_path}...");
-    load_queries_parquet(&args.url, &queries_path)?;
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
 
     // Resolve `{{ params }}` (e.g. recall_k); the final statement returns the average recall@k.
     let statements = queries(Path::new(&recall_sql));
     let params = resolve_index_params(&mut conn, &args.dataset, None, &statements).await?;
     let last = statements.len().saturating_sub(1);
     let mut recall = None;
+    let mut loaded = false;
     for (i, statement) in statements.into_iter().enumerate() {
         let statement = substitute_vars(&statement, &params)?;
         if i == last {
@@ -499,12 +491,26 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
                 .fetch_one(&mut conn)
                 .await
                 .with_context(|| "Failed to compute recall")?;
-        } else {
-            sqlx::query(&statement)
-                .execute(&mut conn)
-                .await
-                .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
+            continue;
         }
+        sqlx::query(&statement)
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
+
+        // Once the query table exists, populate it from parquet before the recall query reads it.
+        if !loaded
+            && sqlx::query_scalar::<_, bool>("SELECT to_regclass('cohere_queries') IS NOT NULL")
+                .fetch_one(&mut conn)
+                .await?
+        {
+            println!("Loading held-out queries from {queries_path}...");
+            load_queries_parquet(&args.url, &queries_path)?;
+            loaded = true;
+        }
+    }
+    if !loaded {
+        bail!("recall.sql must create a `cohere_queries` table for the harness to populate");
     }
 
     match recall {

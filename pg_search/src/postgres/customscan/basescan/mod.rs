@@ -761,6 +761,13 @@ impl CustomScan for BaseScan {
             // If so, we want to be aggressive with parallelism to enable Parallel Hash Join
             let is_join_context = pg_sys::bms_num_members(baserels) > 1;
 
+            // Detect an aggregate above this scan. PG mis-costs the serial aggregate plan it would
+            // build over this scan (see `decide_scan_parallelism`), so the cost model can pick a
+            // serial plan that is actually slower than parallel. Route such scans through the row
+            // heuristic instead of trusting the cost model.
+            let has_aggs =
+                !(*builder.args().root).parse.is_null() && (*(*builder.args().root).parse).hasAggs;
+
             // Push the LIMIT/OFFSET into this scan when one of:
             //   - PG already proved it safe (`limit_tuples > -1.0`)
             //   - The value is a Param (PG can't evaluate at plan time but
@@ -959,6 +966,7 @@ impl CustomScan for BaseScan {
                     root: builder.args().root,
                     parallel_leader_participates,
                     is_join_context,
+                    has_aggs,
                 });
                 let reason = policy.reason();
 

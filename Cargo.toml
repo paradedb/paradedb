@@ -39,9 +39,15 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stemmer",
   "stopwords",
 ], default-features = false }
+<<<<<<< HEAD
 pgrx = "=0.18.1"
 pgrx-tests = "=0.18.1"
 tantivy-jieba = "0.18.0"
+=======
+pgrx = "=0.19.0"
+pgrx-tests = "=0.19.0"
+tantivy-jieba = "0.20.0"
+>>>>>>> ee3e3f70e (chore: Upgrade pgrx to 0.19.0)
 
 [patch.crates-io]
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "paradedb-0.24.x" }

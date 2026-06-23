@@ -84,7 +84,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
@@ -98,7 +98,7 @@ jobs:
 
       - name: Fetch the Latest Composite Actions
         if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
           path: actions-temp

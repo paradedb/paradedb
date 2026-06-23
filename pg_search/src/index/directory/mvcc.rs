@@ -734,7 +734,7 @@ pub fn index_memory_segment(
                     continue 'next_ctid;
                 }
 
-                let mut htsv_result = {
+                let htsv_result = {
                     let buffer = (*heap_fetch_state.buffer_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     HeapTupleSatisfiesVacuum(
@@ -744,46 +744,28 @@ pub fn index_memory_segment(
                     )
                 };
 
-                if htsv_result == HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
-                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
-                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
-                    // must also see it as DEAD, otherwise we'll crash trying to read them.
-                    //
-                    // A single re-check is sufficient (no loop needed) because
-                    // `GetOldestNonRemovableTransactionId` returns the current global
-                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
-                    // horizon, then no concurrent VACUUM could have considered it DEAD
-                    // (VACUUM uses the same or an older horizon), so its TOAST data is
-                    // guaranteed to still exist.
-                    let fresh_oldest_xmin =
-                        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-                    if fresh_oldest_xmin != oldest_xmin {
-                        let buffer = (*heap_fetch_state.buffer_slot()).buffer;
-                        let _lock = BorrowedBuffer::from_pg(buffer);
-                        htsv_result = HeapTupleSatisfiesVacuum(
-                            (*heap_fetch_state.buffer_slot()).base.tuple,
-                            fresh_oldest_xmin,
-                            buffer,
-                        );
-                    }
-                }
-
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
-                    // This copy of the tuple is no longer visible to any transaction. Are there
-                    // more in the HOT chain?
+                    // This tuple is fully dead — no transaction can see it.
                     if call_again {
-                        // There are more entries in the hot chain: find the first one that is
-                        // visible.
                         continue 'next_hot_chain;
                     } else {
-                        // There are no more entries in the HOT chain, so no copy of the tuple is
-                        // visible in any transaction.
                         writer.insert(tantivy::TantivyDocument::new(), ctid, || {
                             unreachable!("No limits configured: should not finalize.")
                         })?;
                         continue 'next_ctid;
                     }
                 }
+
+                // RECENTLY_DEAD tuples are kept and indexed. The deleting/updating
+                // xact has committed, but older snapshots (REPEATABLE READ, open
+                // cursors) may still need this version (#3709). The active snapshot
+                // (ensured by ActiveSnapshotGuard above, added in #5255) pins the
+                // XID horizon, which prevents VACUUM from pruning TOAST chunks for
+                // any tuple that is not yet DEAD according to that horizon. This
+                // makes it safe to detoast RECENTLY_DEAD tuples without the
+                // TOCTOU-racy oldest_xmin re-check that was here before.
+                //
+                // See: https://github.com/paradedb/paradedb/issues/5076
 
                 // We successfully fetched a tuple. Break out to fetch and deform it.
                 break;
@@ -792,9 +774,11 @@ pub fn index_memory_segment(
             // We have a completely valid tuple to index: fetch and deform it.
             //
             // NOTE: We intentionally pass `false` (don't materialize) to keep the
-            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
-            // VACUUM's LockBufferForCleanup, which prevents it from removing the
-            // heap tuple and deleting its TOAST chunks while we read them below.
+            // buffer pin held by the BufferHeapTupleTableSlot. The pin prevents
+            // VACUUM from acquiring LockBufferForCleanup on this heap page while
+            // we deform. TOAST data is protected separately by the active
+            // snapshot (ActiveSnapshotGuard), which pins the XID horizon and
+            // prevents VACUUM from pruning TOAST chunks of any tuple we can see.
             // See: https://github.com/paradedb/paradedb/issues/5076
             let htup = pg_sys::ExecFetchSlotHeapTuple(
                 heap_fetch_state.slot(),
@@ -809,10 +793,12 @@ pub fn index_memory_segment(
                 isnull.as_mut_ptr(),
             );
 
-            // Eagerly detoast all variable-length (varlena) datums while the
-            // buffer pin is still held. Without this, the lazy detoasting in
-            // row_to_search_document can race with VACUUM deleting TOAST chunks
-            // after we release the pin (the "missing chunk number 0" crash).
+            // Eagerly detoast all variable-length (varlena) datums so that the
+            // values are fully materialized into palloc'd memory before we
+            // release the buffer pin. The active snapshot protects TOAST chunks
+            // from VACUUM for tuples visible to us, and eager detoasting here
+            // ensures we read those chunks promptly rather than deferring to
+            // row_to_search_document (where the buffer pin may already be gone).
             // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
             for i in 0..heaptupdesc.len() {
                 if !isnull[i] {

@@ -94,14 +94,6 @@ runs:
       shell: bash
       run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ inputs.pg_version }}
 
-    - name: Install the pgrx version for ParadeDB
-      shell: bash
-      run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
-
-    - name: Initialize pgrx environment for ParadeDB
-      shell: bash
-      run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
-
     - name: Fetch and Checkout PR Head (PR) or Pushed Commit (push)
       shell: bash
       run: |
@@ -116,6 +108,14 @@ runs:
           git fetch origin ${{ github.sha }}:commit-${{ github.sha }}
           git checkout commit-${{ github.sha }}
         fi
+
+    - name: Install the pgrx version for ParadeDB
+      shell: bash
+      run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
+
+    - name: Initialize pgrx environment for ParadeDB
+      shell: bash
+      run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
     - name: Compile & install pg_search
       working-directory: pg_search/

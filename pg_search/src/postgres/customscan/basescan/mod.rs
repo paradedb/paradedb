@@ -761,11 +761,9 @@ impl CustomScan for BaseScan {
             // If so, we want to be aggressive with parallelism to enable Parallel Hash Join
             let is_join_context = pg_sys::bms_num_members(baserels) > 1;
 
-            // Detect a grouping step above this scan: GROUP BY (`groupClause`) or SELECT DISTINCT
-            // (`distinctClause`). PG mis-costs the serial-vs-parallel choice for such scans when the
-            // grouping does not collapse rows (see `decide_scan_parallelism`), so route them through
-            // the row heuristic. Scalar aggregates (COUNT(*), etc.) leave both clauses empty and fall
-            // to the cost model, which costs their row-collapsing Gather correctly.
+            // GROUP BY (`groupClause`) or SELECT DISTINCT (`distinctClause`) above this scan: PG
+            // under-costs the serial HashAggregate (see `decide_scan_parallelism`), so route these
+            // through the row heuristic. Scalar aggregates leave both empty and stay cost-chosen.
             let parse = (*builder.args().root).parse;
             let has_grouping = !parse.is_null()
                 && (!(*parse).groupClause.is_null() || !(*parse).distinctClause.is_null());

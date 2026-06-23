@@ -31,14 +31,18 @@
 //! parallel). pg_search decides serial-vs-parallel itself only where that comparison is wrong or
 //! impossible: an effective LIMIT (PostgreSQL costs the Gather on `rel->rows`, not the `k` rows that
 //! cross, and discards the parallel path before the outer LIMIT can rescue it), prunable top-K
-//! (Block-WAND is invisible to the cost model), an uncostable sorted scan, or an un-ANALYZEd table.
+//! (Block-WAND is invisible to the cost model), a join input (`parallel_setup_cost` dwarfs the
+//! per-scan work) or grouping input (PostgreSQL under-costs the serial HashAggregate), an uncostable
+//! sorted scan, or an un-ANALYZEd table.
 //!
 //! [`decide_scan_parallelism`] decision tree, in order:
 //!   1. Prunable score-DESC term -> serial only (Block-WAND keeps it sublinear).
 //!   2. Un-ANALYZEd -> row heuristic (`compute_nworkers`): no row count, so parallelize by segment.
 //!   3. Otherwise by costability/shape:
 //!        - costable + effective LIMIT -> cost model forces, on `k` ([`cost_test_limited`]);
-//!        - costable + no LIMIT cap    -> emit both, PostgreSQL picks;
+//!        - costable + no LIMIT, join  -> force parallel (a Parallel Hash Join needs the partial path);
+//!        - costable + no LIMIT, group -> row heuristic (PostgreSQL under-costs the serial HashAggregate);
+//!        - costable + no LIMIT, else  -> emit both, PostgreSQL picks;
 //!        - uncostable sorted          -> parallel when workers exist (must visit every segment);
 //!        - uncostable unsorted        -> row heuristic (caps fit -- can stop early at LIMIT).
 //!
@@ -354,9 +358,8 @@ pub(super) struct ScanParallelismInputs<'a> {
     pub(super) root: *mut pg_sys::PlannerInfo,
     pub(super) parallel_leader_participates: bool,
     pub(super) is_join_context: bool,
-    /// True when a grouping step sits above this scan: GROUP BY (`groupClause`) or SELECT DISTINCT
-    /// (`distinctClause`). PG mis-costs serial-vs-parallel for non-collapsing grouping, so this
-    /// routes the scan through the row heuristic. Scalar aggregates leave it false (CostedBoth).
+    /// True when a `GROUP BY` / `SELECT DISTINCT` sits above this scan; routes it through the row
+    /// heuristic because PG under-costs the serial HashAggregate for non-collapsing grouping.
     pub(super) has_grouping: bool,
 }
 
@@ -467,33 +470,20 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
                 base_result_rows,
                 parallel_leader_participates,
             ),
-            // No effective LIMIT, join input: PostgreSQL cost-chooses a serial plan over the partial
-            // path a Parallel Hash Join needs -- `parallel_setup_cost` dwarfs the per-scan work, so
-            // the cheap serial wins even though parallel is faster at runtime. Force parallel so the
-            // partial path both exists and wins (the serial sibling becomes the 1e9 junk stub in
-            // `hook::add_path`). Mirrors main's force-parallel-for-joins (#4457); only multi-segment
-            // scans reach here (`structural_workers > 0`).
+            // No effective LIMIT, join input: a Parallel Hash Join needs a partial path, but
+            // `parallel_setup_cost` dwarfs the per-scan work so PG cost-chooses serial. Force
+            // parallel so the partial path exists and wins (mirrors main's force-for-joins, #4457).
             Some(nworkers) if is_join_context => WorkerPathPolicy::ParallelOnly {
                 nworkers,
                 reason: WorkerDecisionReason::CostModel,
             },
-            // No effective LIMIT, grouping input (GROUP BY / SELECT DISTINCT): PostgreSQL mis-costs
-            // serial-vs-parallel when the grouping does not collapse rows (high cardinality). Then
-            // ~every matched row crosses the Gather, so the parallel path pays
-            // `parallel_tuple_cost * rows` there while the serial HashAggregate is under-costed by
-            // `cost_agg` (its CPU model has no cache/bandwidth term, pricing a large hash ~10x cheaper
-            // than the equivalent Sort). Both errors live above the scan in PG core, beyond this
-            // scan's cost lever, so PG picks serial even when parallel is ~3x faster (verified on a
-            // 5M-row GROUP BY). Route through the row heuristic like main row-caps non-join scans: a
-            // large match forces parallel, a small one stays serial -- which matches what the cost
-            // model already gets right for collapsing grouping. Scalar aggregates (COUNT(*), etc.)
-            // leave `groupClause`/`distinctClause` empty and fall to CostedBoth, where the collapse
-            // makes the Gather cheap and PG costs them correctly.
+            // No effective LIMIT, grouping input (GROUP BY / SELECT DISTINCT): PG under-costs the
+            // serial HashAggregate (`cost_agg` has no cache/bandwidth term) and over-charges the
+            // Gather, so it picks serial even when parallel is ~3x faster on a high-cardinality group
+            // set. Force via the row heuristic like main; scalar aggregates collapse and fall through.
             Some(_) if has_grouping => heuristic_policy(),
-            // No effective LIMIT, non-grouping non-join (output == matches): every row crosses the
-            // Gather, so PostgreSQL costs it correctly -- offer both and let it choose. Scalar
-            // aggregates land here too; their row-collapsing Gather is cheap, so PG parallelizes
-            // when the match is large and serializes when it is small -- both correct.
+            // No effective LIMIT, non-grouping non-join: rows either all cross the Gather or collapse
+            // (scalar aggregates), so PostgreSQL costs it correctly -- offer both and let it choose.
             Some(nworkers) => WorkerPathPolicy::CostedBoth {
                 nworkers,
                 reason: WorkerDecisionReason::CostModel,

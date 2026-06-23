@@ -1,6 +1,6 @@
--- recall@k of the built ANN index against a held-out query set. For each held-out query we compare
--- the index's top-k to the precomputed exact top-k. k comes from [params] in config.toml; the final
--- statement returns the average recall@k.
+-- recall@10 of the built ANN index against a held-out query set: for each held-out query, compare
+-- the index's top-10 to the precomputed exact top-10. The `10`s below must match the ground truth,
+-- which stores exactly 10 neighbors per query (regenerate it to change k). Returns the average.
 
 -- Held-out query set + precomputed exact ground truth. The harness populates both from parquet
 -- (DuckDB) right after each table is created, before the recall query below reads them. The ground
@@ -14,7 +14,7 @@ CREATE TABLE recall_gt (query_id int, gt_ids text[]);
 -- after_create_index.sql, i.e. the same effort as the latency queries), averaged into recall@k.
 SELECT avg(
          cardinality(ARRAY(SELECT unnest(gt.gt_ids) INTERSECT SELECT unnest(a.ids)))::float
-         / {{ recall_k }}
+         / 10
        )
 FROM recall_gt gt
 JOIN cohere_queries q ON q.id = gt.query_id
@@ -24,6 +24,6 @@ CROSS JOIN LATERAL (
   SELECT ARRAY(
            SELECT c._id FROM cohere_wiki c
            ORDER BY c.emb <=> q.emb
-           LIMIT {{ recall_k }}
+           LIMIT 10
          ) AS ids
 ) a;

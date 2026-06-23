@@ -491,13 +491,11 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         .await
         .with_context(|| "Failed to connect to database")?;
 
-    // Resolve `{{ params }}` (e.g. recall_k); the final statement returns the average recall@k.
+    // recall.sql is plain SQL (no templates); its final statement returns the average recall@k.
     let statements = queries(Path::new(&recall_sql));
-    let params = resolve_index_params(&mut conn, &args.dataset, None, &statements).await?;
     let last = statements.len().saturating_sub(1);
     let mut recall = None;
     for (i, statement) in statements.into_iter().enumerate() {
-        let statement = substitute_vars(&statement, &params)?;
         if i == last {
             recall = sqlx::query_scalar::<_, Option<f64>>(&statement)
                 .fetch_one(&mut conn)

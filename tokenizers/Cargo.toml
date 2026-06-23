@@ -6,6 +6,7 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
+alyze = "0.1.3"
 anyhow = "1.0.102"
 lindera = { version = "1.5.1", features = [
   "embedded-cc-cedict",

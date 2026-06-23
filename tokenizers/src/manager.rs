@@ -18,6 +18,7 @@
 
 use std::fmt::Write;
 
+use crate::alyze::AlyzeTokenizer;
 use crate::edge_ngram::{EdgeNgramTokenizer, TokenCharClass};
 use crate::icu::ICUTokenizer;
 use crate::ngram::NgramTokenizer;
@@ -421,6 +422,13 @@ pub enum SearchTokenizer {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
     },
+    /// UAX #29 word tokenizer backed by the `alyze` crate's DFA implementation.
+    Alyze {
+        /// When true (default), only word-like spans are kept; whitespace and punctuation
+        /// segments produced by UAX #29 are discarded.
+        word_like: bool,
+        filters: SearchTokenizerFilters,
+    },
 }
 
 #[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -544,6 +552,13 @@ impl SearchTokenizer {
                     remove_emojis,
                     filters,
                 })
+            }
+            "alyze" => {
+                let word_like: bool = value
+                    .get("word_like")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                Ok(SearchTokenizer::Alyze { word_like, filters })
             }
             _ => Err(anyhow::anyhow!(
                 "unknown tokenizer type: {}",
@@ -704,6 +719,9 @@ impl SearchTokenizer {
             } => {
                 add_filters!(UnicodeWordsTokenizer::new(*remove_emojis), filters)
             }
+            SearchTokenizer::Alyze { word_like, filters } => {
+                add_filters!(AlyzeTokenizer::new(*word_like), filters)
+            }
         };
 
         Some(analyzer)
@@ -736,6 +754,7 @@ impl SearchTokenizer {
             SearchTokenizer::Jieba { filters, .. } => filters,
             SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
             SearchTokenizer::UnicodeWords { filters, .. } => filters,
+            SearchTokenizer::Alyze { filters, .. } => filters,
         }
     }
 
@@ -885,6 +904,10 @@ impl SearchTokenizer {
                 remove_emojis,
                 filters: _,
             } => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::Alyze {
+                word_like,
+                filters: _,
+            } => format!("alyze_wordlike:{word_like}{filters_suffix}"),
         }
     }
 }

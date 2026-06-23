@@ -78,6 +78,12 @@ pub struct UnicodeWordsTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.alyze
+pub struct AlyzeTypmod {
+    pub word_like: bool,
+    pub filters: SearchTokenizerFilters,
+}
+
 trait TypmodRules {
     fn rules() -> Vec<PropertyRule>;
 
@@ -199,6 +205,12 @@ impl TypmodRules for UnicodeWordsTypmod {
             ValueConstraint::Boolean,
             positional = 0
         )]
+    }
+}
+
+impl TypmodRules for AlyzeTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![rule!("word_like", ValueConstraint::Boolean, positional = 0)]
     }
 }
 
@@ -371,6 +383,21 @@ impl TryFrom<i32> for UnicodeWordsTypmod {
             remove_emojis,
             filters,
         })
+    }
+}
+
+impl TryFrom<i32> for AlyzeTypmod {
+    type Error = typmod::Error;
+
+    fn try_from(typmod: i32) -> Result<Self, Self::Error> {
+        let parsed = Self::parsed(typmod)?;
+        let filters = SearchTokenizerFilters::from(&parsed);
+        // `word_like` defaults to true: keep only word-like spans unless explicitly disabled.
+        let word_like = parsed
+            .try_get("word_like", 0)
+            .and_then(|p| p.as_bool())
+            .unwrap_or(true);
+        Ok(AlyzeTypmod { word_like, filters })
     }
 }
 

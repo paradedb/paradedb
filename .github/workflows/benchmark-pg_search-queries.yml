@@ -369,9 +369,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      # Recall reuses the index the benchmark step just built (same Postgres), measuring it against a
-      # held-out query set loaded from S3. Logged only (recall is bigger-is-better, not published to
-      # the smaller-is-better dashboard).
+      # Reuses the index the benchmark step just built (same Postgres).
       - name: Measure "cohere" Recall (1M)
         id: recall_1m
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -427,8 +425,6 @@ jobs:
           echo "$out"
           echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"
 
-      # Recall isn't published to the (smaller-is-better) dashboard, so surface it as a comment:
-      # on the PR for label-triggered runs, otherwise on the benchmarked commit.
       - name: Comment cohere recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' && (steps.recall_1m.outputs.recall != '' || steps.recall_10m.outputs.recall != '') }}
         env:

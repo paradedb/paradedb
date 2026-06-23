@@ -192,7 +192,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     if created_by_version.stores_datetimes_in_i64() {
         if datetime_configs.iter().flatten().next().is_some() {
             warning!(
-                "As of v0.24.1, \"datetime_fields\" is deprecated and should be removed. It no longer has any effect. The config knobs it provided are now on by default."
+                "As of v0.24.1, \"datetime_fields\" is deprecated and should be removed. It no longer has any effect. The performance improvement options it provided are now on by default."
             );
         }
     } else {

@@ -78,7 +78,7 @@ jobs:
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.ref }}
           token: ${{ steps.app-token.outputs.token }}
@@ -185,7 +185,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
 
@@ -257,7 +257,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
 
@@ -348,7 +348,7 @@ jobs:
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
           fetch-depth: 2

@@ -82,7 +82,7 @@ jobs:
       BACKREST_REPO_S3_KEY_TYPE: shared
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 

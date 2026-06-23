@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -143,7 +143,7 @@ jobs:
       - name: Cache pgrx-compiled Postgres
         if: matrix.pg_impl == 'pgrx'
         id: cache-pgrx-pg
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.pgrx
           key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
@@ -335,7 +335,7 @@ jobs:
     if: success()
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download All Coverage Artifacts
         uses: actions/download-artifact@v8
@@ -345,7 +345,7 @@ jobs:
           merge-multiple: true
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           directory: ./coverage-reports
           files: "*.lcov"

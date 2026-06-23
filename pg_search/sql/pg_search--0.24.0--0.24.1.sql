@@ -9,7 +9,7 @@
 DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput, should searchqueryinput, must_not searchqueryinput);
 CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput DEFAULT NULL, should searchqueryinput DEFAULT NULL, must_not searchqueryinput DEFAULT NULL, minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_singles_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput[], should searchqueryinput[], must_not searchqueryinput[]);
-CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput[] DEFAULT ARRAY[]::searchqueryinput[], should searchqueryinput[] DEFAULT ARRAY[]::searchqueryinput[], must_not searchqueryinput[] DEFAULT ARRAY[]::searchqueryinput[], minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_arrays_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput[] DEFAULT '((ARRAY[])::searchqueryinput[])', should searchqueryinput[] DEFAULT '((ARRAY[])::searchqueryinput[])', must_not searchqueryinput[] DEFAULT '((ARRAY[])::searchqueryinput[])', minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_arrays_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 
 DROP CAST IF EXISTS (pdb.boost AS pdb.fuzzy);
 DROP FUNCTION IF EXISTS "boost_to_fuzzy"(pdb.boost, integer, boolean);

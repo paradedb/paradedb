@@ -271,6 +271,7 @@ fn generic_negation(input: SearchQueryInput) -> SearchQueryInput {
         must: vec![SearchQueryInput::All],
         should: Default::default(),
         must_not: vec![input],
+        minimum_should_match: None,
     }
 }
 
@@ -382,6 +383,7 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                     must: vec![null_preserving_exists_guard(&field)],
                     should: Default::default(),
                     must_not: vec![SearchQueryInput::FieldedQuery { field, query }],
+                    minimum_should_match: None,
                 }
             } else {
                 generic_negation(SearchQueryInput::FieldedQuery { field, query })
@@ -391,6 +393,7 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
             must,
             should,
             must_not,
+            ..
         } if must_not.is_empty() => {
             if should.is_empty() {
                 SearchQueryInput::Boolean {
@@ -400,6 +403,7 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                         .map(|query| negate_fielded_input(query, ctx))
                         .collect(),
                     must_not: Default::default(),
+                    minimum_should_match: None,
                 }
             } else if must.is_empty() {
                 SearchQueryInput::Boolean {
@@ -409,12 +413,14 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                         .collect(),
                     should: Default::default(),
                     must_not: Default::default(),
+                    minimum_should_match: None,
                 }
             } else {
                 generic_negation(SearchQueryInput::Boolean {
                     must,
                     should,
                     must_not,
+                    minimum_should_match: None,
                 })
             }
         }
@@ -451,6 +457,7 @@ fn negated_search_query_input_with_context(
                     .map(|q| negated_search_query_input_with_context(q, ctx))
                     .collect(),
                 must_not: Default::default(),
+                minimum_should_match: None,
             }
         }
         Qual::Or(quals)
@@ -465,6 +472,7 @@ fn negated_search_query_input_with_context(
                     .collect(),
                 should: Default::default(),
                 must_not: Default::default(),
+                minimum_should_match: None,
             }
         }
         Qual::OpExpr { .. } => negate_fielded_input(SearchQueryInput::from(qual), ctx),
@@ -702,48 +710,7 @@ impl From<&Qual> for SearchQueryInput {
                     },
                 }
             }
-            Qual::Not(qual) => {
-                // Special handling for boolean fields to correctly handle NULL values
-                match qual.as_ref() {
-                    // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
-                    // rather than using must_not, to avoid including NULLs
-                    // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqTrue { field } => Self::from(&Qual::PushdownVarEqFalse {
-                        field: field.clone(),
-                    }),
-                    // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
-                    // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
-                        field: field.clone(),
-                    }),
-
-                    // If the Qual represents a placeholder to another Var elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalVar => SearchQueryInput::All,
-
-                    // If the Qual represents a placeholder to another Expr elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalExpr => SearchQueryInput::All,
-
-                    // For other types of negation, use the standard Boolean query with must_not
-                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
-                    // NULL values differently than when negating equality operators
-                    _ => {
-                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
-
-                        SearchQueryInput::Boolean {
-                            must: vec![SearchQueryInput::All],
-                            should: Default::default(),
-                            must_not,
-                            minimum_should_match: None,
-                        }
-                    }
-                }
-            }
+            Qual::Not(qual) => negated_search_query_input(qual.as_ref()),
         }
     }
 }
@@ -2301,6 +2268,7 @@ mod tests {
                         value: PdbOwnedValue::Str("blue".into()),
                     },
                 }],
+                minimum_should_match: None,
             }),
         };
         assert_eq!(fast, want_fast);
@@ -2318,6 +2286,7 @@ mod tests {
                         value: PdbOwnedValue::Str("blue".into()),
                     },
                 }],
+                minimum_should_match: None,
             }),
         };
         assert_eq!(non_fast, want_non_fast);
@@ -2336,6 +2305,7 @@ mod tests {
                     field: "color".into(),
                     query: pdb::Query::Exists,
                 }],
+                minimum_should_match: None,
             }),
         };
         assert_eq!(negated_exists, want_negated_exists);
@@ -2371,9 +2341,11 @@ mod tests {
                             value: PdbOwnedValue::Bool(true),
                         },
                     }],
+                    minimum_should_match: None,
                 },
             ],
             must_not: vec![],
+            minimum_should_match: None,
         };
         assert_eq!(got, want);
     }
@@ -2502,6 +2474,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) if matches!(inner.as_ref(), Qual::Or(_)) => {
                 let Qual::Or(quals) = inner.as_ref() else {
@@ -2552,6 +2525,7 @@ mod tests {
                     must,
                     should: _,
                     must_not,
+                    ..
                 },
             ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 

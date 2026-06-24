@@ -426,12 +426,43 @@ pub fn launch_mpp_commit(
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };
 
+    // Flip the mesh's detach flag when PG unmaps the parallel DSM, so any ring handle dropped
+    // after teardown (the error path drops the runtime from a memory-context reset callback, after
+    // the segment is gone) no-ops instead of faulting on freed shared memory.
+    unsafe { arm_detach_flag(finish.seg(), leader.mesh.detached_flag()) };
+
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);
 
     leader.finish = Some(finish);
     leader.parallel_state = scan_ptr;
     Some(leader)
+}
+
+/// Register an `on_dsm_detach` hook that marks the mesh detached while the segment is still
+/// mapped. The hook owns one `Arc<AtomicBool>` clone, kept alive past the mesh's own drop, and
+/// releases it when it fires.
+unsafe fn arm_detach_flag(
+    seg: *mut pg_sys::dsm_segment,
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let raw = std::sync::Arc::into_raw(flag);
+    pg_sys::on_dsm_detach(
+        seg,
+        Some(mark_mesh_detached),
+        pg_sys::Datum::from(raw as usize),
+    );
+}
+
+unsafe extern "C-unwind" fn mark_mesh_detached(_seg: *mut pg_sys::dsm_segment, arg: pg_sys::Datum) {
+    let ptr = arg.value() as *const std::sync::atomic::AtomicBool;
+    if ptr.is_null() {
+        return;
+    }
+    // Reclaim the clone `arm_detach_flag` leaked, flip the flag while the segment is still mapped,
+    // then drop it.
+    let flag = unsafe { std::sync::Arc::from_raw(ptr) };
+    flag.store(false, Ordering::Release);
 }
 
 /// AggregateScan prepare entry: aggregate worker symbol.

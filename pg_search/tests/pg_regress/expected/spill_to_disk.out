@@ -1,0 +1,119 @@
+-- =====================================================================
+-- Disk spilling (`paradedb.spill_to_disk`), serial and MPP.
+--
+-- Off (default), a `work_mem` overflow on the DataFusion path returns a clean
+-- error. On, DataFusion spills to disk and large aggregates complete, both for
+-- serial JoinScan/AggregateScan and for MPP.
+--
+-- For MPP, spilling that fails (a budget too small to spill even one batch) must
+-- still tear the parallel group down without crashing the backend: the in-flight
+-- spill tasks hold DSM-backed handles, and the fix in datafusion-distributed
+-- flips a detach flag so dropping them after the segment unmaps no-ops instead
+-- of faulting.
+--
+-- Outcomes are caught and recorded as branch labels so the result stays
+-- independent of exact byte counts; a crash would drop the connection and the
+-- expected output wouldn't match.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+CREATE TABLE spd_files (id SERIAL PRIMARY KEY, title TEXT, content TEXT);
+CREATE TABLE spd_pages (id SERIAL PRIMARY KEY, file_id INTEGER, page_text TEXT);
+INSERT INTO spd_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 200) AS g;
+-- High group cardinality (one group per page id) so the hash aggregate overruns
+-- a small pool well before it can finish.
+INSERT INTO spd_pages (file_id, page_text)
+SELECT (g % 200) + 1, 'Page text for page ' || g
+FROM generate_series(1, 400000) AS g;
+CREATE INDEX spd_files_idx ON spd_files
+USING bm25 (id, title, content)
+WITH (key_field='id', text_fields='{"title": {"fast": true}, "content": {}}');
+CREATE INDEX spd_pages_idx ON spd_pages
+USING bm25 (id, file_id, page_text)
+WITH (key_field='id', numeric_fields='{"file_id": {"fast": true}}', text_fields='{"page_text": {}}');
+WARNING:  only 2 parallel workers were available for index build
+ANALYZE spd_files;
+ANALYZE spd_pages;
+CREATE TABLE spd_outcome (msg text);
+-- A 400k-group hash aggregate over the join overruns a 1MB pool.
+SET work_mem TO '1MB';
+-- Serial (no MPP): off errors, on spills and completes.
+SET paradedb.enable_mpp TO off;
+DO $$
+BEGIN
+    PERFORM p.id, count(*)
+    FROM spd_files f JOIN spd_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY p.id;
+    INSERT INTO spd_outcome VALUES ('serial off: unexpected success');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO spd_outcome VALUES ('serial off: clean error');
+END$$;
+SET paradedb.spill_to_disk TO on;
+DO $$
+BEGIN
+    PERFORM p.id, count(*)
+    FROM spd_files f JOIN spd_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY p.id;
+    INSERT INTO spd_outcome VALUES ('serial on: completed');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO spd_outcome VALUES ('serial on: errored');
+END$$;
+-- MPP: the same aggregate spills across workers and completes.
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_worker_count TO 4;
+DO $$
+BEGIN
+    PERFORM p.id, count(*)
+    FROM spd_files f JOIN spd_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY p.id;
+    INSERT INTO spd_outcome VALUES ('mpp on: completed');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO spd_outcome VALUES ('mpp on: errored');
+END$$;
+-- MPP, but a 64kB pool can't hold even one spill batch, so spilling fails. The
+-- teardown still must not crash the backend (the detach-flag fix).
+SET work_mem TO '64kB';
+DO $$
+BEGIN
+    PERFORM p.id, count(*)
+    FROM spd_files f JOIN spd_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY p.id;
+    INSERT INTO spd_outcome VALUES ('mpp tiny: unexpected success');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO spd_outcome VALUES ('mpp tiny: clean error');
+END$$;
+RESET work_mem;
+SET paradedb.spill_to_disk TO off;
+SELECT msg FROM spd_outcome ORDER BY msg;
+           msg           
+-------------------------
+ mpp on: completed
+ mpp tiny: clean error
+ serial off: clean error
+ serial on: completed
+(4 rows)
+
+-- The backend survived every teardown and still serves on the same connection.
+SELECT count(*) AS files_still_readable
+FROM spd_files
+WHERE content @@@ 'Section';
+ files_still_readable 
+----------------------
+                  200
+(1 row)
+
+DROP TABLE spd_outcome;
+DROP TABLE spd_pages;
+DROP TABLE spd_files;

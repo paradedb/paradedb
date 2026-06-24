@@ -175,6 +175,11 @@ static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024
 /// derive this from index stats per query.
 static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
 
+/// Opt-in disk spilling for the DataFusion `work_mem` pool used by JoinScan and
+/// AggregateScan (serial and MPP). Off (default) keeps the `ResourcesExhausted` error on
+/// overflow; on lets large sorts and aggregates spill to disk and complete.
+static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
@@ -627,6 +632,17 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.spill_to_disk",
+        c"Let JoinScan and AggregateScan spill to disk instead of erroring on work_mem overflow",
+        c"When off (default), a query that exceeds `work_mem` on the DataFusion path returns a \
+          `ResourcesExhausted` error. When on, it spills to disk so large sorts and aggregates \
+          complete.",
+        &SPILL_TO_DISK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -834,6 +850,10 @@ pub fn mpp_trace() -> bool {
 
 pub fn mpp_worker_count() -> i32 {
     MPP_WORKER_COUNT.get()
+}
+
+pub fn spill_to_disk() -> bool {
+    SPILL_TO_DISK.get()
 }
 
 pub fn mpp_queue_size() -> usize {

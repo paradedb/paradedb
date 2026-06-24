@@ -99,14 +99,13 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          repo="$(sed -E 's#https://(api\.)?github\.com/(repos/)?([^/]+/[^/]+)/releases/.*#\3#' <<< "$url")"
           tag="$(grep -oE 'v[0-9][^"/]*' <<< "$url" | head -1)"
-          echo "Dockerfile ${dockerfile} installs pg_search from ${repo}@${tag}"
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release ${repo}@${tag} is published — running the smoke test."
+          echo "Dockerfile ${dockerfile} pins pg_search ${tag}; gating on ${GITHUB_REPOSITORY}@${tag}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REPOSITORY}@${tag} is published — running the smoke test."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::Release ${repo}@${tag} is not published yet — skipping the Docker smoke test. It will run once the release exists."
+            echo "::notice::Release ${GITHUB_REPOSITORY}@${tag} is not published yet — skipping the Docker smoke test. It will run once the release exists."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -467,15 +466,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          repo="$(sed -E 's#https://(api\.)?github\.com/(repos/)?([^/]+/[^/]+)/releases/.*#\3#' <<< "$url")"
           tag="$(grep -oE 'v[0-9][^"/]*' <<< "$url" | head -1)"
-          echo "Dockerfile ${dockerfile} installs pg_search from ${repo}@${tag}"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release ${repo}@${tag} is published — building the extension image."
+          echo "Dockerfile ${dockerfile} pins pg_search ${tag}; gating on ${GITHUB_REPOSITORY}@${tag}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REPOSITORY}@${tag} is published — building the extension image."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::Release ${repo}@${tag} is not published yet — skipping the extension image build. It will run once the release exists."
+            echo "::notice::Release ${GITHUB_REPOSITORY}@${tag} is not published yet — skipping the extension image build. It will run once the release exists."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 

@@ -5,6 +5,12 @@
 -- from, they may or may not already exist (community's `v0.24.0` predates them;
 -- enterprise's folds them into the base schema). Drop-then-create keeps this
 -- upgrade idempotent in both cases so it never fails with "already exists".
+-- Update boolean() overloads to add minimum_should_match parameter
+DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput, should searchqueryinput, must_not searchqueryinput);
+CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput DEFAULT NULL, should searchqueryinput DEFAULT NULL, must_not searchqueryinput DEFAULT NULL, minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_singles_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput[], should searchqueryinput[], must_not searchqueryinput[]);
+CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput[] DEFAULT ARRAY[]::searchqueryinput[], should searchqueryinput[] DEFAULT ARRAY[]::searchqueryinput[], must_not searchqueryinput[] DEFAULT ARRAY[]::searchqueryinput[], minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_arrays_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+
 DROP CAST IF EXISTS (pdb.boost AS pdb.fuzzy);
 DROP FUNCTION IF EXISTS "boost_to_fuzzy"(pdb.boost, integer, boolean);
 

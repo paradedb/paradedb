@@ -10,6 +10,21 @@ import sys
 import re
 
 
+def normalize_array_defaults(stmt):
+    """Normalize PostgreSQL array default value representations.
+
+    pg-schema-diff outputs pg_dump canonical form: '((ARRAY[])::type[])'
+    but valid DDL uses: ARRAY[]::type[]
+    These are semantically identical, so normalize both to the same form.
+    """
+    # DEFAULT '((ARRAY[])::sometype[])' -> DEFAULT ARRAY[]::sometype[]
+    return re.sub(
+        r"DEFAULT '\(\(ARRAY\[\]\)::([\w]+\[\])\)'",
+        r"DEFAULT ARRAY[]::\1",
+        stmt,
+    )
+
+
 def extract_statements(content):
     """Extract normalized SQL statements (CREATE, ALTER, DROP) from content."""
     # Remove single-line comments (-- ...)
@@ -26,7 +41,7 @@ def extract_statements(content):
     for stmt in content.split(";"):
         stmt = stmt.strip()
         if re.match(r"^(CREATE|ALTER|DROP)\s+", stmt, re.IGNORECASE):
-            statements.add(stmt)
+            statements.add(normalize_array_defaults(stmt))
 
     return statements
 

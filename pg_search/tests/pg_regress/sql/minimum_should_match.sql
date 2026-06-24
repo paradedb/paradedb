@@ -1,0 +1,112 @@
+-- Tests for minimum_should_match parameter in paradedb.boolean()
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS docs CASCADE;
+
+CREATE TABLE docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+
+INSERT INTO docs (title, body) VALUES
+    ('apple banana cherry',   'fruit salad'),
+    ('apple banana',          'two fruits'),
+    ('apple only',            'just apple'),
+    ('banana cherry date',    'three fruits'),
+    ('cherry date elderberry','more fruits'),
+    ('unrelated document',    'no match');
+
+CREATE INDEX docs_idx ON docs
+USING bm25 (id, title, body)
+WITH (key_field = 'id');
+
+-- Test 1: minimum_should_match => 2 with 3 should clauses
+-- Only docs matching at least 2 of: apple, banana, cherry
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.term('title', 'apple'),
+        paradedb.term('title', 'banana'),
+        paradedb.term('title', 'cherry')
+    ],
+    minimum_should_match => 2
+)
+ORDER BY id;
+
+-- Test 2: minimum_should_match => 3 (all 3 must match)
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.term('title', 'apple'),
+        paradedb.term('title', 'banana'),
+        paradedb.term('title', 'cherry')
+    ],
+    minimum_should_match => 3
+)
+ORDER BY id;
+
+-- Test 3: minimum_should_match => 0 (matches everything that Tantivy can retrieve)
+-- With only should clauses and minimum_should_match=0, all docs match
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.term('title', 'apple'),
+        paradedb.term('title', 'banana')
+    ],
+    minimum_should_match => 0
+)
+ORDER BY id;
+
+-- Test 4: minimum_should_match larger than number of should clauses (matches nothing)
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.term('title', 'apple'),
+        paradedb.term('title', 'banana')
+    ],
+    minimum_should_match => 5
+)
+ORDER BY id;
+
+-- Test 5: Combined with must clause
+-- must: body matches 'fruit', should: title matches apple OR banana (at least 1)
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    must => ARRAY[paradedb.term('body', 'fruit')],
+    should => ARRAY[
+        paradedb.term('title', 'apple'),
+        paradedb.term('title', 'banana'),
+        paradedb.term('title', 'cherry')
+    ],
+    minimum_should_match => 2
+)
+ORDER BY id;
+
+-- Test 6: Omitting minimum_should_match keeps existing behavior (at least 1 should)
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.term('title', 'apple'),
+        paradedb.term('title', 'banana')
+    ]
+)
+ORDER BY id;
+
+-- Test 7: boolean_singles variant also accepts minimum_should_match
+SELECT id, title
+FROM docs
+WHERE id @@@ paradedb.boolean(
+    should => paradedb.term('title', 'apple'),
+    minimum_should_match => 1
+)
+ORDER BY id;
+
+DROP TABLE docs CASCADE;

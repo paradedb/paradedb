@@ -111,6 +111,11 @@ static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
 static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Factor that scales the heuristic match estimate into a `DocSet::cost()` for the TopK
+/// worker decision on expensive-to-estimate shapes (see `EXPENSIVE_QUERY_COST_FACTOR`).
+static EXPENSIVE_QUERY_COST_FACTOR: GucSetting<f64> =
+    GucSetting::<f64>::new(crate::EXPENSIVE_QUERY_COST_FACTOR);
+
 /// Minimum number of rows per parallel worker.
 /// Controls how many workers are spawned based on estimated row count.
 /// Based on benchmarks, the crossover point where parallel becomes beneficial
@@ -335,6 +340,17 @@ pub fn init() {
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.expensive_query_cost_factor",
+        c"Cost factor for expensive-to-estimate queries in the TopK worker decision",
+        c"For fuzzy/regex/MLT queries (whose scorer is too expensive to build at plan time), the heuristic match estimate is multiplied by this factor to approximate the query's DocSet::cost(). Higher values make these shapes parallelize more readily.",
+        &EXPENSIVE_QUERY_COST_FACTOR,
+        0.0,
+        100000.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -743,6 +759,10 @@ pub fn adjust_work_mem() -> NonZeroUsize {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn expensive_query_cost_factor() -> f64 {
+    EXPENSIVE_QUERY_COST_FACTOR.get()
 }
 
 pub fn max_term_agg_buckets() -> i32 {

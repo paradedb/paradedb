@@ -816,10 +816,11 @@ WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all
                      Output: p.id, p.name, p.supplier_id, p.category_id
                      Table: products
                      Index: products_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 -- =============================================================================
 -- TEST 12: Functions in cross-table predicates (native DF + UDF fallback)

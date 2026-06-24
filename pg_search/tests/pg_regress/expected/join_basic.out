@@ -77,10 +77,11 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
                      Output: p.id, p.name, p.supplier_id
                      Table: products
                      Index: products_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 -- =============================================================================
 -- TEST 2: JoinScan should be proposed with LIMIT and search predicate
@@ -244,10 +245,11 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                            Output: p.id, p.name, p.supplier_id
                            Table: products
                            Index: products_bm25_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 -- =============================================================================
 -- TEST 5: JoinScan can be disabled via GUC
@@ -279,10 +281,11 @@ LIMIT 10;
                            Output: p.id, p.name, p.supplier_id
                            Table: products
                            Index: products_bm25_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 -- Re-enable for cleanup verification
 SET paradedb.enable_join_custom_scan = on;
@@ -447,6 +450,7 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
                      Output: c.name, c.id
                      Table: colors
                      Index: colors_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
@@ -456,10 +460,11 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
                            Output: s.name, s.id
                            Table: sizes
                            Index: sizes_bm25_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+(25 rows)
 
 -- =============================================================================
 -- TEST 9: Mixed-case column names (regression test for quoting issues)

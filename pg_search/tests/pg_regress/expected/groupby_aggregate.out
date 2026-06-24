@@ -493,10 +493,11 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
                Output: category, rating, price
                Table: products
                Index: products_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(14 rows)
 
 SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products

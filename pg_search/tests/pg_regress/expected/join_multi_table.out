@@ -112,10 +112,11 @@ WARNING:  JoinScan not used: join keys must be fast fields (tables: c, p, s)
                                        Output: p.id, p.name, p.supplier_id, p.category_id
                                        Table: products
                                        Index: products_bm25_idx
+                                       Worker Selection: Cost model
                                        Exec Method: NormalScanExecState
                                        Scores: false
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p

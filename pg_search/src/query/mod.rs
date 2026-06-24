@@ -223,6 +223,22 @@ where
     deserializer.deserialize_map(Visitor)
 }
 
+/// Cheap whitespace-based term-count estimate (avoids constructing a tokenizer/reader).
+fn estimate_term_count(s: &str) -> usize {
+    s.split_whitespace().count().max(1)
+}
+
+/// True when a query-parser string is a single *plain* term: non-empty and composed only
+/// of term characters (alphanumeric or `_`). This allowlist conservatively rejects *every*
+/// Tantivy query metacharacter -- boolean ops (`-` `!` `+`), field (`:`), grouping (`(`
+/// `)`), boost (`^`), escape (`\`), and the wildcard/regex/range/fuzzy/phrase set -- any of
+/// which can turn one whitespace token into a non-single-posting-list query (e.g. `-foo` is
+/// a negation over the whole complement). Flagged strings fall back to the (correct,
+/// slightly costlier) `DocSet::cost()` path.
+fn is_plain_single_term(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 impl SearchQueryInput {
     pub fn postgres_expression(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         SearchQueryInput::PostgresExpression {
@@ -445,6 +461,95 @@ impl SearchQueryInput {
             SearchQueryInput::FieldedQuery { query, .. } => query.selectivity_heuristic(),
 
             _ => crate::UNKNOWN_SELECTIVITY,
+        }
+    }
+
+    /// Whether a score-DESC TopK over this query can be Block-WAND-pruned by the
+    /// collector, making it sublinear and not worth parallelizing. Call only when the
+    /// ORDER BY is score-DESC; everything that returns false has a non-trivial docset
+    /// already weighted by Tantivy's `DocSet::cost()`.
+    ///
+    /// The reliably-cheap (Block-WAND-pruning) set is a single bare term. Transparent
+    /// wrappers (FieldedQuery, WithIndex) pass through to the inner query; the score-
+    /// modifying / filtering wrappers (Boost, ConstScore, ScoreFilter, HeapFilter) build
+    /// their OWN non-pruning weight, so they fall through to false.
+    pub(crate) fn is_topk_prunable(&self) -> bool {
+        // A bare single term keeps a SHOULD union collapsing to a prunable TermWeight.
+        fn is_bare_term(q: &SearchQueryInput) -> bool {
+            matches!(
+                q,
+                SearchQueryInput::FieldedQuery {
+                    query: pdb::Query::Term { .. },
+                    ..
+                }
+            )
+        }
+
+        match self {
+            // A FieldedQuery's prunability is its inner pdb::Query's shape: only a single
+            // posting list (a bare term, a one-token match, a plain parser string) is
+            // reliably Block-WAND-pruned. This is the one place the leaf rules live; bare
+            // pdb::Query values are checked by wrapping them in a FieldedQuery.
+            SearchQueryInput::FieldedQuery { query, .. } => match query {
+                pdb::Query::Term { .. } => true,
+
+                // A Match/MatchArray is a single posting list only when it collapses to one
+                // token with none of the modifiers that expand it into an automaton/union:
+                // fuzzy (`distance`), `prefix`, or a custom `tokenizer`.
+                pdb::Query::Match {
+                    value,
+                    tokenizer,
+                    distance,
+                    prefix,
+                    ..
+                } => {
+                    estimate_term_count(value) <= 1
+                        && distance.is_none()
+                        && *prefix != Some(true)
+                        && tokenizer.is_none()
+                }
+                pdb::Query::MatchArray {
+                    tokens,
+                    distance,
+                    prefix,
+                    ..
+                } => tokens.len() <= 1 && distance.is_none() && *prefix != Some(true),
+
+                // A single *plain* parser term parses to a TermQuery; any metacharacter
+                // (wildcard/regex/range/fuzzy/phrase) expands past one posting list. Fuzzy
+                // ParseWithField expands via automaton.
+                pdb::Query::Parse { query_string, .. }
+                | pdb::Query::ParseWithField {
+                    query_string,
+                    fuzzy_data: None,
+                    ..
+                } => is_plain_single_term(query_string),
+                pdb::Query::UnclassifiedString { string, .. } => is_plain_single_term(string),
+                pdb::Query::UnclassifiedArray { array, .. } => array.len() <= 1,
+
+                _ => false,
+            },
+
+            SearchQueryInput::WithIndex { query, .. } => query.is_topk_prunable(),
+
+            // Pure SHOULD union that collapses to a single bare term.
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                must.is_empty()
+                    && must_not.is_empty()
+                    && should.len() <= 1
+                    && should.iter().all(is_bare_term)
+            }
+
+            SearchQueryInput::Parse { query_string, .. } => is_plain_single_term(query_string),
+
+            // Everything else -- All, Empty, TermSet, the Boost/ConstScore/ScoreFilter/
+            // HeapFilter score-modifying wrappers, DisjunctionMax, MoreLikeThis, ... -- has
+            // no reliably-pruning weight, so route to DocSet::cost().
+            _ => false,
         }
     }
 

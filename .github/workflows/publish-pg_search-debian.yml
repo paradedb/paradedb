@@ -2,8 +2,8 @@
 #
 # Publish pg_search (Debian)
 # Build and publish the pg_search extension as .deb to GitHub Releases. This workflow is
-# triggered on creation of a GitHub Tag, but beta releases get filtered out by the
-# `if` condition of the job.
+# triggered on creation of a GitHub Tag. Beta releases skip most of the matrix via a
+# per-step guard (see the `Determine Whether to Build This Row` step).
 
 name: Publish pg_search (Debian)
 
@@ -43,7 +43,6 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
-    if: ${{ !contains(github.ref, '-rc.') || (matrix.pg_version == 18 && matrix.name == 'Debian 13 (Trixie)') }}
     strategy:
       matrix:
         include:
@@ -179,14 +178,30 @@ jobs:
             arch: arm64
 
     steps:
+      # A job-level `if` cannot read the `matrix` context, so beta filtering happens here, per step:
+      # stable releases build every row; beta (`-rc.`) releases build only the Debian 13 (Trixie)
+      # PG 18 .deb (both arches) that the PG 18 Docker image installs.
+      - name: Determine Whether to Build This Row
+        id: guard
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "18" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Dependencies
+        if: steps.guard.outputs.build == 'true'
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
+        if: steps.guard.outputs.build == 'true'
         uses: actions/checkout@v7
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
+        if: steps.guard.outputs.build == 'true'
         run: |
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
@@ -194,6 +209,7 @@ jobs:
           gh --version
 
       - name: Install Rust
+        if: steps.guard.outputs.build == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false # Disable cache on publish workflows
@@ -202,6 +218,7 @@ jobs:
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, since
       # /bin/sh does not support the `[[` syntax.
       - name: Retrieve OS & GitHub Tag Versions
+        if: steps.guard.outputs.build == 'true'
         id: version
         shell: bash
         run: |
@@ -224,6 +241,7 @@ jobs:
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
+        if: steps.guard.outputs.build == 'true'
         run: |
           # Create keyrings dir (works on Debian/Ubuntu)
           sudo install -d -m 0755 /usr/share/keyrings
@@ -240,10 +258,12 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
 
       - name: Extract pgrx Version
+        if: steps.guard.outputs.build == 'true'
         id: pgrx
         run: echo version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml) >> $GITHUB_OUTPUT
 
       - name: Cache pgrx binary
+        if: steps.guard.outputs.build == 'true'
         id: cache-pgrx
         uses: actions/cache@v6
         with:
@@ -251,22 +271,25 @@ jobs:
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-debian-${{ matrix.image }}
 
       - name: Install pgrx
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        if: ${{ steps.guard.outputs.build == 'true' && steps.cache-pgrx.outputs.cache-hit != 'true' }}
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment
+        if: steps.guard.outputs.build == 'true'
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
       - name: Package pg_search Extension with pgrx
+        if: steps.guard.outputs.build == 'true'
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --pg-config $PG_CONFIG_PATH
 
       - name: Create .deb Package
+        if: steps.guard.outputs.build == 'true'
         run: |
           # Create installable package
           mkdir archive
@@ -320,6 +343,7 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Sign and Attest Build Provenance
+        if: steps.guard.outputs.build == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
@@ -328,6 +352,7 @@ jobs:
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which
       # is not capable of parsing certain control characters
       - name: Retrieve GitHub Release Upload URL
+        if: steps.guard.outputs.build == 'true'
         id: upload_url
         shell: bash
         env:
@@ -343,6 +368,7 @@ jobs:
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
       - name: Upload pg_search .deb to GitHub Release
+        if: steps.guard.outputs.build == 'true'
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -352,7 +378,7 @@ jobs:
           overwrite: true
 
       - name: Notify Slack on Failure
-        if: failure()
+        if: ${{ failure() && steps.guard.outputs.build == 'true' }}
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           MESSAGE="<!here> \`publish-pg_search-debian\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"

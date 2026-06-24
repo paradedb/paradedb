@@ -163,12 +163,17 @@ pub mod v1 {
 
     impl Default for V1Header {
         fn default() -> Self {
-            Self {
-                header: FSMBlockHeader {
-                    kind: FSMBlockKind::v1_uncompressed,
-                },
-                empty: false,
-            }
+            // This header is written into an on-disk page whose full image is diffed into the WAL
+            // by `GenericXLog`. `FSMBlockHeader` is 4-byte aligned, so the `empty` bool leaves 3
+            // trailing padding bytes; a struct-literal initializer would leave them uninitialized
+            // and they would surface as "uninitialised value" reads in the WAL delta. Building in
+            // zeroed memory makes that padding a defined zero (see `v2::FSMRootBlock::default` for
+            // the full rationale). `empty` defaults to false == 0, already set by the zeroing.
+            let mut this: Self = unsafe { core::mem::zeroed() };
+            this.header = FSMBlockHeader {
+                kind: FSMBlockKind::v1_uncompressed,
+            };
+            this
         }
     }
 
@@ -691,11 +696,21 @@ pub mod v2 {
 
     impl Default for FSMRootBlock {
         fn default() -> Self {
-            Self {
-                header: V2Header::default(),
-                avl_header: Default::default(),
-                avl_arena: [AvlSlot::default(); MAX_SLOTS],
-            }
+            // This struct is written verbatim into a Postgres page, and the whole page is diffed
+            // into the WAL by `GenericXLog`. A struct-literal initializer would leave several
+            // padding regions uninitialized: the 4-byte gap between the 4-byte `V2Header` and the
+            // 8-byte-aligned `AvlTreeMapHeader`, the padding inside that header, and each slot's
+            // trailing padding. Those bytes would then show up as "uninitialised value" reads in
+            // the WAL delta -- caught (correctly) by Valgrind, and nondeterministic bytes in the
+            // WAL stream. Building in zeroed memory makes every padding byte a defined zero.
+            //
+            // All-zero is a valid bit pattern for everything except the block kind: `Option<usize>`
+            // None == 0, an all-zero `AvlSlot` is a free slot, and an all-zero `AvlTreeMapHeader`
+            // is `{ root: None, free_head: None, len: 0 }`. Only the `V2Header`'s `FSMBlockKind`
+            // discriminant needs a non-zero value, so we set it explicitly after zeroing.
+            let mut this: Self = unsafe { core::mem::zeroed() };
+            this.header = V2Header::default();
+            this
         }
     }
 

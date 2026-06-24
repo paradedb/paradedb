@@ -100,17 +100,18 @@ impl<K: Copy, V: Copy, T: Copy> Slot<K, V, T> {
 
 impl<K: Copy, V: Copy, T: Copy> Default for Slot<K, V, T> {
     fn default() -> Self {
-        // Keys/values in unused slots are ignored. We avoid reading them when used=false.
-        // Zeroing is fine for common PODs; if your K/V cannot be zeroed, just ensure you never
-        // read key/val unless `is_used()` is true.
-        Self {
-            key: unsafe { core::mem::zeroed() },
-            val: unsafe { core::mem::zeroed() },
-            tag: unsafe { core::mem::zeroed() },
-            left: None,
-            right: None,
-            meta: 0, // used=false, height=0
-        }
+        // A `Slot` lives inside an on-disk Postgres page (the FSM root block) and the entire
+        // page is diffed into the WAL by `GenericXLog`. A struct-literal initializer leaves this
+        // struct's trailing padding (present whenever `K`/`V`/`T` don't fill out the struct's
+        // alignment, e.g. 7 bytes for `Slot<u64, (), u32>`) uninitialized, and those bytes would
+        // surface as "uninitialised value" reads when the WAL delta is computed (flagged by
+        // Valgrind, and nondeterministic bytes in the WAL stream). Building the value in zeroed
+        // memory makes every padding byte a defined zero.
+        //
+        // All-zero is exactly the intended default: left/right = None (niche 0), key/val/tag = 0,
+        // meta = 0 (used=false, height=0). Keys/values in unused slots are ignored -- we never read
+        // key/val unless `is_used()` is true -- so zeroing is fine for the PODs we store here.
+        unsafe { core::mem::zeroed() }
     }
 }
 
@@ -122,12 +123,24 @@ pub enum Error {
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct AvlTreeMapHeader {
     root: Option<usize>,
     free_head: Option<usize>,
     len: usize,
+}
+
+impl Default for AvlTreeMapHeader {
+    fn default() -> Self {
+        // This header is embedded in the on-disk FSM root block, which is diffed into the WAL by
+        // `GenericXLog`. `Option<usize>` has no niche, so each one is laid out as a 1-byte
+        // discriminant followed by 7 bytes of padding before the `usize` payload; a struct-literal
+        // initializer would leave those padding bytes uninitialized and they would surface as
+        // "uninitialised value" reads in the WAL delta. Building in zeroed memory makes the padding
+        // a defined zero. All-zero is the intended default: root/free_head = None, len = 0.
+        unsafe { core::mem::zeroed() }
+    }
 }
 
 /// Read-only view of an Array-backed AVL Tree living inside a borrowed [`&[Slot<K,V>]`]

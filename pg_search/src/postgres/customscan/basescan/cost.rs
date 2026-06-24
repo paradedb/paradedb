@@ -17,23 +17,18 @@
 
 //! Serial-vs-parallel path policy and path cost for BaseScan paths (#4664).
 //!
-//! For each candidate exec method, `create_custom_path` (mod.rs) computes the path's intrinsic cost
-//! ([`estimate_path_cost`]) and its [`WorkerPathPolicy`] ([`decide_scan_parallelism`]) independently.
+//! `create_custom_path` (mod.rs) computes each method's path cost ([`estimate_path_cost`]) and its
+//! [`WorkerPathPolicy`] ([`decide_scan_parallelism`]).
 //!
-//! Principle: for a *costable* scan, pg_search costs the scan by its work (keeping `rows` as output
-//! cardinality), emits both a serial and a partial path, and clears PostgreSQL's native paths so
-//! PostgreSQL chooses serial-vs-parallel among only pg_search's two. Clearing native is required:
-//! `total_cost` also decides pg_search-vs-native, so the honest scan-work cost would otherwise let
-//! PostgreSQL's own index scan over the BM25 index -- a correct path (the bm25 AM exposes `@@@` as an
-//! `Index Cond`), just one without our fast-field / Block-WAND execution -- undercut us on cost. Only
-//! PostgreSQL knows the Gather's per-row transport cost (a bulk
-//! `SELECT` ships every row -> serial; a `COUNT(*)` collapses rows in a Partial Aggregate first ->
-//! parallel). pg_search decides serial-vs-parallel itself only where that comparison is wrong or
-//! impossible: an effective LIMIT (PostgreSQL costs the Gather on `rel->rows`, not the `k` rows that
-//! cross, and discards the parallel path before the outer LIMIT can rescue it), prunable top-K
-//! (Block-WAND is invisible to the cost model), a join input (`parallel_setup_cost` dwarfs the
-//! per-scan work) or grouping input (PostgreSQL under-costs the serial HashAggregate), an uncostable
-//! sorted scan, or an un-ANALYZEd table.
+//! A costable scan is costed by its work, emits both a serial and a partial path, and clears
+//! PostgreSQL's native paths -- otherwise the honest scan-work cost lets PostgreSQL's own BM25 index
+//! scan (correct, but without fast-field / Block-WAND execution) undercut us. PostgreSQL then costs
+//! the Gather and picks serial vs parallel, which it can only do once it sees the upper plan (a bulk
+//! `SELECT` ships every row; a `COUNT(*)` collapses rows in a Partial Aggregate first). pg_search
+//! overrides that choice only where PostgreSQL gets it wrong: an effective LIMIT (it costs the Gather
+//! on `rel->rows`, not the `k` rows that cross), prunable top-K (Block-WAND is invisible to it), a
+//! join (`parallel_setup_cost` dwarfs the per-scan work), or grouping (it under-costs the serial
+//! HashAggregate) -- plus uncostable or un-ANALYZEd scans it can't cost at all.
 //!
 //! [`decide_scan_parallelism`] decision tree, in order:
 //!   1. Prunable score-DESC term -> serial only (Block-WAND keeps it sublinear).
@@ -46,17 +41,12 @@
 //!        - uncostable sorted          -> parallel when workers exist (must visit every segment);
 //!        - uncostable unsorted        -> row heuristic (caps fit -- can stop early at LIMIT).
 //!
-//! Limits: outside `debug_parallel_query`, a zero structural ceiling (single segment / parallelism
-//! off / correlated / external) serializes; under it, `max_useful_workers` forces one worker for a
-//! single segment but still returns zero (serial) for correlated/external. `fraction` is exact for
-//! sorted, approximate for unsorted; a write-heavy index's mutable-segment open cost and phrase
-//! `size_hint` under-counts are blind spots.
+//! Blind spots: `fraction` is exact for sorted scans, approximate for unsorted; a write-heavy
+//! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
 use super::*;
 use serde::{Deserialize, Serialize};
 
-/// Read-only accessor for a PostgreSQL planner cost GUC (a mutable static). Centralizing the read
-/// here keeps the cost helpers safe (no `unsafe` for a config read).
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
 }
@@ -67,10 +57,8 @@ fn parallel_tuple_cost() -> f64 {
     unsafe { pg_sys::parallel_tuple_cost }
 }
 
-/// Which branch of [`decide_scan_parallelism`] produced a [`WorkerPathPolicy`]; surfaced in EXPLAIN
-/// VERBOSE. Each variant names the decision *branch*, not the serial-vs-parallel outcome -- the plan
-/// shape (a Gather above the scan, or not) already shows that. A branch that collapses to serial for
-/// lack of workers keeps its branch reason.
+/// Which branch of [`decide_scan_parallelism`] produced the policy; the EXPLAIN VERBOSE label. Names
+/// the branch, not the serial-vs-parallel outcome (the plan shape shows that).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) enum WorkerDecisionReason {
     /// Prunable score-DESC single term: Block-WAND keeps serial scoring sublinear (#4664), so
@@ -137,9 +125,7 @@ impl WorkerPathPolicy {
     }
 }
 
-/// How many ways a parallel scan's work is divided across the partial path's workers. The leader
-/// runs a full share of the scan when it participates, so it counts as one more worker beyond
-/// `nworkers` -- not a partial contribution.
+/// How a parallel scan's work divides: `nworkers`, plus the leader (a full share) when it participates.
 pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool) -> f64 {
     let nworkers = nworkers.get();
     if leader_participates {
@@ -154,11 +140,7 @@ pub(super) struct PathCostBasis {
     pub(super) total_cost_multiplier: f64,
 }
 
-/// The scan's drive-work inputs: the Tantivy drive cost and the match-count estimate it scales
-/// against. Bundled so a costable scan can't carry a drive cost without the matches that
-/// [`drive_fraction`] needs -- the two are always known together (a costable `drive_cost` implies a
-/// `Known` row estimate). Passing them separately would let the (Some drive, None matches) state
-/// exist even though the call site never builds it.
+/// Tantivy drive cost and the match count it scales against (see [`drive_fraction`]).
 pub(super) struct DriveCost {
     pub(super) cost: u64,
     pub(super) matches: f64,
@@ -181,8 +163,7 @@ fn drive_fraction(is_sorted: bool, limit: Option<f64>, matches: f64) -> f64 {
     }
 }
 
-/// The query's `Query::cost`, memoized across a query's exec methods so we open the index at most
-/// once. The two layers of an `Option<Option<u64>>` were easy to transpose; this names the states.
+/// `Query::cost`, memoized so the index opens at most once per query.
 pub(super) enum CostMemo {
     /// Not yet opened/estimated.
     NotComputed,
@@ -280,11 +261,9 @@ pub(super) unsafe fn topk_can_prune_for_method(
     }
 }
 
-/// The query's drive cost in Tantivy units when the scan is *costable*, else `None`. `None` for a
-/// runtime-bound `$1`/subquery or correlated/external predicate (no resolved value to open a scorer
-/// for) or an open failure, so the path falls back to the per-result-row cost and pg_search forces
-/// the worker decision instead of offering both paths. Memoized across the query's exec methods so
-/// the index is opened at most once.
+/// The query's Tantivy drive cost when the scan is costable, else `None` -- `None` for a
+/// runtime-bound/correlated/external predicate (no resolved value to open a scorer for) or an open
+/// failure. Memoized so the index opens at most once per query.
 ///
 /// # Safety
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
@@ -339,7 +318,7 @@ fn cost_test_limited(
     }
 }
 
-/// Inputs to [`decide_scan_parallelism`], bundled so the call site is self-labeling.
+/// Inputs to [`decide_scan_parallelism`].
 pub(super) struct ScanParallelismInputs<'a> {
     pub(super) prunability: TopKPrunability,
     pub(super) query: &'a SearchQueryInput,
@@ -472,7 +451,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
             ),
             // No effective LIMIT, join input: a Parallel Hash Join needs a partial path, but
             // `parallel_setup_cost` dwarfs the per-scan work so PG cost-chooses serial. Force
-            // parallel so the partial path exists and wins (mirrors main's force-for-joins, #4457).
+            // parallel so the partial path exists and wins (mirrors main's force-for-joins, #4101).
             Some(nworkers) if is_join_context => WorkerPathPolicy::ParallelOnly {
                 nworkers,
                 reason: WorkerDecisionReason::CostModel,

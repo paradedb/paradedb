@@ -54,22 +54,19 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let custom_path = PgMemoryContexts::CurrentMemoryContext
         .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
 
-    if (*custom_path).path.parallel_aware {
-        // Offer the partial path so PostgreSQL can build a Gather over it.
-        pg_sys::add_partial_path(rel, custom_path.cast());
+    // Complete (serial) path: add it for consideration and we're done.
+    if !(*custom_path).path.parallel_aware {
+        pg_sys::add_path(rel, custom_path.cast());
+        return;
+    }
 
-        if offer_parallel {
-            // CostedBoth's parallel sibling: a real serial sibling was added separately (emitted
-            // first, see `create_custom_path`). Leave the complete pathlist intact and add no junk
-            // serial, so PostgreSQL costs the Gather over this partial path against that serial
-            // sibling and picks the cheaper -- this is the fair serial-vs-parallel comparison.
-            return;
-        }
+    // Parallel-aware: offer the partial path so PostgreSQL can build a Gather over it.
+    pg_sys::add_partial_path(rel, custom_path.cast());
 
-        // Binding parallel (ParallelOnly): remove all the existing complete paths so the Gather
-        // must win, then add a copy with prohibitively high cost as the one non-partial path
-        // PostgreSQL requires. We don't want PostgreSQL to choose this copy -- it exists only to
-        // satisfy the "at least one complete path" requirement.
+    // CostedBoth (offer_parallel) stops here -- the real serial sibling stays in the pathlist for a
+    // fair compare. Binding parallel (ParallelOnly) instead clears the complete paths and adds a
+    // junk-cost serial stub so the Gather must win.
+    if !offer_parallel {
         (*rel).pathlist = std::ptr::null_mut();
         let copy = PgMemoryContexts::CurrentMemoryContext
             .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
@@ -77,11 +74,7 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
         (*copy).path.total_cost = 1000000000.0;
         (*copy).path.startup_cost = 1000000000.0;
         pg_sys::add_path(rel, copy.cast());
-        return;
     }
-
-    // Complete (serial) path: add it for consideration.
-    pg_sys::add_path(rel, custom_path.cast());
 }
 
 pub fn register_rel_pathlist<CS>(_: CS)

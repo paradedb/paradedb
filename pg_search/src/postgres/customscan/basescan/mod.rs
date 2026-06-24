@@ -824,10 +824,9 @@ impl CustomScan for BaseScan {
                 UNASSIGNED_SELECTIVITY
             };
 
-            // Cost harvested from the selectivity open below -- but only the final
-            // `else` branch opens. It seeds the TopK cost memo (further down) so the worker
-            // decision reuses it; every other branch leaves this `None`, so the worker
-            // decision opens once itself, as before.
+            // Seeded only by the final `else` branch's selectivity open (every other branch leaves
+            // it `None`). It feeds the TopK cost memo so the worker decision reuses that open
+            // instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
 
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
@@ -896,7 +895,6 @@ impl CustomScan for BaseScan {
             };
             let base_result_rows = match row_estimate.known_rows() {
                 Some(rows) => rows.min(float_limit.unwrap_or(f64::MAX)),
-                // For unknown row counts, use 1.0 as a conservative estimate for costing.
                 None => float_limit.unwrap_or(1.0),
             }
             .max(1.0);
@@ -975,22 +973,16 @@ impl CustomScan for BaseScan {
                 // the better estimate. (Same Block-WAND blind spot that forces the serial decision,
                 // applied to the cost.)
                 let path_drive_cost = match reason {
-                    // Block-WAND prunes a prunable TopK sublinear, so its full drive cost overstates
-                    // the work -- exclude it. Every other reason drives the full docset once, so the
-                    // drive cost is honest -- include it. (Listed explicitly so a new reason forces a
-                    // decision here rather than silently inheriting "include".)
                     WorkerDecisionReason::BlockWandPrunable => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
                     | WorkerDecisionReason::SortedPerSegment
                     | WorkerDecisionReason::RowHeuristic => drive_cost,
                 };
-                // Pair the drive cost with its match count. `.zip` yields `Some` only when both are
-                // known -- which is exactly when the scan is costable (a costable `drive_cost`
-                // implies a `Known` row estimate), so the drive term is never built without matches.
-                let drive = path_drive_cost
-                    .zip(row_estimate.known_rows())
-                    .map(|(cost, matches)| DriveCost { cost, matches });
+                let drive = match (path_drive_cost, row_estimate.known_rows()) {
+                    (Some(cost), Some(matches)) => Some(DriveCost { cost, matches }),
+                    _ => None,
+                };
                 let cost_basis = estimate_path_cost(
                     &method,
                     is_sorted,

@@ -66,7 +66,7 @@ pub fn compute_nworkers(
     //
     // 1. Limit-based (UNSORTED only): cap to the segments needed to reach LIMIT.
     //    Sorted output must scan every segment to produce a correct global order, so
-    //    it is exempt (#4101).
+    //    it is exempt (#4457).
     // 2. Row-based: cap so each worker processes at least `min_rows_per_worker` rows
     //    (~300K default), for both sorted and unsorted output. Skipped in join
     //    contexts to avoid preventing Parallel Hash Join.
@@ -74,7 +74,7 @@ pub fn compute_nworkers(
     // See: https://github.com/paradedb/paradedb/issues/3055
     if let RowEstimate::Known(total_rows) = estimated_total_rows {
         // Cap to the number of segments needed to reach the LIMIT. Unsorted only:
-        // sorted output needs every segment, so it is exempt (#4101).
+        // sorted output needs every segment, so it is exempt (#4457).
         if let (false, Some(limit)) = (declares_sorted_output, limit) {
             let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
             let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;

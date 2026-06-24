@@ -145,10 +145,6 @@ jobs:
         run: |
           git add docker
           if git diff --cached --quiet; then
-            # Nothing was regenerated — either a re-run of an already-generated version,
-            # or a version-agnostic Dockerfile that bakes in no version (as in the
-            # enterprise fork). There's no branch to push: build the downstream jobs from
-            # the release commit and skip the PR jobs (gated on has_changes below).
             echo "No generated Dockerfile changes to commit; building from the release commit."
             echo "branch=${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT

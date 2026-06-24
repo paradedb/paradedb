@@ -432,16 +432,27 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
 
 async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
-    if Path::new(&after_create_index_sql).exists() {
-        let status = Command::new("psql")
-            .arg(&args.url)
-            .arg("-f")
-            .arg(&after_create_index_sql)
-            .status()
-            .with_context(|| "Failed to execute after_create_index.sql")?;
-        if !status.success() {
-            bail!("Failed to create tables from {after_create_index_sql}");
-        }
+    if !Path::new(&after_create_index_sql).exists() {
+        return Ok(());
+    }
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+
+    // Resolve `{{ params }}` (e.g. probes, sized to the dataset) and run each statement.
+    let statements = queries(Path::new(&after_create_index_sql));
+    let params =
+        resolve_index_params(&mut conn, &args.dataset, args.size.as_deref(), &statements).await?;
+    for statement in statements {
+        let statement = substitute_vars(&statement, &params)?;
+        sqlx::query(&statement)
+            .execute(&mut conn)
+            .await
+            .with_context(|| {
+                let preview: String = statement.chars().take(60).collect();
+                format!("Failed to run after_create_index statement: {preview}")
+            })?;
     }
     Ok(())
 }

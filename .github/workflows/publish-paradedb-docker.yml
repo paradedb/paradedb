@@ -143,22 +143,26 @@ jobs:
       - name: Commit Generated Dockerfiles
         id: generated_branch
         run: |
-          BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
-          git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
-          git checkout -B "$BRANCH"
-          git config user.name "paradedb-github-app[bot]"
-          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git add docker
           if git diff --cached --quiet; then
-            echo "No generated Dockerfile changes to commit."
-            HAS_CHANGES=false
+            # Nothing was regenerated — either a re-run of an already-generated version,
+            # or a version-agnostic Dockerfile that bakes in no version (as in the
+            # enterprise fork). There's no branch to push: build the downstream jobs from
+            # the release commit and skip the PR jobs (gated on has_changes below).
+            echo "No generated Dockerfile changes to commit; building from the release commit."
+            echo "branch=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
           else
+            BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
+            git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
+            git checkout -B "$BRANCH"
+            git config user.name "paradedb-github-app[bot]"
+            git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
             git commit -m "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
-            HAS_CHANGES=true
+            git push --force-with-lease origin "$BRANCH"
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
-          git push --force-with-lease origin "$BRANCH"
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
 
   test-generated-dockerfiles:
     name: Test Generated Dockerfiles

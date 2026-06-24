@@ -80,22 +80,15 @@ pub struct DataFusionAggState {
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
     /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and
-    /// the query qualifies (binary join + supported aggregate). On the
-    /// leader this carries the runtime mesh + outbound senders for the
-    /// leader-as-worker-0 producer subplan; on workers it carries the
-    /// outbound senders for this worker plus the deserialized fragment plan.
-    pub mpp: Option<MppExecState>,
+    /// the query qualifies (binary join + supported aggregate). Held only by
+    /// the leader; builder-launched workers reconstruct their state from DSM
+    /// and never carry this.
+    pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
     /// Serialized logical-plan bytes that the leader writes into DSM and
     /// workers read back. Computed by `begin_custom_scan` when MPP is
     /// active; consulted by `estimate_dsm_custom_scan` and
     /// `initialize_dsm_custom_scan`.
     pub mpp_plan_bytes: Option<Vec<u8>>,
-}
-
-/// Per-query MPP state held by the leader. Producer workers are builder-launched (see
-/// `mpp::launch`) and reconstruct their own state from the DSM, so they never carry this.
-pub enum MppExecState {
-    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

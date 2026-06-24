@@ -633,7 +633,7 @@ impl CustomScan for AggregateScan {
         // context is finally destroyed). Harmless when the gather already reached EOF.
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
-            if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_mut() {
+            if let Some(leader) = df_state.mpp.as_mut() {
                 if let Some(finish) = leader.finish.as_mut() {
                     let _ = finish.recv();
                 }
@@ -644,7 +644,7 @@ impl CustomScan for AggregateScan {
         // (the EXPLAIN hook runs after teardown and only reads the store), then drop the
         // leader's control senders, whose drop decrements counters inside the mapping.
         if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
-            if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+            if let Some(leader) = df_state.mpp.as_ref() {
                 if let Some(plan) = df_state.physical_plan.as_ref() {
                     crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                         plan,
@@ -665,7 +665,7 @@ impl CustomScan for AggregateScan {
             // context once nothing references the ring mesh anymore. The leader value (and its
             // own mesh handle) drops at the end of this match arm.
             let finish = match df_state.mpp.take() {
-                Some(scan_state::MppExecState::Leader(mut leader)) => leader.finish.take(),
+                Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
             // Drop the stream first (tokio + mesh), then everything else holding a mesh reference
@@ -879,8 +879,8 @@ impl AggregateScan {
     }
 
     /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
-    /// success, installs the resulting `MppExecState::Leader` so the consumer plan reads from the
-    /// mesh. A short launch (or any setup fallback) leaves `mpp` unset and the query runs serially.
+    /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
+    /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
     fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
         if !mpp_is_active() {
             return;
@@ -923,7 +923,7 @@ impl AggregateScan {
             return;
         };
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
-            df_state.mpp = Some(scan_state::MppExecState::Leader(leader));
+            df_state.mpp = Some(leader);
         }
     }
 
@@ -1018,7 +1018,7 @@ impl AggregateScan {
             return;
         };
         let rendered = match (df_state.mpp.as_ref(), df_state.runtime.as_ref()) {
-            (Some(scan_state::MppExecState::Leader(_)), Some(_runtime)) => {
+            (Some(_), Some(_runtime)) => {
                 match crate::postgres::customscan::mpp::glue::merge_worker_metrics(&plan) {
                     Some(merged) => display_plan_ascii(merged.as_ref(), true),
                     None => {
@@ -1545,7 +1545,7 @@ impl AggregateScan {
             // from worker queues at execute time. Otherwise: existing serial
             // session context.
             let ctx = match df_state.mpp.as_ref() {
-                Some(scan_state::MppExecState::Leader(leader)) => {
+                Some(leader) => {
                     // Workers are launched and draining their inboxes (the launcher already
                     // verified the full producer set came up, else it fell back to serial); ship
                     // each fragment's plan frame now.

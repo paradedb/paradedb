@@ -177,7 +177,6 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
-use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
 use datafusion_distributed::shm::MppMesh;
@@ -1000,8 +999,8 @@ impl JoinScan {
     }
 
     /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
-    /// success, installs the resulting `MppExecState::Leader` so the consumer plan reads from the
-    /// mesh. A short launch (or any setup fallback) leaves `mpp` unset and the query runs serially.
+    /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
+    /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
     fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
         if !mpp_is_active() {
             return;
@@ -1028,7 +1027,7 @@ impl JoinScan {
             args,
             partitioning_idx,
         ) {
-            state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
+            state.custom_state_mut().mpp = Some(leader);
         }
     }
 }
@@ -1300,7 +1299,7 @@ impl CustomScan for JoinScan {
                     state.custom_state().mpp.as_ref(),
                     state.custom_state().runtime.as_ref(),
                 ) {
-                    (Some(MppExecState::Leader(_)), Some(_runtime)) => {
+                    (Some(_), Some(_runtime)) => {
                         crate::postgres::customscan::mpp::glue::merge_worker_metrics(physical_plan)
                     }
                     _ => None,
@@ -1452,7 +1451,7 @@ impl CustomScan for JoinScan {
                 // physical plan is a `DistributedExec`. Without this, the leader builds a serial
                 // plan and the worker fragments would have nothing to consume from.
                 let ctx = match state.custom_state().mpp.as_ref() {
-                    Some(MppExecState::Leader(leader)) => {
+                    Some(leader) => {
                         // Workers are launched and draining (the launcher verified the full producer
                         // set came up, else it fell back to serial); ship each fragment's plan now.
                         if let Err(e) =
@@ -1585,7 +1584,7 @@ impl CustomScan for JoinScan {
         // sending metrics. PG's parallel teardown joins Gather-spawned workers here; the
         // builder-launched workers need this explicit join so the metrics land before the EXPLAIN
         // render (which runs before end_custom_scan, where the context is finally destroyed).
-        if let Some(MppExecState::Leader(leader)) = state.custom_state_mut().mpp.as_mut() {
+        if let Some(leader) = state.custom_state_mut().mpp.as_mut() {
             if let Some(finish) = leader.finish.as_mut() {
                 let _ = finish.recv();
             }
@@ -1593,7 +1592,7 @@ impl CustomScan for JoinScan {
         // The EXPLAIN hook runs after teardown and only reads the store, so drain the workers'
         // metrics frames off the mesh now, then drop the leader's control senders (their drop
         // decrements counters inside the still-mapped DSM).
-        if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
+        if let Some(leader) = state.custom_state().mpp.as_ref() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
@@ -1606,7 +1605,7 @@ impl CustomScan for JoinScan {
         // the ring mesh. Take the leader out first (its mesh handle drops with it), then drop the
         // stream/plan/runtime (all carry mesh references) before wait_for_finish destroys the DSM.
         let finish = match state.custom_state_mut().mpp.take() {
-            Some(MppExecState::Leader(mut leader)) => leader.finish.take(),
+            Some(mut leader) => leader.finish.take(),
             _ => None,
         };
         if finish.is_some() {

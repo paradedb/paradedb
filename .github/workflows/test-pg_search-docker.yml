@@ -407,8 +407,8 @@ jobs:
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb-ci -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb
 
-  # Smoke-test that docker/Dockerfile.extension (the non-runnable, FROM scratch
-  # paradedb/paradedb-extension payload) builds for PostgreSQL 18 on each arch.
+  # Smoke-test that the non-runnable, FROM-scratch extension-image payload builds
+  # for PostgreSQL 18 on each arch.
   # This image is only built at release time in publish-paradedb-docker.yml, so
   # without this job a break in the .deb layout or the COPY paths would not surface
   # until a publish fails. Building per arch natively keeps it consistent with the

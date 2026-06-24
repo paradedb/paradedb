@@ -546,6 +546,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 must.is_empty()
                     && must_not.is_empty()

@@ -1,7 +1,7 @@
 # workflows/benchmark-pg_search-queries.yml
 #
 # Benchmark pg_search (Queries)
-# Run our queries benchmark suite against pg_search.
+# Run our queries benchmark suite (stackoverflow and/or cohere) against pg_search.
 
 name: Benchmark pg_search (Queries)
 

@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Dataset to benchmark on a manual run. Ignored otherwise: push and the benchmark/benchmark-queries labels run stackoverflow; benchmark-cohere-{hnsw,ivfflat} labels run cohere."
+        description: "Dataset to benchmark on a manual run. Ignored otherwise: push and the benchmarks/benchmark-stackoverflow labels run stackoverflow; benchmark-cohere-{hnsw,ivfflat} labels run cohere."
         required: true
         type: choice
         options:
@@ -74,7 +74,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
       )
     env:
       pg_version: 18
@@ -85,27 +85,27 @@ jobs:
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
       BACKREST_REPO_S3_KEY_TYPE: shared
       # Which datasets this run benchmarks, resolved once.
-      # stackoverflow: push to main, the benchmark/benchmark-queries PR labels, or a manual run.
+      # stackoverflow: push to main, the benchmarks/benchmark-stackoverflow PR labels, or a manual run.
       # cohere: opt-in only -- the benchmark-cohere-{hnsw,ivfflat} PR labels, or a manual run. The
       # chosen index comes from the dispatch input or the label name (no default).
-      RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)) }}
+      RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)) }}
       RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)) }}
       COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
-      # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
+      # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
         if: >-
           github.event_name == 'pull_request' &&
-          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --remove-label benchmark \
-            --remove-label benchmark-queries \
+            --remove-label benchmarks \
+            --remove-label benchmark-stackoverflow \
             --remove-label benchmark-cohere-hnsw \
             --remove-label benchmark-cohere-ivfflat || true
 
@@ -150,7 +150,7 @@ jobs:
       # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch the Latest Composite Actions
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
         uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
@@ -161,18 +161,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch latest benchmark code, suites
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

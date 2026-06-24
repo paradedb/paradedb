@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          fetch-tags: true # Required: the check resolves release tags locally
 
       - name: Reject Edits to Already-Released Migrations
         run: |

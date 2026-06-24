@@ -81,9 +81,9 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (18 rows)
 
 -- Rows with JoinScan on (verifies correctness, not just plan shape).
@@ -161,9 +161,9 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (18 rows)
 
 -- ============================================================
@@ -202,9 +202,9 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (18 rows)
 
 DROP TABLE t_main_4779, t_a_4779, t_b_4779 CASCADE;

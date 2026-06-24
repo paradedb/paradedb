@@ -98,7 +98,6 @@ use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use std::any::Any;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
@@ -195,7 +194,6 @@ impl SegmentedTopKExec {
             .map(|expr| {
                 let is_deferred = expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
                         deferred_columns
@@ -267,12 +265,13 @@ impl SegmentedTopKExec {
             })?;
         let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
         let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
+        let decode_ctx =
+            datafusion_proto::physical_plan::PhysicalPlanDecodeContext::new(ctx, &codec);
         let input_schema = input.schema();
         let exprs = datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
             &sort_proto,
-            ctx,
+            &decode_ctx,
             input_schema.as_ref(),
-            &codec,
             &proto_conv,
         )?;
         let sort_exprs = LexOrdering::new(exprs).ok_or_else(|| {
@@ -307,10 +306,6 @@ impl DisplayAs for SegmentedTopKExec {
 impl ExecutionPlan for SegmentedTopKExec {
     fn name(&self) -> &str {
         "SegmentedTopKExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {
@@ -359,7 +354,6 @@ impl ExecutionPlan for SegmentedTopKExec {
                 // If it's a deferred column, we treat its sorting type as UInt64 (the ordinal type).
                 let data_type = if expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .is_some_and(|c| {
                         self.deferred_columns
@@ -554,7 +548,6 @@ impl SegmentedTopKState {
         for expr in &self.sort_exprs {
             let col_idx = expr
                 .expr
-                .as_any()
                 .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                 .map(|c| c.index());
 
@@ -966,7 +959,6 @@ impl SegmentedTopKState {
         for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
             let is_deferred = sort_expr
                 .expr
-                .as_any()
                 .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                 .and_then(|c| {
                     self.deferred_columns
@@ -1153,7 +1145,6 @@ impl SegmentedTopKState {
             .map(|expr| {
                 let is_deferred = expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
                         self.deferred_columns
@@ -1186,7 +1177,6 @@ impl SegmentedTopKState {
             for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
                 let is_deferred = sort_expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
                         self.deferred_columns

@@ -50,7 +50,17 @@ impl PanicOnOOMMemoryPool {
     }
 }
 
+impl std::fmt::Display for PanicOnOOMMemoryPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PanicOnOOMMemoryPool")
+    }
+}
+
 impl MemoryPool for PanicOnOOMMemoryPool {
+    fn name(&self) -> &str {
+        "PanicOnOOMMemoryPool"
+    }
+
     fn grow(&self, reservation: &MemoryReservation, additional: usize) {
         self.check_limit(additional);
         self.pool.grow(reservation, additional);
@@ -91,12 +101,9 @@ pub fn create_memory_pool(
     let mut total_memory = 0usize;
     plan.apply(|node| {
         let partitions = node.output_partitioning().partition_count();
-        let any_node = node.as_any();
-        if any_node.downcast_ref::<HashJoinExec>().is_some() {
+        if node.is::<HashJoinExec>() {
             total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
-        } else if any_node.downcast_ref::<SortExec>().is_some()
-            || any_node.downcast_ref::<SortMergeJoinExec>().is_some()
-        {
+        } else if node.is::<SortExec>() || node.is::<SortMergeJoinExec>() {
             total_memory += work_mem * partitions;
         }
         Ok(TreeNodeRecursion::Continue)

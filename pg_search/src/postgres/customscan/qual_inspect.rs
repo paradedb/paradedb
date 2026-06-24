@@ -289,6 +289,7 @@ impl From<&Qual> for SearchQueryInput {
                             must,
                             should,
                             must_not: vec![],
+                            minimum_should_match: None,
                         }
                     }
                 } else {
@@ -429,6 +430,7 @@ impl From<&Qual> for SearchQueryInput {
                     must,
                     should: vec![],
                     must_not: vec![],
+                    minimum_should_match: None,
                 };
 
                 // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
@@ -457,11 +459,13 @@ impl From<&Qual> for SearchQueryInput {
                         must: Default::default(),
                         should: Default::default(),
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                     _ => SearchQueryInput::Boolean {
                         must: Default::default(),
                         should,
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                 }
             }
@@ -502,6 +506,7 @@ impl From<&Qual> for SearchQueryInput {
                             must: vec![SearchQueryInput::All],
                             should: Default::default(),
                             must_not,
+                            minimum_should_match: None,
                         }
                     }
                 }
@@ -1750,6 +1755,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                         must: indexed_queries.clone(),
                         should: vec![],
                         must_not: vec![],
+                        minimum_should_match: None,
                     };
                 }
             }
@@ -2025,6 +2031,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => should.is_empty() && must_not.is_empty() && quals.len() == must.len(),
 
@@ -2035,6 +2042,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => must.is_empty() && must_not.is_empty() && quals.len() == should.len(),
 
@@ -2045,6 +2053,7 @@ mod tests {
                     must,
                     should: _,
                     must_not,
+                    ..
                 },
             ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 

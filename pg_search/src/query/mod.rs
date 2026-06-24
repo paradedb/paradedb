@@ -78,6 +78,10 @@ pub enum SearchQueryInput {
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         must_not: Vec<SearchQueryInput>,
+
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        minimum_should_match: Option<i64>,
     },
     Boost {
         query: Box<SearchQueryInput>,
@@ -240,6 +244,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => must
                 .iter()
                 .chain(should.iter())
@@ -276,6 +281,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 // For the query to be a full scan, ALL documents must match
 
@@ -341,6 +347,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => must
                 .iter()
                 .chain(should.iter())
@@ -371,6 +378,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => must
                 .iter()
                 .chain(should.iter())
@@ -406,6 +414,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not: _,
+                ..
             } => {
                 // AND: product of children selectivities; OR: max of children selectivities.
                 let must_sel = must
@@ -454,6 +463,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
                     q.extract_field_names(field_names);
@@ -494,6 +504,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 for q in must_not {
                     q.visit(visitor);
@@ -639,6 +650,7 @@ impl SearchQueryInput {
                 must: vec![],
                 should: elements,
                 must_not: vec![],
+                minimum_should_match: None,
             },
         }
     }
@@ -968,8 +980,8 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                minimum_should_match,
             } => {
-                // Boolean query optimization pattern:
                 // ---------------------------------
                 // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
                 //
@@ -1016,7 +1028,12 @@ impl SearchQueryInput {
                     }
                 }
 
-                let query = Box::new(BooleanQuery::new(subqueries));
+                let query: Box<dyn TantivyQuery> = match minimum_should_match {
+                    Some(n) => Box::new(BooleanQuery::with_minimum_required_clauses(
+                        subqueries, n as usize,
+                    )),
+                    None => Box::new(BooleanQuery::new(subqueries)),
+                };
 
                 // Children are built lazily inside the closure - QueryOnlyBuilder
                 // never calls this closure, so wrapping work is skipped entirely
@@ -1772,6 +1789,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1780,6 +1798,7 @@ mod tests {
             must: vec![SearchQueryInput::All, SearchQueryInput::All],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1788,6 +1807,7 @@ mod tests {
             must: vec![SearchQueryInput::All, create_term_query()],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1796,6 +1816,7 @@ mod tests {
             must: vec![create_term_query()],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1807,6 +1828,7 @@ mod tests {
             must: vec![],
             should: vec![SearchQueryInput::All],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1815,6 +1837,7 @@ mod tests {
             must: vec![],
             should: vec![SearchQueryInput::All, create_term_query()],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1823,6 +1846,7 @@ mod tests {
             must: vec![],
             should: vec![create_term_query()],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1831,6 +1855,7 @@ mod tests {
             must: vec![],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1842,6 +1867,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![create_term_query()],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1850,6 +1876,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![SearchQueryInput::Empty],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1858,6 +1885,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![SearchQueryInput::Empty, SearchQueryInput::Empty],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1866,6 +1894,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![SearchQueryInput::Empty, create_term_query()],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1877,6 +1906,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![create_term_query()],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1885,6 +1915,7 @@ mod tests {
             must: vec![create_term_query()],
             should: vec![SearchQueryInput::All],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1974,8 +2005,10 @@ mod tests {
                 must: vec![SearchQueryInput::All],
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             }],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1986,6 +2019,7 @@ mod tests {
                 must: vec![SearchQueryInput::All],
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             }),
         }
         .is_full_scan_query());
@@ -1996,9 +2030,11 @@ mod tests {
                 must: vec![SearchQueryInput::All, create_term_query()], // Not all Must are full scan
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             }],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }

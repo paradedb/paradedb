@@ -6,7 +6,7 @@
 
 name: Benchmark pg_search - Stressgres
 
-# We run benchmarks on `main`, and on `benchmark`-labeled PRs.
+# We run benchmarks on `main`, and on `benchmarks`-labeled PRs.
 on:
   push:
     branches:
@@ -41,21 +41,27 @@ jobs:
       - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+<<<<<<< HEAD
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
+=======
+      # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
+      # using EBS would cause
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmarks') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
+>>>>>>> 18e84a1e0 (ci: Update benchmark CI labels to new names (#5410))
     env:
       pg_version: 18
 
     steps:
-      # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
+      # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark' || github.event.label.name == 'benchmark-stressgres')
+        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --remove-label benchmark \
+            --remove-label benchmarks \
             --remove-label benchmark-stressgres || true
 
       - name: Determine Ref to Benchmark
@@ -90,8 +96,13 @@ jobs:
           echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions
+<<<<<<< HEAD
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         uses: actions/checkout@v6
+=======
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
+        uses: actions/checkout@v7
+>>>>>>> 18e84a1e0 (ci: Update benchmark CI labels to new names (#5410))
         with:
           repository: ${{ github.repository }}
           path: actions-temp
@@ -100,16 +111,28 @@ jobs:
           ref: main
 
       - name: Copy latest actions into place
+<<<<<<< HEAD
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
+=======
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
+        run: cp -rv actions-temp/.github/actions .github/
+
+      - name: Cleanup temporary checkout
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
+>>>>>>> 18e84a1e0 (ci: Update benchmark CI labels to new names (#5410))
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites
+<<<<<<< HEAD
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
+=======
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
+>>>>>>> 18e84a1e0 (ci: Update benchmark CI labels to new names (#5410))
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

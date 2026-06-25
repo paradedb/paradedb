@@ -54,7 +54,7 @@ use datafusion_distributed::PartitionSink;
 
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
-use crate::postgres::customscan::mpp::interrupt::{process_pending, HeldInterrupts};
+use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
@@ -551,7 +551,7 @@ pub(crate) fn run_mpp_worker(
     // deferred, now on a stack with no live runtime; for a die this `proc_exit`s here instead
     // of mid-`block_on`.
     drop(held);
-    process_pending();
+    check_for_interrupts();
     if let Err(e) = result {
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }

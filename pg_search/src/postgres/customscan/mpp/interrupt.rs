@@ -39,7 +39,7 @@
 //!
 //! `block_on` returns, the runtime goes idle, every fragment future (with its DSM senders)
 //! drops while the segment is still mapped, the hold resumes, and the caller calls
-//! [`process_pending`] to let PG act on the cancel/die with nothing left on the stack.
+//! [`check_for_interrupts`] to let PG act on the cancel/die with nothing left on the stack.
 
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
@@ -94,24 +94,24 @@ pub(crate) fn cancel_pending() -> bool {
 }
 
 /// Error an MPP loop returns when it bails on a pending cancel/die. The dispatcher discards
-/// it and calls [`process_pending`] once `block_on` has returned.
+/// it and calls [`check_for_interrupts`] once `block_on` has returned.
 pub(crate) fn interrupted() -> DataFusionError {
     DataFusionError::Execution("mpp: query interrupted".into())
 }
 
 /// Act on the cancel/die that [`HeldInterrupts`] held off and the drain loops bailed on
-/// cooperatively, now that `block_on` has returned and the runtime is idle. It's a named step
-/// rather than an inline `check_for_interrupts!()` in the loops because acting mid-`block_on`
+/// cooperatively, now that `block_on` has returned and the runtime is idle. Acting mid-`block_on`
 /// would `proc_exit` out of the live runtime; this is the safe point. Cancel `longjmp`s into PG
 /// error handling (caught and unwound by pgrx); die `proc_exit`s. Either way the runtime is off
-/// the stack, so the later customscan-state drop tears down cleanly.
+/// the stack, so the later customscan-state drop tears down cleanly. It's a function so the
+/// lib-test build, which doesn't link PG, can stub it to a no-op.
 #[cfg(not(test))]
-pub(crate) fn process_pending() {
+pub(crate) fn check_for_interrupts() {
     pgrx::check_for_interrupts!();
 }
 
 #[cfg(test)]
-pub(crate) fn process_pending() {}
+pub(crate) fn check_for_interrupts() {}
 
 /// Drive one batch out of an MPP gather `stream` under the cancel/die holdoff, then service any
 /// interrupt the drain deferred. The holdoff wraps the synchronous `block_on`, not the async
@@ -126,6 +126,6 @@ pub(crate) fn block_on_next(
         let _held = HeldInterrupts::hold();
         runtime.block_on(async { stream.next().await })
     };
-    process_pending();
+    check_for_interrupts();
     next
 }

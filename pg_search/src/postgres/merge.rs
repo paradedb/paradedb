@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::merge_policy::LayeredMergePolicy;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MvccSatisfies, DEFER_MUTABLE_SEGMENT_MERGE};
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
@@ -454,6 +454,13 @@ unsafe fn merge_index(
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
+            if let Err(err) = &merge_result {
+                if is_deferred_mutable_segment_merge(err) {
+                    pgrx::debug1!("{DEFER_MUTABLE_SEGMENT_MERGE}: {err:?}");
+                    merge_result = Ok(None);
+                    continue;
+                }
+            }
             if merge_result.is_err() {
                 break;
             }
@@ -490,6 +497,11 @@ unsafe fn merge_index(
         drop(merge_lock);
     }
     drop(cleanup_lock);
+}
+
+fn is_deferred_mutable_segment_merge(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.to_string().contains(DEFER_MUTABLE_SEGMENT_MERGE))
 }
 
 ///

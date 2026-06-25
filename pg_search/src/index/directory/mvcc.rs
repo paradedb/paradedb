@@ -70,6 +70,9 @@ pub enum MvccSatisfies {
     Mergeable,
 }
 
+pub(crate) const DEFER_MUTABLE_SEGMENT_MERGE: &str =
+    "mutable segment contains a recently-dead tuple; deferring durable merge";
+
 impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgSearchRelation) -> MVCCDirectory {
         MVCCDirectory::with_mvcc_style(index_relation, self)
@@ -88,7 +91,7 @@ enum LoadedSegmentMetaEntry {
         entry: SegmentMetaEntryMutable,
         // Created lazily on first read so that indexing occurs in whichever parallel worker is
         // responsible for this segment.
-        directory: Arc<OnceLock<RamDirectory>>,
+        directory: Arc<OnceLock<anyhow::Result<RamDirectory>>>,
     },
 }
 
@@ -203,28 +206,35 @@ impl MVCCDirectory {
                 directory,
                 ..
             } => {
-                let file_handle = directory
-                    .get_or_init(|| {
-                        let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
-                            let heaprel = self
-                                .indexrel
-                                .heap_relation()
-                                .expect("Should have a heap relation.");
-                            HeapFetchState::new(&heaprel)
-                        });
-                        let expression_state = self
-                            .expression_state
-                            .get_or_init(|| ExpressionState::new(&self.indexrel));
-                        index_memory_segment(
-                            &self.indexrel,
-                            &tantivy_meta,
-                            &meta,
-                            heap_fetch_state,
-                            expression_state,
-                        )
-                        .expect("Failed to index mutable segment.")
-                    })
-                    .get_file_handle(path)?;
+                let defer_unsafe_recently_dead =
+                    matches!(self.mvcc_style.as_ref(), MvccSatisfies::Mergeable);
+                let directory = directory.get_or_init(|| {
+                    let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
+                        let heaprel = self
+                            .indexrel
+                            .heap_relation()
+                            .expect("Should have a heap relation.");
+                        HeapFetchState::new(&heaprel)
+                    });
+                    let expression_state = self
+                        .expression_state
+                        .get_or_init(|| ExpressionState::new(&self.indexrel));
+                    index_memory_segment(
+                        &self.indexrel,
+                        &tantivy_meta,
+                        &meta,
+                        heap_fetch_state,
+                        expression_state,
+                        defer_unsafe_recently_dead,
+                    )
+                });
+                let directory = match directory {
+                    Ok(directory) => directory,
+                    Err(err) => {
+                        return Err(TantivyError::InternalError(err.to_string()));
+                    }
+                };
+                let file_handle = directory.get_file_handle(path)?;
                 Ok(file_handle)
             }
         }
@@ -601,19 +611,20 @@ impl PinCushion {
 ///
 /// Note that between `prepare` and `index`, additional documents may have been added. We limit the
 /// number of contained docs to the `max_doc` value and ignore trailing values.
-pub fn index_memory_segment(
+pub(crate) fn index_memory_segment(
     indexrel: &PgSearchRelation,
     segment_meta: &SegmentMeta,
     segment: &SegmentMetaEntry,
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
+    defer_unsafe_recently_dead: bool,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
     use pgrx::{
         pg_sys::{
             heap_deform_tuple, GetOldestNonRemovableTransactionId, HTSV_Result,
-            HeapTupleSatisfiesVacuum,
+            HeapTupleSatisfiesVacuum, HeapTupleSatisfiesVisibility,
         },
         PgTupleDesc,
     };
@@ -621,11 +632,11 @@ pub fn index_memory_segment(
     /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
     /// detoasting performed while materializing a mutable segment.
     ///
-    /// Most callers of [`index_memory_segment`] (ordinary DML, queries, VACUUM, background merge
-    /// workers) already run with an active snapshot. The logical-replication apply worker, however,
-    /// applies remote changes without pushing one, and `pg_detoast_datum` on an out-of-line TOAST
-    /// value requires a snapshot (`get_toast_snapshot` errors otherwise). This guard pushes the
-    /// transaction snapshot only when the caller lacks one, and pops it on normal scope exit.
+    /// Some callers of [`index_memory_segment`] already run with an active snapshot, but background
+    /// merge and logical-replication apply workers can reach this path without one.
+    /// `pg_detoast_datum` on an out-of-line TOAST value requires a snapshot
+    /// (`get_toast_snapshot` errors otherwise). This guard pushes the transaction snapshot only
+    /// when the caller lacks one, and pops it on normal scope exit.
     ///
     /// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
     /// active-snapshot stack; popping again here would underflow it, so the drop implementation
@@ -705,9 +716,9 @@ pub fn index_memory_segment(
             // merge mutable segments even before all of their data is necessarily visible in the
             // current transaction, but excludes tuples that are fully "dead".
             //
-            // TODO: We could potentially actually apply the MvccSatisfies setting here, which
-            // would avoid a small amount of indexing for MvccSatisfies::Snapshot (any future
-            // txns, essentially).
+            // Durable merges apply one additional rule below: a RECENTLY_DEAD tuple that is not
+            // visible to our active snapshot is unsafe to detoast, but also cannot be skipped
+            // because the merged immutable segment will be visible beyond this snapshot.
             let mut call_again = false;
             'next_hot_chain: loop {
                 let fetched = pg_sys::table_index_fetch_tuple(
@@ -745,7 +756,7 @@ pub fn index_memory_segment(
                 };
 
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
-                    // This tuple is fully dead — no transaction can see it.
+                    // This tuple is fully dead; no transaction can see it.
                     if call_again {
                         continue 'next_hot_chain;
                     } else {
@@ -756,16 +767,33 @@ pub fn index_memory_segment(
                     }
                 }
 
-                // RECENTLY_DEAD tuples are kept and indexed. The deleting/updating
-                // xact has committed, but older snapshots (REPEATABLE READ, open
-                // cursors) may still need this version (#3709). The active snapshot
-                // (ensured by ActiveSnapshotGuard above, added in #5255) pins the
-                // XID horizon, which prevents VACUUM from pruning TOAST chunks for
-                // any tuple that is not yet DEAD according to that horizon. This
-                // makes it safe to detoast RECENTLY_DEAD tuples without the
-                // TOCTOU-racy oldest_xmin re-check that was here before.
-                //
-                // See: https://github.com/paradedb/paradedb/issues/5076
+                if htsv_result == HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
+                    // RECENTLY_DEAD tuples are not dead to every snapshot. A durable merge cannot
+                    // make a snapshot-local choice here: skipping this version could make an older
+                    // open transaction miss it after the source mutable segment is replaced.
+                    //
+                    // If our active snapshot can see this version, it pins the row's XID horizon
+                    // and makes detoasting safe for this materialization. If our snapshot cannot
+                    // see it, the tuple is only being kept alive by some other backend's older
+                    // snapshot; that backend could release its snapshot while we are detoasting,
+                    // allowing VACUUM to prune the TOAST chunks. In that case, defer the merge so
+                    // the source segment remains available to the older snapshot.
+                    if defer_unsafe_recently_dead {
+                        let visible_to_active_snapshot = {
+                            let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                            let _lock = BorrowedBuffer::from_pg(buffer);
+                            HeapTupleSatisfiesVisibility(
+                                (*heap_fetch_state.buffer_slot()).base.tuple,
+                                pg_sys::GetActiveSnapshot(),
+                                buffer,
+                            )
+                        };
+
+                        if !visible_to_active_snapshot {
+                            anyhow::bail!("{DEFER_MUTABLE_SEGMENT_MERGE}: ctid {ctid}");
+                        }
+                    }
+                }
 
                 // We successfully fetched a tuple. Break out to fetch and deform it.
                 break;
@@ -776,9 +804,12 @@ pub fn index_memory_segment(
             // NOTE: We intentionally pass `false` (don't materialize) to keep the
             // buffer pin held by the BufferHeapTupleTableSlot. The pin prevents
             // VACUUM from acquiring LockBufferForCleanup on this heap page while
-            // we deform. TOAST data is protected separately by the active
-            // snapshot (ActiveSnapshotGuard), which pins the XID horizon and
-            // prevents VACUUM from pruning TOAST chunks of any tuple we can see.
+            // we deform. TOAST fetches use PostgreSQL's TOAST snapshot, but that
+            // path requires a registered or active snapshot. ActiveSnapshotGuard
+            // supplies one for callers such as logical replication workers, and
+            // for durable merges, the RECENTLY_DEAD branch above prevents us from
+            // detoasting tuples that only some other backend's snapshot is still
+            // protecting.
             // See: https://github.com/paradedb/paradedb/issues/5076
             let htup = pg_sys::ExecFetchSlotHeapTuple(
                 heap_fetch_state.slot(),
@@ -795,10 +826,9 @@ pub fn index_memory_segment(
 
             // Eagerly detoast all variable-length (varlena) datums so that the
             // values are fully materialized into palloc'd memory before we
-            // release the buffer pin. The active snapshot protects TOAST chunks
-            // from VACUUM for tuples visible to us, and eager detoasting here
-            // ensures we read those chunks promptly rather than deferring to
-            // row_to_search_document (where the buffer pin may already be gone).
+            // release the buffer pin. Eager detoasting here ensures we read any
+            // needed TOAST chunks promptly rather than deferring to
+            // row_to_search_document, where the buffer pin may already be gone.
             // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
             for i in 0..heaptupdesc.len() {
                 if !isnull[i] {

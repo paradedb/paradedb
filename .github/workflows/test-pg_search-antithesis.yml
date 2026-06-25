@@ -182,16 +182,9 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
           cargo pgrx init --pg${{ env.PG_VERSION }}=$PG_CONFIG_PATH
 
+      # ThinLTO drops Rust symbols under the sancov pass, breaking dlopen — disable LTO here.
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        # CARGO_PROFILE_RELEASE_WITH_DEBUG_LTO=off disables ThinLTO for this build only.
-        # The release profile uses `lto = "thin"`, which is incompatible with the manually
-        # injected sancov pass (`-Cpasses=sancov-module`): ThinLTO internalizes/drops a
-        # monomorphized function in the module that defines it while another module keeps an
-        # external reference, producing a pg_search.so with an undefined Rust symbol (e.g.
-        # `datafusion_sql::utils::rebase_expr`) that fails to dlopen inside CloudNativePG's
-        # initdb. Coverage-instrumented builds don't benefit from LTO, so turning it off is
-        # the surgical fix and leaves production builds untouched.
         run: |
           sudo curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
@@ -199,11 +192,8 @@ jobs:
           CARGO_PROFILE_RELEASE_WITH_DEBUG_LTO=off \
             cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH"
 
+      # Undefined Rust symbols (_ZN/_R) mean a broken .so; Postgres C symbols stay undefined and are fine.
       - name: Verify pg_search Has No Unresolved Rust Symbols
-        # A Postgres extension legitimately leaves its C API symbols (palloc, elog, …)
-        # undefined — the backend resolves them at LOAD time. But an undefined *Rust* symbol
-        # (mangled `_ZN…`/`_R…`) means codegen/LTO dropped a definition and the .so will fail
-        # to dlopen. Fail here in seconds rather than 6 hours later in Antithesis.
         run: |
           LIB_PATH="target/release-with-debug/pg_search-pg${{ env.PG_VERSION }}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
           undefined_rust="$(nm -D -u "$LIB_PATH" | awk '{print $NF}' | grep -E '^_(ZN|R)' || true)"

@@ -218,10 +218,12 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
                 Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
             } else {
                 let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
-                Box::new((0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
-                    ctid: ctid_ff.as_u64(doc_id).expect("ctid should be present"),
-                    doc_id,
-                }))
+                Box::new(
+                    (0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
+                        ctid: ctid_ff.as_u64(doc_id).expect("ctid should be present"),
+                        doc_id,
+                    }),
+                )
             };
 
         let mut needs_commit = false;

@@ -275,6 +275,20 @@ impl MVCCDirectory {
             .collect()
     }
 
+    /// Return the [`SegmentMetaEntry`] for a single loaded segment.
+    ///
+    /// Unlike [`Self::all_entries`], this avoids cloning the entire metadata map when only one
+    /// entry is needed.
+    pub(crate) fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
+        self.all_entries
+            .lock()
+            .get(segment_id)
+            .map(|entry| match entry {
+                LoadedSegmentMetaEntry::Persisted { meta, .. }
+                | LoadedSegmentMetaEntry::Memory { meta, .. } => *meta,
+            })
+    }
+
     /// Returns the [`AtomicUsize`] where the number of segments that survive [`load_metas()`]'
     /// visibility checking gets stored once [`load_metas()`] has actually been called.
     ///

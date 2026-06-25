@@ -33,8 +33,6 @@
 
 use std::sync::Arc;
 
-use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
@@ -45,7 +43,7 @@ use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
     collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
@@ -446,17 +444,7 @@ pub(crate) fn run_mpp_worker(
             let task_ctx = Arc::new(
                 TaskContext::default()
                     .with_session_config(cfg)
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            // Spilling isn't wired to PG's temp-file management yet, so keep
-                            // it off: a `work_mem` overflow errors instead of writing files.
-                            .with_disk_manager_builder(
-                                DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled),
-                            )
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
+                    .with_runtime(build_runtime_env(memory_pool)),
             );
 
             // Wrap the fragment's plan in a fresh `DistributedExec` and run `prepare_in_process_plan`

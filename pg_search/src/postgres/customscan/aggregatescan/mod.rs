@@ -49,7 +49,7 @@ use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTas
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
-use crate::postgres::customscan::mpp::interrupt::{process_pending, HeldInterrupts};
+use crate::postgres::customscan::mpp::interrupt::block_on_next;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -100,7 +100,6 @@ use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const}
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
 use crate::scan::codec::serialize_logical_plan;
-use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 
@@ -647,10 +646,9 @@ impl CustomScan for AggregateScan {
                     let _ = finish.recv();
                 }
             }
-        }
-        // PG destroys the parallel DSM right after this hook, so drain the workers' metrics frames
-        // off the mesh now (the EXPLAIN hook runs after teardown and only reads the store).
-        if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
+            // PG destroys the parallel DSM right after this hook, so drain the workers' metrics
+            // frames off the mesh now (the EXPLAIN hook runs after teardown and only reads the
+            // store).
             if let Some(leader) = df_state.mpp.as_ref() {
                 if let Some(plan) = df_state.physical_plan.as_ref() {
                     crate::postgres::customscan::mpp::glue::drain_worker_metrics(
@@ -1655,21 +1653,10 @@ impl AggregateScan {
             }
 
             // Fetch next batch from stream
-            let runtime = df_state.runtime.as_ref().unwrap();
-            let stream = df_state.stream.as_mut().unwrap();
-
-            let next = {
-                // Hold cancel/die off across the pull so a subroutine's `CHECK_FOR_INTERRUPTS`
-                // can't `proc_exit` out of the live runtime; the consumer drain polls
-                // cooperatively to bail. Resumes at end of block.
-                let _held = HeldInterrupts::hold();
-                runtime.block_on(async { stream.next().await })
-            };
-
-            // The consumer drain bails cooperatively on a pending cancel/die so the runtime
-            // can unwind first; service it now with the runtime idle (a die `proc_exit`s here)
-            // before the error match below.
-            process_pending();
+            let next = block_on_next(
+                df_state.runtime.as_ref().unwrap(),
+                df_state.stream.as_mut().unwrap(),
+            );
 
             match next {
                 Some(Ok(batch)) => {

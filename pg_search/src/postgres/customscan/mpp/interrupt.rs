@@ -41,7 +41,10 @@
 //! drops while the segment is still mapped, the hold resumes, and the caller calls
 //! [`process_pending`] to let PG act on the cancel/die with nothing left on the stack.
 
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
+use datafusion::execution::SendableRecordBatchStream;
+use futures::StreamExt;
 
 /// RAII holdoff for cancel/die, mirroring PG's `HOLD_INTERRUPTS()` / `RESUME_INTERRUPTS()`.
 /// While one of these is alive, `ProcessInterrupts` returns without acting, so a backend-die
@@ -96,10 +99,12 @@ pub(crate) fn interrupted() -> DataFusionError {
     DataFusionError::Execution("mpp: query interrupted".into())
 }
 
-/// Service a deferred cancel/die now that `block_on` has returned and the runtime is idle.
-/// Cancel `longjmp`s into PG error handling (caught and unwound by pgrx); die `proc_exit`s.
-/// Either way the runtime is no longer on the stack, so the later customscan-state drop tears
-/// down cleanly.
+/// Act on the cancel/die that [`HeldInterrupts`] held off and the drain loops bailed on
+/// cooperatively, now that `block_on` has returned and the runtime is idle. It's a named step
+/// rather than an inline `check_for_interrupts!()` in the loops because acting mid-`block_on`
+/// would `proc_exit` out of the live runtime; this is the safe point. Cancel `longjmp`s into PG
+/// error handling (caught and unwound by pgrx); die `proc_exit`s. Either way the runtime is off
+/// the stack, so the later customscan-state drop tears down cleanly.
 #[cfg(not(test))]
 pub(crate) fn process_pending() {
     pgrx::check_for_interrupts!();
@@ -107,3 +112,20 @@ pub(crate) fn process_pending() {
 
 #[cfg(test)]
 pub(crate) fn process_pending() {}
+
+/// Drive one batch out of an MPP gather `stream` under the cancel/die holdoff, then service any
+/// interrupt the drain deferred. The holdoff wraps the synchronous `block_on`, not the async
+/// poll, so it can't move into the `Stream` itself: a `CHECK_FOR_INTERRUPTS` taken while
+/// `block_on` drives the runtime would `proc_exit` out of it. Shared by the JoinScan and
+/// AggregateScan consumers.
+pub(crate) fn block_on_next(
+    runtime: &tokio::runtime::Runtime,
+    stream: &mut SendableRecordBatchStream,
+) -> Option<Result<RecordBatch, DataFusionError>> {
+    let next = {
+        let _held = HeldInterrupts::hold();
+        runtime.block_on(async { stream.next().await })
+    };
+    process_pending();
+    next
+}

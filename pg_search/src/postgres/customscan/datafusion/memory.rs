@@ -17,7 +17,9 @@
 
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::DataFusionError;
+use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryPool, MemoryReservation};
+use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
@@ -108,6 +110,21 @@ pub fn create_memory_pool(
     .expect("Failed to traverse plan for estimating memory");
 
     Arc::new(WorkMemMemoryPool::new(total_memory.max(work_mem)))
+}
+
+/// Build the DataFusion `RuntimeEnv` for JoinScan and AggregateScan: the `work_mem` pool plus a
+/// disabled disk manager, so a `try_grow` past the budget errors instead of writing untracked
+/// temp files. Spilling isn't wired to PG's temp-file management yet.
+pub fn build_runtime_env(memory_pool: Arc<dyn MemoryPool>) -> Arc<RuntimeEnv> {
+    Arc::new(
+        RuntimeEnvBuilder::new()
+            .with_memory_pool(memory_pool)
+            .with_disk_manager_builder(
+                DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled),
+            )
+            .build()
+            .expect("Failed to create RuntimeEnv"),
+    )
 }
 
 #[cfg(test)]

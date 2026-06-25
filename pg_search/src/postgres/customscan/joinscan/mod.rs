@@ -179,7 +179,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
-use crate::postgres::customscan::mpp::interrupt::{process_pending, HeldInterrupts};
+use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -195,7 +195,6 @@ use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_distributed::{display_plan_ascii, DistributedExec};
-use futures::StreamExt;
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::Arc;
@@ -1553,24 +1552,11 @@ impl CustomScan for JoinScan {
 
                 let next_batch = {
                     let custom_state = state.custom_state_mut();
-                    // Hold cancel/die off across the pull so a subroutine's
-                    // `CHECK_FOR_INTERRUPTS` can't `proc_exit` out of the live runtime; the
-                    // consumer drain polls cooperatively to bail. Resumes at end of block.
-                    let _held = HeldInterrupts::hold();
-                    custom_state.runtime.as_mut().unwrap().block_on(async {
-                        custom_state
-                            .datafusion_stream
-                            .as_mut()
-                            .unwrap()
-                            .next()
-                            .await
-                    })
+                    block_on_next(
+                        custom_state.runtime.as_ref().unwrap(),
+                        custom_state.datafusion_stream.as_mut().unwrap(),
+                    )
                 };
-
-                // The consumer drain bails cooperatively on a pending cancel/die so the
-                // runtime can unwind first; service it now with the runtime idle (a die
-                // `proc_exit`s here) before the error match below.
-                process_pending();
 
                 match next_batch {
                     Some(Ok(batch)) => {

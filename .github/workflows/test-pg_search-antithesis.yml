@@ -193,7 +193,7 @@ jobs:
           CARGO_PROFILE_RELEASE_WITH_DEBUG_LTO=off \
             cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH"
 
-      # Catch the broken-symbol case above before shipping to Antithesis (a 6h run away).
+      # Catch the broken-symbol case above before shipping to Antithesis.
       # Undefined Rust symbols (_ZN/_R) mean a broken .so; Postgres C symbols stay undefined and are fine.
       - name: Verify pg_search Has No Unresolved Rust Symbols
         run: |

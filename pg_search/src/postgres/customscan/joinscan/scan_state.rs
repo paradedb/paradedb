@@ -74,12 +74,11 @@ use tantivy::index::SegmentId;
 use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -473,12 +472,7 @@ pub fn build_task_context(
     Arc::new(
         TaskContext::default()
             .with_session_config(ctx.state().config().clone())
-            .with_runtime(Arc::new(
-                RuntimeEnvBuilder::new()
-                    .with_memory_pool(memory_pool)
-                    .build()
-                    .expect("Failed to create RuntimeEnv"),
-            )),
+            .with_runtime(build_runtime_env(memory_pool)),
     )
 }
 

@@ -102,3 +102,5 @@ We welcome contributions of all sizes! Check out our [good first issues](https:/
 ## License
 
 ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). For [ParadeDB Enterprise](https://docs.paradedb.com/deploy/enterprise) licensing, contact [sales@paradedb.com](mailto:sales@paradedb.com).
+
+<!-- antithesis control run for PR #5425: intentionally reproduces the pre-fix ThinLTO undefined-symbol failure. Do not merge. -->

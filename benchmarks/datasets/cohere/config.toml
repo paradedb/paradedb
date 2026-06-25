@@ -9,5 +9,5 @@ primary_key = "_id"  # used only if sampled later
 
 [params]
 lists = "sqrt({{ dataset_size }})::int"
-# ivfflat.probes tuned for ~95% recall@10 (measured): 1m -> 26, 10m -> 42; else fall back to sqrt(lists).
-probes = "CASE {{ dataset_size }} WHEN 1000000 THEN 26 WHEN 10000000 THEN 42 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
+# ivfflat.probes tuned for ~95% recall@10 (with margin for build variance): 1m -> 28, 10m -> 46; else fall back to sqrt(lists).
+probes = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 46 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"

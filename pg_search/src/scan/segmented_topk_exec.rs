@@ -388,13 +388,13 @@ impl ExecutionPlan for SegmentedTopKExec {
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
-            segment_bufs: HashMap::default(),
-            segment_cutoffs: HashMap::default(),
+            segment_bufs: Vec::new(),
+            segment_cutoffs: Vec::new(),
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
             pass_through_rows: Vec::new(),
-            last_segment_cutoffs: HashMap::default(),
+            last_segment_cutoffs: Vec::new(),
             mat_row_converter,
             last_published_global: None,
             rows_input,
@@ -476,23 +476,25 @@ struct SegmentedTopKState {
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
-    /// Per-segment rolling buffers of comparable Rows. Each buffer grows up to 2 * K
-    /// rows; when it reaches 2 * K, `select_nth_unstable(k - 1)` partitions it so the
-    /// K best rows occupy the front, the K-th best is recorded in `segment_cutoffs`,
-    /// and the buffer is truncated back to K. Row locations `(batch_idx, row_idx)`
-    /// are tracked separately in `row_ordinals` for compaction.
-    segment_bufs: HashMap<SegmentOrdinal, Vec<OwnedRow>>,
+    /// Per-segment rolling buffers of comparable Rows, indexed by `SegmentOrdinal`
+    /// (dense, 0..N). Each buffer grows up to 2 * K rows; when it reaches 2 * K,
+    /// `select_nth_unstable(k - 1)` partitions it so the K best rows occupy the front,
+    /// the K-th best is recorded in `segment_cutoffs`, and the buffer is truncated back
+    /// to K. Row locations `(batch_idx, row_idx)` are tracked separately in
+    /// `row_ordinals` for compaction.
+    segment_bufs: Vec<Option<Vec<OwnedRow>>>,
     /// Per-segment K-th best row (the cutoff threshold) after the most recent
-    /// QuickSelect. Absent for segments that have not yet accumulated 2 * K rows, i.e.
-    /// segments whose buffer has not been partitioned. Updated by the inline
-    /// QuickSelect in `collect_batch` and consulted to pre-filter clearly worse rows.
-    segment_cutoffs: HashMap<SegmentOrdinal, OwnedRow>,
+    /// QuickSelect, indexed by `SegmentOrdinal`. `None` for segments that have not yet
+    /// accumulated 2 * K rows, i.e. segments whose buffer has not been partitioned.
+    /// Updated by the inline QuickSelect in `collect_batch` and consulted to pre-filter
+    /// clearly worse rows.
+    segment_cutoffs: Vec<Option<OwnedRow>>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// Keeps track of the heap rows for compaction.
+    /// Keeps track of the buffered rows for compaction.
     /// (batch_idx, row_idx, seg_ord, row_data)
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
     /// Buffered pass-through rows (State 2 and NULL ordinals) that bypass
@@ -500,10 +502,10 @@ struct SegmentedTopKState {
     pass_through_rows: Vec<(usize, usize)>,
 
     /// For each segment that has a cutoff, we cache the resolved values of its current
-    /// K-th best row (the cutoff threshold).
+    /// K-th best row (the cutoff threshold). Indexed by `SegmentOrdinal`; `None` for
+    /// segments without a resolved cutoff yet.
     /// Tuple: (local ordinal OwnedRow, materialized ScalarValues, materialized OwnedRow)
-    last_segment_cutoffs:
-        HashMap<SegmentOrdinal, (OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>,
+    last_segment_cutoffs: Vec<Option<(OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>>,
 
     /// Row converter for materialized sorts, used to compare resolved thresholds lexicographically.
     mat_row_converter: RowConverter,
@@ -520,6 +522,16 @@ struct SegmentedTopKState {
 }
 
 impl SegmentedTopKState {
+    /// Return a mutable reference to the per-segment slot at `idx`, growing the
+    /// vector with `None`s as needed. `SegmentOrdinal` is dense (0..N), so these
+    /// per-segment vectors are indexed directly by the ordinal.
+    fn ensure_slot<T>(vec: &mut Vec<Option<T>>, idx: usize) -> &mut Option<T> {
+        if idx >= vec.len() {
+            vec.resize_with(idx + 1, || None);
+        }
+        &mut vec[idx]
+    }
+
     /// Ingest a single batch: extract ordinals, update per-segment buffers,
     /// and publish thresholds. The batch is buffered for the final emission
     /// phase. Pass-through rows (State 2 and NULL ordinals) are buffered
@@ -567,25 +579,32 @@ impl SegmentedTopKState {
                 continue;
             }
             if let Some(seg_ord) = row_to_seg[row_idx] {
-                let heap_val = converted_rows.row(row_idx).owned();
+                let seg_idx = seg_ord as usize;
+                let row_val = converted_rows.row(row_idx).owned();
 
                 // Pre-filter: rows already worse than this segment's cutoff cannot
                 // enter the top K, so drop them before they reach the buffer.
                 let is_worse = self
                     .segment_cutoffs
-                    .get(&seg_ord)
-                    .is_some_and(|cutoff| &heap_val > cutoff);
+                    .get(seg_idx)
+                    .and_then(|c| c.as_ref())
+                    .is_some_and(|cutoff| &row_val > cutoff);
                 if is_worse {
                     continue;
                 }
 
-                if !self.segment_bufs.contains_key(&seg_ord) {
+                if self
+                    .segment_bufs
+                    .get(seg_idx)
+                    .is_none_or(|buf| buf.is_none())
+                {
                     self.segments_seen.add(1);
                 }
-                let buf = self.segment_bufs.entry(seg_ord).or_default();
-                buf.push(heap_val.clone());
+                let buf =
+                    Self::ensure_slot(&mut self.segment_bufs, seg_idx).get_or_insert_with(Vec::new);
+                buf.push(row_val.clone());
                 self.row_ordinals
-                    .push((batch_idx, row_idx, seg_ord, heap_val));
+                    .push((batch_idx, row_idx, seg_ord, row_val));
 
                 // QuickSelect: when the buffer reaches 2 * K, partition it around the
                 // K-th element (index k - 1). That element becomes the new segment
@@ -595,7 +614,7 @@ impl SegmentedTopKState {
                     buf.select_nth_unstable(self.k - 1);
                     let cutoff = buf[self.k - 1].clone();
                     buf.truncate(self.k);
-                    self.segment_cutoffs.insert(seg_ord, cutoff);
+                    *Self::ensure_slot(&mut self.segment_cutoffs, seg_idx) = Some(cutoff);
                 }
             }
         }
@@ -842,11 +861,12 @@ impl SegmentedTopKState {
     /// a cutoff have not yet accumulated 2 * K rows, so all of their rows survive.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+        for (batch_idx, row_idx, seg_ord, row_val) in &self.row_ordinals {
             let dominated = self
                 .segment_cutoffs
-                .get(seg_ord)
-                .is_none_or(|cutoff| heap_val <= cutoff);
+                .get(*seg_ord as usize)
+                .and_then(|c| c.as_ref())
+                .is_none_or(|cutoff| row_val <= cutoff);
             if dominated {
                 survivors.insert((*batch_idx, *row_idx));
             }
@@ -871,7 +891,8 @@ impl SegmentedTopKState {
         let full_segment_cutoffs: Vec<(SegmentOrdinal, OwnedRow)> = self
             .segment_cutoffs
             .iter()
-            .map(|(&seg_ord, cutoff)| (seg_ord, cutoff.clone()))
+            .enumerate()
+            .filter_map(|(i, cutoff)| cutoff.as_ref().map(|c| (i as SegmentOrdinal, c.clone())))
             .collect();
 
         for (seg_ord, worst_local) in full_segment_cutoffs {
@@ -933,7 +954,11 @@ impl SegmentedTopKState {
         //    batch. If the threshold hasn't changed, reuse the materialized string
         //    values. If it has changed, pay the cost to resolve the segment-local
         //    ordinals into global string/bytes values via `resolve_global_threshold_values`.
-        if let Some((cached_local, vals, row)) = self.last_segment_cutoffs.get(&seg_ord) {
+        if let Some((cached_local, vals, row)) = self
+            .last_segment_cutoffs
+            .get(seg_ord as usize)
+            .and_then(|c| c.as_ref())
+        {
             if cached_local == worst_local {
                 return Ok((vals.clone(), row.clone()));
             }
@@ -956,10 +981,8 @@ impl SegmentedTopKState {
         let converted = self.mat_row_converter.convert_columns(&val_arrays)?;
 
         let mat_row = converted.row(0).owned();
-        self.last_segment_cutoffs.insert(
-            seg_ord,
-            (worst_local.clone(), values.clone(), mat_row.clone()),
-        );
+        *Self::ensure_slot(&mut self.last_segment_cutoffs, seg_ord as usize) =
+            Some((worst_local.clone(), values.clone(), mat_row.clone()));
         Ok((values, mat_row))
     }
 
@@ -1038,7 +1061,12 @@ impl SegmentedTopKState {
     /// instead of O(N) for large inputs — analogous to the batch compaction
     /// step in upstream DataFusion Top K.
     fn maybe_compact(&mut self) {
-        let num_segments = self.segment_bufs.len().max(1);
+        let num_segments = self
+            .segment_bufs
+            .iter()
+            .filter(|buf| buf.is_some())
+            .count()
+            .max(1);
         if self.row_ordinals.len() <= self.k * num_segments * 4 {
             return;
         }
@@ -1048,14 +1076,15 @@ impl SegmentedTopKState {
         let mut survivors = crate::api::HashSet::default();
 
         // Use take() so we own row_ordinals and can move the OwnedRows.
-        for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
+        for (batch_idx, row_idx, seg_ord, row_val) in std::mem::take(&mut self.row_ordinals) {
             let keep = self
                 .segment_cutoffs
-                .get(&seg_ord)
-                .is_none_or(|cutoff| &heap_val <= cutoff);
+                .get(seg_ord as usize)
+                .and_then(|c| c.as_ref())
+                .is_none_or(|cutoff| &row_val <= cutoff);
             if keep {
                 survivors.insert((batch_idx, row_idx));
-                new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
+                new_row_ordinals.push((batch_idx, row_idx, seg_ord, row_val));
             }
         }
 
@@ -1144,9 +1173,9 @@ impl SegmentedTopKState {
         type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
         let mut candidates: Vec<Candidate> = Vec::new();
 
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+        for (batch_idx, row_idx, seg_ord, row_val) in &self.row_ordinals {
             if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
-                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
+                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, row_val.clone()))));
             }
         }
         for &(batch_idx, row_idx) in &self.pass_through_rows {

@@ -49,6 +49,7 @@ use crate::gucs::{
     enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
+use crate::postgres::ParallelScanState;
 
 /// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
 /// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
@@ -146,6 +147,12 @@ pub struct MppLeaderState {
     /// the workers and destroy the parallel context. `None` until `launch` installs it on the
     /// success path.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
+    /// The shared `ParallelScanState` the leader populated in DSM. The leader runs the top fragment
+    /// itself, and a non-partitioning source can land there (e.g. the SEMI/ANTI broadcast strategy),
+    /// where the scan claims per-source segments against this state just like a worker. The leader
+    /// stashes it on its custom state so the codec installs it into those providers. Null until
+    /// `launch` sets it.
+    pub parallel_state: *mut ParallelScanState,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
@@ -222,6 +229,7 @@ pub unsafe fn leader_setup(
         stage_plans: std::sync::Mutex::new(stage_plans),
         plans_delivered: std::sync::atomic::AtomicBool::new(false),
         finish: None,
+        parallel_state: std::ptr::null_mut(),
     })
 }
 

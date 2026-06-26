@@ -19,7 +19,7 @@
 //!
 //! Hash-partitions every table by the join key and shuffles intermediate rows between
 //! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
-//! Guarded by `paradedb.enable_mpp` (default off).
+//! Guarded by `paradedb.enable_mpp` (default on).
 //!
 //! The transport lives in `datafusion_distributed::shm`. Deadlock avoidance is a
 //! cooperative inline drain: a producer stalled on a full outbound pulls its own inbound

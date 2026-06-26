@@ -18,7 +18,7 @@ LOAD 'pg_search';
 SHOW paradedb.enable_mpp;
  paradedb.enable_mpp 
 ---------------------
- off
+ on
 (1 row)
 
 SHOW paradedb.mpp_debug;
@@ -39,11 +39,11 @@ SHOW paradedb.mpp_queue_size;
  64MB
 (1 row)
 
--- Defaults: MPP is off until explicitly enabled.
-SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_off;
- enable_mpp_default_off 
-------------------------
- f
+-- Defaults: MPP is on; the debug knob stays off.
+SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_on;
+ enable_mpp_default_on 
+-----------------------
+ t
 (1 row)
 
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;

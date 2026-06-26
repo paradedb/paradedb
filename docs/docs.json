@@ -233,6 +233,14 @@
                     ]
                   },
                   {
+                    "group": "Similarity Search",
+                    "pages": [
+                      "legacy/similarity/overview",
+                      "legacy/similarity/index",
+                      "legacy/similarity/search"
+                    ]
+                  },
+                  {
                     "group": "Query Builder",
                     "pages": [
                       "legacy/advanced/overview",
@@ -256,7 +264,8 @@
                         "group": "Phrase-Level Queries",
                         "pages": [
                           "legacy/advanced/phrase/phrase",
-                          "legacy/advanced/phrase/phrase-prefix"
+                          "legacy/advanced/phrase/phrase-prefix",
+                          "legacy/advanced/phrase/regex-phrase"
                         ]
                       },
                       {

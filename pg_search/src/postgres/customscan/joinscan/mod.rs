@@ -1027,6 +1027,10 @@ impl JoinScan {
             args,
             partitioning_idx,
         ) {
+            // The leader runs the top fragment itself. When a non-partitioning source lands there
+            // (the SEMI/ANTI broadcast strategy), its scan claims per-source segments against the
+            // same shared state the workers use, so the codec needs this pointer to install it.
+            state.custom_state_mut().parallel_state = Some(leader.parallel_state);
             state.custom_state_mut().mpp = Some(leader);
         }
     }

@@ -575,6 +575,8 @@ pub(crate) mod pdb {
             language: LinderaLanguage::Chinese,
             filters: SearchTokenizerFilters::default(),
             keep_whitespace: false,
+            nfkc: false,
+            reading_form: false,
         },
         tokenize_lindera,
         json_to_lindera,

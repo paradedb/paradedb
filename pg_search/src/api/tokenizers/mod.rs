@@ -88,6 +88,8 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
             language: LinderaLanguage::default(),
             filters: SearchTokenizerFilters::default(),
             keep_whitespace: false,
+            nfkc: false,
+            reading_form: false,
         },
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba {
@@ -207,6 +209,8 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             language,
             filters,
             keep_whitespace,
+            nfkc,
+            reading_form,
         } => {
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
                 let lcase = s.to_lowercase();
@@ -220,6 +224,17 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             *filters = SearchTokenizerFilters::from(parsed);
             if let Some(v) = parsed.get("keep_whitespace").and_then(|p| p.as_bool()) {
                 *keep_whitespace = v;
+            }
+            if let Some(v) = parsed.get("nfkc").and_then(|p| p.as_bool()) {
+                *nfkc = v;
+            }
+            if let Some(v) = parsed.get("reading_form").and_then(|p| p.as_bool()) {
+                *reading_form = v;
+            }
+            if *reading_form && *language == LinderaLanguage::Chinese {
+                pgrx::error!(
+                    "reading_form=true is not supported for the Lindera Chinese tokenizer"
+                );
             }
         }
         SearchTokenizer::Jieba {
@@ -416,6 +431,8 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             language,
             filters,
             keep_whitespace,
+            nfkc,
+            reading_form,
         } => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
@@ -423,6 +440,8 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *language = lindera_typmod.language;
             *filters = lindera_typmod.filters;
             *keep_whitespace = lindera_typmod.keep_whitespace;
+            *nfkc = lindera_typmod.nfkc;
+            *reading_form = lindera_typmod.reading_form;
         }
 
         SearchTokenizer::ChineseLindera {

@@ -21,6 +21,7 @@ use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
@@ -189,6 +190,42 @@ fn field_supports_null_preserving_guard(
         .is_none_or(|(_, data)| !data.is_array && !data.is_json)
 }
 
+/// Collect the `key_field` values of the documents matching `search_reader`'s query, keeping
+/// only those whose heap tuple is visible to `visibility`'s snapshot.
+///
+/// The scalar `@@@` operator answers purely from the index. Without this filter it would report
+/// committed-but-invisible (or still-in-progress) rows as matches, disagreeing with the
+/// heap-driven scan, which applies the same `VisibilityChecker`. See issue #5365.
+fn collect_visible_keys(
+    search_reader: &SearchIndexReader,
+    key_ff_helper: &FFHelper,
+    visibility: &mut VisibilityChecker,
+) -> CacheEntry {
+    let mut keys = Vec::new();
+    let mut ctids = Vec::new();
+    for (_, doc_address) in search_reader.search() {
+        check_for_interrupts!();
+        let key = key_ff_helper
+            .value(0, doc_address)
+            .expect("key_field value should not be null");
+        let ctid = key_ff_helper
+            .ctid(doc_address.segment_ord)
+            .as_u64(doc_address.doc_id)
+            .expect("ctid fast field value should not be null");
+        keys.push(key);
+        ctids.push(Some(ctid));
+    }
+
+    // `check_batch` writes `Some(visible_ctid)` for visible rows and `None` for invisible ones.
+    let mut visible = vec![None; ctids.len()];
+    visibility.check_batch(&ctids, &mut visible);
+
+    keys.into_iter()
+        .zip(visible)
+        .filter_map(|(key, visible_ctid)| visible_ctid.map(|_| key))
+        .collect()
+}
+
 #[allow(unused_variables)]
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
@@ -265,18 +302,20 @@ pub fn search_with_query_input(
         let key_ff_helper =
             FFHelper::with_fields(&search_reader, &[(key_field_name.clone(), key_field_type).into()]);
 
-        // now, query the SearchReader and collect up the docs that match our query.
+        // The scalar `@@@` operator answers purely from the index, so we apply the same heap MVCC
+        // visibility the heap-driven scan applies (against the active snapshot) -- otherwise
+        // committed-but-invisible (or in-progress) rows matching the query in the index leak
+        // through. See https://github.com/paradedb/paradedb/issues/5365
+        let heaprel = index_relation
+            .heap_relation()
+            .expect("bm25 index should have a heap relation");
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let mut visibility = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+
+        // now, query the SearchReader and collect up the visible docs that match our query.
         // the matches are cached so that the same input query will return the same results
         // throughout the duration of the scan
-        let matches = search_reader
-            .search()
-            .map(|(_, doc_address)| {
-                check_for_interrupts!();
-                key_ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null")
-            })
-            .collect();
+        let matches = collect_visible_keys(&search_reader, &key_ff_helper, &mut visibility);
 
         let missing_values = if field_names.len() == 1 && !is_exists_query {
             let field = field_names
@@ -320,17 +359,11 @@ pub fn search_with_query_input(
                 &[(key_field_name, key_field_type).into()],
             );
 
-            Some(
-                complement_reader
-                    .search()
-                    .map(|(_, doc_address)| {
-                        check_for_interrupts!();
-                        complement_ff_helper
-                            .value(0, doc_address)
-                            .expect("key_field value should not be null")
-                    })
-                    .collect(),
-            )
+            Some(collect_visible_keys(
+                &complement_reader,
+                &complement_ff_helper,
+                &mut visibility,
+            ))
         } else {
             None
         };

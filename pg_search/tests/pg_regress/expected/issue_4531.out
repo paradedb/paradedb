@@ -101,7 +101,7 @@ ORDER BY p.id DESC LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id

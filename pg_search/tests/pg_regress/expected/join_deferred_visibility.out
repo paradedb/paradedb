@@ -157,7 +157,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"great","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT i.id, i.name
@@ -289,7 +289,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR mouse","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR mouse","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT i.id, i.name

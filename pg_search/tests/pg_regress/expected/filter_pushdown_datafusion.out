@@ -93,7 +93,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -138,7 +138,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -231,7 +231,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -375,7 +375,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -421,7 +421,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -468,7 +468,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -514,7 +514,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name

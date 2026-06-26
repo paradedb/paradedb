@@ -79,7 +79,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -135,7 +135,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -212,7 +212,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -265,7 +265,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -308,7 +308,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}]}}}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}]}}}}]}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -362,7 +362,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}},{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}},{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}]}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -406,7 +406,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -449,7 +449,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -619,7 +619,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
 (17 rows)
 
 SELECT qgen_users.id, qgen_users.name 
@@ -664,7 +664,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT qgen_users.id, qgen_users.name 
@@ -858,7 +858,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
@@ -927,7 +927,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
 
 SELECT p.id, p.supplier_id, s.id AS supplier_pk

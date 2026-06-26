@@ -67,7 +67,7 @@ LIMIT 10;
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"technology_name","query_string":"java","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT cccf.*

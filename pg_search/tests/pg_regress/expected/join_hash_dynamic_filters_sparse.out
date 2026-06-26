@@ -133,8 +133,8 @@ JOIN t2_a ON t1.fk_a = t2_a.fk
 WHERE t1.body @@@ 'doc'
 ORDER BY t1.id
 LIMIT 10;
-                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=10.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2_a INNER t1
@@ -145,11 +145,11 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=51]
            :     VisibilityFilterExec: tables=[t2_a, t1], metrics=[output_rows=1.10 K, output_bytes=81.2 KB, output_batches=1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=1.10 K, output_bytes=192.0 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, build_mem_used=52.47 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=100% (1.10 K/1.10 K)]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=1.10 K, output_bytes=192.0 KB, output_batches=1, build_mem_used=51.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=4, input_rows=30.00 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=3.67% (1.10 K/30.00 K)]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=25.8 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=30.00 K, output_bytes=703.1 KB, output_batches=4, rows_pruned=0, rows_scanned=30.00 K]
 (15 rows)
 
 -- Block B: correctness. Run the same query with gallop disabled and
@@ -210,8 +210,8 @@ JOIN t2_b ON t1.fk_b = t2_b.fk
 WHERE t1.body @@@ 'doc'
 ORDER BY t1.id
 LIMIT 10;
-                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=10.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2_a INNER (t1 INNER t2_b)
@@ -222,12 +222,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@3 as ctid_2], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 509], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
            :     VisibilityFilterExec: tables=[t2_a, t1, t2_b], metrics=[output_rows=601, output_bytes=78.1 KB, output_batches=1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_b@2, fk@1)], projection=[ctid_0@0, ctid_1@1, id@3, ctid_2@4], metrics=[output_rows=601, output_bytes=256.0 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=601, build_mem_used=297.0 K, avg_fanout=100% (601/601), probe_hit_rate=100% (601/601)]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, fk_b@4, id@5], metrics=[output_rows=1.10 K, output_bytes=256.0 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, build_mem_used=52.47 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=100% (1.10 K/1.10 K)]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_b@2, fk@1)], projection=[ctid_0@0, ctid_1@1, id@3, ctid_2@4], metrics=[output_rows=601, output_bytes=256.0 KB, output_batches=1, build_mem_used=290.1 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=601, avg_fanout=100% (601/601), probe_hit_rate=100% (601/601)]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, fk_b@4, id@5], metrics=[output_rows=1.10 K, output_bytes=256.0 KB, output_batches=1, build_mem_used=51.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=4, input_rows=30.00 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=3.67% (1.10 K/30.00 K)]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=30.00 K, output_bytes=937.5 KB, output_batches=4, rows_pruned=0, rows_scanned=30.00 K]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=601, output_bytes=9.4 KB, output_batches=1, rows_pruned=0, rows_scanned=601]
 (18 rows)
@@ -290,8 +290,8 @@ JOIN t2_c ON t1.fk_c = t2_c.fk
 WHERE t1.body @@@ 'doc'
 ORDER BY t1.id
 LIMIT 10;
-                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=10.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2_a INNER ((t1 INNER t2_b) INNER t2_c)
@@ -302,13 +302,13 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3], metrics=[output_rows=10, output_bytes=400.0 B, output_batches=1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 809], metrics=[output_rows=10, output_bytes=400.0 B, output_batches=1, row_replacements=10]
            :     VisibilityFilterExec: tables=[t2_a, t1, t2_b, t2_c], metrics=[output_rows=301, output_bytes=73.4 KB, output_batches=1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_c@2, fk@1)], projection=[ctid_0@0, ctid_1@1, id@3, ctid_2@4, ctid_3@5], metrics=[output_rows=301, output_bytes=320.0 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=601, input_batches=1, input_rows=301, build_mem_used=345.1 K, avg_fanout=100% (301/301), probe_hit_rate=100% (301/301)]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_b@3, fk@1)], projection=[ctid_0@0, ctid_1@1, fk_c@2, id@4, ctid_2@5], metrics=[output_rows=601, output_bytes=320.0 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=601, build_mem_used=362.6 K, avg_fanout=100% (601/601), probe_hit_rate=100% (601/601)]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, fk_c@4, fk_b@5, id@6], metrics=[output_rows=1.10 K, output_bytes=320.0 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=1.10 K, build_mem_used=52.47 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=100% (1.10 K/1.10 K)]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_c@2, fk@1)], projection=[ctid_0@0, ctid_1@1, id@3, ctid_2@4, ctid_3@5], metrics=[output_rows=301, output_bytes=320.0 KB, output_batches=1, build_mem_used=337.1 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=601, input_batches=1, input_rows=301, avg_fanout=100% (301/301), probe_hit_rate=100% (301/301)]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk_b@3, fk@1)], projection=[ctid_0@0, ctid_1@1, fk_c@2, id@4, ctid_2@5], metrics=[output_rows=601, output_bytes=320.0 KB, output_batches=1, build_mem_used=354.1 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=1, input_rows=601, avg_fanout=100% (601/601), probe_hit_rate=100% (601/601)]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, fk_a@1)], projection=[ctid_0@0, ctid_1@2, fk_c@4, fk_b@5, id@6], metrics=[output_rows=1.10 K, output_bytes=320.0 KB, output_batches=1, build_mem_used=51.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=1.10 K, input_batches=4, input_rows=30.00 K, avg_fanout=100% (1.10 K/1.10 K), probe_hit_rate=3.67% (1.10 K/30.00 K)]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=43.0 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+           :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=30.00 K, output_bytes=1171.9 KB, output_batches=4, rows_pruned=0, rows_scanned=30.00 K]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=601, output_bytes=9.4 KB, output_batches=1, rows_pruned=0, rows_scanned=601]
            :         CooperativeExec

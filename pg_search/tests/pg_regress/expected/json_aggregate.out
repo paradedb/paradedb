@@ -129,10 +129,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+(10 rows)
 
 -- Execute the query
 SELECT SUM((metadata->>'price')::numeric) as total_price
@@ -158,10 +159,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
-(9 rows)
+(10 rows)
 
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
@@ -186,10 +188,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: data
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.stock"}}}}
-(9 rows)
+(10 rows)
 
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
@@ -217,10 +220,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+(10 rows)
 
 -- Execute the query
 SELECT AVG((metadata->>'price')::numeric) as avg_price
@@ -246,10 +250,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple"}}}}
-(9 rows)
+(10 rows)
 
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
@@ -274,10 +279,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: data
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"clothing"}}}}
-(9 rows)
+(10 rows)
 
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
@@ -307,10 +313,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+(10 rows)
 
 -- Execute the query
 SELECT 
@@ -340,10 +347,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
-(9 rows)
+(10 rows)
 
 SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,
@@ -372,10 +380,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
-(9 rows)
+(10 rows)
 
 SELECT 
     MIN(metadata->>'brand') as first_brand,
@@ -412,10 +421,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+(10 rows)
 
 -- Execute the query
 SELECT 

@@ -545,6 +545,7 @@ pub fn execute_aggregate(
                 bucket_limit as _,
                 &mut state,
             );
+
             if let Some(agg_results) = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),

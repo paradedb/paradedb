@@ -71,8 +71,8 @@ WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -81,12 +81,12 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Group By: job_title
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[agg_0]
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
            :     CooperativeExec
            :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -115,8 +115,8 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, cl)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, c.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -125,15 +125,15 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Group By: job_title
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[agg_0]
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)]
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -168,8 +168,8 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -178,15 +178,15 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Group By: job_title
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[agg_0]
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)]
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
@@ -406,15 +406,15 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Group By: label
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[label@0 as label], aggr=[agg_0]
+           : AggregateExec: mode=Single, gby=[label@0 as label], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, id@0)], projection=[label@1]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, eid@0)]
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query="all"
+           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query="all"
+           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT label, COUNT(*) AS doc_count
@@ -657,7 +657,7 @@ WHERE a.id NOT IN (
    Multi-Table Filter: {OPEXPR :opno 521 :opfuncid 147 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 3 :location -1} {VAR :varno 1 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1}) :location -1}
    Aggregates: COUNT(*), SUM(val)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[agg_0, agg_1]
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
      :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)]
      :       CooperativeExec
@@ -666,7 +666,7 @@ WHERE a.id NOT IN (
      :         CooperativeExec
      :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
      :     CooperativeExec
      :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)

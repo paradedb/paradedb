@@ -164,6 +164,14 @@ pub enum Flags {
 
     /// ParadeDB custom flag for indicating we want to force the plan to be used
     Force = 0x0008,
+
+    /// ParadeDB custom flag set on a parallel-aware partial path that PostgreSQL is allowed to
+    /// reject in favour of a serial sibling. Unlike a plain parallel-aware path (which clears the
+    /// complete pathlist and installs a prohibitively-costed serial stub so the Gather must win),
+    /// an `OfferParallel` partial path is merely added via `add_partial_path`: the complete pathlist
+    /// is left intact and no stub is injected, so PostgreSQL costs the Gather against the real serial
+    /// sibling and picks the cheaper. See `hook::add_path`.
+    OfferParallel = 0x0010,
 }
 
 pub struct CustomPathBuilder<CS: CustomScan> {

@@ -381,6 +381,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
                Output: p.id, p.name, p.supplier_id
                Table: products
                Index: products_bm25_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
@@ -388,7 +389,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
                Output: s.name, s.id
                ->  Seq Scan on public.suppliers s
                      Output: s.name, s.id
-(18 rows)
+(19 rows)
 
 -- =============================================================================
 -- CLEANUP (products/suppliers)

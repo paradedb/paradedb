@@ -74,12 +74,11 @@ use tantivy::index::SegmentId;
 use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -252,9 +251,9 @@ pub struct JoinScanState {
     pub source_manifests: Vec<SearchIndexManifest>,
 
     /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and the query qualifies.
-    /// On the leader this carries the runtime mesh; on workers it carries the worker's outbound
-    /// senders, mesh, and plan bytes copied out of DSM.
-    pub mpp: Option<MppExecState>,
+    /// Held only by the leader; builder-launched workers reconstruct their state from DSM and
+    /// never carry this.
+    pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
     /// Serialized logical-plan bytes that the leader writes into DSM and workers read back.
     /// Stashed in `begin_custom_scan` when MPP is active; consumed by `estimate_dsm` /
     /// `initialize_dsm`.
@@ -262,12 +261,6 @@ pub struct JoinScanState {
     /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
     /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
     pub mpp_partitioning_source_idx: Option<usize>,
-}
-
-/// Per-query MPP state for JoinScan. Same shape as `aggregatescan::scan_state::MppExecState`.
-pub enum MppExecState {
-    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
-    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 impl JoinScanState {
@@ -479,12 +472,7 @@ pub fn build_task_context(
     Arc::new(
         TaskContext::default()
             .with_session_config(ctx.state().config().clone())
-            .with_runtime(Arc::new(
-                RuntimeEnvBuilder::new()
-                    .with_memory_pool(memory_pool)
-                    .build()
-                    .expect("Failed to create RuntimeEnv"),
-            )),
+            .with_runtime(build_runtime_env(memory_pool)),
     )
 }
 

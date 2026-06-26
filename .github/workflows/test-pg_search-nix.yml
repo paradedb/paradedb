@@ -45,7 +45,7 @@ jobs:
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Check out the PR head's repo and ref so this works for fork PRs too;
           # the branch only exists on the fork, not on the base repo. For

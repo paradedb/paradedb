@@ -58,3 +58,33 @@ SELECT 'Hello world! 你好!'::pdb.lindera(chinese, 'keep_whitespace=true')::tex
  {hello," ",world,!," ",你好,!}
 (1 row)
 ```
+
+## NFKC Normalization
+
+Set `nfkc` to `true` to apply [Unicode NFKC normalization](https://unicode.org/reports/tr15/) to the text before it is segmented. This collapses compatibility characters such as full-width Latin letters and digits to their canonical half-width forms, so that, for example, `ＡＢＣ` and `ABC` produce the same tokens.
+
+```sql
+SELECT 'ＡＢＣ１２３'::pdb.lindera(japanese, 'nfkc=true', 'lowercase=false')::text[];
+```
+
+```ini Expected Response
+   text
+----------
+ {ABC,123}
+(1 row)
+```
+
+## Reading Form
+
+Set `reading_form` to `true` to replace each token with its dictionary reading form after segmentation. For Japanese (IPADIC), the surface form is replaced with its katakana reading; for Korean (KoDic), Hanja are replaced with their Hangul reading. This is supported for Japanese and Korean only.
+
+```sql
+SELECT '日本語'::pdb.lindera(japanese, 'reading_form=true', 'lowercase=false')::text[];
+```
+
+```ini Expected Response
+    text
+------------
+ {ニホンゴ}
+(1 row)
+```

@@ -243,13 +243,32 @@ impl SegmentedTopKExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ffhelper: Arc<FFHelper>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctx: &TaskContext,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (sort_bytes, deferred_columns, k): (Vec<Vec<u8>>, Vec<DeferredSortColumn>, usize) =
             serde_json::from_slice(buf).map_err(|e| {
                 DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
             })?;
+        // The deferred sort columns all resolve against one index (the sorted relation), and
+        // `ff_index` is relative to that index's fast-field list. A join leaves the other
+        // index's scan in the same subtree, so pick the helper by `indexrelid` instead of
+        // grabbing whichever scan comes first.
+        let ffhelper = match deferred_columns.first() {
+            Some(first) => ffhelpers
+                .get(&first.canonical.indexrelid)
+                .cloned()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "SegmentedTopKExec dispatch: no ffhelper for indexrelid {}",
+                        first.canonical.indexrelid
+                    ))
+                })?,
+            None => ffhelpers
+                .into_values()
+                .next()
+                .unwrap_or_else(|| Arc::new(FFHelper::empty())),
+        };
         let sort_proto = sort_bytes
             .iter()
             .map(|b| {

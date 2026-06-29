@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::db::Query;
-use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::db::Query;
+use tests::fixtures::*;
 
 #[rstest]
 fn expression_paradedb_func(mut conn: PgConnection) {

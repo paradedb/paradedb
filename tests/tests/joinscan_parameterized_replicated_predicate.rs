@@ -1,10 +1,8 @@
-mod fixtures;
-
 use anyhow::Result;
-use fixtures::db::Query;
-use fixtures::*;
 use rstest::*;
 use serde_json::Value;
+use tests::fixtures::db::Query;
+use tests::fixtures::*;
 
 fn configure_parallel_joinscan(conn: &mut sqlx::PgConnection) {
     r#"

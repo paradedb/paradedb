@@ -17,13 +17,11 @@
 
 //! Tests for the paradedb.tokenize function
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use rustc_hash::FxHashSet as HashSet;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 fn reltuples_are_set(mut conn: PgConnection) {

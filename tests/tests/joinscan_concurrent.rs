@@ -24,14 +24,12 @@
 //! - PostgreSQL's MVCC visibility checking
 //! - JoinScan's hash table lookups
 
-mod fixtures;
-
 use anyhow::Result;
-use fixtures::*;
 use rstest::*;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tests::fixtures::*;
 use tokio::time::{sleep, Duration};
 
 /// Helper to verify a query uses JoinScan

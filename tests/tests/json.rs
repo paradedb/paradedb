@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 // In addition to checking whether all the expected types work for keys, make sure to include tests for anything that
 //    is reliant on keys (e.g. stable_sort, alias)

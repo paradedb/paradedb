@@ -110,12 +110,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
-                let ffhelper = first_scan_ffhelper(&input).ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec dispatch: no scan ffhelper in subtree".into(),
-                    )
-                })?;
-                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelper, ctx)
+                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelpers, ctx)
             }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
@@ -276,13 +272,6 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
         }
     }
     map
-}
-
-/// The first scan ffhelper below this node, for the segmented top-k exec (single source).
-fn first_scan_ffhelper(input: &Arc<dyn ExecutionPlan>) -> Option<Arc<FFHelper>> {
-    let mut scans = Vec::new();
-    collect_scan_runtime(input, &mut scans);
-    scans.into_iter().find_map(|s| s.ffhelper)
 }
 
 /// [`DistributedCodec`] with the pg_search UDF names carved out of its UDF/UDAF handling.

@@ -683,23 +683,26 @@ pub fn index_memory_segment(
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
     let mut isnull = vec![false; heaptupdesc.len()];
 
-    // Query-visible materialization (Snapshot / ParallelWorker) fetches each ctid with the
-    // scan's active MVCC snapshot so that detoasting is safe: that registered snapshot holds
-    // back the global xmin horizon, preventing a concurrent VACUUM from reclaiming the external
-    // TOAST chunks we read. Fetching such rows with SnapshotAny could instead select DEAD /
+    // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
+    // with the active MVCC snapshot so that detoasting is safe: that registered snapshot holds back
+    // the global xmin horizon, preventing a concurrent VACUUM from reclaiming the external TOAST
+    // chunks we read. Fetching such rows with SnapshotAny could instead select DEAD /
     // RECENTLY_DEAD versions whose TOAST has already been (or is being) freed, raising spurious
     // "missing/unexpected chunk number ... in pg_toast_*" errors. Because materialization happens
-    // lazily inside the scan, the active snapshot here is exactly the snapshot the scan uses for
-    // ctid visibility, so a ctid indexed as empty here is also filtered out by the scan.
+    // lazily inside query planning or execution, the active snapshot here is the snapshot that
+    // defines query-visible heap rows, so indexing an invisible ctid as empty cannot change a
+    // query result or estimate.
     //
     // Maintenance materialization (e.g. Mergeable) must index every live ctid regardless of any
     // single snapshot, since the resulting segment may serve future snapshots, so it keeps using
     // SnapshotAny and filters dead tuples with HeapTupleSatisfiesVacuum.
     // See: https://github.com/paradedb/paradedb/issues/5365
-    let query_visible = matches!(
-        mvcc_style,
-        MvccSatisfies::Snapshot | MvccSatisfies::ParallelWorker(_)
-    );
+    let query_visible = match mvcc_style {
+        MvccSatisfies::Snapshot
+        | MvccSatisfies::ParallelWorker(_)
+        | MvccSatisfies::LargestSegment => true,
+        MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
+    };
 
     'next_ctid: for ctid in ctids {
         // Guard against stale ctids referencing heap blocks truncated by VACUUM.
@@ -720,8 +723,7 @@ pub fn index_memory_segment(
         u64_to_item_pointer(ctid, &mut ipd);
 
         unsafe {
-            // Query-visible fetches use the scan's active MVCC snapshot; maintenance fetches use
-            // SnapshotAny and filter dead tuples below (see `query_visible` above for why).
+            // See `query_visible` above for why these two styles fetch with different snapshots.
             let fetch_snapshot = if query_visible {
                 pg_sys::GetActiveSnapshot()
             } else {
@@ -755,9 +757,8 @@ pub fn index_memory_segment(
                 }
 
                 if query_visible {
-                    // The fetched tuple is visible to the scan's snapshot, so its external TOAST
-                    // is protected by that snapshot for the duration of this read. Index it
-                    // directly -- the SnapshotAny dead-tuple filtering below does not apply.
+                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
+                    // index it.
                     break;
                 }
 

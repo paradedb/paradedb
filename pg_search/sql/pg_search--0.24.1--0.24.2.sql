@@ -117,23 +117,30 @@ ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typm
 -- Fix the typo in the function behind the `@@@(anyelement, pdb.query)` operator:
 -- `search_with_fieled_query_input` -> `search_with_field_query_input`. This function is never
 -- called directly (it only panics), but it is part of the public `paradedb` schema. Because the
--- underlying C wrapper symbol is derived from the Rust function name, the symbol changes with the
--- rename, so the operator and function are dropped and recreated rather than renamed in place.
-DROP OPERATOR IF EXISTS pg_catalog.@@@(anyelement, pdb.query);
-DROP FUNCTION IF EXISTS paradedb.search_with_fieled_query_input(anyelement, pdb.query);
+-- pgrx-generated C wrapper symbol is derived from the Rust function name, the symbol changes with
+-- the rename, so the operator and function are dropped and recreated rather than renamed in place.
+-- NOTE: drop the operator before the function it depends on. (pg-schema-diff emits these in the
+-- opposite order; the migration-diff check is order-independent, but the upgrade runs top-to-bottom
+-- and DROP FUNCTION would fail while the @@@ operator still references it.)
+DROP OPERATOR IF EXISTS pg_catalog."@@@"(anyelement, pdb.query);
+DROP FUNCTION IF EXISTS search_with_fieled_query_input(_element anyelement, query pdb.query);
+/* </end connected objects> */
 
-CREATE FUNCTION paradedb.search_with_field_query_input(
-    "_element" anyelement,
-    "query" pdb.Query
-) RETURNS bool
-    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
-    LANGUAGE c
+/* <begin connected objects> */
+-- pg_search/src/api/operator/atatat.rs:41
+-- pg_search::api::operator::atatat::search_with_field_query_input
+CREATE  FUNCTION "search_with_field_query_input"(
+	"_element" anyelement, /* AnyElement */
+	"query" pdb.Query /* pdb :: Query */
+) RETURNS bool /* bool */
+IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_field_query_input_wrapper';
-
+-- pg_search/src/api/operator/atatat.rs:41
+-- pg_search::api::operator::atatat::search_with_field_query_input
 CREATE OPERATOR pg_catalog.@@@ (
-    PROCEDURE="search_with_field_query_input",
-    LEFTARG=anyelement,
-    RIGHTARG=pdb.Query
+	PROCEDURE="search_with_field_query_input",
+	LEFTARG=anyelement, /* AnyElement */
+	RIGHTARG=pdb.Query /* pdb :: Query */
 );
-
 ALTER FUNCTION paradedb.search_with_field_query_input SUPPORT paradedb.atatat_support;

@@ -31,7 +31,9 @@
 
 use std::sync::Arc;
 
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::{DataFusionError, Result};
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 use tantivy::index::SegmentId;
 
@@ -44,9 +46,27 @@ use crate::postgres::customscan::mpp::worker_fragments::{
 };
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
+use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::physical_codec::{
     deserialize_physical_plan_with_runtime, serialize_physical_plan,
 };
+
+/// True only if every `PgSearchScan` in this stage is a shape the codec can ship (a
+/// single-partition lazy leaf). A sorted source lowers to a multi-partition scan the dispatch
+/// path doesn't handle yet, so the caller runs the query serially rather than erroring.
+fn stage_is_dispatchable(plan: &Arc<dyn ExecutionPlan>) -> bool {
+    let mut dispatchable = true;
+    let _ = plan.apply(|node| {
+        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+            if !scan.is_dispatchable() {
+                dispatchable = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    dispatchable
+}
 
 /// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.
 /// Shared by all workers; each selects the `task_idx` slots it owns. The stage's plan arrives
@@ -151,7 +171,7 @@ pub fn build_dispatch_blob(
     n_workers: u32,
     runtime: &tokio::runtime::Runtime,
     non_partitioning_segments: &[HashSet<SegmentId>],
-) -> Result<(Vec<u8>, Vec<StagePlan>)> {
+) -> Result<Option<(Vec<u8>, Vec<StagePlan>)>> {
     let expr_context_guard = ExprContextGuard::new();
     let logical = deserialize_logical_plan_with_runtime(
         logical_bytes,
@@ -171,6 +191,11 @@ pub fn build_dispatch_blob(
     let mut stage_plans = Vec::with_capacity(stages.len());
     let decode_ctx = session.task_ctx();
     for stage in stages {
+        // A sorted source lowers to a multi-partition scan the codec can't ship. Bail to a serial
+        // run instead of erroring mid-encode; a genuine codec gap still surfaces below.
+        if !stage_is_dispatchable(&stage.plan) {
+            return Ok(None);
+        }
         let plan_proto = serialize_physical_plan(stage.plan)?;
         // Encode can succeed while decode fails (a codec gap). The first decode otherwise
         // happens in a worker, where failure is a hard query error instead of the serial
@@ -200,7 +225,7 @@ pub fn build_dispatch_blob(
     }
     let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
-    Ok((blob, stage_plans))
+    Ok(Some((blob, stage_plans)))
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.
@@ -241,20 +266,23 @@ pub fn build_dispatch_payload(
     seed: SessionContext,
     n_workers: u32,
     non_partitioning_segments: &[HashSet<SegmentId>],
-) -> Result<(Vec<u8>, Vec<StagePlan>)> {
+) -> Result<Option<(Vec<u8>, Vec<StagePlan>)>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: runtime build: {e}")))?;
-    let (blob, stage_plans) = build_dispatch_blob(
+    let Some((blob, stage_plans)) = build_dispatch_blob(
         logical_bytes,
         seed,
         n_workers,
         &runtime,
         non_partitioning_segments,
-    )?;
+    )?
+    else {
+        return Ok(None);
+    };
     let payload = frame_dispatch_payload(&blob, dispatch_plan_capacity(logical_bytes.len()))?;
-    Ok((payload, stage_plans))
+    Ok(Some((payload, stage_plans)))
 }
 
 /// Expand the dispatch blob body into this worker's fragment assignments: the `(stage, task)`

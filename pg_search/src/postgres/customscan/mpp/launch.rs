@@ -236,9 +236,11 @@ fn launch_mpp(
     unsafe { (*scan_ptr).create_and_populate(args) };
     let non_partitioning_segments = unsafe { (*scan_ptr).non_partitioning_segment_ids() };
 
-    // Build the per-stage subplans once. A failure here is a hard error, matching the pre-cutover
-    // path: a serial fallback on a serialization gap would hide a codec bug behind a slow plan.
-    let (payload, stage_plans) = match build_dispatch_payload(
+    // Build the per-stage subplans once. `Ok(None)` is a known-undispatchable shape (a sorted
+    // source's multi-partition scan): the plan is valid, just not MPP-able yet, so tear the launch
+    // down and run serially. An `Err` is a real serialization gap and stays a hard error, so a
+    // codec bug never hides behind a slow plan.
+    let dispatch = match build_dispatch_payload(
         &plan_bytes,
         seed_for_dispatch,
         producer_count,
@@ -248,13 +250,24 @@ fn launch_mpp(
         Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
     };
 
-    // Spawn the workers. They block on the go flag before attaching, so a short launch is aborted
-    // without any worker reaching the mesh.
+    // Spawn the workers. They block on the go flag before attaching, so an aborted launch tears
+    // down through `wait_for_finish` without any worker reaching the mesh. Launch even when the
+    // plan isn't dispatchable: the launcher owns the parallel context, and only consuming it via
+    // launch + `wait_for_finish` destroys it.
     let attach = launcher.launch()?;
     let finish = attach.wait_for_attach()?;
     let launched = finish.launched_workers() as u32;
 
     let go = unsafe { go_flag(finish.state_manager()) };
+
+    let Some((payload, stage_plans)) = dispatch else {
+        // A sorted source's multi-partition scan the dispatch codec can't ship. Release the workers
+        // waiting on the go flag and run the query serially.
+        go.store(GO_ABORT, Ordering::Release);
+        finish.wait_for_finish();
+        pgrx::warning!("mpp: plan has a scan the dispatch codec can't ship; running serially");
+        return None;
+    };
 
     if launched < producer_count {
         // #5061: the machine couldn't give us the full producer set. The launched workers are

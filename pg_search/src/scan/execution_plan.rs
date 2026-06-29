@@ -293,6 +293,20 @@ impl PgSearchScanPlan {
         self.deferred_ctid_plan_position
     }
 
+    /// Whether [`Self::encode_for_dispatch`] can ship this scan: a single-partition lazy leaf.
+    /// Mirrors the shape checks there so the dispatch pre-check and the encoder stay in agreement.
+    /// A sorted source lowers to a multi-partition (throttled/eager) scan, which isn't dispatchable.
+    pub(crate) fn is_dispatchable(&self) -> bool {
+        let Ok(states) = self.states.lock() else {
+            return false;
+        };
+        states.len() == 1
+            && matches!(
+                states[0].as_ref().map(|s| &s.0.recipe),
+                Some(ScanRecipe::Lazy { .. })
+            )
+    }
+
     /// Serialize this scan into a transport-neutral descriptor for leader dispatch.
     ///
     /// Only the recipe and the reader-rebuild inputs travel; the live `ScanState` (tantivy

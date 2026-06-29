@@ -886,7 +886,7 @@ ORDER BY dp.category;
                Group By: category
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0]
+                 : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query="all"

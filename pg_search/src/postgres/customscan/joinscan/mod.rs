@@ -692,7 +692,8 @@ impl JoinScan {
             (src.scan_info.segment_count, src.scan_info.estimate)
         };
 
-        let nworkers = if mpp_is_active() {
+        let use_mpp = mpp_is_active() && !JoinScan::source_queries_have_parameters(&join_clause);
+        let nworkers = if use_mpp {
             // MPP needs exactly `producer_worker_count()` workers to match the n_procs x n_procs
             // mesh dimensions. Override the heuristic-based parallel-worker count.
             producer_worker_count() as usize
@@ -775,7 +776,14 @@ impl JoinScan {
             custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
+<<<<<<< HEAD
         if nworkers > 0 {
+=======
+        // For MPP the customscan launches its own producer workers from exec via the builder, so
+        // the path stays serial to PG (no Gather). Only the regular non-MPP parallel join is marked
+        // parallel-aware; `nworkers` still feeds the per-source row estimates above either way.
+        if nworkers > 0 && !use_mpp {
+>>>>>>> 0ab19ea04 (fix: Add support for solving heap filters in `mpp` plans. (#5370))
             custom_path.path.parallel_aware = true;
             custom_path.path.parallel_safe = true;
             custom_path.path.parallel_workers =
@@ -1079,6 +1087,15 @@ impl JoinScan {
             .collect()
     }
 
+    fn source_queries_have_parameters(join_clause: &JoinCSClause) -> bool {
+        // TODO(#5445): Implement `SolvePostgresExpressions` for `JoinScan` to solve
+        // these parameters on the leader before dispatch.
+        join_clause.plan.sources().iter().any(|source| {
+            let mut query = source.scan_info.query.clone();
+            query.has_parameters()
+        })
+    }
+
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.plan.sources().iter().any(|source| {
             let mut query = source.scan_info.query.clone();
@@ -1100,6 +1117,48 @@ impl JoinScan {
             mesh,
         )
     }
+<<<<<<< HEAD
+=======
+
+    /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
+    /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
+    /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
+    fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
+        if !mpp_is_active()
+            || Self::source_queries_have_parameters(&state.custom_state().join_clause)
+        {
+            return;
+        }
+        let Some(plan_bytes) = state.custom_state_mut().mpp_plan_bytes.take() else {
+            return;
+        };
+        Self::ensure_source_manifests(state);
+        let partitioning_idx = state.custom_state().join_clause.partitioning_source_index();
+        let all_sources: Vec<&[tantivy::SegmentReader]> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(|manifest| manifest.segment_readers())
+            .collect();
+        let args = ParallelScanArgs {
+            all_sources,
+            partitioning_source_idx: partitioning_idx,
+            query: vec![],
+            with_aggregates: false,
+        };
+        if let Some(leader) = crate::postgres::customscan::mpp::launch::launch_mpp_join(
+            plan_bytes,
+            args,
+            partitioning_idx,
+        ) {
+            // The leader runs the top fragment itself. When a non-partitioning source lands there
+            // (the SEMI/ANTI broadcast strategy), its scan claims per-source segments against the
+            // same shared state the workers use, so the codec needs this pointer to install it.
+            state.custom_state_mut().parallel_state = Some(leader.parallel_state);
+            state.custom_state_mut().mpp = Some(leader);
+        }
+    }
+>>>>>>> 0ab19ea04 (fix: Add support for solving heap filters in `mpp` plans. (#5370))
 }
 
 impl CustomScan for JoinScan {
@@ -1450,7 +1509,10 @@ impl CustomScan for JoinScan {
             // can write it into the DSM region. Only the leader runs this branch
             // (`ParallelWorkerNumber == -1`); workers read the bytes back from DSM in
             // initialize_worker_custom_scan via `worker_setup`.
-            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
+            if mpp_is_active()
+                && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp_plan_bytes = Some(bytes.to_vec());
                     let partitioning_idx =

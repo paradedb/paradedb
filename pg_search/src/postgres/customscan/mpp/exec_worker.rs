@@ -55,6 +55,7 @@ use crate::postgres::customscan::mpp::worker_fragments::{
     find_worker_assignments, FragmentRouting,
 };
 use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
 
@@ -256,6 +257,64 @@ pub(crate) fn run_mpp_worker(
         return;
     }
 
+<<<<<<< HEAD
+=======
+    // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same
+    // `SetPlanRequest` Flight ships. Collect the frames first (the take drains the inbox while
+    // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
+    // must stay off the produce futures.
+    let frames: Vec<SetPlanFrame> = {
+        let collected = runtime.block_on(async {
+            let mut frames = Vec::with_capacity(fragments.len());
+            for fragment in &fragments {
+                frames.push(
+                    take_set_plan_draining(
+                        &worker_mesh,
+                        fragment.stage_id,
+                        fragment.task_idx as u32,
+                    )
+                    .await?,
+                );
+            }
+            Ok::<_, datafusion::common::DataFusionError>(frames)
+        });
+        match collected {
+            Ok(frames) => frames,
+            Err(e) => pgrx::error!("mpp worker: plan frames did not arrive: {e}"),
+        }
+    };
+    let decode_ctx = session.task_ctx();
+    let mut plans = Vec::with_capacity(frames.len());
+    let expr_context_guard = ExprContextGuard::new();
+
+    // Deserialize under the decode ctx, not the run ctx. The run ctx limits
+    // allocations aggressively; decode builds the plan graph and can spike memory.
+    for (fragment, frame) in fragments.iter().zip(frames) {
+        let Some(set_plan) = frame.set_plan else {
+            pgrx::error!(
+                "mpp worker: SetPlan frame without a request (stage_id={}, task_idx={})",
+                fragment.stage_id,
+                fragment.task_idx
+            );
+        };
+        match deserialize_physical_plan_with_runtime(
+            &set_plan.plan_proto,
+            &decode_ctx,
+            parallel_state,
+            non_partitioning_segments.to_vec(),
+            index_segment_ids.to_vec(),
+            Some(expr_context_guard.as_ptr()),
+        ) {
+            Ok(plan) => plans.push(plan),
+            Err(e) => pgrx::error!(
+                "mpp worker: decode dispatched plan failed (stage_id={}, task_idx={}): {e}",
+                fragment.stage_id,
+                fragment.task_idx
+            ),
+        }
+    }
+
+>>>>>>> 0ab19ea04 (fix: Add support for solving heap filters in `mpp` plans. (#5370))
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);

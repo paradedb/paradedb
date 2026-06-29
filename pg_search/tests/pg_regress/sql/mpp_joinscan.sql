@@ -140,7 +140,7 @@ DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================
 -- Pass 4: MPP with heap filter
 --
--- A heap filter (like `length(f.title) > 0`) must be evaluated in the
+-- A heap filter (like `length(f.title) > 6`) must be evaluated in the
 -- worker. This tests that the expression context is properly provided
 -- to the worker.
 -- =====================================================================
@@ -151,14 +151,37 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
-  AND length(f.title) > 0
+  AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
-  AND length(f.title) > 0
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
+-- Pass 5: Serial fallback check
+--
+-- Ensure the same query returns identical results when executed serially.
+-- =====================================================================
+
+SET paradedb.enable_mpp TO off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 

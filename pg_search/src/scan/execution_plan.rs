@@ -373,7 +373,7 @@ impl PgSearchScanPlan {
         parallel_state: Option<*mut ParallelScanState>,
         non_partitioning_segment_ids: &[HashSet<SegmentId>],
         expr_context: Option<*mut pg_sys::ExprContext>,
-    ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
+    ) -> Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
         })?;

@@ -58,6 +58,7 @@ use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInte
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
 use datafusion_distributed::shm::SetPlanFrame;
@@ -282,7 +283,10 @@ pub(crate) fn run_mpp_worker(
     };
     let decode_ctx = session.task_ctx();
     let mut plans = Vec::with_capacity(frames.len());
-    let expr_context_guard = crate::postgres::utils::ExprContextGuard::new();
+    let expr_context_guard = ExprContextGuard::new();
+
+    // Deserialize under the decode ctx, not the run ctx. The run ctx limits
+    // allocations aggressively; decode builds the plan graph and can spike memory.
     for (fragment, frame) in fragments.iter().zip(frames) {
         let Some(set_plan) = frame.set_plan else {
             pgrx::error!(

@@ -70,6 +70,7 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
     /// `SearchPredicateUDF` on decode, same as the logical codec.
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// The `ExprContext` workers use to evaluate heap filters.
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 

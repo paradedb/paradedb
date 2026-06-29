@@ -69,6 +69,15 @@ impl RowEstimate {
         }
     }
 
+    /// The estimate as a float, or `None` when the table hasn't been ANALYZEd. Unlike
+    /// [`value`](Self::value), which collapses `Unknown` to `0`, this keeps "no estimate" distinct.
+    pub fn known_rows(self) -> Option<f64> {
+        match self {
+            RowEstimate::Known(rows) => Some(rows as f64),
+            RowEstimate::Unknown => None,
+        }
+    }
+
     pub fn from_reltuples(reltuples: Option<f64>) -> Self {
         match reltuples {
             Some(r) if r.is_normal() && !r.is_sign_negative() => RowEstimate::Known(r as u64),

@@ -33,7 +33,6 @@
 
 use std::sync::Arc;
 
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
@@ -44,7 +43,7 @@ use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
     collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
@@ -55,9 +54,11 @@ use datafusion_distributed::PartitionSink;
 
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
+use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
 use datafusion_distributed::shm::SetPlanFrame;
@@ -282,6 +283,10 @@ pub(crate) fn run_mpp_worker(
     };
     let decode_ctx = session.task_ctx();
     let mut plans = Vec::with_capacity(frames.len());
+    let expr_context_guard = ExprContextGuard::new();
+
+    // Deserialize under the decode ctx, not the run ctx. The run ctx limits
+    // allocations aggressively; decode builds the plan graph and can spike memory.
     for (fragment, frame) in fragments.iter().zip(frames) {
         let Some(set_plan) = frame.set_plan else {
             pgrx::error!(
@@ -296,6 +301,7 @@ pub(crate) fn run_mpp_worker(
             parallel_state,
             non_partitioning_segments.to_vec(),
             index_segment_ids.to_vec(),
+            Some(expr_context_guard.as_ptr()),
         ) {
             Ok(plan) => plans.push(plan),
             Err(e) => pgrx::error!(
@@ -319,6 +325,10 @@ pub(crate) fn run_mpp_worker(
                 + Send,
         >,
     >;
+    // Hold cancel/die off for the duration so neither our drain/send loops nor a subroutine
+    // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
+    // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
+    let held = HeldInterrupts::hold();
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
@@ -440,12 +450,7 @@ pub(crate) fn run_mpp_worker(
             let task_ctx = Arc::new(
                 TaskContext::default()
                     .with_session_config(cfg)
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
+                    .with_runtime(build_runtime_env(memory_pool)),
             );
 
             // Wrap the fragment's plan in a fresh `DistributedExec` and run `prepare_in_process_plan`
@@ -547,6 +552,12 @@ pub(crate) fn run_mpp_worker(
         }
         outcome
     });
+    // `block_on` has returned, so the runtime is idle and every fragment future (with its
+    // DSM senders) has dropped. Resume interrupts, then service any cancel/die the loops
+    // deferred, now on a stack with no live runtime; for a die this `proc_exit`s here instead
+    // of mid-`block_on`.
+    drop(held);
+    check_for_interrupts();
     if let Err(e) = result {
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }

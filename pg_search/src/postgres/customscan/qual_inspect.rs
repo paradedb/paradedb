@@ -271,6 +271,7 @@ fn generic_negation(input: SearchQueryInput) -> SearchQueryInput {
         must: vec![SearchQueryInput::All],
         should: Default::default(),
         must_not: vec![input],
+        minimum_should_match: None,
     }
 }
 
@@ -382,6 +383,7 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                     must: vec![null_preserving_exists_guard(&field)],
                     should: Default::default(),
                     must_not: vec![SearchQueryInput::FieldedQuery { field, query }],
+                    minimum_should_match: None,
                 }
             } else {
                 generic_negation(SearchQueryInput::FieldedQuery { field, query })
@@ -391,6 +393,7 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
             must,
             should,
             must_not,
+            ..
         } if must_not.is_empty() => {
             if should.is_empty() {
                 SearchQueryInput::Boolean {
@@ -400,6 +403,7 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                         .map(|query| negate_fielded_input(query, ctx))
                         .collect(),
                     must_not: Default::default(),
+                    minimum_should_match: None,
                 }
             } else if must.is_empty() {
                 SearchQueryInput::Boolean {
@@ -409,12 +413,14 @@ fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> S
                         .collect(),
                     should: Default::default(),
                     must_not: Default::default(),
+                    minimum_should_match: None,
                 }
             } else {
                 generic_negation(SearchQueryInput::Boolean {
                     must,
                     should,
                     must_not,
+                    minimum_should_match: None,
                 })
             }
         }
@@ -451,6 +457,7 @@ fn negated_search_query_input_with_context(
                     .map(|q| negated_search_query_input_with_context(q, ctx))
                     .collect(),
                 must_not: Default::default(),
+                minimum_should_match: None,
             }
         }
         Qual::Or(quals)
@@ -465,6 +472,7 @@ fn negated_search_query_input_with_context(
                     .collect(),
                 should: Default::default(),
                 must_not: Default::default(),
+                minimum_should_match: None,
             }
         }
         Qual::OpExpr { .. } => negate_fielded_input(SearchQueryInput::from(qual), ctx),
@@ -513,6 +521,7 @@ impl From<&Qual> for SearchQueryInput {
                             must,
                             should,
                             must_not: vec![],
+                            minimum_should_match: None,
                         }
                     }
                 } else {
@@ -662,6 +671,7 @@ impl From<&Qual> for SearchQueryInput {
                     must,
                     should: vec![],
                     must_not: vec![],
+                    minimum_should_match: None,
                 };
 
                 // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
@@ -690,11 +700,13 @@ impl From<&Qual> for SearchQueryInput {
                         must: Default::default(),
                         should: Default::default(),
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                     _ => SearchQueryInput::Boolean {
                         must: Default::default(),
                         should,
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                 }
             }
@@ -1967,6 +1979,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                         must: indexed_queries.clone(),
                         should: vec![],
                         must_not: vec![],
+                        minimum_should_match: None,
                     };
                 }
             }
@@ -2255,6 +2268,7 @@ mod tests {
                         value: PdbOwnedValue::Str("blue".into()),
                     },
                 }],
+                minimum_should_match: None,
             }),
         };
         assert_eq!(fast, want_fast);
@@ -2272,6 +2286,7 @@ mod tests {
                         value: PdbOwnedValue::Str("blue".into()),
                     },
                 }],
+                minimum_should_match: None,
             }),
         };
         assert_eq!(non_fast, want_non_fast);
@@ -2290,6 +2305,7 @@ mod tests {
                     field: "color".into(),
                     query: pdb::Query::Exists,
                 }],
+                minimum_should_match: None,
             }),
         };
         assert_eq!(negated_exists, want_negated_exists);
@@ -2325,9 +2341,11 @@ mod tests {
                             value: PdbOwnedValue::Bool(true),
                         },
                     }],
+                    minimum_should_match: None,
                 },
             ],
             must_not: vec![],
+            minimum_should_match: None,
         };
         assert_eq!(got, want);
     }
@@ -2402,6 +2420,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => should.is_empty() && must_not.is_empty() && quals.len() == must.len(),
 
@@ -2412,6 +2431,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => must.is_empty() && must_not.is_empty() && quals.len() == should.len(),
 
@@ -2432,6 +2452,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) if matches!(inner.as_ref(), Qual::And(_)) => {
                 let Qual::And(quals) = inner.as_ref() else {
@@ -2453,6 +2474,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) if matches!(inner.as_ref(), Qual::Or(_)) => {
                 let Qual::Or(quals) = inner.as_ref() else {
@@ -2503,6 +2525,7 @@ mod tests {
                     must,
                     should: _,
                     must_not,
+                    ..
                 },
             ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 

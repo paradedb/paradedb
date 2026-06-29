@@ -50,10 +50,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"100.5"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -79,10 +80,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -113,10 +115,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":"500"}}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -146,10 +149,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"quantity","value":"30"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -175,10 +179,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"rate","lower_bound":{"included":"2"},"upper_bound":null}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -206,10 +211,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"150"}}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -238,10 +244,11 @@ ORDER BY id;
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"0.01"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
@@ -288,10 +295,11 @@ ORDER BY id;
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_value","value":"1"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -317,10 +325,11 @@ ORDER BY id;
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":{"excluded":"100"},"upper_bound":null}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -348,10 +357,11 @@ ORDER BY id;
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"huge_precision","value":"1"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -377,10 +387,11 @@ ORDER BY id;
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"huge_precision","lower_bound":{"included":"0"},"upper_bound":null}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -408,10 +419,11 @@ ORDER BY id;
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":"0"}}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -455,10 +467,11 @@ ORDER BY id;
          Output: id, small_numeric, large_numeric, unlimited_numeric
          Table: numeric_mixed_test
          Index: numeric_mixed_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"small_numeric","value":"100"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
@@ -484,10 +497,11 @@ ORDER BY id;
          Output: id, small_numeric, large_numeric, unlimited_numeric
          Table: numeric_mixed_test
          Index: numeric_mixed_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
@@ -514,10 +528,11 @@ ORDER BY id;
          Output: id, small_numeric, large_numeric, unlimited_numeric
          Table: numeric_mixed_test
          Index: numeric_mixed_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"small_numeric","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
@@ -561,11 +576,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
@@ -591,11 +607,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"99999999.99"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
@@ -621,11 +638,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-99999999.99"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
@@ -651,11 +669,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-0.01"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"0.01"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
@@ -706,11 +725,12 @@ ORDER BY id;
          Output: id, big_int
          Table: numeric_precision_test
          Index: numeric_precision_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: big_int, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_int","value":"123456789012345678"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_precision_test
 WHERE id @@@ paradedb.all()
@@ -745,11 +765,12 @@ ORDER BY id;
          Output: id, big_int
          Table: numeric_precision_test
          Index: numeric_precision_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: big_int, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_int","lower_bound":{"included":"123456789012345678"},"upper_bound":null}},{"range":{"field":"big_int","lower_bound":null,"upper_bound":{"included":"123456789012345679"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_precision_test
 WHERE id @@@ paradedb.all()
@@ -798,11 +819,12 @@ ORDER BY id;
          Output: id, precise_value
          Table: numeric_bytes_precision_test
          Index: numeric_bytes_precision_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, precise_value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"precise_value","value":"12345678901234567890.12345678901234567890123456789"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_bytes_precision_test
 WHERE id @@@ paradedb.all()
@@ -856,10 +878,11 @@ ORDER BY id;
          Output: id, val
          Table: int8range_precision_test
          Index: int8range_precision_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range_term":{"field":"val","value":9007199254740993}}}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM int8range_precision_test
 WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
@@ -912,10 +935,11 @@ ORDER BY id;
          Output: id, val
          Table: numrange_precision_test
          Index: numrange_precision_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range_term":{"field":"val","value":"9007199254740995"}}}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numrange_precision_test
 WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
@@ -967,10 +991,11 @@ ORDER BY id;
          Output: id, vals
          Table: numeric_array_test
          Index: numeric_array_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"vals","value":"2.5"}}}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_array_test
 WHERE id @@@ paradedb.term('vals', 2.5::numeric)
@@ -1045,11 +1070,12 @@ ORDER BY id;
          Output: id, val
          Table: large_decimal_test
          Index: large_decimal_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"1.123456789012345678901234567890123456789"}}}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM large_decimal_test
 WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
@@ -1118,11 +1144,12 @@ ORDER BY id;
          Output: id, val
          Table: large_decimal_range_test
          Index: large_decimal_range_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"val","lower_bound":{"included":"1.000000000000000000000000000000000000002"},"upper_bound":{"excluded":"1.000000000000000000000000000000000000005"}}}}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM large_decimal_range_test
 WHERE id @@@ paradedb.range(
@@ -1257,11 +1284,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric64_decimal_compare_test
          Index: numeric64_decimal_compare_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"12.35"}}}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric64_decimal_compare_test
 WHERE id @@@ paradedb.term('val', 12.35::numeric)
@@ -1348,11 +1376,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_large_precision_test
          Index: numeric_large_precision_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_large_precision_test
 WHERE id @@@ paradedb.all()
@@ -1378,11 +1407,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_large_precision_test
          Index: numeric_large_precision_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"2"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_large_precision_test
 WHERE id @@@ paradedb.all()
@@ -1446,11 +1476,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_very_large_test
          Index: numeric_very_large_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"42.123456789"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_very_large_test
 WHERE id @@@ paradedb.all()
@@ -1505,11 +1536,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_unbounded_test
          Index: numeric_unbounded_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_unbounded_test
 WHERE id @@@ paradedb.all()
@@ -1535,11 +1567,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_unbounded_test
          Index: numeric_unbounded_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-2"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"5"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_unbounded_test
 WHERE id @@@ paradedb.all()
@@ -1607,11 +1640,12 @@ ORDER BY id;
          Output: id, val
          Table: numeric_high_scale_test
          Index: numeric_high_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"3"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM numeric_high_scale_test
 WHERE id @@@ paradedb.all()
@@ -1671,11 +1705,12 @@ WARNING:  Aggregate Scan not used: grouping column category exists, but is not a
                Output: category, amount
                Table: numeric_unbounded_agg_test
                Index: numeric_unbounded_agg_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
-(14 rows)
+(15 rows)
 
 SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
@@ -1731,10 +1766,11 @@ ORDER BY id;
          Output: id, bounded_high, unbounded
          Table: numeric_mixed_precision_test
          Index: numeric_mixed_precision_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"bounded_high","value":"100"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_mixed_precision_test
 WHERE id @@@ paradedb.all()
@@ -1760,10 +1796,11 @@ ORDER BY id;
          Output: id, bounded_high, unbounded
          Table: numeric_mixed_precision_test
          Index: numeric_mixed_precision_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"unbounded","value":"100"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_mixed_precision_test
 WHERE id @@@ paradedb.all()
@@ -1853,11 +1890,12 @@ ORDER BY id;
          Output: id, value
          Table: float8_test
          Index: float8_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM float8_test
 WHERE id @@@ paradedb.all()
@@ -1883,11 +1921,12 @@ ORDER BY id;
          Output: id, value
          Table: float8_test
          Index: float8_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM float8_test
 WHERE id @@@ paradedb.all()
@@ -1937,11 +1976,12 @@ ORDER BY id;
          Output: id, val
          Table: sci_notation_test
          Index: sci_notation_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"1000000"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM sci_notation_test
 WHERE id @@@ paradedb.all()
@@ -1967,11 +2007,12 @@ ORDER BY id;
          Output: id, val
          Table: sci_notation_test
          Index: sci_notation_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"2500"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM sci_notation_test
 WHERE id @@@ paradedb.all()
@@ -2015,11 +2056,12 @@ ORDER BY id;
          Output: id, val
          Table: small_decimal_test
          Index: small_decimal_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.0000000000000001"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM small_decimal_test
 WHERE id @@@ paradedb.all()
@@ -2045,11 +2087,12 @@ ORDER BY id;
          Output: id, val
          Table: small_decimal_test
          Index: small_decimal_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0.0000000000000001"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.00000000000001"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM small_decimal_test
 WHERE id @@@ paradedb.all()
@@ -2094,11 +2137,12 @@ ORDER BY id;
          Output: id, val
          Table: max_scale_test
          Index: max_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.123456789012345678"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM max_scale_test
 WHERE id @@@ paradedb.all()
@@ -2124,11 +2168,12 @@ ORDER BY id;
          Output: id, val
          Table: max_scale_test
          Index: max_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.5"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM max_scale_test
 WHERE id @@@ paradedb.all()
@@ -2154,12 +2199,13 @@ WARNING:  Aggregate Scan not used: field 'val' does not support aggregate pushdo
          Output: val
          Table: max_scale_test
          Index: max_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: val
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(11 rows)
+(12 rows)
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
@@ -2208,11 +2254,12 @@ ORDER BY id;
          Output: id, val
          Table: negative_scale_test
          Index: negative_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"12000"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM negative_scale_test
 WHERE id @@@ paradedb.all()
@@ -2238,11 +2285,12 @@ ORDER BY id;
          Output: id, val
          Table: negative_scale_test
          Index: negative_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"10000"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"20000"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM negative_scale_test
 WHERE id @@@ paradedb.all()
@@ -2279,12 +2327,13 @@ WARNING:  Aggregate Scan not used: field 'val' does not support aggregate pushdo
          Output: val
          Table: negative_scale_test
          Index: negative_scale_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: val
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(11 rows)
+(12 rows)
 
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
@@ -2382,11 +2431,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric64_test
 WHERE id @@@ paradedb.all()
@@ -2413,11 +2463,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric64_test
 WHERE id @@@ paradedb.all()
@@ -2443,11 +2494,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric64_test
 WHERE id @@@ paradedb.all()
@@ -2474,11 +2526,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric64_test
 WHERE id @@@ paradedb.all()
@@ -2506,11 +2559,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric64_test
 WHERE id @@@ paradedb.all()
@@ -2582,11 +2636,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -2613,11 +2668,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -2643,11 +2699,12 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM nan_numeric_bytes_test
 WHERE id @@@ paradedb.all()
@@ -2698,11 +2755,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"100"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2728,11 +2786,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"NaN"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2758,11 +2817,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"Infinity"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2788,11 +2848,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-Infinity"}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2819,11 +2880,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2851,11 +2913,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"250"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2883,11 +2946,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"-50"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2954,11 +3018,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -2986,11 +3051,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -3020,11 +3086,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -3057,11 +3124,12 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"}}}]}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -3126,10 +3194,11 @@ ORDER BY id;
          Output: id, val_small, val_large
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val_small","value":"100"}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all()
@@ -3156,10 +3225,11 @@ ORDER BY id;
          Output: id, val_small, val_large
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val_large","lower_bound":{"excluded":"100000000000"},"upper_bound":null}},{"range":{"field":"val_large","lower_bound":null,"upper_bound":{"excluded":"1500000000000"}}}]}}
-(10 rows)
+(11 rows)
 
 SELECT * FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all()
@@ -3185,12 +3255,13 @@ WARNING:  Aggregate Scan not used: field 'val_small' does not support aggregate 
          Output: val_small
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: val_small
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(11 rows)
+(12 rows)
 
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
@@ -3304,11 +3375,12 @@ ORDER BY id;
          Output: id, val
          Table: empty_range_test
          Index: empty_range_idx
+         Worker Selection: Cost model
          Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"empty":{"field":"val"}}}}
-(11 rows)
+(12 rows)
 
 SELECT * FROM empty_range_test
 WHERE id @@@ paradedb.range('val', 'empty'::numrange)

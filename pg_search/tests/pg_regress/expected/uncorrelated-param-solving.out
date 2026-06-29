@@ -65,12 +65,13 @@ LIMIT 100;
          Output: items.id, items.status, items.created_at
          Table: items
          Index: items_idx
+         Worker Selection: Row-capped
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: created_at desc, id desc
             TopK Limit: 100
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"IN [posted pending]","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1"}}]}}
-(23 rows)
+(24 rows)
 
 SELECT id, status, created_at
 FROM items

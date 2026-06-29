@@ -111,6 +111,7 @@ ORDER BY d.id;
          Output: d.id, d.title, (SubPlan 1)
          Table: documents
          Index: documents_search
+         Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
@@ -121,7 +122,7 @@ ORDER BY d.id;
                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
                    Applies to Aggregates: COUNT(*)
                    Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(17 rows)
+(18 rows)
 
 -- Execute the query
 SELECT d.id, d.title,
@@ -206,6 +207,7 @@ ORDER BY d.id;
          Output: d.id, d.title, (SubPlan 1)
          Table: documents
          Index: documents_search
+         Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
@@ -215,7 +217,7 @@ ORDER BY d.id;
                  ->  Seq Scan on public.files f
                        Output: f.id, f.documentid, f.title, f.file_path, f.file_size, f.created_at
                        Filter: ((f.file_size > 500) AND (f.documentid = d.id))
-(16 rows)
+(17 rows)
 
 -- Execute the query
 SELECT d.id, d.title,

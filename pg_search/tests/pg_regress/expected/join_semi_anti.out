@@ -79,7 +79,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 -- =====================================================================
@@ -185,6 +185,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Filter: (NOT (ANY (table_a.id = (hashed SubPlan 1).col1)))
                      Table: table_a
                      Index: table_a_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
@@ -201,7 +202,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                            Recheck Cond: ((table_b.group_id)::text = 'group_1'::text)
                            ->  Bitmap Index Scan on table_b_group_id_a_id_idx
                                  Index Cond: ((table_b.group_id)::text = 'group_1'::text)
-(29 rows)
+(30 rows)
 
 SELECT id, category
 FROM table_a
@@ -266,7 +267,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (17 rows)
 
 SELECT id, category
@@ -326,7 +327,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT *
@@ -387,7 +388,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT id, category

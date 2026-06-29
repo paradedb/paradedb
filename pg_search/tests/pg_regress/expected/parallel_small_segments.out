@@ -4,6 +4,9 @@
 -- limits parallel workers based on row count, so each worker processes
 -- enough rows for parallelism to be worthwhile (~10ms startup overhead).
 --
+-- Since #4664 the cost model decides cost-able scans and ignores this GUC; the
+-- row heuristic (this GUC) governs only uncostable scans, so Tests 1-3 use one.
+--
 -- However, when the scan declares sorted output (TopK with ORDER BY, or
 -- sorted columnar), it must visit ALL segments to produce globally correct
 -- results. In that case, cost is segment-scan dominated and the
@@ -44,60 +47,85 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
  items   |     10000
 (1 row)
 
--- Test 1: Unsorted scan with high threshold (min_rows_per_worker=300000)
--- With 10000 rows, max_workers = 10000/300000 = 0, so parallel should be DISABLED
--- for non-sorted scans (Normal exec method, no ORDER BY).
-SET paradedb.min_rows_per_worker = 300000;
+-- Tests 1-3 use an uncostable predicate (id <> a runtime subquery) so the row
+-- heuristic decides; the planner estimates ~1000 rows, capping at 1000/min_rows.
+-- Test 1: min_rows_per_worker=2000 -> 1000/2000 = 0 workers -> serial
+SET paradedb.min_rows_per_worker = 2000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
+                                                                                                                                         QUERY PLAN                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.items
-   Output: id, name
+   Output: items.id, items.name
    Table: items
    Index: items_bm25_idx
+   Worker Selection: Row-capped
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+   InitPlan 2
+     ->  Result
+           Output: ((InitPlan 1).col1 + 1)
+           InitPlan 1
+             ->  Limit
+                   Output: items_1.id
+                   ->  Index Only Scan Backward using items_pkey on public.items items_1
+                         Output: items_1.id
+(16 rows)
 
--- Test 2: Unsorted scan with lower threshold (min_rows_per_worker=5000)
--- With 10000 rows, max_workers = 10000/5000 = 2, parallel SHOULD be used
-SET paradedb.min_rows_per_worker = 5000;
+-- Test 2: min_rows_per_worker=500 -> 1000/500 = 2 workers -> parallel
+SET paradedb.min_rows_per_worker = 500;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather
-   Output: id, name
+   Output: items.id, items.name
    Workers Planned: 2
+   InitPlan 2
+     ->  Result
+           Output: ((InitPlan 1).col1 + 1)
+           InitPlan 1
+             ->  Limit
+                   Output: items_1.id
+                   ->  Index Only Scan Backward using items_pkey on public.items items_1
+                         Output: items_1.id
    ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
-         Output: id, name
+         Output: items.id, items.name
          Table: items
          Index: items_bm25_idx
+         Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+(19 rows)
 
--- Test 3: Unsorted scan with threshold disabled (0)
--- Parallel SHOULD be used based on segment count only
+-- Test 3: min_rows_per_worker=0 -> no cap -> parallel by segment count
 SET paradedb.min_rows_per_worker = 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather
-   Output: id, name
+   Output: items.id, items.name
    Workers Planned: 2
+   InitPlan 2
+     ->  Result
+           Output: ((InitPlan 1).col1 + 1)
+           InitPlan 1
+             ->  Limit
+                   Output: items_1.id
+                   ->  Index Only Scan Backward using items_pkey on public.items items_1
+                         Output: items_1.id
    ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
-         Output: id, name
+         Output: items.id, items.name
          Table: items
          Index: items_bm25_idx
+         Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+(19 rows)
 
 -- Test 4: TopK sorted scan bypasses min_rows_per_worker
 -- Even with a high min_rows_per_worker threshold, TopK queries that declare sorted
@@ -121,12 +149,13 @@ LIMIT 10;
                Output: id, name, paradedb.score(id)
                Table: items
                Index: items_bm25_idx
+               Worker Selection: Cost model (LIMIT)
                Exec Method: TopKScanExecState
                Scores: true
                   TopK Order By: pdb.score() desc, id asc
                   TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')
@@ -162,12 +191,13 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Output: id, name
                Table: items
                Index: items_bm25_idx
+               Worker Selection: Cost model (LIMIT)
                Exec Method: TopKScanExecState
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 -- Test 6: Verify unanalyzed table behavior
 -- When reltuples is unknown (-1), parallel should still be allowed
@@ -204,10 +234,11 @@ SELECT id, name FROM items WHERE name @@@ 'item';
          Output: id, name
          Table: items
          Index: items_bm25_idx
+         Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(11 rows)
 
 -- Clean up
 DROP TABLE items;

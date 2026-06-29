@@ -50,7 +50,6 @@
 //! - **Materialized CTE**: Eagerly execute the search into a temporary result set and
 //!   reference it as a CTE, avoiding repeated evaluation.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use arrow_array::builder::BooleanBuilder;
@@ -202,10 +201,7 @@ impl SearchPredicateUDF {
         match expr {
             Expr::ScalarFunction(func) => {
                 if func.func.name() == SEARCH_PREDICATE_UDF_NAME {
-                    func.func
-                        .inner()
-                        .as_any()
-                        .downcast_ref::<SearchPredicateUDF>()
+                    func.func.inner().downcast_ref::<SearchPredicateUDF>()
                 } else {
                     None
                 }
@@ -222,10 +218,6 @@ impl std::fmt::Display for SearchPredicateUDF {
 }
 
 impl ScalarUDFImpl for SearchPredicateUDF {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn name(&self) -> &str {
         SEARCH_PREDICATE_UDF_NAME
     }

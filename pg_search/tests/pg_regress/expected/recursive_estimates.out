@@ -40,10 +40,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 1.2: Simple phrase query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ### 'running shoes';
@@ -53,10 +54,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 2: BOOLEAN QUERIES (Two-Level Nesting)
@@ -70,10 +72,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 2.2: Simple OR (disjunction) - 2 children
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| 'running shoes';
@@ -83,10 +86,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 2.3: AND with array (multiple terms)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& ARRAY['running', 'shoes', 'athletic'];
@@ -96,10 +100,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match_array":{"field":"description","tokens":["running","shoes","athletic"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":0}},"estimated_docs":0}
-(7 rows)
+(8 rows)
 
 -- Test 2.4: OR with array (multiple terms)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| ARRAY['running', 'walking', 'hiking'];
@@ -109,10 +114,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match_array":{"field":"description","tokens":["running","walking","hiking"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":2}},"estimated_docs":2}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 3: NESTED BOOLEAN QUERIES (Three-Level Nesting)
@@ -133,10 +139,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3},{"term":{"field":"description","value":"running"},"estimated_docs":1}]},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 3.2: Boolean with two SHOULD clauses (OR)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -153,10 +160,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"should":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 3.3: Boolean with MUST and SHOULD mixed
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -171,10 +179,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"should":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 3.4: Boolean with MUST_NOT clause (CRITICAL: Tests negation)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -189,10 +198,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"must_not":[{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 4: COMPLEX NESTED QUERIES (Four+ Level Nesting)
@@ -218,10 +228,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1},{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":0}
-(7 rows)
+(8 rows)
 
 -- Test 4.2: Nested boolean - OR containing AND ((A AND B) OR C)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -243,10 +254,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"should":[{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1},{"term":{"field":"description","value":"boots"},"estimated_docs":1}]},"estimated_docs":2}},"estimated_docs":2}
-(7 rows)
+(8 rows)
 
 -- Test 4.3: Deep nesting - three levels of boolean queries
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -273,10 +285,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1},{"term":{"field":"description","value":"athletic"},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":0}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 5: SPECIAL QUERY TYPES
@@ -290,10 +303,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 5.2: Term set (array of exact matches)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description === ARRAY['shoes', 'boots'];
@@ -303,10 +317,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description","terms":["shoes","boots"]},"estimated_docs":4}},"estimated_docs":4}
-(7 rows)
+(8 rows)
 
 -- Test 5.3: Range query on numeric field (CRITICAL: Tests range estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -321,10 +336,11 @@ WHERE id @@@ paradedb.range(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":4}},"estimated_docs":4}
-(7 rows)
+(8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -339,10 +355,11 @@ WHERE description @@@ paradedb.regex(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":"run.*"},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.5: Fuzzy query (CRITICAL: Tests typo-tolerance estimates)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -358,10 +375,11 @@ WHERE description @@@ paradedb.fuzzy_term(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":null,"prefix":null},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 5.6: Empty query (matches nothing)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -373,10 +391,11 @@ WHERE description @@@ paradedb.empty();
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":"empty"},"estimated_docs":0}
-(7 rows)
+(8 rows)
 
 -- Test 5.7: Boost query (wraps another query with score boost)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -391,10 +410,11 @@ WHERE description @@@ paradedb.boost(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boost":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3},"factor":2.0},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 5.8: ConstScore query (wraps query with constant score)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -409,10 +429,11 @@ WHERE description @@@ paradedb.const_score(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3},"score":1.5},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 5.9: DisjunctionMax query (best match from multiple)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -429,10 +450,11 @@ WHERE description @@@ paradedb.disjunction_max(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3},{"term":{"field":"description","value":"boots"},"estimated_docs":1}],"tie_breaker":null},"estimated_docs":4}},"estimated_docs":4}
-(7 rows)
+(8 rows)
 
 -- Test 5.10: DisjunctionMax with tie_breaker
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -450,10 +472,11 @@ WHERE description @@@ paradedb.disjunction_max(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}],"tie_breaker":0.30000001192092896},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 5.11: Parse query (query string syntax)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -465,10 +488,11 @@ WHERE description @@@ paradedb.parse('description:shoes AND description:running'
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes AND description:running","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.12: Phrase with slop (allows word distance)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -484,10 +508,11 @@ WHERE description @@@ paradedb.phrase(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"phrase":{"field":"description","phrases":["running","shoes"],"slop":2},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.13: PhrasePrefix query (autocomplete scenarios)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -502,10 +527,11 @@ WHERE description @@@ paradedb.phrase_prefix(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"phrase_prefix":{"field":"description","phrases":["run"],"max_expansions":null},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.14: RegexPhrase query (regex with positional matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -520,10 +546,11 @@ WHERE description @@@ paradedb.regex_phrase(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"regex_phrase":{"field":"description","regexes":["run.*","shoe.*"],"slop":null,"max_expansions":null},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.15: MoreLikeThis query (document similarity) - using key_value
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -535,10 +562,11 @@ WHERE id @@@ pdb.more_like_this(1);
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
    Tantivy Query: {"with_index":{"query":{"more_like_this":{"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null,"document":null,"key_value":1,"fields":null},"estimated_docs":19}},"estimated_docs":19}
-(7 rows)
+(8 rows)
 
 -- Test 5.16: Match query with explicit tokenizer
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -553,10 +581,11 @@ WHERE description @@@ paradedb.match(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 5.17: Match conjunction (all terms must match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -571,10 +600,11 @@ WHERE description @@@ paradedb.match_conjunction(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.18: Match disjunction (any term can match)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -589,10 +619,11 @@ WHERE description @@@ paradedb.match_disjunction(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running walking","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.19: Proximity query (word distance matching)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -604,10 +635,11 @@ WHERE description @@@ pdb.proximity('running', 2, 'shoes');
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"running"},"distance":{"any_order":2},"right":{"term":"shoes"}},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.20: Proximity in order (words must appear in specific order)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -619,10 +651,11 @@ WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"running"},"distance":{"in_order":3},"right":{"term":"shoes"}},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5.21: Range query on date field
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -637,10 +670,11 @@ WHERE id @@@ paradedb.range(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":{"$__pdb_date__":"2023-01-01T00:00:00Z"}},"upper_bound":{"excluded":{"$__pdb_date__":"2023-12-31T00:00:00Z"}}},"estimated_docs":41}},"estimated_docs":41}
-(7 rows)
+(8 rows)
 
 -- Test 5.22: TermSet with paradedb.term_set function
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -658,10 +692,11 @@ WHERE description @@@ paradedb.term_set(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"description","value":"shoes"},{"field":"description","value":"boots"},{"field":"description","value":"sandals"}]},"estimated_docs":4}},"estimated_docs":4}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 5B: NESTED WRAPPER QUERIES
@@ -685,10 +720,11 @@ WHERE description @@@ paradedb.boost(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boost":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3},{"term":{"field":"description","value":"running"},"estimated_docs":1}]},"estimated_docs":1},"factor":2.0},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5B.2: ConstScore wrapping a Boolean query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -708,10 +744,11 @@ WHERE description @@@ paradedb.const_score(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"boolean":{"should":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1},"score":1.0},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5B.3: Boolean containing Boost queries
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -728,10 +765,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boost":{"query":{"term":{"field":"description","value":"shoes"},"estimated_docs":3},"factor":2.0},"estimated_docs":3},{"boost":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1},"factor":1.5},"estimated_docs":1}]},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 5B.4: DisjunctionMax containing Boolean queries
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -753,10 +791,11 @@ WHERE description @@@ paradedb.disjunction_max(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boolean":{"must":[{"term":{"field":"description","value":"running"}},{"term":{"field":"description","value":"shoes"}}]},"estimated_docs":1},{"term":{"field":"description","value":"boots"},"estimated_docs":1}],"tie_breaker":null},"estimated_docs":2}},"estimated_docs":2}
-(7 rows)
+(8 rows)
 
 -- Test 5B.5: Deeply nested with multiple wrapper types
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -781,10 +820,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boost":{"query":{"boolean":{"should":[{"const_score":{"query":{"term":{"field":"description","value":"running"},"estimated_docs":1},"score":1.0},"estimated_docs":1},{"term":{"field":"description","value":"walking"},"estimated_docs":0}]},"estimated_docs":1},"factor":2.0},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 6: GUC TOGGLE TEST
@@ -804,10 +844,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 6.2: Turn GUC OFF and verify estimates NOT shown
 SET paradedb.explain_recursive_estimates = OFF;
@@ -818,10 +859,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(7 rows)
+(8 rows)
 
 -- Test 6.3: Turn GUC back ON
 SET paradedb.explain_recursive_estimates = ON;
@@ -832,10 +874,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 7: EXPLAIN vs EXPLAIN ANALYZE
@@ -849,10 +892,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Test 7.2: EXPLAIN ANALYZE VERBOSE (planning + execution)
 EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
@@ -862,6 +906,7 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM rec
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Heap Fetches: 1
    Virtual Tuples: 0
    Invisible Tuples: 0
@@ -870,8 +915,8 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM rec
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
    Buffers: shared hit=23
  Planning:
-   Buffers: shared hit=30
-(13 rows)
+   Buffers: shared hit=45
+(14 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
 EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
@@ -897,10 +942,11 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistentterm123456","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0}
-(7 rows)
+(8 rows)
 
 -- Test 8.2: Match all query (very broad)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ paradedb.all();
@@ -910,11 +956,12 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Full Index Scan: true
    Tantivy Query: {"with_index":{"query":"all"},"estimated_docs":41}
-(8 rows)
+(9 rows)
 
 -- Test 8.3: Many AND clauses (wide tree)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -929,10 +976,11 @@ WHERE description @@@ 'running'
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"athletic","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"footwear","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0}]},"estimated_docs":0}
-(7 rows)
+(8 rows)
 
 -- Test 8.4: Many OR clauses (wide tree)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
@@ -947,10 +995,11 @@ WHERE description @@@ 'running'
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"walking","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hiking","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jogging","lenient":null,"conjunction_mode":null},"estimated_docs":1}},"estimated_docs":1}]},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- ============================================================================
 -- STAGE 9: PROTECTION LIMITS
@@ -1003,10 +1052,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}]},"estimated_docs":3}},"estimated_docs":3}
-(7 rows)
+(8 rows)
 
 -- Test 9.2: Verify statement_timeout is respected during estimation
 -- This test ensures that check_for_interrupts() is being called
@@ -1027,10 +1077,11 @@ WHERE description @@@ paradedb.boolean(
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
+   Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"running"},"estimated_docs":1},{"term":{"field":"description","value":"shoes"},"estimated_docs":3}]},"estimated_docs":1}},"estimated_docs":1}
-(7 rows)
+(8 rows)
 
 -- Reset timeout
 RESET statement_timeout;
@@ -1057,6 +1108,7 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
        "Table": "estimate_items",                                                                                                                                                                                        +
        "Index": "idx_recursive_estimates",                                                                                                                                                                               +
+       "Worker Selection": "Cost model",                                                                                                                                                                                 +
        "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
        "Scores": false,                                                                                                                                                                                                  +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
@@ -1090,6 +1142,7 @@ WHERE description @@@ paradedb.boolean(
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                            +
        "Table": "estimate_items",                                                                                                                                                                                                                                                            +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                   +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                     +
        "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                 +
        "Scores": false,                                                                                                                                                                                                                                                                      +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3},{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1}]},\"estimated_docs\":1}},\"estimated_docs\":1}"+
@@ -1128,6 +1181,7 @@ WHERE description @@@ paradedb.boolean(
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                                                                                                               +
        "Table": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                               +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                                                                                                                      +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                                                                                                                        +
        "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                    +
        "Scores": false,                                                                                                                                                                                                                                                                                                                                                                                                         +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1},{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3}]},\"estimated_docs\":1},{\"term\":{\"field\":\"description\",\"value\":\"athletic\"},\"estimated_docs\":0}]},\"estimated_docs\":0}},\"estimated_docs\":0}"+
@@ -1159,6 +1213,7 @@ WHERE rating @@@ paradedb.range(
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                    +
        "Table": "estimate_items",                                                                                                                                                                    +
        "Index": "idx_recursive_estimates",                                                                                                                                                           +
+       "Worker Selection": "Cost model",                                                                                                                                                             +
        "Exec Method": "NormalScanExecState",                                                                                                                                                         +
        "Scores": false,                                                                                                                                                                              +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
@@ -1191,6 +1246,7 @@ WHERE description @@@ paradedb.fuzzy_term(
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                               +
        "Table": "estimate_items",                                                                                                                                                                                               +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                      +
+       "Worker Selection": "Cost model",                                                                                                                                                                                        +
        "Exec Method": "NormalScanExecState",                                                                                                                                                                                    +
        "Scores": false,                                                                                                                                                                                                         +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"fuzzy_term\":{\"field\":\"description\",\"value\":\"sheos\",\"distance\":1,\"transposition_cost_one\":null,\"prefix\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
@@ -1219,6 +1275,7 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],              +
        "Table": "estimate_items",                                                                                                                                              +
        "Index": "idx_recursive_estimates",                                                                                                                                     +
+       "Worker Selection": "Cost model",                                                                                                                                       +
        "Exec Method": "NormalScanExecState",                                                                                                                                   +
        "Scores": false,                                                                                                                                                        +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null}}}}"+
@@ -1247,6 +1304,7 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
        "Table": "estimate_items",                                                                                                                                                                                        +
        "Index": "idx_recursive_estimates",                                                                                                                                                                               +
+       "Worker Selection": "Cost model",                                                                                                                                                                                 +
        "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
        "Scores": false,                                                                                                                                                                                                  +
        "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
@@ -1282,6 +1340,7 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        - "weight_range"                                                                                                                                                                                              +
      Table: "estimate_items"                                                                                                                                                                                         +
      Index: "idx_recursive_estimates"                                                                                                                                                                                +
+     Worker Selection: "Cost model"                                                                                                                                                                                  +
      Exec Method: "NormalScanExecState"                                                                                                                                                                              +
      Scores: false                                                                                                                                                                                                   +
      Tantivy Query: "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"
@@ -1317,6 +1376,7 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        </Output>                                                                                                                                                                                               +
        <Table>estimate_items</Table>                                                                                                                                                                           +
        <Index>idx_recursive_estimates</Index>                                                                                                                                                                  +
+       <Worker-Selection>Cost model</Worker-Selection>                                                                                                                                                         +
        <Exec-Method>NormalScanExecState</Exec-Method>                                                                                                                                                          +
        <Scores>false</Scores>                                                                                                                                                                                  +
        <Tantivy-Query>{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}</Tantivy-Query>+

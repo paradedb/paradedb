@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish-pg_search:
+  publish-pg_search-pgxn:
     name: Publish pg_search to PGXN
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref, '-rc.') }}
@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Bundle the Release
         run: make dist
@@ -32,3 +32,10 @@ jobs:
           PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
           PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
         run: pgxn-release
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-pgxn\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

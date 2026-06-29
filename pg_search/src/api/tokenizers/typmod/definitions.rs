@@ -70,6 +70,8 @@ pub struct LinderaTypmod {
     pub language: LinderaLanguage,
     pub filters: SearchTokenizerFilters,
     pub keep_whitespace: bool,
+    pub nfkc: bool,
+    pub reading_form: bool,
 }
 
 // for pdb.unicode_words
@@ -188,6 +190,8 @@ impl TypmodRules for LinderaTypmod {
                 positional = 0
             ),
             rule!("keep_whitespace", ValueConstraint::Boolean),
+            rule!("nfkc", ValueConstraint::Boolean),
+            rule!("reading_form", ValueConstraint::Boolean),
         ]
     }
 }
@@ -352,10 +356,23 @@ impl TryFrom<i32> for LinderaTypmod {
             .get("keep_whitespace")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let nfkc = parsed
+            .get("nfkc")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let reading_form = parsed
+            .get("reading_form")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if reading_form && language == LinderaLanguage::Chinese {
+            panic!("reading_form=true is not supported for the Lindera Chinese tokenizer");
+        }
         Ok(LinderaTypmod {
             language,
             filters,
             keep_whitespace,
+            nfkc,
+            reading_form,
         })
     }
 }

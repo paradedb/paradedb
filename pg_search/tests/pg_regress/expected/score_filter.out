@@ -34,10 +34,11 @@ ORDER BY id;
          Output: id, description, paradedb.score(id)
          Table: score_items
          Index: score_items_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
@@ -68,10 +69,11 @@ ORDER BY id;
          Output: id, description, paradedb.score(id)
          Table: score_items
          Index: score_items_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.10000000149011612},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
@@ -101,10 +103,11 @@ ORDER BY id;
          Output: id, description, paradedb.score(id)
          Table: score_items
          Index: score_items_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":10.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
@@ -134,10 +137,11 @@ ORDER BY id;
          Output: id, description, paradedb.score(id)
          Table: score_items
          Index: score_items_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"score_filter":{"bounds":[["Unbounded",{"Excluded":100.0}]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
@@ -169,11 +173,12 @@ ORDER BY id;
          Output: id, description, paradedb.score(id)
          Table: score_items
          Index: score_items_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":"all"}}
-(11 rows)
+(12 rows)
 
 SELECT id, description, paradedb.score(id)
 FROM score_items

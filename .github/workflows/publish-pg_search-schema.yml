@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Extract pgrx Version
         id: pgrx
@@ -58,7 +58,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v2-rust-cache"
+          prefix-key: "v3-rust-cache"
           shared-key: pg${{ env.pg_version }}
           cache-targets: true
           cache-all-crates: true

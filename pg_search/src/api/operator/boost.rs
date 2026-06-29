@@ -157,7 +157,7 @@ mod typedef {
     /// it through a [`half::f16`] so that the user's value will fit in the positive side of an i32,
     /// which is all Postgres lets us use.
     ///
-    /// We clamp the user-provided value to `[-2048.0..2028.0]` to avoid confusion around precision
+    /// We clamp the user-provided value to `[-2048.0..2048.0]` to avoid confusion around precision
     /// loss of larger integers, due to the nature of 16 bit floats.
     #[pg_extern(immutable, parallel_safe)]
     fn boost_typmod_in(typmod_parts: Array<&CStr>) -> i32 {

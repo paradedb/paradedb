@@ -312,12 +312,12 @@ pub(crate) mod pdb {
                 const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!($rust_name);
                 const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
                 const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
-                    Ok(SqlMappingRef::literal($sql_name));
+                    Ok(SqlMappingRef::literal(concat!("pdb.", $sql_name)));
                 const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
-                    Ok(ReturnsRef::One(SqlMappingRef::literal($sql_name)));
+                    Ok(ReturnsRef::One(SqlMappingRef::literal(concat!("pdb.", $sql_name))));
             }
 
-            #[pg_extern(immutable, parallel_safe)]
+            #[pg_extern(immutable, parallel_safe, requires = [$def_name])]
             fn $cast_name(s: $rust_name, fcinfo: pg_sys::FunctionCallInfo) -> Vec<String> {
                 let mut tokenizer = $rust_name::make_search_tokenizer();
 
@@ -575,6 +575,8 @@ pub(crate) mod pdb {
             language: LinderaLanguage::Chinese,
             filters: SearchTokenizerFilters::default(),
             keep_whitespace: false,
+            nfkc: false,
+            reading_form: false,
         },
         tokenize_lindera,
         json_to_lindera,

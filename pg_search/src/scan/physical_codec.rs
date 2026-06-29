@@ -70,6 +70,8 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
     /// `SearchPredicateUDF` on decode, same as the logical codec.
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// The `ExprContext` workers use to evaluate heap filters.
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 
 // Same justification as the logical `PgSearchExtensionCodec`: Postgres extensions run
@@ -94,6 +96,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 payload,
                 self.parallel_state,
                 &self.non_partitioning_segment_ids,
+                self.expr_context,
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
             // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
@@ -110,12 +113,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
-                let ffhelper = first_scan_ffhelper(&input).ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec dispatch: no scan ffhelper in subtree".into(),
-                    )
-                })?;
-                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelper, ctx)
+                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelpers, ctx)
             }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
@@ -124,22 +123,22 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 
     fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(scan) = node.as_any().downcast_ref::<PgSearchScanPlan>() {
+        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
             buf.push(TAG_PG_SEARCH_SCAN);
             buf.extend_from_slice(&scan.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(vis) = node.as_any().downcast_ref::<VisibilityFilterExec>() {
+        if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
             buf.push(TAG_VISIBILITY_FILTER);
             buf.extend_from_slice(&vis.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(lookup) = node.as_any().downcast_ref::<TantivyLookupExec>() {
+        if let Some(lookup) = node.downcast_ref::<TantivyLookupExec>() {
             buf.push(TAG_TANTIVY_LOOKUP);
             buf.extend_from_slice(&lookup.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(topk) = node.as_any().downcast_ref::<SegmentedTopKExec>() {
+        if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
             buf.extend_from_slice(&topk.encode_for_dispatch()?);
             return Ok(());
@@ -190,7 +189,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if name == "pdb_search_predicate" {
             let udf = node
                 .inner()
-                .as_any()
                 .downcast_ref::<SearchPredicateUDF>()
                 .ok_or_else(|| {
                     DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
@@ -205,7 +203,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if name.starts_with(PG_EXPR_UDF_PREFIX) {
             let udf = node
                 .inner()
-                .as_any()
                 .downcast_ref::<PgExprUdf>()
                 .ok_or_else(|| DataFusionError::Internal("UDF is not a PgExprUdf".into()))?;
             let bytes = serde_json::to_vec(udf).map_err(|e| {
@@ -232,7 +229,7 @@ struct ScanRuntime {
 /// still `Local` at decode time, so the walk descends into them. Binding a resolver to any reader
 /// it finds is fine: canonical segment sets give every proc the same `segment_ord` layout.
 fn collect_scan_runtime(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<ScanRuntime>) {
-    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         out.push(ScanRuntime {
             indexrelid: scan.indexrelid,
             ffhelper: scan.ffhelper(),
@@ -278,13 +275,6 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
         }
     }
     map
-}
-
-/// The first scan ffhelper below this node, for the segmented top-k exec (single source).
-fn first_scan_ffhelper(input: &Arc<dyn ExecutionPlan>) -> Option<Arc<FFHelper>> {
-    let mut scans = Vec::new();
-    collect_scan_runtime(input, &mut scans);
-    scans.into_iter().find_map(|s| s.ffhelper)
 }
 
 /// [`DistributedCodec`] with the pg_search UDF names carved out of its UDF/UDAF handling.
@@ -353,7 +343,7 @@ pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> 
     // finalized it delegates to its inner node, so strip it and ship the inner directly.
     let plan = plan
         .transform_down(|node| {
-            if let Some(fp) = node.as_any().downcast_ref::<FilterPassthroughExec>() {
+            if let Some(fp) = node.downcast_ref::<FilterPassthroughExec>() {
                 Ok(Transformed::yes(Arc::clone(fp.inner())))
             } else {
                 Ok(Transformed::no(node))
@@ -373,11 +363,13 @@ pub fn deserialize_physical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
         non_partitioning_segment_ids,
         index_segment_ids,
+        expr_context,
     });
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))

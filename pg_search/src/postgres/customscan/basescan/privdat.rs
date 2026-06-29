@@ -17,6 +17,7 @@
 
 use crate::api::{AsCStr, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
@@ -57,6 +58,9 @@ pub struct PrivateData {
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
+    // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
+    // VERBOSE. `None` only on plans serialized before this field existed.
+    worker_selection_reason: Option<WorkerDecisionReason>,
 }
 
 mod var_attname_lookup_serializer {
@@ -200,6 +204,10 @@ impl PrivateData {
         self.segment_count = segment_count;
     }
 
+    pub(super) fn set_worker_selection_reason(&mut self, reason: WorkerDecisionReason) {
+        self.worker_selection_reason = Some(reason);
+    }
+
     pub fn set_planned_which_fast_fields(
         &mut self,
         planned_which_fast_fields: HashSet<WhichFastField>,
@@ -274,6 +282,10 @@ impl PrivateData {
 
     pub fn var_attname_lookup(&self) -> &Option<HashMap<(Varno, pg_sys::AttrNumber), FieldName>> {
         &self.var_attname_lookup
+    }
+
+    pub(super) fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
+        self.worker_selection_reason
     }
 
     pub fn segment_count(&self) -> usize {

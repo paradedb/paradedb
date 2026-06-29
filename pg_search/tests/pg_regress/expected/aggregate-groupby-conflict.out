@@ -222,10 +222,11 @@ WARNING:  Aggregate Scan not used: grouping column title exists, but is not a fa
                Output: title, rating
                Table: groupby_conflict_test
                Index: groupby_conflict_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT title,

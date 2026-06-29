@@ -444,11 +444,12 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
                Output: category, price
                Table: products
                Index: products_idx
+               Worker Selection: Cost model
                Exec Method: ColumnarExecState
                Fast Fields: category, price
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(14 rows)
 
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
@@ -474,10 +475,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: description
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 SELECT AVG(LENGTH(description))
 FROM products

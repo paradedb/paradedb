@@ -156,15 +156,13 @@ fn collect_stages(
                 .map(|q| Ok(nb.route_partition(q)?.consumer_task as u32))
                 .collect()
         };
-        let plan_any = plan.as_ref().as_any();
-
         // Classify the boundary by downcasting to its concrete `Network*Exec` type, then pick a
         // destination proc for every output partition from `(type, top_level)`. The fork's gRPC
         // path keys dispatch on resolver URLs and never has to decide this; our shm_mq peers are
         // push-driven without URLs, so the dispatcher has to. Shuffle and Broadcast share the
         // receive-side math but Broadcast caps to task 0; Coalesce collapses to one consumer task;
         // top-level (`nested == false`) routes to the leader.
-        let routing = if plan_any.is::<NetworkCoalesceExec>() {
+        let routing = if plan.is::<NetworkCoalesceExec>() {
             if nested {
                 // Nested NetworkCoalesceExec: consumer is a single task in the parent stage. The
                 // receive math collapses to task 0 of the parent group, so the destination proc
@@ -176,7 +174,7 @@ fn collect_stages(
                 // Top-level NetworkCoalesceExec (gather to leader): consumer is leader proc 0.
                 FragmentRouting::Coalesce { dest_proc: 0 }
             }
-        } else if plan_any.is::<NetworkShuffleExec>() {
+        } else if plan.is::<NetworkShuffleExec>() {
             if nested {
                 // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
                 // to the consumer task `route_partition(q)` selects.
@@ -196,7 +194,7 @@ fn collect_stages(
                      parent consumer stage; a top-level shuffle is a planner anomaly."
                 ))
             }
-        } else if plan_any.is::<NetworkBroadcastExec>() {
+        } else if plan.is::<NetworkBroadcastExec>() {
             if nested {
                 // Nested NetworkBroadcastExec: same receive-side routing as Shuffle (via
                 // `route_partition`), but the dispatcher only runs the producer plan on task 0 to

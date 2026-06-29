@@ -1,0 +1,146 @@
+# workflows/generate-benchmark-snapshots.yml
+#
+# Generate Benchmark Heap Snapshots
+#
+# Loads a dataset's heap (load-heap) and captures it as a pgBackRest snapshot (snapshot-heap),
+# uploading to s3://paradedb-ci-benchmarks/snapshots/{dataset}/{size}/. Runs on the same CI runners
+# as the benchmark workflow, so the snapshot's Postgres data directory is platform-compatible with
+# the cluster that restores it. The benchmark workflow then just restore-heaps these.
+#
+# Prerequisite: each dataset's sampled source data must already be in the CI bucket at
+# s3://paradedb-ci-benchmarks/datasets/{dataset}/sampled/{size}/{csv|parquet}/.
+
+name: Generate Benchmark Snapshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Which dataset(s) to snapshot."
+        required: false
+        type: choice
+        options:
+          - all
+          - stackoverflow
+          - cohere
+        default: all
+      size:
+        description: "Optional single size to snapshot (e.g. 100k, 1m, 20m). Blank = all sizes for the dataset."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  # Build the (dataset, size) matrix from the inputs so only the selected entries run — each entry
+  # does a full, expensive cluster setup, so we don't want to run ones we didn't ask for.
+  prep:
+    name: Resolve Snapshot Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - name: Build matrix
+        id: build
+        env:
+          DATASET: ${{ inputs.dataset }}
+          SIZE: ${{ inputs.size }}
+        run: |
+          all='[
+            {"dataset":"stackoverflow","size":"100k"},
+            {"dataset":"stackoverflow","size":"1m"},
+            {"dataset":"stackoverflow","size":"20m"},
+            {"dataset":"cohere","size":"1m"},
+            {"dataset":"cohere","size":"10m"}
+          ]'
+          include=$(echo "$all" | jq -c \
+            --arg ds "${DATASET:-all}" --arg sz "${SIZE}" \
+            '[ .[] | select(($ds=="all" or .dataset==$ds) and ($sz=="" or .size==$sz)) ]')
+          echo "Selected entries: $include"
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
+  generate:
+    name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
+    needs: prep
+    runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
+      - runs-on=${{ github.run_id }}
+      - family=m8gd.metal-24xl # Match the benchmark runner so snapshots are platform-identical
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prep.outputs.matrix) }}
+    env:
+      pg_version: 18
+      BACKREST_STANZA: bench
+      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_PATH_PREFIX: /snapshots
+      BACKREST_REPO_REGION: us-east-1
+      BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
+      BACKREST_REPO_S3_KEY_TYPE: shared
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Set up benchmark cluster
+        uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: ${{ env.pg_version }}
+
+      # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
+      - name: Load Heap
+        working-directory: benchmarks/
+        run: |
+          set -euo pipefail
+          cargo run --release -- load-heap \
+            --dataset "${{ matrix.dataset }}" \
+            --size "${{ matrix.size }}" \
+            --url "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}"
+
+      # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
+      # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
+      # (error 028: "info files exist but do not match the database"). Regenerating intentionally
+      # replaces the old snapshot. Also aborts orphaned multipart uploads from any failed prior run.
+      - name: Clear existing snapshot
+        run: |
+          set -euo pipefail
+          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/${{ matrix.size }}/"
+          aws s3api list-multipart-uploads --bucket "${BACKREST_REPO_BUCKET}" --prefix "$prefix" \
+            --query 'Uploads[].{Key:Key,UploadId:UploadId}' --output text 2>/dev/null \
+            | while read -r key uid; do
+                [ -n "$key" ] && aws s3api abort-multipart-upload --bucket "${BACKREST_REPO_BUCKET}" --key "$key" --upload-id "$uid" || true
+              done
+          aws s3 rm --recursive "s3://${BACKREST_REPO_BUCKET}/${prefix}"
+
+      # Stop Postgres -- required for the --no-online cold backup.
+      - name: Stop Postgres
+        working-directory: pg_search/
+        run: cargo pgrx stop pg${{ env.pg_version }}
+
+      - name: Snapshot Heap
+        working-directory: benchmarks/
+        run: |
+          set -euo pipefail
+          cargo run --release -- snapshot-heap \
+            --dataset "${{ matrix.dataset }}" \
+            --size "${{ matrix.size }}" \
+            --pgdata "/home/runner/.pgrx/data-${{ env.pg_version }}" \
+            --stanza "${BACKREST_STANZA}" \
+            --repo-bucket "${BACKREST_REPO_BUCKET}" \
+            --repo-path-prefix "${BACKREST_REPO_PATH_PREFIX}" \
+            --repo-region "${BACKREST_REPO_REGION}" \
+            --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
+            --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}" \
+            --process-max 8

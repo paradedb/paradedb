@@ -283,6 +283,7 @@ fn launch_mpp(
     go.store(GO_RUN, Ordering::Release);
 
     leader.finish = Some(finish);
+    leader.parallel_state = scan_ptr;
     Some(leader)
 }
 

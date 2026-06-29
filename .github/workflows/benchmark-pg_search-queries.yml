@@ -369,6 +369,20 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
+      # Reuses the index the benchmark step just built (same Postgres).
+      - name: Measure "cohere" Recall (1M)
+        id: recall_1m
+        if: ${{ env.RUN_COHERE == 'true' }}
+        working-directory: benchmarks/
+        run: |
+          set -euo pipefail
+          out=$(cargo run --release -- recall \
+            --dataset cohere \
+            --size 1m \
+            --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
+          echo "$out"
+          echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"
+
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
         run: |
@@ -399,6 +413,39 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Measure "cohere" Recall (10M)
+        id: recall_10m
+        if: ${{ env.RUN_COHERE == 'true' }}
+        working-directory: benchmarks/
+        run: |
+          set -euo pipefail
+          out=$(cargo run --release -- recall \
+            --dataset cohere \
+            --size 10m \
+            --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
+          echo "$out"
+          echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"
+
+      - name: Comment cohere recall
+        if: ${{ !cancelled() && env.RUN_COHERE == 'true' && (steps.recall_1m.outputs.recall != '' || steps.recall_10m.outputs.recall != '') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body="### Cohere recall — \`${{ env.COHERE_INDEX }}\` index
+
+          | size | recall |
+          |------|--------|
+          | 1m   | ${{ steps.recall_1m.outputs.recall || 'n/a' }} |
+          | 10m  | ${{ steps.recall_10m.outputs.recall || 'n/a' }} |
+
+          <sub>recall@k of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark.</sub>"
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "$body"
+          else
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$body"
+          fi
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

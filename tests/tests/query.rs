@@ -15,14 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use core::panic;
 
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{PgConnection, Row};
+use tests::fixtures::*;
 
 #[rstest]
 fn boolean_tree(mut conn: PgConnection) {

@@ -22,13 +22,11 @@
 //! a second connection and assert a witness connection kept open the whole
 //! time survives. A cluster reset would have dropped it.
 
-mod fixtures;
-
 use anyhow::Result;
-use fixtures::*;
 use rstest::*;
 use sqlx::{Executor, PgConnection};
 use std::time::{Duration, Instant};
+use tests::fixtures::*;
 use tokio::time::sleep;
 
 const SETUP_SQL: &str = r#"

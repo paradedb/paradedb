@@ -16,13 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 // Tests for ParadeDB's Aggregate Custom Scan implementation
-mod fixtures;
 
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 fn assert_uses_custom_scan(conn: &mut PgConnection, enabled: bool, query: impl AsRef<str>) {
     let (plan,) = format!(" EXPLAIN (FORMAT JSON) {}", query.as_ref()).fetch_one::<(Value,)>(conn);

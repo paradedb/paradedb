@@ -15,20 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
-use crate::fixtures::querygen::groupbygen::arb_group_by;
-use crate::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
-use crate::fixtures::querygen::numericgen::arb_numeric_expr;
-use crate::fixtures::querygen::pagegen::arb_paging_exprs;
-use crate::fixtures::querygen::wheregen::arb_wheres;
-use crate::fixtures::querygen::wheregen::Expr as WhereExpr;
-use crate::fixtures::querygen::{
+use tests::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
+use tests::fixtures::querygen::groupbygen::arb_group_by;
+use tests::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
+use tests::fixtures::querygen::numericgen::arb_numeric_expr;
+use tests::fixtures::querygen::pagegen::arb_paging_exprs;
+use tests::fixtures::querygen::wheregen::arb_wheres;
+use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
+use tests::fixtures::querygen::{
     arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
 };
 
-use fixtures::*;
+use tests::fixtures::*;
 
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;

@@ -16,12 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(unused_variables, unused_imports)]
-mod fixtures;
 
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 async fn lindera_korean_tokenizer(mut conn: PgConnection) {

@@ -17,12 +17,10 @@
 
 //! Tests for the paradedb.tokenize function
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 fn default_tokenizer(mut conn: PgConnection) {

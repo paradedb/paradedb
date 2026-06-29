@@ -16,15 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(unused_variables, unused_imports)]
-mod fixtures;
 
 use std::path::PathBuf;
 
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
     format!("unexpected error, received: {err}")

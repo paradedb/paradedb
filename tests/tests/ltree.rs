@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 /// Helper to create the ltree extension (it's a contrib module, should be available).
 fn setup_ltree(conn: &mut PgConnection) {

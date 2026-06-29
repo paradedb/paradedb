@@ -15,13 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::db::Query;
-use fixtures::*;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::db::Query;
+use tests::fixtures::*;
 
 #[rstest]
 fn index_scan_under_parallel_path(mut conn: PgConnection) {

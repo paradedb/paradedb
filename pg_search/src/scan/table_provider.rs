@@ -26,6 +26,7 @@ use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::DistributedConfig;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
@@ -669,6 +670,71 @@ impl PgSearchTableProvider {
             ffhelper,
         )
     }
+
+    /// Creates a single-partition sorted scan for MPP dispatch.
+    ///
+    /// Unlike `create_throttled_scan` / `create_eager_scan`, this exposes exactly one partition so
+    /// the dispatch codec can ship it as a `SortedLazy` recipe. The per-segment fan-out and the
+    /// `SortPreservingMergeExec` that keeps the output sorted live inside the leaf's `execute`, so
+    /// a worker rebuilds the same shape from its own `ParallelScanState`. The declared `sort_order`
+    /// is preserved so the consumer's cross-worker merge stays valid.
+    #[allow(clippy::too_many_arguments)]
+    fn create_sorted_lazy_scan(
+        &self,
+        parallel_state: Option<*mut ParallelScanState>,
+        reader: &SearchIndexReader,
+        which_fast_fields: Vec<WhichFastField>,
+        ffhelper: FFHelper,
+        visibility: VisibilityChecker,
+        heap_relid: pg_sys::Oid,
+        schema: SchemaRef,
+        resolved_query: SearchQueryInput,
+        planner_estimated_rows: u64,
+        sort_order: &crate::postgres::options::SortByField,
+        mpp_source_idx: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let ffhelper = Arc::new(ffhelper);
+        let scanner_config = crate::scan::execution_plan::ScannerConfig {
+            which_fast_fields,
+            heap_relid: heap_relid.into(),
+            batch_size_hint: None,
+            score_needed: self.scan_info.score_needed,
+        };
+        let recipe = crate::scan::execution_plan::ScanRecipe::SortedLazy {
+            parallel_state,
+            source_idx: mpp_source_idx,
+            non_partitioning_index: self.non_partitioning_index,
+            planner_estimated_rows,
+            scanner_config,
+        };
+        let state = ScanState {
+            recipe,
+            ffhelper: ffhelper.clone(),
+            visibility: Box::new(visibility) as Box<VisibilityChecker>,
+            reader: reader.clone(),
+        };
+
+        self.create_scan(
+            vec![state],
+            schema,
+            resolved_query,
+            Some(sort_order),
+            ffhelper,
+        )
+    }
+}
+
+/// True when the physical plan is being built for MPP distributed execution (or for the leader's
+/// dispatch structure-build). Only `build_mpp_session_context` installs a `DistributedConfig`
+/// option extension; the serial fallback's session has none, so it keeps the multi-partition
+/// sorted scans.
+fn is_distributed_build(state: &dyn Session) -> bool {
+    state
+        .config()
+        .options()
+        .extensions
+        .get::<DistributedConfig>()
+        .is_some()
 }
 
 #[async_trait]
@@ -741,7 +807,7 @@ impl PgSearchTableProvider {
     async fn scan_inner(
         &self,
         canonical_override: Option<HashSet<SegmentId>>,
-        _state: &dyn Session,
+        state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
@@ -842,7 +908,34 @@ impl PgSearchTableProvider {
         let sort_order = self.scan_info.sort_order.as_ref();
 
         if let Some(sort_order) = sort_order {
-            if let Some(parallel_state) = parallel_state {
+            if is_distributed_build(state) {
+                // Under MPP the sorted source must ship as a single-partition leaf the dispatch
+                // codec can encode. The multi-partition eager/throttled scans can't travel, so
+                // emit the `SortedLazy` leaf instead. It claims its segments and merges them
+                // inside `execute`, staying single-partition to the plan tree. The serial-fallback
+                // build has no `DistributedConfig` and keeps the multi-partition scans below.
+                let planner_estimated_rows = self
+                    .scan_info
+                    .estimated_rows_per_worker
+                    .or(match self.scan_info.estimate {
+                        RowEstimate::Known(n) => Some(n),
+                        RowEstimate::Unknown => None,
+                    })
+                    .unwrap_or(0);
+                self.create_sorted_lazy_scan(
+                    parallel_state,
+                    &reader,
+                    projected_fields,
+                    ffhelper,
+                    visibility,
+                    heap_relid,
+                    projected_schema,
+                    query,
+                    planner_estimated_rows,
+                    sort_order,
+                    self.mpp_source_idx,
+                )
+            } else if let Some(parallel_state) = parallel_state {
                 // In joinscan, the "partitioning source" (the first source) uses the throttled checkout
                 // strategy to dynamically claim segments.
                 self.create_throttled_scan(

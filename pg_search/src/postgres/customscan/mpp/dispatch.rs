@@ -52,8 +52,8 @@ use crate::scan::physical_codec::{
 };
 
 /// True only if every `PgSearchScan` in this stage is a shape the codec can ship (a
-/// single-partition lazy leaf). A sorted source lowers to a multi-partition scan the dispatch
-/// path doesn't handle yet, so the caller runs the query serially rather than erroring.
+/// single-partition `Lazy`/`SortedLazy` leaf). A non-dispatchable scan drops the whole query to a
+/// serial run rather than erroring.
 fn stage_is_dispatchable(plan: &Arc<dyn ExecutionPlan>) -> bool {
     let mut dispatchable = true;
     let _ = plan.apply(|node| {

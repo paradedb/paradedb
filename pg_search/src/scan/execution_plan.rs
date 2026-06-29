@@ -119,6 +119,20 @@ pub enum ScanRecipe {
     },
     /// Prefetched scan: scanner is already created and has prefetched data.
     Prefetched { scanner: Scanner },
+    /// Sorted single-partition leaf for MPP dispatch. Carries the same source identity as
+    /// `Lazy`, but `execute` claims this worker's segments, opens one per-segment partition over
+    /// them (each in the index's physical/sort order), and merges them with a
+    /// `SortPreservingMergeExec` so the leaf emits one locally-sorted stream. The merge lives
+    /// inside `execute`, so the leaf stays single-partition for the dispatch codec while still
+    /// honoring the declared `sort_order`. The consumer's `SortPreservingMergeExec` over
+    /// `NetworkCoalesceExec` then merges across workers into the global order.
+    SortedLazy {
+        parallel_state: Option<*mut ParallelScanState>,
+        source_idx: Option<usize>,
+        non_partitioning_index: Option<usize>,
+        planner_estimated_rows: u64,
+        scanner_config: ScannerConfig,
+    },
 }
 
 /// State for a scan partition.
@@ -254,6 +268,10 @@ impl PgSearchScanPlan {
                         planner_estimated_rows,
                         ..
                     } => *planner_estimated_rows,
+                    ScanRecipe::SortedLazy {
+                        planner_estimated_rows,
+                        ..
+                    } => *planner_estimated_rows,
                     ScanRecipe::Prefetched { scanner } => scanner.estimated_rows(),
                 })
                 .collect()
@@ -293,9 +311,11 @@ impl PgSearchScanPlan {
         self.deferred_ctid_plan_position
     }
 
-    /// Whether [`Self::encode_for_dispatch`] can ship this scan: a single-partition lazy leaf.
-    /// Mirrors the shape checks there so the dispatch pre-check and the encoder stay in agreement.
-    /// A sorted source lowers to a multi-partition (throttled/eager) scan, which isn't dispatchable.
+    /// Whether [`Self::encode_for_dispatch`] can ship this scan: a single-partition `Lazy` or
+    /// `SortedLazy` leaf. Mirrors the shape checks there so the dispatch pre-check and the encoder
+    /// stay in agreement. The eager/throttled multi-partition sorted scan (serial / non-MPP) is
+    /// not dispatchable; under MPP the sorted source lowers to the single-partition `SortedLazy`
+    /// leaf instead, which is.
     pub(crate) fn is_dispatchable(&self) -> bool {
         let Ok(states) = self.states.lock() else {
             return false;
@@ -303,7 +323,7 @@ impl PgSearchScanPlan {
         states.len() == 1
             && matches!(
                 states[0].as_ref().map(|s| &s.0.recipe),
-                Some(ScanRecipe::Lazy { .. })
+                Some(ScanRecipe::Lazy { .. } | ScanRecipe::SortedLazy { .. })
             )
     }
 
@@ -329,7 +349,7 @@ impl PgSearchScanPlan {
         let state = states[0].as_ref().ok_or_else(|| {
             DataFusionError::Internal("PgSearchScan dispatch: partition already consumed".into())
         })?;
-        let (source_idx, non_partitioning_index, planner_estimated_rows, scanner_config) =
+        let (source_idx, non_partitioning_index, planner_estimated_rows, scanner_config, sorted) =
             match &state.0.recipe {
                 ScanRecipe::Lazy {
                     source_idx,
@@ -342,6 +362,20 @@ impl PgSearchScanPlan {
                     *non_partitioning_index,
                     *planner_estimated_rows,
                     scanner_config.clone(),
+                    false,
+                ),
+                ScanRecipe::SortedLazy {
+                    source_idx,
+                    non_partitioning_index,
+                    planner_estimated_rows,
+                    scanner_config,
+                    ..
+                } => (
+                    *source_idx,
+                    *non_partitioning_index,
+                    *planner_estimated_rows,
+                    scanner_config.clone(),
+                    true,
                 ),
                 _ => {
                     return Err(DataFusionError::NotImplemented(
@@ -372,6 +406,7 @@ impl PgSearchScanPlan {
             source_idx,
             non_partitioning_index,
             planner_estimated_rows,
+            sorted,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -465,14 +500,25 @@ impl PgSearchScanPlan {
             batch_size_hint: descriptor.batch_size_hint,
             score_needed: descriptor.score_needed,
         };
-        let state = ScanState {
-            recipe: ScanRecipe::Lazy {
+        let recipe = if descriptor.sorted {
+            ScanRecipe::SortedLazy {
                 parallel_state,
                 source_idx: descriptor.source_idx,
                 non_partitioning_index: descriptor.non_partitioning_index,
                 planner_estimated_rows: descriptor.planner_estimated_rows,
                 scanner_config,
-            },
+            }
+        } else {
+            ScanRecipe::Lazy {
+                parallel_state,
+                source_idx: descriptor.source_idx,
+                non_partitioning_index: descriptor.non_partitioning_index,
+                planner_estimated_rows: descriptor.planner_estimated_rows,
+                scanner_config,
+            }
+        };
+        let state = ScanState {
+            recipe,
             ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader,
@@ -496,6 +542,159 @@ impl PgSearchScanPlan {
             descriptor.indexrelid,
             deferred_ctid_plan_position,
         )))
+    }
+
+    /// Execute a `SortedLazy` leaf: claim this worker's segments, expose each as its own sorted
+    /// partition over a shared reader, and `SortPreservingMergeExec` them into one locally-sorted
+    /// stream. The leaf is single-partition to the dispatch codec and the plan tree; the
+    /// per-segment fan-out and merge stay inside `execute`.
+    #[allow(clippy::too_many_arguments)]
+    fn execute_sorted_lazy(
+        &self,
+        parallel_state: Option<*mut ParallelScanState>,
+        source_idx: Option<usize>,
+        scanner_config: ScannerConfig,
+        ffhelper: Arc<FFHelper>,
+        visibility: Box<VisibilityChecker>,
+        reader: SearchIndexReader,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        // Claim this worker's slice. Under MPP the per-source counter (or the partitioning-source
+        // counter) hands each worker a disjoint set; their union covers every segment. With no
+        // `parallel_state` (serial / a leader-executed edge plan) the leaf owns every segment.
+        let segments: Vec<SegmentId> = match parallel_state {
+            Some(ps) => {
+                let mut claimed = Vec::new();
+                loop {
+                    pgrx::check_for_interrupts!();
+                    let next = unsafe {
+                        match source_idx {
+                            Some(idx) => (*ps).checkout_segment_for_source(idx),
+                            None => crate::postgres::customscan::parallel::checkout_segment(ps),
+                        }
+                    };
+                    match next {
+                        Some(seg) => claimed.push(seg),
+                        None => break,
+                    }
+                }
+                claimed
+            }
+            None => reader
+                .segment_readers()
+                .iter()
+                .map(|r| r.segment_id())
+                .collect(),
+        };
+
+        let schema = self.properties.eq_properties.schema().clone();
+        if segments.is_empty() {
+            return Ok(Box::pin(unsafe {
+                UnsafeSendStream::new(futures::stream::empty(), schema)
+            }));
+        }
+
+        // The leaf declares an ordering only when the sort field is projected. The `ctid` default
+        // sort, for instance, isn't in the schema, so `create_scan` drops the ordering and there's
+        // nothing to preserve. Without a declared ordering, chain the claimed segments in one
+        // partition (no merge); with one, expose each segment as its own sorted partition so the
+        // `SortPreservingMergeExec` below can merge them.
+        let states: Vec<ScanState> = if self.sort_order.is_some() {
+            segments
+                .iter()
+                .map(|seg| ScanState {
+                    recipe: ScanRecipe::Eager {
+                        segment_ids: vec![*seg],
+                        scanner_config: scanner_config.clone(),
+                    },
+                    ffhelper: Arc::clone(&ffhelper),
+                    visibility: Box::new(visibility.as_ref().clone()) as Box<VisibilityChecker>,
+                    reader: reader.clone(),
+                })
+                .collect()
+        } else {
+            vec![ScanState {
+                recipe: ScanRecipe::Eager {
+                    segment_ids: segments.clone(),
+                    scanner_config,
+                },
+                ffhelper: Arc::clone(&ffhelper),
+                visibility,
+                reader: reader.clone(),
+            }]
+        };
+
+        let partition_row_counts: Vec<u64> = states
+            .iter()
+            .map(|s| match &s.recipe {
+                ScanRecipe::Eager { segment_ids, .. } => s
+                    .reader
+                    .estimated_docs_in_segments(segment_ids.iter().cloned()),
+                _ => 0,
+            })
+            .collect();
+        let n = states.len();
+        let eq_properties = build_equivalence_properties(schema.clone(), self.sort_order.as_ref());
+        let properties = Arc::new(PlanProperties::new(
+            eq_properties,
+            Partitioning::UnknownPartitioning(n),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+        let wrapped_states: Vec<Option<UnsafeSendSync<ScanState>>> = states
+            .into_iter()
+            .map(|s| Some(UnsafeSendSync(s)))
+            .collect();
+
+        // Carry the leaf's dynamic filters and deferred metadata so the per-segment partitions
+        // prune and emit exactly as the leaf would. A fresh metrics set keeps the inner partition
+        // keys from colliding with the single-partition leaf's.
+        let inner = Arc::new(PgSearchScanPlan {
+            states: Mutex::new(wrapped_states),
+            partition_row_counts,
+            properties,
+            resolved_query: self.resolved_query.clone(),
+            dynamic_filters: self.dynamic_filters.clone(),
+            metrics: ExecutionPlanMetricsSet::new(),
+            deferred_fields: self.deferred_fields.clone(),
+            ffhelper: self.ffhelper.clone(),
+            indexrelid: self.indexrelid,
+            deferred_ctid_plan_position: self.deferred_ctid_plan_position,
+            dynamic_filter_pushdown: Arc::new(AtomicBool::new(
+                self.dynamic_filter_pushdown.load(Ordering::Relaxed),
+            )),
+            sort_order: self.sort_order.clone(),
+            dynamic_filter_strategy: Arc::new(AtomicU8::new(
+                self.dynamic_filter_strategy.load(Ordering::Relaxed),
+            )),
+        });
+
+        // A single segment is already sorted; skip the merge.
+        if n == 1 {
+            return inner.execute(0, context);
+        }
+
+        let sort_field = self.sort_order.as_ref().ok_or_else(|| {
+            DataFusionError::Internal("SortedLazy leaf without a sort_order".into())
+        })?;
+        let field_name = sort_field.field_name.as_ref();
+        let (col_idx, _) = schema.column_with_name(field_name).ok_or_else(|| {
+            DataFusionError::Internal(format!(
+                "SortedLazy sort field '{field_name}' not in scan schema"
+            ))
+        })?;
+        let sort_options = SortOptions {
+            descending: matches!(sort_field.direction, SortByDirection::Desc),
+            nulls_first: matches!(sort_field.direction, SortByDirection::Asc),
+        };
+        let sort_expr = PhysicalSortExpr {
+            expr: Arc::new(Column::new(field_name, col_idx)),
+            options: sort_options,
+        };
+        let ordering = LexOrdering::new(vec![sort_expr])
+            .expect("sort expression should create valid ordering");
+        let spm = Arc::new(SortPreservingMergeExec::new(ordering, inner));
+        spm.execute(0, context)
     }
 }
 
@@ -522,6 +721,9 @@ struct ScanDispatchDescriptor {
     /// segment sets a decode without `ParallelScanState` looks up.
     non_partitioning_index: Option<usize>,
     planner_estimated_rows: u64,
+    /// `true` for the `SortedLazy` leaf: the worker rebuilds a sorted single-partition scan whose
+    /// `execute` merges its per-segment streams. `false` is the plain `Lazy` leaf.
+    sorted: bool,
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.
@@ -663,7 +865,7 @@ impl ExecutionPlan for PgSearchScanPlan {
     fn execute(
         &self,
         partition: usize,
-        _context: Arc<TaskContext>,
+        context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let mut states = self.states.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
@@ -693,6 +895,34 @@ impl ExecutionPlan for PgSearchScanPlan {
         }) = states[partition].take().ok_or_else(|| {
             DataFusionError::Internal(format!("Partition {} has already been executed", partition))
         })?;
+        // Release the lock before the sorted path builds and executes its internal sub-plan, which
+        // re-enters this scan's `execute` for each per-segment partition.
+        drop(states);
+
+        // The sorted MPP leaf merges its own segments: claim this worker's slice, open one
+        // per-segment partition over it, and `SortPreservingMergeExec` them into one sorted
+        // stream. Staying single-partition keeps the dispatch shape invariant; the merge is an
+        // execution detail, not a plan-tree node.
+        let recipe = match recipe {
+            ScanRecipe::SortedLazy {
+                parallel_state,
+                source_idx,
+                non_partitioning_index: _,
+                planner_estimated_rows: _,
+                scanner_config,
+            } => {
+                return self.execute_sorted_lazy(
+                    parallel_state,
+                    source_idx,
+                    scanner_config,
+                    ffhelper,
+                    visibility,
+                    reader,
+                    context,
+                );
+            }
+            other => other,
+        };
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -749,7 +979,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                             };
                             (res, scanner_config)
                         }
-                        ScanRecipe::Prefetched { .. } => unreachable!(),
+                        // `SortedLazy` is handled before this stream is built (it returns its own
+                        // merged sub-plan stream), and `Prefetched` matched the outer arm.
+                        ScanRecipe::Prefetched { .. } | ScanRecipe::SortedLazy { .. } => {
+                            unreachable!()
+                        }
                     };
                     Scanner::new(
                         search_results,

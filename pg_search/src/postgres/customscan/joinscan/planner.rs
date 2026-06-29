@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode};
+use datafusion::common::JoinType;
 use datafusion::common::Result;
 use datafusion::physical_expr::equivalence::EquivalenceProperties;
 use datafusion::physical_expr::expressions::Column;
@@ -26,10 +27,11 @@ use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::joins::utils::JoinFilter;
-use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
+use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode, SortMergeJoinExec};
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use datafusion_distributed::{BroadcastExec, DistributedConfig};
 
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 
@@ -78,12 +80,24 @@ impl SortMergeJoinEnforcer {
     fn try_convert_to_smj(
         &self,
         hash_join: &HashJoinExec,
+        mpp: bool,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         let left = hash_join.left();
         let right = hash_join.right();
         let on = hash_join.on();
 
         if on.is_empty() {
+            return Ok(None);
+        }
+
+        // Under MPP the SMJ's build (left) side is broadcast to every worker task; the probe (right)
+        // side stays a work-stolen sorted slice. That only produces the right answer for the join
+        // types where replicating the left is safe, and only for a `CollectLeft` build. Other shapes
+        // keep the `HashJoinExec` (the fork distributes those itself), so we don't lower them.
+        if mpp
+            && (hash_join.partition_mode() != &PartitionMode::CollectLeft
+                || !is_left_broadcast_safe(hash_join.join_type()))
+        {
             return Ok(None);
         }
 
@@ -156,6 +170,17 @@ impl SortMergeJoinEnforcer {
                     // column_indices are ordered Left-first, Right-second. Reorder if needed.
                     let filter = hash_join.filter().map(normalize_join_filter_ordering);
 
+                    // Under MPP, replace the build side with a broadcast: every worker task receives
+                    // the full build set, re-sorted by the join key, while the probe stays its own
+                    // segment slice. The fork turns a `BroadcastExec` under a `SortPreservingMergeExec`
+                    // into a `NetworkBroadcastExec`, so this keeps the build sorted (no re-sort) and
+                    // co-locates every matching key on the same task.
+                    let new_left = if mpp {
+                        broadcast_build_side(left, &left_keys, &left_opts)
+                    } else {
+                        new_left
+                    };
+
                     let exec = SortMergeJoinExec::try_new(
                         new_left,
                         new_right,
@@ -201,11 +226,15 @@ impl PhysicalOptimizerRule for SortMergeJoinEnforcer {
     fn optimize(
         &self,
         plan: Arc<dyn ExecutionPlan>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        // Under MPP the join is built for distributed execution: the build side must be broadcast
+        // so every worker task sees it in full. A `DistributedConfig` option extension is present
+        // only on the MPP session.
+        let mpp = config.extensions.get::<DistributedConfig>().is_some();
         plan.transform_up(|plan| {
             if let Some(hash_join) = plan.downcast_ref::<HashJoinExec>() {
-                if let Some(smj) = self.try_convert_to_smj(hash_join)? {
+                if let Some(smj) = self.try_convert_to_smj(hash_join, mpp)? {
                     return Ok(Transformed::yes(smj));
                 }
             }
@@ -366,4 +395,45 @@ fn normalize_join_filter_ordering(filter: &JoinFilter) -> JoinFilter {
         .data;
 
     JoinFilter::new(new_expression, new_column_indices, new_schema)
+}
+
+/// Wrap an MPP `SortMergeJoinExec`'s build (left) side so the fork broadcasts it: every worker task
+/// receives the full build set, re-sorted by the join key, while the probe stays its own segment
+/// slice. Unwraps a `CoalescePartitionsExec` the distribution pass added (its order is irrelevant;
+/// the `SortPreservingMergeExec` re-establishes it), broadcasts the source, then merges back to one
+/// sorted stream. The fork's boundary pass rewrites the `BroadcastExec` under the
+/// `SortPreservingMergeExec` into a `NetworkBroadcastExec`.
+fn broadcast_build_side(
+    left: &Arc<dyn ExecutionPlan>,
+    keys: &[Arc<dyn PhysicalExpr>],
+    opts: &[arrow_schema::SortOptions],
+) -> Arc<dyn ExecutionPlan> {
+    let source = left
+        .downcast_ref::<CoalescePartitionsExec>()
+        .map_or_else(|| Arc::clone(left), |coalesce| Arc::clone(coalesce.input()));
+    let ordering_vec: Vec<PhysicalSortExpr> = keys
+        .iter()
+        .zip(opts)
+        .map(|(expr, opt)| PhysicalSortExpr {
+            expr: expr.clone(),
+            options: *opt,
+        })
+        .collect();
+    let ordering = LexOrdering::new(ordering_vec).expect("valid ordering");
+    let broadcast = Arc::new(BroadcastExec::new(source, 1));
+    Arc::new(SortPreservingMergeExec::new(ordering, broadcast))
+}
+
+/// Join types where broadcasting the left (build) side is correct: the left is the lookup side and
+/// the right is the one preserved/partitioned across tasks. Mirrors the fork's `insert_broadcast`
+/// safety check.
+fn is_left_broadcast_safe(join_type: &JoinType) -> bool {
+    matches!(
+        join_type,
+        JoinType::Inner
+            | JoinType::Right
+            | JoinType::RightSemi
+            | JoinType::RightAnti
+            | JoinType::RightMark
+    )
 }

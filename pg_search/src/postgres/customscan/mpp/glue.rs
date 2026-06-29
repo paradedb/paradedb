@@ -120,7 +120,7 @@ pub fn producer_worker_count() -> u32 {
 /// producer fragment itself. Its outbound senders are dropped inside `leader_setup`.
 pub struct MppLeaderState {
     /// Runtime mesh handle. Install on the leader's `SessionContext` via
-    /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
+    /// `with_extension(Arc::clone(&mesh))` so `ShmChannelResolver` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
     /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
@@ -304,7 +304,7 @@ pub fn deliver_set_plans(leader: &MppLeaderState) -> Result<(), String> {
                     set_plan: Some(SetPlanRequest {
                         plan_proto: sp.plan_proto.clone(),
                         task_count: sp.task_count as u64,
-                        task_key: Some(TaskKey {
+                        task_key: Some(datafusion_distributed::proto::TaskKey {
                             query_id: sp.query_id.clone(),
                             stage_id: sp.stage_num as u64,
                             task_number: task as u64,
@@ -420,7 +420,7 @@ pub fn drain_worker_metrics(
     let _ = plan.apply(|node| {
         if let Some(nb) = node.as_network_boundary() {
             let stage = nb.input_stage();
-            query_id.get_or_insert_with(|| stage.query_id().as_bytes().to_vec());
+            query_id.get_or_insert_with(|| stage.query_id());
             expected += stage.task_count();
         }
         Ok(TreeNodeRecursion::Continue)
@@ -435,14 +435,18 @@ pub fn drain_worker_metrics(
     for _ in 0..100 {
         let _ = mesh.try_drain_pass();
         while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
-            store.insert(
-                datafusion_distributed::TaskKey {
-                    query_id: query_id.clone(),
-                    stage_id: stage_id as u64,
-                    task_number: task_number as u64,
-                },
-                metrics,
-            );
+            // The frames carry proto metrics; the store holds the decoded in-memory form the rewrite
+            // reads. A frame that fails to decode is still counted so the wait doesn't spin.
+            if let Ok(metrics) = datafusion_distributed::decode_task_metrics(metrics) {
+                store.insert(
+                    TaskKey {
+                        query_id,
+                        stage_id: stage_id as usize,
+                        task_number: task_number as usize,
+                    },
+                    metrics,
+                );
+            }
             got.insert((stage_id, task_number));
         }
         if got.len() >= expected {

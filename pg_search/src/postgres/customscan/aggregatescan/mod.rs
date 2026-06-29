@@ -1548,7 +1548,7 @@ impl AggregateScan {
 
             // MPP leader: install the mesh + DF-D fork's distributed planner so
             // `create_physical_plan` produces a `DistributedExec` whose
-            // `NetworkShuffleExec`s use our `ShmMqWorkerTransport` to read
+            // `NetworkShuffleExec`s use our `ShmChannelResolver` to read
             // from worker queues at execute time. Otherwise: existing serial
             // session context.
             let ctx = match df_state.mpp.as_ref() {

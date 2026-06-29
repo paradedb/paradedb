@@ -48,7 +48,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
     collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
     InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, MppSender,
-    ShmMqWorkerTransport,
+    ShmChannelResolver, ShmDiscardedPlanCodec,
 };
 use datafusion_distributed::PartitionSink;
 
@@ -158,7 +158,7 @@ pub(crate) fn build_mpp_session_context(
     // opens a WorkerConnection, so the fork's default transport sits unused.
     if let Some(mesh) = mesh {
         state_builder =
-            state_builder.with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh));
+            state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
         // Broadcast-subtree cap. Chain order matters: this has to come before the leaf
@@ -168,9 +168,11 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // No `with_distributed_user_codec(...)`: the leader serializes per-stage subplans through
-        // a combined codec built explicitly in `scan::physical_codec`, and each worker decodes
-        // the same way. Nothing drives the session's user-codec slot.
+        // The coordinator serializes each stage subplan into the dispatch request before handing it
+        // to the channel. We deliver plans over DSM and the shm channel discards that request, so
+        // the codec only has to let the throwaway encode succeed for nodes DataFusion's proto can't
+        // represent (`PgSearchScan`, `SortMergeJoinExec`).
+        .with_distributed_user_codec(ShmDiscardedPlanCodec)
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }
@@ -458,7 +460,7 @@ pub(crate) fn run_mpp_worker(
             // `Stage::Remote`. Without this, a nested `NetworkShuffleExec` /
             // `NetworkBroadcastExec` hitting `LocalStage::execute` errors when its task count
             // exceeds 1; with the conversion, those boundaries dispatch through
-            // `ShmMqWorkerTransport` exactly like outer boundaries.
+            // `ShmChannelResolver` exactly like outer boundaries.
             let plan = {
                 let dist = Arc::new(DistributedExec::new(Arc::clone(frag_plan)));
                 match dist.prepare_in_process_plan(&task_ctx) {

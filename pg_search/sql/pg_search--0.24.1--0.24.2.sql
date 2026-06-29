@@ -122,7 +122,7 @@ ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typm
 -- NOTE: drop the operator before the function it depends on. (pg-schema-diff emits these in the
 -- opposite order; the migration-diff check is order-independent, but the upgrade runs top-to-bottom
 -- and DROP FUNCTION would fail while the @@@ operator still references it.)
-DROP OPERATOR IF EXISTS pg_catalog."@@@"(anyelement, pdb.query);
+DROP OPERATOR IF EXISTS pg_catalog.@@@(anyelement, pdb.query);
 DROP FUNCTION IF EXISTS search_with_fieled_query_input(_element anyelement, query pdb.query);
 /* </end connected objects> */
 

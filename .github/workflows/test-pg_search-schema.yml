@@ -81,7 +81,10 @@ jobs:
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
-          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
+          # TEMPORARY: pin to the pg-schema-diff branch that fixes operator-name quoting in
+          # DROP/ALTER OPERATOR (paradedb/pg-schema-diff#2). Revert to the default branch once
+          # that PR is merged. See pg_search/sql/pg_search--0.24.1--0.24.2.sql.
+          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --branch fix/unquoted-operator-names --debug --force
 
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug

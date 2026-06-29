@@ -429,8 +429,8 @@ impl PgSearchScanPlan {
             descriptor.score_needed,
             mvcc,
             expr_context.and_then(std::ptr::NonNull::new),
-            // The worker lacks a Postgres PlanState tree. This is safe because ExecInitExpr
-            // accepts null_mut() for expressions that do not reference external plan contexts.
+            // TODO: MPP is currently disabled when a scan requires parameter solving: see
+            // https://github.com/paradedb/paradedb/issues/5445.
             None,
             needs_tokenizer,
         )

@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A cancel or `pg_terminate_backend` taken while an MPP query runs used to
-//! crash the leader during teardown (a die serviced from inside the tokio
-//! `block_on`, or DSM senders dropped after the parallel segment was gone),
-//! which resets the whole cluster. These tests signal a running MPP query from
-//! a second connection and assert a witness connection kept open the whole
-//! time survives. A cluster reset would have dropped it.
+//! A cancel or `pg_terminate_backend` taken while an MPP query runs used to crash the leader during
+//! teardown (a die serviced from inside the tokio `block_on`, or DSM control senders dropped after
+//! the parallel segment was already detached), which resets the whole cluster. These tests signal a
+//! running MPP query from a second connection and assert a witness connection kept open the whole
+//! time survives — a cluster reset would have dropped it.
 
 use anyhow::Result;
 use rstest::*;
@@ -29,51 +28,77 @@ use std::time::{Duration, Instant};
 use tests::fixtures::*;
 use tokio::time::sleep;
 
+// Three 20k-row tables. `age` is in [0,50), so `users.age = products.age` fans out to millions of
+// intermediate rows — that scan-dominated join is what keeps the leader inside its MPP `block_on`
+// for ~2s, a window wide enough for the killer to land a signal mid-flight. (A small/cheap join
+// finishes in milliseconds and the signal misses the window — it then can't catch the teardown
+// bug at all.)
 const SETUP_SQL: &str = r#"
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
-CREATE TABLE mpp_sig_files (id SERIAL PRIMARY KEY, title TEXT, content TEXT);
-CREATE TABLE mpp_sig_pages (id SERIAL PRIMARY KEY, file_id INTEGER, page_text TEXT);
+CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age int, category text);
+CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
+CREATE TABLE mpp_orders   (id bigserial primary key, uuid uuid, name text, age int);
 
-INSERT INTO mpp_sig_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
+INSERT INTO mpp_users (uuid, name, age, category)
+SELECT gen_random_uuid(), (ARRAY['bob','alice','carol','dave'])[1 + (g % 4)], g % 50, 'c' || (g % 5)
+FROM generate_series(1, 20000) AS g;
 
-INSERT INTO mpp_sig_pages (file_id, page_text)
-SELECT (g % 200) + 1, 'Page text for page ' || g
-FROM generate_series(1, 200000) AS g;
+INSERT INTO mpp_products (uuid, name, age)
+SELECT gen_random_uuid(), (ARRAY['bob','alice'])[1 + (g % 2)], g % 50
+FROM generate_series(1, 20000) AS g;
 
-CREATE INDEX mpp_sig_files_idx ON mpp_sig_files
-USING bm25 (id, title, content)
-WITH (key_field='id', text_fields='{"title": {"fast": true}, "content": {}}');
+INSERT INTO mpp_orders (uuid, name, age)
+SELECT gen_random_uuid(), 'x', g % 50
+FROM generate_series(1, 20000) AS g;
 
-CREATE INDEX mpp_sig_pages_idx ON mpp_sig_pages
-USING bm25 (id, file_id, page_text)
-WITH (key_field='id', numeric_fields='{"file_id": {"fast": true}}', text_fields='{"page_text": {}}');
+CREATE INDEX mpp_users_idx ON mpp_users USING bm25 (id, uuid, name, age, category)
+WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true},"category":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
-ANALYZE mpp_sig_files;
-ANALYZE mpp_sig_pages;
+CREATE INDEX mpp_products_idx ON mpp_products USING bm25 (id, uuid, name, age)
+WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+
+CREATE INDEX mpp_orders_idx ON mpp_orders USING bm25 (id, uuid, name, age)
+WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+
+ANALYZE mpp_users;
+ANALYZE mpp_products;
+ANALYZE mpp_orders;
 "#;
 
 // Forces the join through MPP and zeroes the parallel costs so the planner always picks it.
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.mpp_worker_count TO 4;
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_worker_count TO 3;
 SET max_parallel_workers_per_gather TO 4;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
+SET work_mem TO '512MB';
 "#;
 
-// Streams 200k rows out of an MPP join. No sort/aggregate, so it stays under `work_mem`
-// (the point here is a live query to signal, not an overflow), but it runs long enough that
-// the killer reliably catches the backend mid-execution.
+// The top-level ORDER BY ... LIMIT is what makes the join JoinScan-eligible; together with the
+// `age` fan-out above it plans as `Custom Scan (ParadeDB Join Scan)` -> `DistributedExec` and runs
+// long enough to be signalled mid-flight. (The `orders` uuids don't match `products`, so the result
+// is empty — irrelevant; the point is the in-flight join work, not the rows.)
 const MPP_QUERY: &str = r#"
-SELECT f.title, p.page_text
-FROM mpp_sig_files f JOIN mpp_sig_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+SELECT mpp_users.id, mpp_users.name, mpp_users.age, mpp_products.age
+FROM mpp_users JOIN mpp_products ON mpp_users.age = mpp_products.age
+JOIN mpp_orders ON mpp_products.uuid = mpp_orders.uuid
+WHERE NOT ((mpp_users.name @@@ 'bob') AND (mpp_users.name @@@ 'bob'))
+  AND mpp_users.age >= mpp_products.age
+ORDER BY mpp_users.id LIMIT 31
 "#;
+
+// The crash needs the leader caught mid-`block_on` with its DSM senders live — not during planning
+// or worker launch. So after the backend first shows up `active`, wait this long before signalling,
+// to let execution get well inside the join (the query runs ~2s). Signalling immediately lands too
+// early and misses the window entirely. A few attempts then make it robust against host timing; on
+// the fixed build every attempt is a clean teardown.
+const SIGNAL_DELAY: Duration = Duration::from_millis(800);
+const ATTEMPTS: usize = 3;
 
 /// Spin until `victim_app`'s backend is running the MPP query, then run `signal_fn(pid)`
 /// (`pg_cancel_backend` or `pg_terminate_backend`) on it. Returns the pid that was signalled.
@@ -89,13 +114,15 @@ async fn signal_running_mpp_backend(
         let pid: Option<i32> = sqlx::query_scalar(
             "SELECT pid FROM pg_stat_activity \
              WHERE application_name = $1 AND backend_type = 'client backend' \
-             AND state = 'active' AND query LIKE '%mpp_sig_pages%'",
+             AND state = 'active' AND query LIKE '%mpp_users.age = mpp_products.age%'",
         )
         .bind(victim_app)
         .fetch_optional(&mut *killer)
         .await?;
 
         if let Some(pid) = pid {
+            // Let execution get well inside the MPP join (senders live) before signalling.
+            sleep(SIGNAL_DELAY).await;
             sqlx::query(&format!("SELECT {signal_fn}($1)"))
                 .bind(pid)
                 .execute(&mut *killer)
@@ -109,9 +136,9 @@ async fn signal_running_mpp_backend(
     }
 }
 
-/// Run the MPP query in a loop on `victim` until its connection or query is cut off. The
-/// loop keeps the backend busy so the killer has a wide window to land the signal mid-query.
-async fn run_until_signalled(mut victim: PgConnection, app_name: &str) {
+/// Run the MPP query in a loop on `victim` until its connection or query is cut off. The loop keeps
+/// the backend busy so the killer has a wide window to land the signal mid-query.
+async fn run_until_signalled(mut victim: PgConnection, app_name: String) {
     if victim
         .execute(format!("SET application_name = '{app_name}';").as_str())
         .await
@@ -122,8 +149,8 @@ async fn run_until_signalled(mut victim: PgConnection, app_name: &str) {
     if victim.execute(MPP_GUCS).await.is_err() {
         return;
     }
-    // A terminate drops the connection and a cancel errors the in-flight query; either way
-    // the next iteration's error ends the loop.
+    // A terminate drops the connection and a cancel errors the in-flight query; either way the next
+    // iteration's error ends the loop.
     while victim.execute(MPP_QUERY).await.is_ok() {}
 }
 
@@ -143,8 +170,8 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
     let mut setup = database.connection().await;
     setup.execute(SETUP_SQL).await?;
 
-    // Opened before any signal and reused after each, so a cluster reset would surface as a
-    // failure on this connection.
+    // Opened before any signal and reused after each, so a cluster reset would surface as a failure
+    // on this connection.
     let mut witness = database.connection().await;
     witness
         .execute("CREATE EXTENSION IF NOT EXISTS pg_search;")
@@ -155,14 +182,17 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
         ("mpp_sig_cancel", "pg_cancel_backend"),
         ("mpp_sig_terminate", "pg_terminate_backend"),
     ] {
-        let victim = database.connection().await;
-        let loop_handle = tokio::spawn(run_until_signalled(victim, app));
+        for attempt in 0..ATTEMPTS {
+            let app_name = format!("{app}_{attempt}");
+            let victim = database.connection().await;
+            let loop_handle = tokio::spawn(run_until_signalled(victim, app_name.clone()));
 
-        let mut killer = database.connection().await;
-        signal_running_mpp_backend(&mut killer, app, signal_fn).await?;
+            let mut killer = database.connection().await;
+            signal_running_mpp_backend(&mut killer, &app_name, signal_fn).await?;
 
-        let _ = loop_handle.await;
-        assert_cluster_alive(&mut witness).await?;
+            let _ = loop_handle.await;
+            assert_cluster_alive(&mut witness).await?;
+        }
     }
 
     Ok(())

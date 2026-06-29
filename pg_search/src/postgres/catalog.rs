@@ -153,7 +153,7 @@ pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
 /// Helper function to lookup a function's [`pg_sys::Oid`] by name, argument types, and namespace
 pub fn lookup_procoid(
     namespace: &CStr,
-    fucname: &CStr,
+    funcname: &CStr,
     argtypes: &[pg_sys::Oid],
 ) -> Option<pg_sys::Oid> {
     unsafe {
@@ -161,7 +161,7 @@ pub fn lookup_procoid(
         let procoid = pg_sys::GetSysCacheOid(
             pg_sys::SysCacheIdentifier::PROCNAMEARGSNSP as _,
             pg_sys::Anum_pg_proc_oid as _,
-            pg_sys::Datum::from(fucname.as_ptr()),
+            pg_sys::Datum::from(funcname.as_ptr()),
             pg_sys::Datum::from(argvec),
             lookup_namespace(namespace).into_datum()?,
             pg_sys::Datum::null(),

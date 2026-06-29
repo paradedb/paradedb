@@ -172,7 +172,7 @@ impl SearchTokenizerFilters {
         }
         if let Some(alpha_num_only) = value.get("alpha_num_only") {
             filters.alpha_num_only = Some(alpha_num_only.as_bool().ok_or_else(|| {
-                anyhow::anyhow!("ascii_folding tokenizer requires a valid 'alpha_num_only' field")
+                anyhow::anyhow!("alpha_num_only tokenizer requires a valid 'alpha_num_only' field")
             })?);
         }
         if let Some(ascii_folding) = value.get("ascii_folding") {
@@ -538,7 +538,7 @@ impl SearchTokenizer {
                 let remove_emojis: bool = serde_json::from_value(value["remove_emojis"].clone())
                     .map_err(|_| {
                         anyhow::anyhow!(
-                            "unicode_words tokenizer requires an integer 'remove_emojis' field"
+                            "unicode_words tokenizer requires a boolean 'remove_emojis' field"
                         )
                     })?;
 

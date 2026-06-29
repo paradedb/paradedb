@@ -241,7 +241,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         if needs_commit {
             let meta_change = deleter
                 .commit(&index)
-                .expect("ambulkdelete: segment deletercommit should succeed");
+                .expect("ambulkdelete: segment deleter commit should succeed");
             if let Some((old_meta, new_meta)) = meta_change {
                 old_metas.push(old_meta);
                 new_metas.push(new_meta);

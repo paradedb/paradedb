@@ -1376,6 +1376,6 @@ async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<
     sqlx::raw_sql(evict_query)
         .execute(conn)
         .await
-        .with_context(|| format!("Failed to PostgreSQL buffer cache: {evict_query}"))?;
+        .with_context(|| format!("Failed to evict PostgreSQL buffer cache: {evict_query}"))?;
     Ok(())
 }

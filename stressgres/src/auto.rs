@@ -101,9 +101,9 @@ pub fn setup_server(server: &Server, other_servers: &Vec<Server>) -> anyhow::Res
         std::fs::remove_file(&log_path).ok();
         std::fs::remove_dir_all(&pg_data).ok();
 
-        let is_wal_reciver = matches!(postgresql_conf, PostgresqlConf::WalReceiver);
+        let is_wal_receiver = matches!(postgresql_conf, PostgresqlConf::WalReceiver);
 
-        if is_wal_reciver {
+        if is_wal_receiver {
             let mut subscriber_server = None;
             for server in other_servers {
                 if server.is_subscriber() {
@@ -158,7 +158,7 @@ pub fn setup_server(server: &Server, other_servers: &Vec<Server>) -> anyhow::Res
             }
         }
 
-        if !is_wal_reciver {
+        if !is_wal_receiver {
             createdb(&pg_config, "stressgres", &pg_data)?;
         }
 

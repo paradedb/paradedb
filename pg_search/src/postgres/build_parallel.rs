@@ -191,7 +191,7 @@ impl ParallelWorker for BuildWorker<'_> {
         let scandesc = state_manager
             .object::<pg_sys::ParallelTableScanDescData>(1)
             .expect("should be able to get ParallelTableScanDesc")
-            .expect("ParallelTableDescDesc should not be NULL");
+            .expect("ParallelTableScanDesc should not be NULL");
         let coordination = state_manager
             .object::<WorkerCoordination>(2)
             .expect("should be able to get ProcessCoordination")

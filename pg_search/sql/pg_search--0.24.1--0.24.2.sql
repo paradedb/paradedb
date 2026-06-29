@@ -113,3 +113,27 @@ LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'alias_typmod_in_wrapper';
 
 ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typmod_out);
+
+-- Fix the typo in the function behind the `@@@(anyelement, pdb.query)` operator:
+-- `search_with_fieled_query_input` -> `search_with_field_query_input`. This function is never
+-- called directly (it only panics), but it is part of the public `paradedb` schema. Because the
+-- underlying C wrapper symbol is derived from the Rust function name, the symbol changes with the
+-- rename, so the operator and function are dropped and recreated rather than renamed in place.
+DROP OPERATOR IF EXISTS pg_catalog.@@@(anyelement, pdb.query);
+DROP FUNCTION IF EXISTS paradedb.search_with_fieled_query_input(anyelement, pdb.query);
+
+CREATE FUNCTION paradedb.search_with_field_query_input(
+    "_element" anyelement,
+    "query" pdb.Query
+) RETURNS bool
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    LANGUAGE c
+AS 'MODULE_PATHNAME', 'search_with_field_query_input_wrapper';
+
+CREATE OPERATOR pg_catalog.@@@ (
+    PROCEDURE="search_with_field_query_input",
+    LEFTARG=anyelement,
+    RIGHTARG=pdb.Query
+);
+
+ALTER FUNCTION paradedb.search_with_field_query_input SUPPORT paradedb.atatat_support;

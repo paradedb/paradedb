@@ -42,6 +42,7 @@ use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_dispatched_stages, FragmentAssignment, FragmentRouting,
 };
+use crate::postgres::utils::ExprContextGuard;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
 use crate::scan::physical_codec::{
     deserialize_physical_plan_with_runtime, serialize_physical_plan,
@@ -151,11 +152,12 @@ pub fn build_dispatch_blob(
     runtime: &tokio::runtime::Runtime,
     non_partitioning_segments: &[HashSet<SegmentId>],
 ) -> Result<(Vec<u8>, Vec<StagePlan>)> {
+    let expr_context_guard = ExprContextGuard::new();
     let logical = deserialize_logical_plan_with_runtime(
         logical_bytes,
         &seed.task_ctx(),
         None,
-        None,
+        Some(expr_context_guard.as_ptr()),
         None,
         Vec::new(),
         Vec::new(),
@@ -182,6 +184,7 @@ pub fn build_dispatch_blob(
             None,
             non_partitioning_segments.to_vec(),
             Vec::new(),
+            Some(expr_context_guard.as_ptr()),
         )?;
         dispatched.push(DispatchedStage {
             stage_num: stage.stage_num,

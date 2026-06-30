@@ -820,6 +820,14 @@ pub fn index_memory_segment(
                     } else {
                         // There are no more entries in the HOT chain, so no copy of the tuple is
                         // visible in any transaction.
+                        //
+                        // Release the buffer pin acquired by table_index_fetch_tuple before moving
+                        // on. Without this, each dead HOT-chain dead-end leaks a pin, which causes
+                        // Postgres to invalidate rd_smgr at transaction end. Subsequent buffer ops
+                        // then read a garbage tablespace OID and crash with a pg_tblspc/... path
+                        // that does not exist. The success path already calls ExecClearTuple after
+                        // detoasting; this mirrors that cleanup for the dead-tuple branch.
+                        pg_sys::ExecClearTuple(heap_fetch_state.slot());
                         writer.insert(tantivy::TantivyDocument::new(), ctid, || {
                             unreachable!("No limits configured: should not finalize.")
                         })?;

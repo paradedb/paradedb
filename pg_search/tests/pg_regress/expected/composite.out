@@ -1649,7 +1649,7 @@ SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('categor
    Index: smoke_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(price)
-     Aggregate Definition: {"0":{"sum":{"field":"price","missing":null}}}
+     Aggregate Definition: {"0":{"sum":{"field":"price","missing":null,"none_if_no_match":true}}}
 (5 rows)
 
 SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
@@ -1681,13 +1681,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on smoke_test
    Index: smoke_idx
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"avg":{"field":"rating","missing":null}},"3":{"min":{"field":"price","missing":null}},"4":{"max":{"field":"price","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null,"none_if_no_match":true}},"2":{"avg":{"field":"rating","missing":null}},"3":{"min":{"field":"price","missing":null}},"4":{"max":{"field":"price","missing":null}}}
 (5 rows)
 
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price

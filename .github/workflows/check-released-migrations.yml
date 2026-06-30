@@ -10,7 +10,7 @@ name: Check Released Migrations
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
       - 0.*.x # Release branches

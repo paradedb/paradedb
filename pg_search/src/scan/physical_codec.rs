@@ -129,10 +129,15 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                // Re-collect the live ctid resolvers from the decoded subtree so a dispatched
+                // fragment can rebuild its absorbed visibility data (same as VFExec above).
+                let resolvers = collect_ctid_resolvers(&input);
+                let stk_resolvers = resolvers.into_iter().map(|(pos, _, ff)| (pos, ff)).collect();
                 SegmentedTopKExec::decode_for_dispatch(
                     payload,
                     input,
                     ffhelpers,
+                    stk_resolvers,
                     ctx,
                     &self.non_partitioning_segment_ids,
                     self.parallel_state,

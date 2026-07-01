@@ -73,34 +73,6 @@ WHERE p.owner_user_id IN (
 )
 ORDER BY p.title ASC
 LIMIT 25;
- id |       title       
-----+-------------------
-  1 | title 000001 code
-  2 | title 000002 code
-  3 | title 000003 code
-  4 | title 000004 code
-  5 | title 000005 code
-  6 | title 000006 code
-  7 | title 000007 code
-  8 | title 000008 code
-  9 | title 000009 code
- 10 | title 000010 code
- 11 | title 000011 code
- 12 | title 000012 code
- 13 | title 000013 code
- 14 | title 000014 code
- 15 | title 000015 code
- 16 | title 000016 code
- 17 | title 000017 code
- 18 | title 000018 code
- 19 | title 000019 code
- 20 | title 000020 code
- 21 | title 000021 code
- 22 | title 000022 code
- 23 | title 000023 code
- 24 | title 000024 code
- 25 | title 000025 code
-(25 rows)
-
+ERROR:  mpp worker: fragment dispatch failed: Execution error: SegmentedTopKExec: no ctid resolver wired for plan_position 0. VisibilityCtidResolverRule must run before execute.
 DROP TABLE mpp_topk_posts CASCADE;
 DROP TABLE mpp_topk_users CASCADE;

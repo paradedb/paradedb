@@ -58,13 +58,12 @@ struct DispatchedStage {
     routing: FragmentRouting,
 }
 
-/// One stage's plan bytes, headed for per-task `SetPlan` frames. Stays leader-side: the leader
-/// stamps each task's `TaskKey` from `query_id`/`stage_num` and ships `plan_proto` once per task.
+/// One stage's plan bytes. The coordinator's `DispatchPlanSource` looks these up by `stage_num`
+/// and routes `plan_proto` to every task of the stage; each worker specializes its own slice on
+/// decode.
 #[derive(Clone)]
 pub struct StagePlan {
     pub stage_num: u32,
-    pub query_id: Vec<u8>,
-    pub task_count: usize,
     /// `PhysicalPlanNode`-encoded `stage.local_plan()` (via the combined codec).
     pub plan_proto: Vec<u8>,
 }
@@ -193,8 +192,6 @@ pub fn build_dispatch_blob(
         });
         stage_plans.push(StagePlan {
             stage_num: stage.stage_num,
-            query_id: stage.query_id.as_bytes().to_vec(),
-            task_count: stage.task_count,
             plan_proto,
         });
     }

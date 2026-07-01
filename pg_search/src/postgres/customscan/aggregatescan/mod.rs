@@ -44,7 +44,9 @@ use crate::postgres::catalog::is_ltree_oid;
 
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
+use datafusion_distributed::{
+    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
+};
 
 use datafusion_distributed::shm::MppMesh;
 
@@ -1553,15 +1555,14 @@ impl AggregateScan {
             // session context.
             let ctx = match df_state.mpp.as_ref() {
                 Some(leader) => {
-                    // Workers are launched and draining their inboxes (the launcher already
-                    // verified the full producer set came up, else it fell back to serial); ship
-                    // each fragment's plan frame now.
-                    if let Err(e) =
-                        crate::postgres::customscan::mpp::glue::deliver_set_plans(leader)
-                    {
-                        pgrx::error!("mpp aggregate: plan delivery failed: {e}");
-                    }
+                    // The coordinator sources these structure-only subplans and routes them to the
+                    // workers during execution, so there is no separate delivery pass.
+                    let source =
+                        crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::new(
+                            &leader.stage_plans.lock().unwrap(),
+                        );
                     Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                        .with_distributed_dispatch_plan_source(source)
                 }
                 _ => create_aggregate_session_context(),
             };

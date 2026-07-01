@@ -193,7 +193,7 @@ use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
-use datafusion_distributed::{display_plan_ascii, DistributedExec};
+use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedExt};
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::Arc;
@@ -1486,14 +1486,14 @@ impl CustomScan for JoinScan {
                 // plan and the worker fragments would have nothing to consume from.
                 let ctx = match state.custom_state().mpp.as_ref() {
                     Some(leader) => {
-                        // Workers are launched and draining (the launcher verified the full producer
-                        // set came up, else it fell back to serial); ship each fragment's plan now.
-                        if let Err(e) =
-                            crate::postgres::customscan::mpp::glue::deliver_set_plans(leader)
-                        {
-                            pgrx::error!("mpp join: plan delivery failed: {e}");
-                        }
+                        // The coordinator sources these structure-only subplans and routes them to
+                        // the workers during execution, so there is no separate delivery pass.
+                        let source =
+                            crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::new(
+                                &leader.stage_plans.lock().unwrap(),
+                            );
                         Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                            .with_distributed_dispatch_plan_source(source)
                     }
                     _ => create_datafusion_session_context(SessionContextProfile::Join),
                 };

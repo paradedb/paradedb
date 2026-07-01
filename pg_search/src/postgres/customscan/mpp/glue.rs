@@ -36,11 +36,7 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use datafusion_distributed::proto::SetPlanRequest;
-use datafusion_distributed::shm::{
-    self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
-    SendBatchStats, SetPlanFrame, Wakeup,
-};
+use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_distributed::TaskKey;
 
 use crate::postgres::customscan::mpp::dispatch::StagePlan;
@@ -133,15 +129,10 @@ pub struct MppLeaderState {
     /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
     /// The scan state's own drop runs after detach and must find this empty.
     pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
-    /// Plans for [`deliver_set_plans`], which runs at exec time when the launched workers are
-    /// draining their inboxes. Sending from the init callback instead could fill a small ring
-    /// with no drainer behind it and wedge the leader. Kept (not drained) so a parallel rescan
-    /// can re-deliver to relaunched workers, the frame analog of the plan blob persisting in
-    /// DSM. Mutex because the exec hook only sees a shared borrow of the scan state.
+    /// The structure-only subplans the leader wraps in a [`StagePlanDispatchSource`] on the exec
+    /// session; the coordinator sources them by `stage_num` and routes them to the workers during
+    /// execution. Mutex because the exec hook only sees a shared borrow of the scan state.
     pub stage_plans: std::sync::Mutex<Vec<StagePlan>>,
-    /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
-    /// path before workers relaunch.
-    pub plans_delivered: std::sync::atomic::AtomicBool,
     /// The builder handle owning the launched producer workers. The leader controls the launch, so
     /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
     /// the workers and destroy the parallel context. `None` until `launch` installs it on the
@@ -248,7 +239,6 @@ pub unsafe fn leader_setup(
         mesh,
         control_senders,
         stage_plans: std::sync::Mutex::new(stage_plans),
-        plans_delivered: std::sync::atomic::AtomicBool::new(false),
         finish: None,
         parallel_state: std::ptr::null_mut(),
     })
@@ -262,68 +252,31 @@ impl MppLeaderState {
     }
 }
 
-/// Ship every dispatched plan as `SetPlan` frames: one per `(stage, task)`, to the proc hosting
-/// the task, carrying the same `SetPlanRequest` Flight would put on its coordinator stream.
-///
-/// Runs at exec time, after the launched-worker check: the workers are attaching and draining by
-/// then, so a plan bigger than a ring drains through instead of wedging the send spin. One
-/// delivery per worker generation; re-execution without a relaunch is a no-op.
-pub fn deliver_set_plans(leader: &MppLeaderState) -> Result<(), String> {
-    if leader
-        .plans_delivered
-        .swap(true, std::sync::atomic::Ordering::SeqCst)
-    {
-        return Ok(());
-    }
-    let stage_plans = leader.stage_plans.lock().unwrap().clone();
-    if stage_plans.is_empty() {
-        return Ok(());
-    }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("mpp: set-plan runtime build: {e}"))?;
-    let n_workers = leader.mesh.n_workers();
-    runtime.block_on(async {
-        let mut stats = SendBatchStats::default();
-        for sp in &stage_plans {
-            for task in 0..sp.task_count {
-                let dest = proc_for_task(n_workers, task as u32);
-                // Clone the sender out under the lock so the guard never spans the await below.
-                let sender = {
-                    let senders = leader.control_senders.lock().unwrap();
-                    let Some(base) = senders.get(dest as usize).and_then(|s| s.as_ref()) else {
-                        return Err(format!("mpp: no leader sender for proc {dest}"));
-                    };
-                    base.clone_with_header(MppFrameHeader::set_plan(sp.stage_num, task as u32, 0))
-                        .with_cooperative_drain(
-                            Arc::clone(&leader.mesh) as Arc<dyn CooperativeDrainSet>
-                        )
-                };
-                let frame = SetPlanFrame {
-                    set_plan: Some(SetPlanRequest {
-                        plan_proto: sp.plan_proto.clone(),
-                        task_count: sp.task_count as u64,
-                        task_key: Some(datafusion_distributed::proto::TaskKey {
-                            query_id: sp.query_id.clone(),
-                            stage_id: sp.stage_num as u64,
-                            task_number: task as u64,
-                        }),
-                        work_unit_feed_declarations: vec![],
-                        target_worker_url: String::new(),
-                        query_start_time_ns: 0,
-                    }),
-                    header_keys: vec![],
-                    header_values: vec![],
-                };
-                sender
-                    .send_set_plan_traced(&frame, &mut stats)
-                    .await
-                    .map_err(|e| format!("mpp: set-plan send failed: {e}"))?;
-            }
+/// The dispatch bytes the coordinator routes to workers, keyed by `stage_num`. pg builds a
+/// structure-only subplan per producer stage (`build_dispatch_blob`) whose scans stay segment-free
+/// recipes; the coordinator ships those instead of encoding its exec-time plan, which carries state
+/// wrong to dispatch (a runtime `Limit`, `FilterPassthroughExec`) or not serializable (its
+/// `SortMergeJoinExec` variant). Every task of a stage runs the same subplan; each worker
+/// specializes its own segment slice on decode.
+pub struct StagePlanDispatchSource {
+    plans: std::collections::HashMap<u32, Vec<u8>>,
+}
+
+impl StagePlanDispatchSource {
+    pub fn new(stage_plans: &[StagePlan]) -> Self {
+        Self {
+            plans: stage_plans
+                .iter()
+                .map(|sp| (sp.stage_num, sp.plan_proto.clone()))
+                .collect(),
         }
-        Ok(())
-    })
+    }
+}
+
+impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
+    fn dispatch_plan_proto(&self, stage_id: usize, _task_number: usize) -> Option<Vec<u8>> {
+        self.plans.get(&(stage_id as u32)).cloned()
+    }
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the

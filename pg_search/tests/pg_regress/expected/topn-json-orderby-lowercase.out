@@ -1,0 +1,75 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+DROP TABLE IF EXISTS mock_items_jsonlower;
+CREATE TABLE mock_items_jsonlower (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    metadata JSONB
+);
+-- Mixed-case values so a case-folded (lowercase) sort disagrees with PG's
+-- case-sensitive ->>. In ASCII, uppercase sorts before lowercase, so the correct
+-- PG order ASC is: 'Black' < 'White' < 'black' < 'white'.
+INSERT INTO mock_items_jsonlower (description, metadata) VALUES
+('a', '{"color": "white"}'),
+('b', '{"color": "Black"}'),
+('c', '{"color": "black"}'),
+('d', '{"color": "White"}');
+-- JSON fast field configured with a LOWERCASE normalizer.
+CREATE INDEX jsonlower_idx ON mock_items_jsonlower
+USING bm25 (id, description, metadata)
+WITH (key_field='id',
+      json_fields='{"metadata": {"fast": true, "normalizer": "lowercase"}}');
+-- A lowercase-normalized JSON fast field must NOT push the raw `metadata->>'color'`
+-- sort down to Tantivy (the index stores case-folded values, which disagree with PG's
+-- case-sensitive ->>). The planner should reject the pushdown and fall back to a PG
+-- Sort node, so the EXPLAIN shows a `Sort` (not `TopK Order By: metadata.color ...`).
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'color' AS color FROM mock_items_jsonlower
+WHERE id @@@ paradedb.all()
+ORDER BY color ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonlower)
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((metadata ->> 'color'::text)), id
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items_jsonlower
+               Table: mock_items_jsonlower
+               Index: jsonlower_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+-- Results must follow PG's case-sensitive order: Black, White, black, white.
+SELECT description, metadata->>'color' AS color FROM mock_items_jsonlower
+WHERE id @@@ paradedb.all()
+ORDER BY color ASC, id ASC
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items_jsonlower)
+ description | color 
+-------------+-------
+ b           | Black
+ d           | White
+ c           | black
+ a           | white
+(4 rows)
+
+DROP TABLE mock_items_jsonlower;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

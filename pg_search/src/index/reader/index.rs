@@ -298,56 +298,45 @@ fn probe_segment_leaf_type(
 
     let mut found = None;
 
-    if let Ok(col) = ffr.i64(path) {
-        if col.get_cardinality() == Cardinality::Multivalued {
-            return Some(Err(()));
+    // Each probe attempts to open the fast-field column for `path` as a specific leaf type,
+    // returning its `Cardinality` if such a column exists. This list must stay in sync with
+    // the supported field types in `SearchField::is_sortable`.
+    let probes: [(Type, &dyn Fn() -> Option<Cardinality>); 6] = [
+        (Type::I64, &|| {
+            ffr.i64(path).ok().map(|c| c.get_cardinality())
+        }),
+        (Type::U64, &|| {
+            ffr.u64(path).ok().map(|c| c.get_cardinality())
+        }),
+        (Type::F64, &|| {
+            ffr.f64(path).ok().map(|c| c.get_cardinality())
+        }),
+        (Type::Bool, &|| {
+            ffr.bool(path).ok().map(|c| c.get_cardinality())
+        }),
+        (Type::Date, &|| {
+            ffr.date(path).ok().map(|c| c.get_cardinality())
+        }),
+        (Type::Str, &|| {
+            ffr.str(path)
+                .ok()
+                .flatten()
+                .map(|c| c.ords().get_cardinality())
+        }),
+    ];
+
+    for (ty, probe) in probes {
+        if let Some(cardinality) = probe() {
+            // Multivalued columns can't be used for a single-valued leaf sort.
+            if cardinality == Cardinality::Multivalued {
+                return Some(Err(()));
+            }
+            // A column for another type was already found: the leaf type is ambiguous.
+            if found.is_some() {
+                return Some(Err(()));
+            }
+            found = Some(ty);
         }
-        found = Some(Type::I64);
-    }
-    if let Ok(col) = ffr.u64(path) {
-        if col.get_cardinality() == Cardinality::Multivalued {
-            return Some(Err(()));
-        }
-        if found.is_some() {
-            return Some(Err(()));
-        }
-        found = Some(Type::U64);
-    }
-    if let Ok(col) = ffr.f64(path) {
-        if col.get_cardinality() == Cardinality::Multivalued {
-            return Some(Err(()));
-        }
-        if found.is_some() {
-            return Some(Err(()));
-        }
-        found = Some(Type::F64);
-    }
-    if let Ok(col) = ffr.bool(path) {
-        if col.get_cardinality() == Cardinality::Multivalued {
-            return Some(Err(()));
-        }
-        if found.is_some() {
-            return Some(Err(()));
-        }
-        found = Some(Type::Bool);
-    }
-    if let Ok(col) = ffr.date(path) {
-        if col.get_cardinality() == Cardinality::Multivalued {
-            return Some(Err(()));
-        }
-        if found.is_some() {
-            return Some(Err(()));
-        }
-        found = Some(Type::Date);
-    }
-    if let Ok(Some(col)) = ffr.str(path) {
-        if col.ords().get_cardinality() == Cardinality::Multivalued {
-            return Some(Err(()));
-        }
-        if found.is_some() {
-            return Some(Err(()));
-        }
-        found = Some(Type::Str);
     }
 
     found.map(Ok)

@@ -675,9 +675,15 @@ impl SearchField {
             // JSON sub-path sorts (e.g. `metadata->>'k'`) require an additional planner-side
             // gate which verifies that the SQL expression's expected type matches the leaf
             // fast-field type stored across all segments. Sorting the JSON object itself is
-            // not meaningful, so we only flag the column as raw-sortable here.
+            // not meaningful, so we only flag the column as raw-sortable here
+            // also require the field's own fast-field normalizer to match:
+            // JSON fields created with `normalizer: lowercase` are case-folded and should not be
+            // treated as raw-sortable, otherwise `metadata->>'k'` would push down a case-folded
+            // sort that disagrees with PostgreSQL's case-sensitive `->>`.
             FieldType::JsonObject(options) => {
-                options.is_fast() && matches!(desired_normalizer, SearchNormalizer::Raw)
+                options.is_fast()
+                    && matches!(desired_normalizer, SearchNormalizer::Raw)
+                    && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
             }
             _ => false,
         }

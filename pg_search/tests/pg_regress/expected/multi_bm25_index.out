@@ -3,6 +3,10 @@
 -- workflow). When two bm25 indexes coexist `rel_get_bm25_index` should pick the
 -- highest-OID bm25 index, so a query referencing a field that only exists in the
 -- newer index still resolves correctly.
+--
+-- This test also covers `rel_get_bm25_index` warning about an invalid bm25 index
+-- that is a dead leftover of a failed CREATE INDEX CONCURRENTLY / REINDEX (i.e.
+-- one that no live backend is rebuilding).
 CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS multi_bm25 CASCADE;
 CREATE TABLE multi_bm25 (
@@ -28,6 +32,23 @@ WITH (key_field = 'id');
 SELECT id FROM multi_bm25
  WHERE custom_identifiers->>'invoice_number' &&& 'abc-001'
  ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- Marking `multi_bm25_old` invalid without any live REINDEX/CREATE INDEX rebuilding
+-- it simulates a dead leftover of a failed CREATE INDEX CONCURRENTLY / REINDEX.
+-- The query still resolves via the valid `multi_bm25_new`, but `rel_get_bm25_index`
+-- now warns that the dead index should be dropped.
+SET allow_system_table_mods = on;
+UPDATE pg_index SET indisvalid = false
+WHERE indexrelid = 'multi_bm25_old'::regclass;
+SET allow_system_table_mods = off;
+SELECT id FROM multi_bm25
+ WHERE custom_identifiers->>'invoice_number' &&& 'abc-001'
+ ORDER BY id;
+WARNING:  invalid `bm25` index(es) "multi_bm25_old" are not being rebuilt; they are likely leftovers from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and should be dropped with `DROP INDEX` (table: multi_bm25)
  id 
 ----
   1

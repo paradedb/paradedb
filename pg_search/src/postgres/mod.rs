@@ -142,6 +142,10 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 /// or a failed `REINDEX`). When more than one valid bm25 index exists on the relation
 /// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-bm25-index
 /// check), the highest-OID one is chosen so that the index added most recently wins.
+///
+/// When an invalid bm25 index is found that no live backend is currently building or
+/// reindexing, it's a dead leftover of a failed `CREATE INDEX CONCURRENTLY` / `REINDEX`
+/// and a warning is emitted suggesting it be dropped.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
@@ -150,12 +154,94 @@ pub fn rel_get_bm25_index(
     }
 
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    let index = unsafe {
-        rel.indices(pg_sys::AccessShareLock as _)
-            .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
-            .max_by_key(|i| i.oid().to_u32())?
-    };
+
+    let mut chosen: Option<PgSearchRelation> = None;
+    let mut invalid: Vec<PgSearchRelation> = Vec::new();
+    for index in rel.indices(pg_sys::AccessShareLock as _) {
+        if !is_bm25_index(&index) {
+            continue;
+        }
+        if unsafe { pg_sys::get_index_isvalid(index.oid()) } {
+            if chosen
+                .as_ref()
+                .is_none_or(|c| index.oid().to_u32() > c.oid().to_u32())
+            {
+                chosen = Some(index);
+            }
+        } else {
+            invalid.push(index);
+        }
+    }
+
+    let index = chosen?;
+
+    if !invalid.is_empty() {
+        // An invalid index that no live backend is building is a dead leftover of a failed
+        // `CREATE INDEX CONCURRENTLY` / `REINDEX`. Scan the backend status array once for all
+        // in-progress builds on this relation, then flag the rest.
+        let building = indexes_being_built(relid);
+        let names = invalid
+            .iter()
+            .filter(|i| !building.contains(&i.oid().to_u32()))
+            .map(|i| format!("\"{}\"", i.name()))
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            planner_warnings::add_planner_warning(
+                "Dead Index",
+                format!(
+                    "invalid `bm25` index(es) {} are not being rebuilt; they are likely \
+                     leftovers from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and \
+                     should be dropped with `DROP INDEX`",
+                    names.join(", ")
+                ),
+                rel.name(),
+            );
+        }
+    }
+
     Some((rel, index))
+}
+
+/// Returns the OIDs of indexes on `heap_relid` that a live backend is currently building via
+/// `CREATE INDEX` or `REINDEX` (concurrent or not).
+///
+/// Reads the backend status array from shared memory directly — the same data
+/// `pg_stat_progress_create_index` exposes — to avoid the overhead of an SPI query. Only
+/// invoked once an invalid bm25 index has already been found, so the scan never runs on the
+/// common path.
+fn indexes_being_built(heap_relid: pg_sys::Oid) -> HashSet<u32> {
+    let index_oid_param = pg_sys::PROGRESS_CREATEIDX_INDEX_OID.to_u32() as usize;
+    let mut building = HashSet::default();
+
+    unsafe {
+        let num_backends = pg_sys::pgstat_fetch_stat_numbackends();
+        for i in 1..=num_backends {
+            #[cfg(feature = "pg15")]
+            let status: *const pg_sys::PgBackendStatus = pg_sys::pgstat_fetch_stat_beentry(i);
+            #[cfg(not(feature = "pg15"))]
+            let status: *const pg_sys::PgBackendStatus = {
+                let local = pg_sys::pgstat_get_local_beentry_by_index(i);
+                if local.is_null() {
+                    continue;
+                }
+                std::ptr::addr_of!((*local).backendStatus)
+            };
+
+            if status.is_null() {
+                continue;
+            }
+            let status = &*status;
+
+            if status.st_progress_command
+                == pg_sys::ProgressCommandType::PROGRESS_COMMAND_CREATE_INDEX
+                && status.st_progress_command_target == heap_relid
+            {
+                building.insert(status.st_progress_param[index_oid_param] as u32);
+            }
+        }
+    }
+
+    building
 }
 
 // 16 bytes for segment UUID

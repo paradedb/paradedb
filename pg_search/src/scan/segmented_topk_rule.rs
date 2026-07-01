@@ -54,8 +54,9 @@ use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMerge
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+use crate::scan::segmented_topk_exec::{AbsorbedVisibilityData, SegmentedTopKExec};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 #[derive(Debug)]
@@ -224,10 +225,29 @@ fn try_inject_below_lookup(
             });
 
             if has_deferred_sort_col {
+                // If the direct child of TantivyLookupExec is a VisibilityFilterExec,
+                // absorb it: SegmentedTopKExec will own MVCC visibility checking and the
+                // VFExec node is removed from the plan, so dead rows never inflate the
+                // pushed-down threshold. VFExec preserves schema, so `input_schema` above
+                // is unchanged. Only inner-join plans land here; semi/anti VFExec is inside
+                // the join and is not a direct child of TantivyLookupExec.
+                let (absorbed_visibility, stk_input) =
+                    if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
+                        (
+                            Some(Arc::new(AbsorbedVisibilityData::new(
+                                vis_exec.plan_pos_oids().to_vec(),
+                                vis_exec.table_names().to_vec(),
+                            ))),
+                            Arc::clone(vis_exec.children()[0]),
+                        )
+                    } else {
+                        (None, Arc::clone(lookup_child))
+                    };
+
                 // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that
                 // the second FilterPushdown(Post) pass can push
                 // SegmentedTopKExec's DynamicFilterPhysicalExpr down to PgSearchScan.
-                let lookup_child = &wrap_blocking_nodes(Arc::clone(lookup_child))?;
+                let lookup_child = &wrap_blocking_nodes(stk_input)?;
 
                 // Collect all deferred columns found in the sort expressions,
                 // resolving logical → physical indices for each.
@@ -315,6 +335,7 @@ fn try_inject_below_lookup(
                     deferred_columns.clone(),
                     Arc::clone(&ffhelper),
                     k,
+                    absorbed_visibility,
                 ));
 
                 // Rebuild TantivyLookupExec with the new child.

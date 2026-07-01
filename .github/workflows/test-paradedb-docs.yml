@@ -8,9 +8,6 @@ name: Test ParadeDB (Docs)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-paradedb-docs.yml"
       - ".github/scripts/**"

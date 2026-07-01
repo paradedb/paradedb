@@ -758,9 +758,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 scanner.set_batch_size(df_batch_size as usize);
             }
 
+            let mut iters = 0;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let pre_filters = build_filters(&dynamic_filters, &schema);
+                println!("filters({iters}): {pre_filters:?}");
+                iters += 1;
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -774,6 +777,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     &ffhelper,
                     &mut visibility,
                     pre_filters_wrapper.as_ref(),
+                    None,
                 );
                 timer.done();
 

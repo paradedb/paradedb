@@ -221,11 +221,17 @@ impl Scanner {
         self.search_results.estimated_doc_count()
     }
 
-    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+    fn try_get_batch_ids(
+        &mut self,
+        threshold: Option<Score>,
+    ) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         // Collect a batch of ids for a single segment.
         loop {
             let scorer_iter = self.search_results.current_segment()?;
             let segment_ord = scorer_iter.segment_ord();
+            if let Some(threshold) = threshold {
+                scorer_iter.set_threshold(threshold);
+            }
 
             // Collect a batch of ids/scores for this segment.
             let mut scores = Vec::with_capacity(self.batch_size);
@@ -236,7 +242,6 @@ impl Scanner {
                     self.search_results.current_segment_pop();
                     break;
                 };
-
                 // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.
                 debug_assert_eq!(id.segment_ord, segment_ord);
                 scores.push(score);
@@ -259,11 +264,15 @@ impl Scanner {
     /// materialization, allowing string-column filters (including dynamically
     /// generated lexicographical thresholds) to operate natively on cheap
     /// term ordinals rather than requiring expensive dictionary lookups.
+    ///
+    /// `threshold` is a dynamic filter from datafusion that should be applied to a pruning scorer
+    /// when getting batch_ids
     pub fn next(
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+        threshold: Option<Score>,
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
@@ -488,7 +497,7 @@ impl Scanner {
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) {
         if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
+            if let Some(batch) = self.next(ffhelper, visibility, pre_filters, None) {
                 self.prefetched = Some(batch);
             }
         }

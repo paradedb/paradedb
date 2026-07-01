@@ -340,7 +340,7 @@ impl SearchPredicateUDF {
         let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());
 
         let mut values = Vec::new();
-        while let Some(batch) = scanner.next(&ffhelper, &mut visibility, None) {
+        while let Some(batch) = scanner.next(&ffhelper, &mut visibility, None, None) {
             if let Some(Some(col)) = batch.fields.first() {
                 let array = col
                     .as_any()

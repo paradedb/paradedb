@@ -11,3 +11,17 @@ primary_key = "_id"  # used only if sampled later
 lists = "sqrt({{ dataset_size }})::int"
 # ivfflat.probes tuned for ~95% recall@10 (with margin for build variance): 1m -> 28, 10m -> 46; else fall back to sqrt(lists).
 probes = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 46 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
+
+# Per-filtered-query ivfflat.probes for ~95% recall@10, referenced by the query files in queries/*.sql.
+# Measured by binary search (forced-ANN) against the keyword filters, over 100 held-out vectors vs
+# exact ground truth. 1m (1000 lists): 10pct='year'=56, 1pct='battle'=137, fts='protein'=796.
+# 10m (3162 lists): year=110 (0.950), battle=250 (~0.950), protein=1900 (0.956). The needed fraction
+# of lists shrinks with size (e.g. 1pct: 13.7% at 1m -> 7.9% at 10m), so the ELSE fallback uses the
+# 10m fractions and is only a rough extrapolation for untested sizes -- re-measure per size.
+# hnsw.ef_search values are UNTUNED.
+probes_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 56 WHEN 10000000 THEN 110 ELSE round(0.035 * sqrt({{ dataset_size }}))::int END"
+probes_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 137 WHEN 10000000 THEN 250 ELSE round(0.079 * sqrt({{ dataset_size }}))::int END"
+probes_fts = "CASE {{ dataset_size }} WHEN 1000000 THEN 796 WHEN 10000000 THEN 1900 ELSE round(0.60 * sqrt({{ dataset_size }}))::int END"
+ef_search_10pct = "200"                                                                                                                    # TODO: untuned placeholder
+ef_search_1pct = "400"                                                                                                                     # TODO: untuned placeholder
+ef_search_fts = "800"                                                                                                                      # TODO: untuned placeholder

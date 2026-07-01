@@ -109,8 +109,6 @@ pub enum FragmentRouting {
 pub struct StageEntry {
     /// `input_stage.num` of the boundary whose producer side this stage belongs to.
     pub stage_num: u32,
-    /// The query's id, carried so the leader can stamp each task's `TaskKey`.
-    pub query_id: uuid::Uuid,
     /// Total task count for the stage (= `input_stage.tasks.len()`).
     pub task_count: usize,
     /// How to route each output partition to a destination proc.
@@ -239,7 +237,6 @@ fn collect_stages(
         if let Some(stage_plan) = stage.local_plan() {
             out.push(StageEntry {
                 stage_num: stage_id,
-                query_id: stage.query_id(),
                 task_count,
                 routing,
                 plan: Arc::clone(stage_plan),

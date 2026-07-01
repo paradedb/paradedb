@@ -168,10 +168,11 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // The coordinator serializes each stage subplan into the dispatch request before handing it
-        // to the channel. We deliver plans over DSM and the shm channel discards that request, so
-        // the codec only has to let the throwaway encode succeed for nodes DataFusion's proto can't
-        // represent (`PgSearchScan`, `SortMergeJoinExec`).
+        // Workers dispatch their fragment's NESTED stages in process via `prepare_in_process_plan`,
+        // which encodes each subplan through the session codec. Those bytes are discarded (nested
+        // stages run from the local plan), but the encode still has to succeed for `PgSearchScan`.
+        // The leader overrides this on its exec session with a `DispatchPlanSource` that ships the
+        // structure-only bytes for the top-level dispatch.
         .with_distributed_user_codec(ShmDiscardedPlanCodec)
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())

@@ -88,7 +88,11 @@ WHERE id @@@ paradedb.all()
 ORDER BY in_stock DESC, id ASC
 LIMIT 5;
 
--- Timestamp cast matches the Date fast field type.
+-- Timestamp cast on a JSON string value. Tantivy stores "released" as a Str leaf
+-- (JSON strings are not auto-promoted to Date, even date-only strings like
+-- "2021-05-01"), while the SQL expression's expected leaf type is Date. The leaf
+-- types disagree, so pushdown is rejected and Postgres performs the sort itself.
+-- See topn-json-orderby-edges.sql test 1 for the same behavior with edge data.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT description, (metadata->>'released')::timestamp AS released FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()

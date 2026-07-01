@@ -295,7 +295,7 @@ For the query planner to push down the JSON sort, the following conditions must 
    - **Integer**: `(metadata->>'price')::bigint` matches the 64-bit integer fast-field type. Note that casting to narrower types like `int` or `smallint` is not pushed down, as they could swallow cast errors for values outside the Top K.
    - **Floating Point**: `(metadata->>'weight')::float8` (or `::double precision`) matches the 64-bit float fast-field type. Casting to `real` or `numeric` is not supported.
    - **Boolean**: `(metadata->>'in_stock')::boolean` matches the boolean fast-field type.
-   - **Timestamp**: `(metadata->>'released')::timestamp` or `::timestamptz` matches the date/timestamp fast-field type.
+   - **Timestamp**: `(metadata->>'released')::timestamp` or `::timestamptz` matches the date/timestamp fast-field type, but **only when Tantivy actually stored the value as a date column**. A JSON _string_ value—even a date-only string like `"2021-05-01"`—is stored as a text (`Str`) leaf, not a date, so casting it to `::timestamp` does **not** push down and Postgres performs the sort instead. Pushdown applies when the underlying fast field is already a date/timestamp type.
 
 For example, this query will be optimized with a Top K scan:
 

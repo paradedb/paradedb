@@ -550,18 +550,70 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
-    // We need to identify the single relation that this Top K query targets
-    // Tuple: (varno, relid, bm25_index, schema, index_expressions)
-    let mut target_relation_info: Option<(
-        pg_sys::Index,
-        pg_sys::Oid,
-        PgSearchRelation,
-        SearchIndexSchema,
-        PgList<pg_sys::Expr>,
-    )> = None;
+    // -----------------------------------------------------------------
+    // Pass 1: identify the single relation that this Top K query targets.
+    //
+    // The relation is determined by the first sort clause. As in the original
+    // single-pass logic, the first clause is analyzed without index-expression
+    // info. Resolving the relation up front lets `bm25_index`, `schema`, and
+    // `index_expressions` be immutable for the rest of the function, so the
+    // JsonSortGate can borrow `bm25_index` directly without any raw-pointer
+    // lifetime laundering.
+    // -----------------------------------------------------------------
+    let Some(first_clause) = sort_list.get_ptr(0) else {
+        return false;
+    };
+    let Some(first_te) = find_target_entry_by_ref(&target_list, (*first_clause).tleSortGroupRef)
+    else {
+        return false;
+    };
+    let first_expr = (*first_te).expr as *mut pg_sys::Node;
+
+    let Some((_, first_var, _)) =
+        analyze_sort_expression(first_expr, VarContext::from_query(parse), None)
+    else {
+        return false;
+    };
+
+    let target_varno = (*first_var).varno as pg_sys::Index;
+    if target_varno == 0 {
+        return false;
+    }
+
+    let (relid, _) = VarContext::from_query(parse).var_relation(first_var);
+    if relid == pg_sys::InvalidOid {
+        return false;
+    }
+
+    // Check if has BM25
+    let (_, bm25_index) = match rel_get_bm25_index(relid) {
+        Some(res) => res,
+        None => return false,
+    };
+
+    let schema = match SearchIndexSchema::open(&bm25_index) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let index_expressions = bm25_index.index_expressions();
+
+    // Index info shared across sort clauses. Built once; borrows the immutable
+    // relation state resolved above.
+    // TODO: heap_rti should use the actual varno from the target relation rather
+    // than hardcoded 1. Only matters for the #3455 window function path.
+    let index_info = IndexExpressionInfo {
+        index_expressions: &index_expressions,
+        schema: &schema,
+        heap_rti: 1 as pg_sys::Index,
+    };
+
     let mut json_sort_gate: Option<JsonSortGate> = None;
 
-    for sort_clause in sort_list.iter_ptr() {
+    // -----------------------------------------------------------------
+    // Pass 2: validate every sort clause against the identified relation.
+    // -----------------------------------------------------------------
+    for (i, sort_clause) in sort_list.iter_ptr().enumerate() {
         let tle_ref = (*sort_clause).tleSortGroupRef;
         let Some(te) = find_target_entry_by_ref(&target_list, tle_ref) else {
             return false;
@@ -569,60 +621,21 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
         let expr = (*te).expr as *mut pg_sys::Node;
 
-        // Pass index expressions if we have them (after first sort clause identifies the relation)
-        let index_info = target_relation_info
-            .as_ref()
-            .map(|(_, _, _, schema, idx_exprs)| IndexExpressionInfo {
-                index_expressions: idx_exprs,
-                schema,
-                // TODO: heap_rti should use the actual varno from target_relation_info
-                // rather than hardcoded 1. Only matters for the #3455 window function path.
-                heap_rti: 1 as pg_sys::Index,
-            });
+        // Preserve original behavior: the first clause is analyzed without index info.
+        let clause_index_info = if i == 0 { None } else { Some(&index_info) };
 
         // Use analyze_sort_expression to identify the sort key type and underlying variable
         let Some((sort_type, var, field_name_opt)) =
-            analyze_sort_expression(expr, VarContext::from_query(parse), index_info.as_ref())
+            analyze_sort_expression(expr, VarContext::from_query(parse), clause_index_info)
         else {
             return false;
         };
 
-        // Identify relation
+        // All sort columns must belong to the same relation
         let varno = (*var).varno as pg_sys::Index;
-        if varno == 0 {
+        if varno == 0 || varno != target_varno {
             return false;
         }
-
-        if let Some((expected_varno, _, _, _, _)) = &target_relation_info {
-            if varno != *expected_varno {
-                // Sorting by different relations
-                return false;
-            }
-        } else {
-            // Initialize target relation info
-            let (relid, _) = VarContext::from_query(parse).var_relation(var);
-            if relid == pg_sys::InvalidOid {
-                return false;
-            }
-
-            // Check if has BM25
-            let (_, bm25_index) = match rel_get_bm25_index(relid) {
-                Some(res) => res,
-                None => return false,
-            };
-
-            let schema = match SearchIndexSchema::open(&bm25_index) {
-                Ok(s) => s,
-                Err(_) => return false,
-            };
-
-            let index_expressions = bm25_index.index_expressions();
-
-            target_relation_info = Some((varno, relid, bm25_index, schema, index_expressions));
-        }
-
-        // Validate sortability
-        let (_, _, bm25_index, schema, _) = target_relation_info.as_ref().unwrap();
 
         match sort_type {
             SortExpressionType::Score => {
@@ -651,16 +664,10 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                     return false;
                 }
                 if search_field.is_json() {
-                    // Lazily build the gate the first time we hit a JSON sub-path sort
-                    // SAFETY: the gate borrows from `target_relation_info`, which lives for
-                    // the rest of this function
-                    let gate = json_sort_gate.get_or_insert_with(|| {
-                        JsonSortGate::new(
-                            // Re-borrow through a raw pointer to satisfy the borrow checker:
-                            // bm25_index lives in target_relation_info for the whole loop.
-                            &*(bm25_index as *const PgSearchRelation),
-                        )
-                    });
+                    // Lazily build the gate the first time we hit a JSON sub-path sort.
+                    // `bm25_index` is immutable for the rest of the function, so the gate
+                    // can borrow it directly.
+                    let gate = json_sort_gate.get_or_insert_with(|| JsonSortGate::new(&bm25_index));
                     if !json_sub_path_sort_pushable(gate, &field_name, expr) {
                         return false;
                     }
@@ -680,7 +687,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         }
     }
 
-    target_relation_info.is_some()
+    true
 }
 
 /// Find a pathkey from the query that matches the index's sort_by field.

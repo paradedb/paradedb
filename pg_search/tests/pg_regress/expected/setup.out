@@ -1,10 +1,13 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
+ERROR:  pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.
 DROP TABLE IF EXISTS mock_items_issue_2528;
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items_issue_2528'
 );
+ERROR:  schema "paradedb" does not exist at character 6
 CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, description, category) WITH (key_field='id');
+ERROR:  relation "mock_items_issue_2528" does not exist
 --
 -- a table named "regress"."mock_items" with all fields indexed, including one as an expression
 -- that all tests can use.
@@ -16,13 +19,18 @@ CALL paradedb.create_bm25_test_table(
         schema_name => 'regress',
         table_name => 'mock_items'
      );
+ERROR:  schema "paradedb" does not exist at character 6
 ALTER TABLE regress.mock_items ADD COLUMN sku UUID;
+ERROR:  relation "regress.mock_items" does not exist
 UPDATE regress.mock_items SET sku = ('da2fea21-' || lpad(to_hex( id::int4), 4, '0') || '-411b-9e8c-2cb64e471293')::uuid;
+ERROR:  relation "regress.mock_items" does not exist at character 8
 VACUUM FULL regress.mock_items;
+ERROR:  relation "regress.mock_items" does not exist
 CREATE INDEX idxregress_mock_items
     ON regress.mock_items
         USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
     WITH (key_field='id');
+ERROR:  relation "regress.mock_items" does not exist
 /*
  raises an ERROR if a is distinct from b, displaying only the message
  */

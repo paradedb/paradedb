@@ -824,7 +824,22 @@ impl AggregateScan {
         // (replicated view via canonical segment IDs). These flags are baked
         // into the serialized plan; workers re-derive them via the codec.
         Self::ensure_source_manifests(state);
-        let partitioning_idx = Self::partitioning_source_idx(state);
+
+        // For LEFT JOIN the left (preserved) side must be partitioned across
+        // workers so each worker sees all its preserved-side rows; the right
+        // (non-preserved) side is broadcast. sources() walks the RelNode tree
+        // left-first, so index 0 is always the left side of the outermost join.
+        // The cost-based selector is correct for INNER and other symmetric joins.
+        let join_type = state
+            .custom_state()
+            .datafusion_state
+            .as_ref()
+            .and_then(|df| df.plan.outermost_join_type());
+        let partitioning_idx = match join_type {
+            Some(crate::postgres::customscan::joinscan::build::JoinType::Left) => 0,
+            _ => Self::partitioning_source_idx(state),
+        };
+
         let mpp_ctx = MppPlanContext {
             partitioning_plan_position: partitioning_idx,
         };

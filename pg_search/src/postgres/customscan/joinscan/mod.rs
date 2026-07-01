@@ -642,6 +642,16 @@ impl JoinScan {
             join_clause = join_clause.with_forced_partitioning(0);
         }
 
+        // For LEFT JOIN the left (preserved) side must be partitioned across
+        // workers; the right (non-preserved) side is broadcast. sources() is
+        // left-first, so index 0 is always the left side.
+        if matches!(
+            join_clause.plan.outermost_join_type(),
+            Some(build::JoinType::Left)
+        ) {
+            join_clause = join_clause.with_forced_partitioning(0);
+        }
+
         // Safety check: bail out if LIMIT pushdown is unsafe due to
         // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
         if join_clause.limit_offset.is_some() {
@@ -2147,7 +2157,7 @@ impl JoinScan {
         if !unsupported.is_empty() {
             return Err(warn(
                 JoinDeclineReason::new(
-                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
+                    "JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported",
                 )
                 .with_details(
                     unsupported

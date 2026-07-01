@@ -765,6 +765,16 @@ type JoinKeySide<'a> = (&'a JoinSource, pg_sys::AttrNumber);
 // expressions) into relational `SemiJoin` or `AntiJoin` nodes in the IR tree.
 
 impl RelNode {
+    /// Returns the join type of the outermost join node, peeling through any
+    /// Filter wrappers. Returns `None` for a bare Scan (no join in the tree).
+    pub fn outermost_join_type(&self) -> Option<JoinType> {
+        match self {
+            RelNode::Join(j) => Some(j.join_type),
+            RelNode::Filter(f) => f.input.outermost_join_type(),
+            RelNode::Scan(_) => None,
+        }
+    }
+
     /// Recursively collects all unsupported join types found in the tree.
     pub fn unsupported_join_types(&self) -> Vec<JoinType> {
         let mut unsupported = Vec::new();
@@ -873,6 +883,7 @@ impl RelNode {
                 if !matches!(
                     j.join_type,
                     JoinType::Inner
+                        | JoinType::Left
                         | JoinType::Semi
                         | JoinType::Anti { .. }
                         | JoinType::LeftMark

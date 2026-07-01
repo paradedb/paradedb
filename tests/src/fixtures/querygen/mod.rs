@@ -391,10 +391,7 @@ pub struct PgGucs {
     /// scans whose leader/worker partitioning is incorrect (e.g. issue #5024).
     pub parallel_leader_participation: bool,
     /// Enable columnar execution (ColumnarExecState).
-    /// When enabled with a sorted index, uses SortPreservingMergeExec for sorted output.
     pub columnar_exec: bool,
-    /// Enable sorted execution for ColumnarExecState.
-    pub columnar_sort: bool,
     pub enable_mpp: bool,
 }
 
@@ -502,7 +499,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 12]>()
+        any::<[bool; 11]>()
             .prop_map(|b| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
@@ -515,8 +512,7 @@ impl Arbitrary for PgGucs {
                     parallel_workers: b[7],
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
-                    columnar_sort: b[10],
-                    enable_mpp: b[11],
+                    enable_mpp: b[10],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -541,7 +537,6 @@ impl PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
-            columnar_sort: false,
             enable_mpp: false,
         }
     }
@@ -558,7 +553,6 @@ impl PgGucs {
             parallel_workers,
             parallel_leader_participation,
             columnar_exec,
-            columnar_sort,
             enable_mpp,
         } = self;
 
@@ -598,11 +592,6 @@ impl PgGucs {
         writeln!(
             gucs,
             "SET paradedb.enable_columnar_exec TO {columnar_exec};"
-        )
-        .unwrap();
-        writeln!(
-            gucs,
-            "SET paradedb.enable_columnar_sort TO {columnar_sort};"
         )
         .unwrap();
         writeln!(gucs, "SET paradedb.enable_mpp TO {enable_mpp};").unwrap();

@@ -139,7 +139,6 @@
 //! - [`explain`]: EXPLAIN output formatting.
 
 pub mod build;
-pub mod planner;
 pub mod planning;
 pub mod predicate;
 pub mod privdat;

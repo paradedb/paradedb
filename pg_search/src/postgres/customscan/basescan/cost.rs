@@ -137,7 +137,6 @@ pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool
 
 pub(super) struct PathCostBasis {
     pub(super) parallelizable_cost: f64,
-    pub(super) total_cost_multiplier: f64,
 }
 
 /// Tantivy drive cost and the match count it scales against (see [`drive_fraction`]).
@@ -489,18 +488,12 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
 /// from output rows, plus the local output/materialization cost PG already understands. `rows` stays
 /// `base_result_rows` at the call site so Gather costing still charges only the tuples that cross.
 pub(super) fn estimate_path_cost(
-    method: &ExecMethodType,
     is_sorted: bool,
     per_tuple_cost: f64,
     base_result_rows: f64,
     drive: Option<DriveCost>,
     limit: Option<f64>,
 ) -> PathCostBasis {
-    let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge() {
-        1.01
-    } else {
-        1.0
-    };
     let output_cost = base_result_rows * per_tuple_cost;
     let scan_work = drive
         .map(|drive| drive_work(drive.cost, drive_fraction(is_sorted, limit, drive.matches)))
@@ -508,6 +501,5 @@ pub(super) fn estimate_path_cost(
 
     PathCostBasis {
         parallelizable_cost: scan_work + output_cost,
-        total_cost_multiplier,
     }
 }

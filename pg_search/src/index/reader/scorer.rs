@@ -82,7 +82,7 @@ impl DeferredScorer {
     #[track_caller]
     #[inline(always)]
     fn scorer(&self) -> &dyn Scorer {
-        let scorer_type = self.scorer.get_or_init(|| {
+        let scorer = self.scorer.get_or_init(|| {
             let weight = self
                 .query
                 .weight(enable_scoring(self.need_scores, &self.searcher))
@@ -100,7 +100,7 @@ impl DeferredScorer {
                 ScorerType::Regular(scorer)
             }
         });
-        match scorer_type {
+        match scorer {
             ScorerType::Regular(scorer) => scorer,
             ScorerType::Pruning(pruning) => pruning,
         }

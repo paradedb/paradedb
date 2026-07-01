@@ -193,6 +193,9 @@ pub struct PgSearchScanPlan {
     /// this scan to write a tag — the EXPLAIN renderer falls back to
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
+    /// Controls whether the batch reader uses a pruning scorer or a regular scorer.
+    /// Defaults to false, and must be overridden before execution to be applied
+    use_pruning_scorer: bool,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -278,6 +281,7 @@ impl PgSearchScanPlan {
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
+            use_pruning_scorer: false,
         }
     }
 
@@ -693,6 +697,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
         let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
+        let use_pruning_scorer = self.use_pruning_scorer;
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -745,6 +750,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                     )
                 }
             };
+            if use_pruning_scorer {
+                scanner.use_pruning_scorer();
+            }
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
@@ -860,6 +868,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_strategy: Arc::new(AtomicU8::new(
                     self.dynamic_filter_strategy.load(Ordering::Relaxed),
                 )),
+                use_pruning_scorer: self.use_pruning_scorer,
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

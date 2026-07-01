@@ -247,6 +247,12 @@ impl MultiSegmentSearchResults {
             lazy_estimated_rows: None,
         }
     }
+
+    pub fn use_pruning_scorer(&mut self) {
+        for it in self.iterators.iter_mut() {
+            it.set_pruning(true);
+        }
+    }
 }
 
 impl Iterator for MultiSegmentSearchResults {

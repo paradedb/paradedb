@@ -8,8 +8,6 @@ name: Test Stressgres (Docker)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - main
     paths:
       - ".github/workflows/test-stressgres-docker.yml"
       - "docker/Dockerfile.stressgres"

@@ -278,7 +278,7 @@ impl Scanner {
             return Some(batch);
         }
         pgrx::check_for_interrupts!();
-        let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
+        let (segment_ord, scores, mut ids) = self.try_get_batch_ids(threshold)?;
 
         // Memoize fetched columns to avoid redundant fetches.
         // - Numeric columns: stores the values directly.

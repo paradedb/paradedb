@@ -77,6 +77,9 @@ pub fn tokenizer(
     stopwords_languages: default!(Option<Vec<String>>, "NULL"),
     stopwords: default!(Option<Vec<String>>, "NULL"),
     ascii_folding: default!(Option<bool>, "NULL"),
+    keep_whitespace: default!(Option<bool>, "NULL"),
+    nfkc: default!(Option<bool>, "NULL"),
+    reading_form: default!(Option<bool>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -116,6 +119,11 @@ pub fn tokenizer(
     pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
 
     ascii_folding.map(|v| config.insert("ascii_folding".to_string(), Value::Bool(v)));
+
+    // Options for type = lindera
+    keep_whitespace.map(|v| config.insert("keep_whitespace".to_string(), Value::Bool(v)));
+    nfkc.map(|v| config.insert("nfkc".to_string(), Value::Bool(v)));
+    reading_form.map(|v| config.insert("reading_form".to_string(), Value::Bool(v)));
 
     JsonB(json!(config))
 }

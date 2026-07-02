@@ -516,6 +516,54 @@ impl SearchTokenizer {
             "chinese_lindera" => Ok(SearchTokenizer::ChineseLinderaDeprecated(filters)),
             "japanese_lindera" => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
             "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
+            "lindera" => {
+                let language_str = value
+                    .get("language")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "lindera tokenizer requires a string 'language' field \
+                             (one of: \"chinese\", \"japanese\", \"korean\")"
+                        )
+                    })?;
+                let language = match language_str.to_lowercase().as_str() {
+                    "chinese" => LinderaLanguage::Chinese,
+                    "japanese" => LinderaLanguage::Japanese,
+                    "korean" => LinderaLanguage::Korean,
+                    other => {
+                        return Err(anyhow::anyhow!(
+                            "unknown lindera language: \"{other}\". \
+                             Expected one of: \"chinese\", \"japanese\", \"korean\""
+                        ))
+                    }
+                };
+                let keep_whitespace = value
+                    .get("keep_whitespace")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let nfkc = value
+                    .get("nfkc")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let reading_form = value
+                    .get("reading_form")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                if reading_form && matches!(language, LinderaLanguage::Chinese) {
+                    return Err(anyhow::anyhow!(
+                        "reading_form=true is not supported for the Lindera Chinese tokenizer"
+                    ));
+                }
+
+                Ok(SearchTokenizer::Lindera {
+                    language,
+                    filters,
+                    keep_whitespace,
+                    nfkc,
+                    reading_form,
+                })
+            }
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
                 let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
@@ -1025,6 +1073,147 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap()
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_json_defaults() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "japanese"
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Lindera {
+                language: LinderaLanguage::Japanese,
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+                nfkc: false,
+                reading_form: false,
+            }
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_json_nfkc() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "japanese",
+            "nfkc": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Lindera {
+                language: LinderaLanguage::Japanese,
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+                nfkc: true,
+                reading_form: false,
+            }
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_json_reading_form() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "korean",
+            "reading_form": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Lindera {
+                language: LinderaLanguage::Korean,
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+                nfkc: false,
+                reading_form: true,
+            }
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_json_all_options() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "japanese",
+            "keep_whitespace": true,
+            "nfkc": true,
+            "reading_form": true,
+            "lowercase": false
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Lindera {
+                language: LinderaLanguage::Japanese,
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: Some(false),
+                    stemmer: None,
+                    stopwords_language: None,
+                    stopwords: None,
+                    ascii_folding: None,
+                    trim: None,
+                    normalizer: None,
+                    alpha_num_only: None,
+                },
+                keep_whitespace: true,
+                nfkc: true,
+                reading_form: true,
+            }
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_json_reading_form_rejected_for_chinese() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "chinese",
+            "reading_form": true
+        }"#;
+
+        let result =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap());
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("reading_form"),
+            "error should mention reading_form, got: {err_msg}"
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_json_missing_language() {
+        let json = r#"{
+            "type": "lindera"
+        }"#;
+
+        let result =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap());
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("language"),
+            "error should mention language, got: {err_msg}"
         );
     }
 

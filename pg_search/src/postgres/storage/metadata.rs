@@ -403,6 +403,7 @@ unsafe fn bgmerger_state(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::datum::TimestampWithTimeZone;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -431,7 +432,9 @@ mod tests {
 
     #[pg_test]
     fn created_at_is_stamped_at_index_build() {
-        let before: i64 = Spi::get_one("SELECT now()::timestamptz")
+        // `GetCurrentTimestamp()` is wall-clock time, so bound the build with `clock_timestamp()`
+        // (which advances within the transaction) rather than the fixed `now()`.
+        let before: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
             .expect("spi should succeed")
             .unwrap();
 
@@ -439,7 +442,7 @@ mod tests {
         Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id');").unwrap();
 
-        let after: i64 = Spi::get_one("SELECT now()::timestamptz")
+        let after: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
             .expect("spi should succeed")
             .unwrap();
 
@@ -449,19 +452,23 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(index_oid);
 
-        let created_at = MetaPage::open(&indexrel)
-            .created_at()
-            .expect("freshly built index should be timestamp-stamped");
+        let created_at = TimestampWithTimeZone::try_from(
+            MetaPage::open(&indexrel)
+                .created_at()
+                .expect("freshly built index should be timestamp-stamped"),
+        )
+        .unwrap();
 
         assert!(
             created_at >= before && created_at <= after,
-            "created_at {created_at} should fall within [{before}, {after}]"
+            "created_at {created_at:?} should fall within [{before:?}, {after:?}]"
         );
 
         // The UDF should surface the same instant.
-        let via_udf: i64 = Spi::get_one("SELECT paradedb.index_created_at('t_idx')::timestamptz")
-            .expect("spi should succeed")
-            .unwrap();
+        let via_udf: TimestampWithTimeZone =
+            Spi::get_one("SELECT paradedb.index_created_at('t_idx')")
+                .expect("spi should succeed")
+                .unwrap();
         assert_eq!(via_udf, created_at);
     }
 }

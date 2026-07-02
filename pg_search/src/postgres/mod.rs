@@ -173,8 +173,8 @@ pub fn rel_get_bm25_index(
         }
     }
 
-    let index = chosen?;
-
+    // Flag dead invalid indexes even when no valid index remains (`chosen` is `None`) — that
+    // case is the most severe, since the relation then has no usable bm25 index at all.
     if !invalid.is_empty() {
         // An invalid index that no live backend is building is a dead leftover of a failed
         // `CREATE INDEX CONCURRENTLY` / `REINDEX`. Scan the backend status array once for all
@@ -199,6 +199,7 @@ pub fn rel_get_bm25_index(
         }
     }
 
+    let index = chosen?;
     Some((rel, index))
 }
 
@@ -214,6 +215,9 @@ fn indexes_being_built(heap_relid: pg_sys::Oid) -> HashSet<u32> {
     let mut building = HashSet::default();
 
     unsafe {
+        // The backend status array is cluster-wide, but relation/index OIDs are database-local,
+        // so a build in another database could otherwise match on OID alone.
+        let my_database_id = pg_sys::MyDatabaseId;
         let num_backends = pg_sys::pgstat_fetch_stat_numbackends();
         for i in 1..=num_backends {
             #[cfg(feature = "pg15")]
@@ -234,6 +238,7 @@ fn indexes_being_built(heap_relid: pg_sys::Oid) -> HashSet<u32> {
 
             if status.st_progress_command
                 == pg_sys::ProgressCommandType::PROGRESS_COMMAND_CREATE_INDEX
+                && status.st_databaseid == my_database_id
                 && status.st_progress_command_target == heap_relid
             {
                 building.insert(status.st_progress_param[index_oid_param] as u32);

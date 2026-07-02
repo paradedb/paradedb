@@ -113,7 +113,7 @@ unsafe fn bm25_shared_state(
 pub unsafe fn maybe_init_parallel_scan(
     scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
-) -> Option<(i32, Vec<SegmentId>)> {
+) -> Option<i32> {
     if unsafe { (*scan).parallel_scan.is_null() } {
         // not a parallel scan, so there's nothing to initialize
         return None;
@@ -125,8 +125,6 @@ pub unsafe fn maybe_init_parallel_scan(
     let state = get_bm25_scan_state(scan)?;
 
     let _mutex = state.acquire_mutex();
-
-    let mutable_ids: Vec<SegmentId> = searcher.mutable_segment_ids().iter().copied().collect();
 
     if !state.is_initialized() {
         // If concurrent writes created more segments than the DSM can hold, fall back to serial
@@ -147,14 +145,15 @@ pub unsafe fn maybe_init_parallel_scan(
         // Workers will never see or claim these — the leader handles them directly.
         // This prevents the expensive per-worker index_memory_segment() materialization
         // that caused issue #4497.
-        let immutable_readers: Vec<&SegmentReader> = searcher
+        let immutable_readers: Vec<SegmentReader> = searcher
             .segment_readers()
             .iter()
             .filter(|sr| !searcher.mutable_segment_ids().contains(&sr.segment_id()))
+            .cloned()
             .collect();
         state.populate(&[&immutable_readers], 0, &[], false);
     }
-    Some((unsafe { pg_sys::ParallelWorkerNumber }, mutable_ids))
+    Some(unsafe { pg_sys::ParallelWorkerNumber })
 }
 
 /// Claim a segment from the shared pool.

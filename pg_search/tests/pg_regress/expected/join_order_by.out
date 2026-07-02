@@ -329,7 +329,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[val]
-           :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
+           :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, visibility_checks=[t2, t1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, val@4]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
@@ -358,7 +358,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_filtered_invisible=0, rows_input=8.25 K, rows_output=10, segments_seen=2]
+           :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, visibility_checks=[t2, t1], metrics=[rows_filtered_invisible=0, rows_input=8.25 K, rows_output=10, segments_seen=2]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, val@4], metrics=[output_rows=8.25 K, output_bytes=361.6 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.25 K, build_mem_used=400.0 K, avg_fanout=100% (8.25 K/8.25 K), probe_hit_rate=100% (8.25 K/8.25 K)]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
@@ -444,7 +444,7 @@ LIMIT 25;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[val]
-           :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25
+           :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, visibility_checks=[t2, t1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
@@ -470,7 +470,7 @@ LIMIT 25;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :   TantivyLookupExec: decode=[val], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
-           :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, metrics=[rows_filtered_invisible=0, rows_input=8.43 K, rows_output=25, segments_seen=1]
+           :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, visibility_checks=[t2, t1], metrics=[rows_filtered_invisible=0, rows_input=8.43 K, rows_output=25, segments_seen=1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4], metrics=[output_rows=8.43 K, output_bytes=493.9 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.43 K, build_mem_used=400.0 K, avg_fanout=100% (8.43 K/8.43 K), probe_hit_rate=100% (8.43 K/8.43 K)]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
@@ -539,7 +539,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[val]
-           :     SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10
+           :     SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10, visibility_checks=[t2, t1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"

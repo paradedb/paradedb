@@ -16,14 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Physical optimizer rule that wires FFHelper instances from PgSearchScanPlan
-//! into VisibilityFilterExec for ctid resolution.
+//! into the node that owns MVCC visibility checking, for ctid resolution.
 //!
-//! VisibilityFilterExec needs real ctids to check visibility, but when deferred
-//! visibility is enabled, ctid columns hold packed DocAddresses. This rule
-//! finds the PgSearchScanPlan that owns each ctid column and wires its FFHelper
-//! into the VisibilityFilterExec so it can resolve the packed addresses itself.
+//! Visibility checking needs real ctids, but when deferred visibility is enabled
+//! the ctid columns hold packed DocAddresses. This rule finds the PgSearchScanPlan
+//! that owns each ctid column and wires its FFHelper into the owning node so it can
+//! resolve the packed addresses itself.
 //!
-//! This is interior mutation only (Mutex-based wiring) — no structural plan changes.
+//! The owning node is either a `VisibilityFilterExec`, or a `SegmentedTopKExec` that
+//! has absorbed a `VisibilityFilterExec` (see `SegmentedTopKRule`) and now performs
+//! the visibility checks inline. Both expose the same `plan_pos_oids` and
+//! `set_ctid_resolver` interface, so this rule handles them identically.
+//!
+//! This is interior mutation only (Mutex-based wiring), with no structural plan changes.
 
 use std::sync::Arc;
 

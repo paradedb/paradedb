@@ -61,7 +61,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[contact_id@5 as col_1, company_id@2 as col_2, company_name_words@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   TantivyLookupExec: decode=[company_name_words, company_name]
-                 :     SegmentedTopKExec: expr=[company_name@4 ASC NULLS LAST, contact_id@5 ASC NULLS LAST], k=10
+                 :     SegmentedTopKExec: expr=[company_name@4 ASC NULLS LAST, contact_id@5 ASC NULLS LAST], k=10, visibility_checks=[ti, cccf]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, company_id@3, company_name_words@4, company_name@5, contact_id@6]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"technology_name","query_string":"java","lenient":null,"conjunction_mode":null}}}}

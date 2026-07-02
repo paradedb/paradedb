@@ -629,11 +629,14 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         let gt = ground_truth
             .get(id)
             .with_context(|| format!("No ground truth for query id {id}"))?;
-        total_hits += rows
-            .iter()
-            .filter_map(|r| r.try_get::<String, _>("_id").ok())
-            .filter(|neighbor| gt.contains(neighbor))
-            .count();
+        for row in &rows {
+            let neighbor: String = row.try_get("_id").with_context(|| {
+                format!("recall query for {id} returned a row with no text `_id` column")
+            })?;
+            if gt.contains(&neighbor) {
+                total_hits += 1;
+            }
+        }
     }
 
     let recall = total_hits as f64 / (vectors.len() * RECALL_K) as f64;
@@ -701,59 +704,59 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     let mut query_paths: Vec<_> = query_paths?.into_iter().flatten().collect();
     query_paths.sort_unstable();
 
-    // Resolve `{{ param }}` references in the query files (e.g. per-query probes/ef_search scaled by
-    // dataset_size) from config.toml [params], the same templating used for index DDL.
-    let all_query_stmts: Vec<String> = query_paths
+    // Parse each query file once (reused below for execution). Resolve their `{{ param }}` references
+    // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
+    // templating used for index DDL.
+    let parsed_queries: Vec<(String, String)> = query_paths
         .iter()
-        .flat_map(|p| benchmark_queries(p).into_iter().map(|(_, q)| q))
+        .flat_map(|p| benchmark_queries(p))
         .collect();
+    let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,
         &args.dataset,
         args.size.as_deref(),
-        &all_query_stmts,
+        &query_stmts,
     )
     .await?;
 
     let mut results = Vec::new();
-    for path in query_paths {
-        for (query_type, query) in benchmark_queries(&path) {
-            let query = substitute_vars(&query, &query_params)?;
-            if args.clear_caches {
-                if let Err(err) = clear_caches(&mut utility_conn).await {
-                    panic!("Failed to clear caches before query: {err}");
-                }
+    for (query_type, query) in parsed_queries {
+        let query = substitute_vars(&query, &query_params)?;
+        if args.clear_caches {
+            if let Err(err) = clear_caches(&mut utility_conn).await {
+                panic!("Failed to clear caches before query: {err}");
             }
+        }
 
-            sqlx::raw_sql("CHECKPOINT;")
-                .execute(&mut utility_conn)
-                .await
-                .with_context(|| "Failed to execute checkpoint.")?;
+        sqlx::raw_sql("CHECKPOINT;")
+            .execute(&mut utility_conn)
+            .await
+            .with_context(|| "Failed to execute checkpoint.")?;
 
-            println!("Query Type: {query_type}\nQuery: {query}");
-            let result = execute_query_multiple_times(
-                &args.url,
-                &query_type,
-                &query,
-                args.runs,
-                args.fail_on_error,
-            )
-            .await?;
-            match result {
-                Some(query_results) => {
-                    println!(
-                        "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
-                        query_results.cold, query_results.samples, query_results.num_results
-                    );
-                    results.push(QueryResult {
-                        query_type,
-                        query,
-                        results: query_results,
-                    });
-                }
-                None => {
-                    println!("Skipped (query error)\n");
-                }
+        println!("Query Type: {query_type}\nQuery: {query}");
+        let result = execute_query_multiple_times(
+            &args.url,
+            &query_type,
+            &query,
+            args.runs,
+            args.fail_on_error,
+        )
+        .await?;
+        match result {
+            Some(query_results) => {
+                println!(
+                    "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
+                    query_results.cold, query_results.samples, query_results.num_results
+                );
+                results.push(QueryResult {
+                    query_type,
+                    query,
+                    results: query_results,
+                });
+            }
+            None => {
+                println!("Skipped (query error)\n");
             }
         }
     }

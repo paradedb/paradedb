@@ -444,9 +444,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # A recall step that was skipped/failed leaves its .tsv missing; touch both so `cat` (and
+          # thus pipefail) doesn't abort when only one size ran.
+          touch recall_1m.tsv recall_10m.tsv
           # Build one row per query (union of whatever was measured at either size), so query files
           # added to datasets/cohere/queries/ appear automatically.
-          rows=$(cat recall_1m.tsv recall_10m.tsv 2>/dev/null | cut -f1 | sort -u | while read -r q; do
+          rows=$(cat recall_1m.tsv recall_10m.tsv | cut -f1 | sort -u | while read -r q; do
             [ -n "$q" ] || continue
             r1=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_1m.tsv 2>/dev/null || true)
             r10=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_10m.tsv 2>/dev/null || true)

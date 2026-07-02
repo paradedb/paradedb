@@ -811,6 +811,11 @@ pub fn index_memory_segment(
                 }
 
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
+                    // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
+                    // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
+                    // skip so the slot releases its buffer pin.
+                    pg_sys::ExecClearTuple(heap_fetch_state.slot());
+
                     // This copy of the tuple is no longer visible to any transaction. Are there
                     // more in the HOT chain?
                     if call_again {

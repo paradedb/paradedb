@@ -118,15 +118,15 @@ SELECT category, COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
 FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
 GROUP BY category;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.df_fallback_products
    Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: df_fallback_products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"rating","missing":null}},"2":{"min":{"field":"price","missing":null}},"3":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":1,"size":1}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null,"none_if_no_match":true}},"1":{"avg":{"field":"rating","missing":null}},"2":{"min":{"field":"price","missing":null}},"3":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":1,"size":1}}}
 (7 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
@@ -151,7 +151,7 @@ WHERE description @@@ 'laptop OR shoes';
    Index: df_fallback_products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT COUNT(*), SUM(price)

@@ -33,7 +33,7 @@ As shown in the diagram:
 - Each microservice database (db1, db2, db3) uses a schema matching its database name
 - All databases replicate to a single ParadeDB instance via logical replication
 - In ParadeDB, tables are accessible with fully-qualified names (e.g., `db1.table1`, `db2.table1`)
-- This enables cross-database joins like: `SELECT db1.users.user_id FROM db1.users, db2.orders WHERE db1.users.id = db2.orders.user_id`
+- This enables cross-database joins like: `SELECT db1.users.id, db2.orders.id FROM db1.users JOIN db2.orders ON db1.users.id = db2.orders.user_id`
 
 Instead of having all tables in the `public` schema across multiple databases:
 

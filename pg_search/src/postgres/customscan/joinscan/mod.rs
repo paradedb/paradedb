@@ -179,6 +179,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
+use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -194,7 +195,6 @@ use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_distributed::{display_plan_ascii, DistributedExec};
-use futures::StreamExt;
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::Arc;
@@ -688,7 +688,8 @@ impl JoinScan {
             (src.scan_info.segment_count, src.scan_info.estimate)
         };
 
-        let nworkers = if mpp_is_active() {
+        let use_mpp = mpp_is_active() && !JoinScan::source_queries_have_parameters(&join_clause);
+        let nworkers = if use_mpp {
             // MPP needs exactly `producer_worker_count()` workers to match the n_procs x n_procs
             // mesh dimensions. Override the heuristic-based parallel-worker count.
             producer_worker_count() as usize
@@ -774,7 +775,7 @@ impl JoinScan {
         // For MPP the customscan launches its own producer workers from exec via the builder, so
         // the path stays serial to PG (no Gather). Only the regular non-MPP parallel join is marked
         // parallel-aware; `nworkers` still feeds the per-source row estimates above either way.
-        if nworkers > 0 && !mpp_is_active() {
+        if nworkers > 0 && !use_mpp {
             custom_path.path.parallel_aware = true;
             custom_path.path.parallel_safe = true;
             custom_path.path.parallel_workers =
@@ -976,6 +977,15 @@ impl JoinScan {
             .collect()
     }
 
+    fn source_queries_have_parameters(join_clause: &JoinCSClause) -> bool {
+        // TODO(#5445): Implement `SolvePostgresExpressions` for `JoinScan` to solve
+        // these parameters on the leader before dispatch.
+        join_clause.plan.sources().iter().any(|source| {
+            let mut query = source.scan_info.query.clone();
+            query.has_parameters()
+        })
+    }
+
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.plan.sources().iter().any(|source| {
             let mut query = source.scan_info.query.clone();
@@ -1002,7 +1012,9 @@ impl JoinScan {
     /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
     /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
     fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
-        if !mpp_is_active() {
+        if !mpp_is_active()
+            || Self::source_queries_have_parameters(&state.custom_state().join_clause)
+        {
             return;
         }
         let Some(plan_bytes) = state.custom_state_mut().mpp_plan_bytes.take() else {
@@ -1027,6 +1039,10 @@ impl JoinScan {
             args,
             partitioning_idx,
         ) {
+            // The leader runs the top fragment itself. When a non-partitioning source lands there
+            // (the SEMI/ANTI broadcast strategy), its scan claims per-source segments against the
+            // same shared state the workers use, so the codec needs this pointer to install it.
+            state.custom_state_mut().parallel_state = Some(leader.parallel_state);
             state.custom_state_mut().mpp = Some(leader);
         }
     }
@@ -1384,7 +1400,10 @@ impl CustomScan for JoinScan {
             // can write it into the DSM region. Only the leader runs this branch
             // (`ParallelWorkerNumber == -1`); workers read the bytes back from DSM in
             // initialize_worker_custom_scan via `worker_setup`.
-            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
+            if mpp_is_active()
+                && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp_plan_bytes = Some(bytes.to_vec());
                     let partitioning_idx =
@@ -1552,14 +1571,10 @@ impl CustomScan for JoinScan {
 
                 let next_batch = {
                     let custom_state = state.custom_state_mut();
-                    custom_state.runtime.as_mut().unwrap().block_on(async {
-                        custom_state
-                            .datafusion_stream
-                            .as_mut()
-                            .unwrap()
-                            .next()
-                            .await
-                    })
+                    block_on_next(
+                        custom_state.runtime.as_ref().unwrap(),
+                        custom_state.datafusion_stream.as_mut().unwrap(),
+                    )
                 };
 
                 match next_batch {
@@ -1579,6 +1594,14 @@ impl CustomScan for JoinScan {
         // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
         // already reached EOF.
         state.custom_state_mut().datafusion_stream = None;
+        // Release the DSM-backed control senders before `recv`. A producer's `work_mem` overflow
+        // (or any worker error) is re-raised in the leader from inside `recv`, which `longjmp`s
+        // out of this hook; a release placed after it would never run, leaving the senders to drop
+        // at xact commit, past the DSM's lifetime, where their `fetch_sub` faults. The query is
+        // done producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
+        if let Some(leader) = state.custom_state().mpp.as_ref() {
+            leader.release_control_senders();
+        }
         // Wait for the producer workers to finish and flush their `TaskMetrics` before draining:
         // `recv` blocks until every worker detaches its completion queue, which it does only after
         // sending metrics. PG's parallel teardown joins Gather-spawned workers here; the
@@ -1590,13 +1613,11 @@ impl CustomScan for JoinScan {
             }
         }
         // The EXPLAIN hook runs after teardown and only reads the store, so drain the workers'
-        // metrics frames off the mesh now, then drop the leader's control senders (their drop
-        // decrements counters inside the still-mapped DSM).
+        // metrics frames off the mesh now.
         if let Some(leader) = state.custom_state().mpp.as_ref() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
-            leader.release_control_senders();
         }
     }
 

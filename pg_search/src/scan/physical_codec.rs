@@ -70,6 +70,8 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
     /// `SearchPredicateUDF` on decode, same as the logical codec.
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// The `ExprContext` workers use to evaluate heap filters.
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 
 // Same justification as the logical `PgSearchExtensionCodec`: Postgres extensions run
@@ -94,6 +96,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 payload,
                 self.parallel_state,
                 &self.non_partitioning_segment_ids,
+                self.expr_context,
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
             // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
@@ -110,12 +113,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
-                let ffhelper = first_scan_ffhelper(&input).ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec dispatch: no scan ffhelper in subtree".into(),
-                    )
-                })?;
-                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelper, ctx)
+                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelpers, ctx)
             }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
@@ -278,13 +277,6 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
     map
 }
 
-/// The first scan ffhelper below this node, for the segmented top-k exec (single source).
-fn first_scan_ffhelper(input: &Arc<dyn ExecutionPlan>) -> Option<Arc<FFHelper>> {
-    let mut scans = Vec::new();
-    collect_scan_runtime(input, &mut scans);
-    scans.into_iter().find_map(|s| s.ffhelper)
-}
-
 /// [`DistributedCodec`] with the pg_search UDF names carved out of its UDF/UDAF handling.
 ///
 /// The composed codec takes the first `Ok` per call, and the trait's default `try_encode_udf`
@@ -371,11 +363,13 @@ pub fn deserialize_physical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
         non_partitioning_segment_ids,
         index_segment_ids,
+        expr_context,
     });
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))

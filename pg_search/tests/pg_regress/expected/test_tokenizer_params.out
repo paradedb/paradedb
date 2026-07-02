@@ -32,9 +32,9 @@ CREATE INDEX idx_ngram ON test_tokenizer_params
 USING bm25 (id, (content::pdb.ngram(2, 4, 'prefix_only=true')))
 WITH (key_field = 'id');
 DROP INDEX idx_ngram;
--- lindera: language
+-- lindera: language, nfkc, reading_form
 CREATE INDEX idx_lindera ON test_tokenizer_params
-USING bm25 (id, (content::pdb.lindera('japanese')))
+USING bm25 (id, (content::pdb.lindera('japanese', 'nfkc=true', 'reading_form=true')))
 WITH (key_field = 'id');
 DROP INDEX idx_lindera;
 -- regex: pattern
@@ -99,7 +99,7 @@ ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, asci
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.lindera('chinese', 'min=2')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, keep_whitespace, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, keep_whitespace, language, lowercase, nfkc, normalizer, reading_form, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -------------------------------------------------------------
 -- Cleanup
 -------------------------------------------------------------

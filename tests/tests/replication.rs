@@ -15,12 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use dotenvy::dotenv;
-use fixtures::db::Query;
 use rstest::*;
 use sqlx::{Connection, PgConnection};
 use std::io::Write;
@@ -31,6 +28,7 @@ use std::sync::Once;
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
+use tests::fixtures::db::Query;
 
 // Static variables for initializing port assignment and ensuring one-time setup
 static INIT: Once = Once::new();

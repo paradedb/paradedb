@@ -15,9 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::postgres::types::PgRange;
@@ -27,6 +24,7 @@ use std::fmt::{Debug, Display};
 use std::ops::Bound;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use tests::fixtures::*;
 use time::macros::{date, datetime};
 
 const TARGET_INT4_LOWER_BOUNDS: [i32; 2] = [2, 10];

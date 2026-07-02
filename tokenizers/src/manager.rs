@@ -172,7 +172,7 @@ impl SearchTokenizerFilters {
         }
         if let Some(alpha_num_only) = value.get("alpha_num_only") {
             filters.alpha_num_only = Some(alpha_num_only.as_bool().ok_or_else(|| {
-                anyhow::anyhow!("ascii_folding tokenizer requires a valid 'alpha_num_only' field")
+                anyhow::anyhow!("alpha_num_only tokenizer requires a valid 'alpha_num_only' field")
             })?);
         }
         if let Some(ascii_folding) = value.get("ascii_folding") {
@@ -412,6 +412,8 @@ pub enum SearchTokenizer {
         language: LinderaLanguage,
         filters: SearchTokenizerFilters,
         keep_whitespace: bool,
+        nfkc: bool,
+        reading_form: bool,
     },
     UnicodeWordsDeprecated {
         remove_emojis: bool,
@@ -536,7 +538,7 @@ impl SearchTokenizer {
                 let remove_emojis: bool = serde_json::from_value(value["remove_emojis"].clone())
                     .map_err(|_| {
                         anyhow::anyhow!(
-                            "unicode_words tokenizer requires an integer 'remove_emojis' field"
+                            "unicode_words tokenizer requires a boolean 'remove_emojis' field"
                         )
                     })?;
 
@@ -628,13 +630,22 @@ impl SearchTokenizer {
             SearchTokenizer::ChineseLindera {
                 filters,
                 keep_whitespace,
+            } => {
+                add_filters!(LinderaChineseTokenizer::new(*keep_whitespace), filters)
             }
-            | SearchTokenizer::Lindera {
+            SearchTokenizer::Lindera {
                 language: LinderaLanguage::Chinese,
                 filters,
                 keep_whitespace,
+                nfkc,
+                // reading_form is not supported for Chinese; it is rejected at
+                // parse time and ignored here.
+                reading_form: _,
             } => {
-                add_filters!(LinderaChineseTokenizer::new(*keep_whitespace), filters)
+                add_filters!(
+                    LinderaChineseTokenizer::with_options(*keep_whitespace, *nfkc),
+                    filters
+                )
             }
             SearchTokenizer::JapaneseLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, filters) => {
@@ -643,13 +654,20 @@ impl SearchTokenizer {
             SearchTokenizer::JapaneseLindera {
                 filters,
                 keep_whitespace,
+            } => {
+                add_filters!(LinderaJapaneseTokenizer::new(*keep_whitespace), filters)
             }
-            | SearchTokenizer::Lindera {
+            SearchTokenizer::Lindera {
                 language: LinderaLanguage::Japanese,
                 filters,
                 keep_whitespace,
+                nfkc,
+                reading_form,
             } => {
-                add_filters!(LinderaJapaneseTokenizer::new(*keep_whitespace), filters)
+                add_filters!(
+                    LinderaJapaneseTokenizer::with_options(*keep_whitespace, *nfkc, *reading_form),
+                    filters
+                )
             }
             SearchTokenizer::KoreanLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Korean, filters) => {
@@ -658,13 +676,20 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera {
                 filters,
                 keep_whitespace,
+            } => {
+                add_filters!(LinderaKoreanTokenizer::new(*keep_whitespace), filters)
             }
-            | SearchTokenizer::Lindera {
+            SearchTokenizer::Lindera {
                 language: LinderaLanguage::Korean,
                 filters,
                 keep_whitespace,
+                nfkc,
+                reading_form,
             } => {
-                add_filters!(LinderaKoreanTokenizer::new(*keep_whitespace), filters)
+                add_filters!(
+                    LinderaKoreanTokenizer::with_options(*keep_whitespace, *nfkc, *reading_form),
+                    filters
+                )
             }
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)
@@ -852,20 +877,31 @@ impl SearchTokenizer {
                 language,
                 filters: _,
                 keep_whitespace,
-            } => match language {
-                LinderaLanguage::Unspecified => {
-                    panic!("LinderaStyle::Unspecified is not supported")
-                }
-                LinderaLanguage::Chinese => {
-                    format!("chinese_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
-                }
-                LinderaLanguage::Japanese => {
-                    format!("japanese_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
-                }
-                LinderaLanguage::Korean => {
-                    format!("korean_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
-                }
-            },
+                nfkc,
+                reading_form,
+            } => {
+                // Only emit option suffixes when the option is enabled, so that
+                // the name of a tokenizer with no extra options is byte-for-byte
+                // identical to what previous versions produced. This keeps
+                // existing indexes valid across upgrades.
+                let nfkc_suffix = if *nfkc { "_nfkc:true" } else { "" };
+                let reading_form_suffix = if *reading_form {
+                    "_readingform:true"
+                } else {
+                    ""
+                };
+                let lang = match language {
+                    LinderaLanguage::Unspecified => {
+                        panic!("LinderaStyle::Unspecified is not supported")
+                    }
+                    LinderaLanguage::Chinese => "chinese",
+                    LinderaLanguage::Japanese => "japanese",
+                    LinderaLanguage::Korean => "korean",
+                };
+                format!(
+                    "{lang}_lindera_keepwhitespace:{keep_whitespace}{nfkc_suffix}{reading_form_suffix}{filters_suffix}"
+                )
+            }
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,

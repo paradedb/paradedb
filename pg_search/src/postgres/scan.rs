@@ -214,23 +214,23 @@ pub extern "C-unwind" fn amrescan(
     };
 
     unsafe {
-        let results = if (*scan).parallel_scan.is_null() {
-            // not a parallel scan - search all segments
-            Some(search_reader.search())
-        } else {
-            // Parallel scan: the leader pre-searches any mutable segments that were
-            // excluded from the DSM checkout pool. Workers will handle immutable
-            // segments via checkout_segment() in search_next_segment().
-            //
-            // If there are no mutable segments, this is None and the leader also
-            // claims from the DSM pool like workers do.
-            let mutable_ids = search_reader.mutable_segment_ids();
-            if !mutable_ids.is_empty() {
-                Some(search_reader.search_segments(mutable_ids.iter().copied()))
-            } else {
-                None
+        let mut results = None;
+        let is_parallel = !(*scan).parallel_scan.is_null();
+
+        if is_parallel {
+            let is_worker = pg_sys::ParallelWorkerNumber >= 0;
+            
+            if !is_worker {
+                // Leader pre-searches mutable segments to prevent workers from independently materializing them
+                let mutable_ids = search_reader.mutable_segment_ids();
+                if !mutable_ids.is_empty() {
+                    results = Some(search_reader.search_segments(mutable_ids.iter().copied()));
+                }
             }
-        };
+        } else {
+            // Serial scan searches all segments
+            results = Some(search_reader.search());
+        }
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {

@@ -64,13 +64,6 @@ unsafe extern "C-unwind" fn rm_mask(
 ) {
 }
 
-#[pg_guard]
-unsafe extern "C-unwind" fn rm_decode(
-    _ctx: *mut pg_sys::LogicalDecodingContext,
-    _buf: *mut pg_sys::XLogRecordBuffer,
-) {
-}
-
 pub fn emit_init_record() {
     // XLogRegisterData's signature varies across Postgres versions
     // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
@@ -94,7 +87,9 @@ pub fn register() {
         rm_startup: Some(rm_startup),
         rm_cleanup: Some(rm_cleanup),
         rm_mask: Some(rm_mask),
-        rm_decode: Some(rm_decode),
+        // Postgres decode.c line 77: every record's xid needs to be processed by reorderbuffer
+        // If this is set to none, Postgres will invoke reorderbuffer for us
+        rm_decode: None,
     };
 
     unsafe {

@@ -517,15 +517,16 @@ impl SearchTokenizer {
             "japanese_lindera" => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
             "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "lindera" => {
-                let language_str = value
-                    .get("language")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "lindera tokenizer requires a string 'language' field \
+                let language_str =
+                    value
+                        .get("language")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "lindera tokenizer requires a string 'language' field \
                              (one of: \"chinese\", \"japanese\", \"korean\")"
-                        )
-                    })?;
+                            )
+                        })?;
                 let language = match language_str.to_lowercase().as_str() {
                     "chinese" => LinderaLanguage::Chinese,
                     "japanese" => LinderaLanguage::Japanese,
@@ -540,7 +541,9 @@ impl SearchTokenizer {
                 let keep_whitespace = match value.get("keep_whitespace") {
                     None => false,
                     Some(v) => v.as_bool().ok_or_else(|| {
-                        anyhow::anyhow!("lindera tokenizer requires a boolean 'keep_whitespace' field")
+                        anyhow::anyhow!(
+                            "lindera tokenizer requires a boolean 'keep_whitespace' field"
+                        )
                     })?,
                 };
                 let nfkc = match value.get("nfkc") {
@@ -1195,8 +1198,7 @@ mod tests {
             "reading_form": true
         }"#;
 
-        let result =
-            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap());
+        let result = SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap());
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
@@ -1212,8 +1214,7 @@ mod tests {
             "type": "lindera"
         }"#;
 
-        let result =
-            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap());
+        let result = SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap());
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();

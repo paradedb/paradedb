@@ -302,7 +302,8 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: orders, users)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: orders, users)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
  count | count 
 -------+-------
     13 |    13

@@ -481,7 +481,7 @@ FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -503,7 +503,7 @@ FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -519,7 +519,8 @@ LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -534,7 +535,7 @@ LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -551,7 +552,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -576,7 +577,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -591,7 +592,8 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -605,7 +607,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -995,7 +997,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortB | 19804
@@ -1011,7 +1013,8 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortB | 19804
@@ -1027,7 +1030,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1043,7 +1046,8 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1060,7 +1064,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1076,7 +1080,8 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1512,7 +1517,7 @@ SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1533,7 +1538,7 @@ SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
  count | count | count 
 -------+-------+-------
      8 |     8 |     8
@@ -1546,7 +1551,7 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1562,7 +1567,8 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1577,7 +1583,7 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (type: RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96

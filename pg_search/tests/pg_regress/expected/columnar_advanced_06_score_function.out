@@ -661,7 +661,7 @@ JOIN (
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (table: score_test)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (table: score_test)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (table: score_test)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -707,7 +707,7 @@ JOIN (
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (table: score_test)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (table: score_test)
+WARNING:  JoinScan not used: only INNER, LEFT, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (table: score_test)
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11

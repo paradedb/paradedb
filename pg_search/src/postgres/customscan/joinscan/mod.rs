@@ -1121,11 +1121,30 @@ impl CustomScan for JoinScan {
         let mut node = builder.build();
 
         unsafe {
-            // For joins, we need to set custom_scan_tlist to describe the output columns.
-            // Create a fresh copy of the target list to avoid corrupting the original.
-            let original_tlist = node.scan.plan.targetlist;
-            let copied_tlist = pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
-            let tlist = PgList::<pg_sys::TargetEntry>::from_pg(copied_tlist);
+            // For joins, we need to set both custom_scan_tlist and scan.plan.targetlist
+            // to describe the output columns. We create a fresh copy of the target list
+            // to avoid corrupting the original.
+            let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(
+                pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast(),
+            );
+
+            // If the parent plan (`processed_tlist` or `pathkeys`) needs `pdb.score(...)` but the
+            // planner didn't push it down into the target list, we must add it. Otherwise,
+            // the parent node will attempt to evaluate `pdb.score(...)` natively, which fails.
+            crate::postgres::utils::add_missing_search_operators_to_tlist(
+                root,
+                best_path as *mut pg_sys::Path,
+                &mut tlist,
+                &crate::postgres::customscan::score_funcoids(),
+            );
+
+            // Update node.scan.plan.targetlist so parent nodes can reference the outputs.
+            // We also set custom_scan_tlist, which is what setrefs.c uses to translate
+            // Vars in custom_exprs into INDEX_VAR references. We must provide a separate
+            // copy to custom_scan_tlist because setrefs.c may modify it in-place.
+            let tlist_ptr = tlist.into_pg();
+            node.scan.plan.targetlist = tlist_ptr;
+            node.custom_scan_tlist = pg_sys::copyObjectImpl(tlist_ptr.cast()).cast();
 
             // For join custom scans, PostgreSQL doesn't pass clauses via the usual parameter.
             // We stored the restrictlist in custom_private during create_custom_path.
@@ -1136,17 +1155,17 @@ impl CustomScan for JoinScan {
             // join condition evaluation manually during execution using the original Var
             // references.
 
-            // Extract the column mappings from the ORIGINAL targetlist (before we add restrictlist
-            // Vars). The original_tlist has the SELECT's output columns, which is what
-            // ps_ResultTupleSlot is based on. We store this mapping in PrivateData so
-            // build_result_tuple can use it during execution.
+            // Extract the column mappings from the UPDATED targetlist (before we add restrictlist
+            // Vars). The updated targetlist has the SELECT's output columns plus any missing
+            // search operators, which is what ps_ResultTupleSlot is based on. We store this
+            // mapping in PrivateData so build_result_tuple can use it during execution.
             let mut private_data = PrivateData::from(node.custom_private);
-            let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
             private_data.output_columns =
-                compute_output_columns(&private_data.join_clause, original_tlist, root);
+                compute_output_columns(&private_data.join_clause, tlist_ptr, root);
 
-            build_output_projection(&mut private_data, &original_entries, root);
+            let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
+            build_output_projection(&mut private_data, &updated_entries, root);
 
             // Add heap condition clauses to custom_exprs so they get transformed by
             // set_customscan_references. The Vars in these expressions will be converted to
@@ -1165,9 +1184,6 @@ impl CustomScan for JoinScan {
             // Convert PrivateData back to a list and preserve the restrictlist.
             let private_list = PrivateData::into(private_data);
             node.custom_private = splice_path_private_into_list(private_list, best_path);
-
-            // Set custom_scan_tlist with all needed columns
-            node.custom_scan_tlist = tlist.into_pg();
         }
         node
     }
@@ -1674,7 +1690,7 @@ unsafe fn compute_output_columns(
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
     for te in original_entries.iter_ptr() {
-        let check_expr = planning::strip_wrappers((*te).expr.cast());
+        let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
             let rti = (*var).varno as pg_sys::Index;

@@ -1,0 +1,91 @@
+-- Setup
+DROP TABLE IF EXISTS issue_join_pre_filter_users CASCADE;
+DROP TABLE IF EXISTS issue_join_pre_filter_posts CASCADE;
+CREATE TABLE issue_join_pre_filter_users (
+    id integer PRIMARY KEY,
+    reputation integer
+);
+CREATE INDEX ON issue_join_pre_filter_users USING bm25 (id, reputation) WITH (key_field=id, sort_by='id ASC NULLS FIRST');
+CREATE TABLE issue_join_pre_filter_posts (
+    id integer PRIMARY KEY,
+    title text,
+    owner_user_id integer
+);
+CREATE INDEX ON issue_join_pre_filter_posts USING bm25 (id, (title::pdb.unicode_words('columnar=true')), owner_user_id) WITH (key_field=id, sort_by='owner_user_id ASC NULLS FIRST');
+INSERT INTO issue_join_pre_filter_users SELECT i, 200 FROM generate_series(1, 10000) i;
+INSERT INTO issue_join_pre_filter_posts SELECT i, 'how using get create', i % 1000 + 1 FROM generate_series(1, 10000) i;
+ANALYZE issue_join_pre_filter_users;
+ANALYZE issue_join_pre_filter_posts;
+SET max_parallel_workers_per_gather = 2;
+SET paradedb.enable_join_custom_scan TO on;
+SET work_mem TO '4GB';
+-- Note: This test reliably reproduces the pre-filter "Column 0 not fetched" panic.
+-- It may or may not exercise the second fix (ensuring pdb.score is projected
+-- when a parent Result node needs it) depending on whether the planner
+-- chooses a plan shape with a Result node above the Custom Scan.
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT
+    p.id,
+    p.title,
+    pdb.score(p.id) as relevance
+FROM issue_join_pre_filter_posts p
+JOIN issue_join_pre_filter_users u ON p.owner_user_id = u.id
+WHERE
+    p.title ||| 'how using get create'
+    AND u.id @@@ pdb.all()
+    AND u.reputation > 100
+ORDER BY
+    relevance DESC
+LIMIT 10;
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Gather Merge
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Join Scan)
+               Relation Tree: u INNER p
+               Join Cond: p.owner_user_id = u.id
+               Limit: 10
+               Order By: pdb.score() desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[score@1 DESC], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[u, p]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@1)], projection=[ctid_0@3, score@0, ctid_1@1]
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+(18 rows)
+
+-- Reproduce the bug
+SELECT
+    p.id,
+    p.title,
+    pdb.score(p.id) as relevance
+FROM issue_join_pre_filter_posts p
+JOIN issue_join_pre_filter_users u ON p.owner_user_id = u.id
+WHERE
+    p.title ||| 'how using get create'
+    AND u.id @@@ pdb.all()
+    AND u.reputation > 100
+ORDER BY
+    relevance DESC
+LIMIT 10;
+  id   |        title         |   relevance   
+-------+----------------------+---------------
+  2000 | how using get create | 0.00019978978
+  3000 | how using get create | 0.00019978978
+  4000 | how using get create | 0.00019978978
+  5000 | how using get create | 0.00019978978
+  6000 | how using get create | 0.00019978978
+  7000 | how using get create | 0.00019978978
+  8000 | how using get create | 0.00019978978
+  9000 | how using get create | 0.00019978978
+ 10000 | how using get create | 0.00019978978
+  1000 | how using get create | 0.00019978978
+(10 rows)
+
+-- Teardown
+DROP TABLE issue_join_pre_filter_users CASCADE;
+DROP TABLE issue_join_pre_filter_posts CASCADE;

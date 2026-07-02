@@ -111,7 +111,7 @@ use tantivy::{DocId, SegmentOrdinal};
 /// per-batch setup cost (snapshot acquisition, packed-DocAddress → ctid resolution, HOT
 /// chain search), so running it on tiny batches is wasteful.
 ///
-/// Per @stuhood on #4525: this is applied PER BUFFER. Each segment's buffer must reach
+/// Each segment's buffer must reach
 /// `max(2 * K, MINIMUM_VISIBILITY_CHECK_SIZE)` before its visibility pass runs, so every
 /// check is a reasonably sized batch and no segment is checked on a tiny batch. Only
 /// affects visibility plans; non-visibility plans keep the original `4 * K * segments`
@@ -477,7 +477,14 @@ impl DisplayAs for SegmentedTopKExec {
             f,
             "SegmentedTopKExec: expr=[{}], k={}",
             sort_exprs_str, self.k
-        )
+        )?;
+        // Signal in the plan that this node performs MVCC visibility checking (it has
+        // absorbed a VisibilityFilterExec), and for which tables, so it is visible when
+        // reading a plan where the checking happens.
+        if let Some(vd) = &self.visibility_data {
+            write!(f, ", visibility_checks=[{}]", vd.table_names.join(", "))?;
+        }
+        Ok(())
     }
 }
 
@@ -1151,7 +1158,7 @@ impl SegmentedTopKState {
     }
 
     /// Build the set of all survivors across all segments. A row survives if
-    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment, or
+    /// its `OwnedRow` is <= the cutoff (K-th best row) for its segment, or
     /// if the segment never reached 2×k rows and therefore has no cutoff yet
     /// (in which case every row from that segment is a candidate).
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {

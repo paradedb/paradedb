@@ -19,6 +19,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
 use tantivy::index::SegmentId;
+use tantivy::SegmentReader;
 
 /// Safety margin for DSM allocation: actual segment count can exceed target_segment_count due to
 /// concurrent writes between plan and execute.
@@ -103,10 +104,16 @@ unsafe fn bm25_shared_state(
 /// snapshot-visible segments. Workers wait for this initialization and then
 /// use ParallelWorker visibility to see the same segments.
 /// Segments are NOT claimed here - they're claimed lazily in amgettuple/amgetbitmap.
+///
+/// Returns `Some((worker_number, mutable_segment_ids))` for parallel scans.
+/// Mutable segments are excluded from the DSM checkout pool so that workers
+/// never claim them — the leader handles them directly. This prevents
+/// every parallel worker from independently materializing the mutable segment
+/// (an expensive heap scan), which was the root cause of issue #4497.
 pub unsafe fn maybe_init_parallel_scan(
     scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
-) -> Option<i32> {
+) -> Option<(i32, Vec<SegmentId>)> {
     if unsafe { (*scan).parallel_scan.is_null() } {
         // not a parallel scan, so there's nothing to initialize
         return None;
@@ -118,6 +125,8 @@ pub unsafe fn maybe_init_parallel_scan(
     let state = get_bm25_scan_state(scan)?;
 
     let _mutex = state.acquire_mutex();
+
+    let mutable_ids: Vec<SegmentId> = searcher.mutable_segment_ids().iter().copied().collect();
 
     if !state.is_initialized() {
         // If concurrent writes created more segments than the DSM can hold, fall back to serial
@@ -133,9 +142,19 @@ pub unsafe fn maybe_init_parallel_scan(
             );
             return None;
         }
-        state.populate(&[searcher.segment_readers()], 0, &[], false);
+
+        // Exclude mutable segments from the DSM checkout pool.
+        // Workers will never see or claim these — the leader handles them directly.
+        // This prevents the expensive per-worker index_memory_segment() materialization
+        // that caused issue #4497.
+        let immutable_readers: Vec<&SegmentReader> = searcher
+            .segment_readers()
+            .iter()
+            .filter(|sr| !searcher.mutable_segment_ids().contains(&sr.segment_id()))
+            .collect();
+        state.populate(&[&immutable_readers], 0, &[], false);
     }
-    Some(unsafe { pg_sys::ParallelWorkerNumber })
+    Some((unsafe { pg_sys::ParallelWorkerNumber }, mutable_ids))
 }
 
 /// Claim a segment from the shared pool.

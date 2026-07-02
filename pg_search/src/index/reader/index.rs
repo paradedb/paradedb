@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
@@ -300,6 +300,12 @@ pub struct SearchIndexReader {
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
 
+    /// Segment IDs that correspond to mutable (in-memory) segments.
+    /// Used by parallel scan coordination to exclude these from the DSM checkout
+    /// pool and have the leader handle them directly, avoiding expensive
+    /// per-worker materialization. See: https://github.com/paradedb/paradedb/issues/4497
+    mutable_segment_ids: HashSet<SegmentId>,
+
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
@@ -328,6 +334,7 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
+            mutable_segment_ids: self.mutable_segment_ids.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -341,6 +348,7 @@ struct IndexComponents {
     total_segment_count: usize,
     total_docs: u64,
     schema: SearchIndexSchema,
+    mutable_segment_ids: HashSet<SegmentId>,
 }
 
 impl SearchIndexReader {
@@ -370,6 +378,17 @@ impl SearchIndexReader {
             .try_into()?;
         let searcher = reader.searcher();
 
+        // Identify mutable segments so parallel scan coordination can exclude
+        // them from the worker checkout pool. This avoids the expensive
+        // index_memory_segment() materialization in every parallel worker.
+        // See: https://github.com/paradedb/paradedb/issues/4497
+        let mutable_segment_ids: HashSet<SegmentId> = searcher
+            .segment_readers()
+            .iter()
+            .filter(|sr| directory.is_mutable(&sr.segment_id()))
+            .map(|sr| sr.segment_id())
+            .collect();
+
         Ok(IndexComponents {
             cleanup_lock,
             index,
@@ -378,6 +397,7 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             schema,
+            mutable_segment_ids,
         })
     }
 
@@ -468,6 +488,7 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
+            mutable_segment_ids: components.mutable_segment_ids,
             _cleanup_lock: cleanup_lock,
         })
     }
@@ -478,6 +499,13 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
+    }
+
+    /// Returns the set of segment IDs that correspond to mutable (in-memory) segments.
+    /// These segments require expensive heap-scan materialization at read time.
+    /// Used by parallel scan coordination to exclude them from the worker checkout pool.
+    pub fn mutable_segment_ids(&self) -> &HashSet<SegmentId> {
+        &self.mutable_segment_ids
     }
 
     pub fn need_scores(&self) -> bool {

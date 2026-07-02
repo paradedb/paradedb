@@ -202,7 +202,9 @@ pub extern "C-unwind" fn amrescan(
             )
             .expect("amrescan: should be able to open a SearchIndexReader");
 
-            // For parallel scans, leader initializes shared state with its segment list
+            // For parallel scans, leader initializes shared state with its segment list.
+            // Mutable segments are excluded from the DSM checkout pool (workers never
+            // claim them), so the leader must handle them directly.
             if is_parallel {
                 parallel::maybe_init_parallel_scan(scan, &reader);
             }
@@ -216,9 +218,18 @@ pub extern "C-unwind" fn amrescan(
             // not a parallel scan - search all segments
             Some(search_reader.search())
         } else {
-            // parallel scan: DON'T claim segments here
-            // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
-            None
+            // Parallel scan: the leader pre-searches any mutable segments that were
+            // excluded from the DSM checkout pool. Workers will handle immutable
+            // segments via checkout_segment() in search_next_segment().
+            //
+            // If there are no mutable segments, this is None and the leader also
+            // claims from the DSM pool like workers do.
+            let mutable_ids = search_reader.mutable_segment_ids();
+            if !mutable_ids.is_empty() {
+                Some(search_reader.search_segments(mutable_ids.iter().copied()))
+            } else {
+                None
+            }
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;

@@ -12,6 +12,8 @@
 --   * DESC sort direction on a Str leaf
 --   * JSON sub-path as a secondary sort key
 --   * Aggregate scan ORDER BY (metadata->>'k')::cast LIMIT (aggregatescan/orderby.rs)
+--   * Partial-null key (present in some rows, absent in others) -> pushdown allowed,
+--     missing-value rows placed NULLS LAST (ASC) / NULLS FIRST (DESC) matching PG
 
 \i common/common_setup.sql
 
@@ -279,6 +281,72 @@ ORDER BY info ASC
 LIMIT 5;
 
 DROP TABLE mock_items_jsonsort_objects;
+
+-- 10. Partial-null JSON key: the key is present in SOME rows and absent in
+--     others, but all present values share the same leaf type (Str), so
+--     JsonSortGate ALLOWS the pushdown. We verify that the Tantivy Top K scan
+--     places missing-value rows in the same position as vanilla Postgres:
+--       * ASC  -> NULLS LAST  (PG default for ascending order)
+--       * DESC -> NULLS FIRST (PG default for descending order)
+DROP TABLE IF EXISTS mock_items_jsonsort_partial;
+CREATE TABLE mock_items_jsonsort_partial (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    metadata JSONB
+);
+INSERT INTO mock_items_jsonsort_partial (description, metadata) VALUES
+('Alpha',   '{"label": "b"}'),
+('Beta',    '{"label": "a"}'),
+('Gamma',   '{}'),            -- label key absent
+('Delta',   '{"label": "c"}'),
+('Epsilon', '{}');             -- label key absent
+CREATE INDEX jsonsort_partial_idx ON mock_items_jsonsort_partial
+USING bm25 (id, description, metadata)
+WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
+
+-- 10a. ASC sort: pushdown must fire (TopKScanExecState) and rows with no
+--      "label" key must appear LAST, matching PG's NULLS LAST default.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'label' AS label
+FROM mock_items_jsonsort_partial
+WHERE id @@@ paradedb.all()
+ORDER BY label ASC, id ASC
+LIMIT 5;
+
+SELECT description, metadata->>'label' AS label
+FROM mock_items_jsonsort_partial
+WHERE id @@@ paradedb.all()
+ORDER BY label ASC, id ASC
+LIMIT 5;
+
+-- Confirm vanilla PG produces the same order (no bm25 index path).
+SELECT description, metadata->>'label' AS label
+FROM mock_items_jsonsort_partial
+ORDER BY label ASC, id ASC
+LIMIT 5;
+
+-- 10b. DESC sort: pushdown must fire (TopKScanExecState) and rows with no
+--      "label" key must appear FIRST, matching PG's NULLS FIRST default.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'label' AS label
+FROM mock_items_jsonsort_partial
+WHERE id @@@ paradedb.all()
+ORDER BY label DESC, id ASC
+LIMIT 5;
+
+SELECT description, metadata->>'label' AS label
+FROM mock_items_jsonsort_partial
+WHERE id @@@ paradedb.all()
+ORDER BY label DESC, id ASC
+LIMIT 5;
+
+-- Confirm vanilla PG produces the same order (no bm25 index path).
+SELECT description, metadata->>'label' AS label
+FROM mock_items_jsonsort_partial
+ORDER BY label DESC, id ASC
+LIMIT 5;
+
+DROP TABLE mock_items_jsonsort_partial;
 
 DROP TABLE mock_items_jsonsort_edges;
 

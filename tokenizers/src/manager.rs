@@ -537,18 +537,24 @@ impl SearchTokenizer {
                         ))
                     }
                 };
-                let keep_whitespace = value
-                    .get("keep_whitespace")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let nfkc = value
-                    .get("nfkc")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let reading_form = value
-                    .get("reading_form")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                let keep_whitespace = match value.get("keep_whitespace") {
+                    None => false,
+                    Some(v) => v.as_bool().ok_or_else(|| {
+                        anyhow::anyhow!("lindera tokenizer requires a boolean 'keep_whitespace' field")
+                    })?,
+                };
+                let nfkc = match value.get("nfkc") {
+                    None => false,
+                    Some(v) => v.as_bool().ok_or_else(|| {
+                        anyhow::anyhow!("lindera tokenizer requires a boolean 'nfkc' field")
+                    })?,
+                };
+                let reading_form = match value.get("reading_form") {
+                    None => false,
+                    Some(v) => v.as_bool().ok_or_else(|| {
+                        anyhow::anyhow!("lindera tokenizer requires a boolean 'reading_form' field")
+                    })?,
+                };
 
                 if reading_form && matches!(language, LinderaLanguage::Chinese) {
                     return Err(anyhow::anyhow!(

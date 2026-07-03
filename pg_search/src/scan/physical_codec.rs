@@ -109,7 +109,12 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             TAG_TANTIVY_LOOKUP => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
-                TantivyLookupExec::decode_for_dispatch(payload, input, ffhelpers)
+                TantivyLookupExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    ffhelpers,
+                    &self.non_partitioning_segment_ids,
+                )
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;

@@ -32,7 +32,9 @@ use crate::api::HashSet;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
-use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
+use crate::scan::late_materialization::{
+    doc_address_lookup_schema, DeferredField, DocAddressLookupNode, LateMaterializeNode,
+};
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -162,6 +164,38 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             });
         }
 
+        if tag == 3 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "DocAddressLookupNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+            let payload_len_bytes = buf.get(1..5).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing lookup length".into())
+            })?;
+            let payload_len = u32::from_le_bytes(payload_len_bytes.try_into().unwrap()) as usize;
+            let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete lookup payload".into())
+            })?;
+            let lookups: Vec<(String, DeferredField)> =
+                serde_json::from_slice(payload).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize doc-address lookups: {e}"
+                    ))
+                })?;
+            // The output schema is a pure function of the input schema and the lookups, so it
+            // is recomputed rather than serialized.
+            let output_schema = doc_address_lookup_schema(&input_plan, &lookups)?;
+            return Ok(Extension {
+                node: Arc::new(DocAddressLookupNode {
+                    input: input_plan,
+                    output_schema,
+                    lookups,
+                }),
+            });
+        }
+
         Err(DataFusionError::NotImplemented(format!(
             "Extension node decoding not implemented for tag {}",
             tag
@@ -198,6 +232,16 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                 ))
             })?;
             buf.push(2);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+            return Ok(());
+        }
+
+        if let Some(lookup_node) = node.node.as_any().downcast_ref::<DocAddressLookupNode>() {
+            let bytes = serde_json::to_vec(&lookup_node.lookups).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize doc-address lookups: {e}"))
+            })?;
+            buf.push(3);
             buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&bytes);
             return Ok(());

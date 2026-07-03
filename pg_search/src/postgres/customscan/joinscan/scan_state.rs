@@ -700,10 +700,153 @@ fn surviving_ctid_columns<'a>(
     })
 }
 
+/// A DISTINCT output column that can stay out of the group keys and be re-derived from the
+/// source's representative doc address above the aggregate.
+struct DistinctDeferrable {
+    attno: pg_sys::AttrNumber,
+    /// Schema-registered column name (the scan's output name).
+    name: String,
+    /// Position in the source's fast-field list; indexes the scan's `FFHelper` columns.
+    ff_index: usize,
+    field_type: crate::schema::SearchFieldType,
+    is_bytes: bool,
+}
+
+/// DISTINCT columns of `source` that don't need to participate in the group keys.
+///
+/// Grouping by such a column's value is equivalent to grouping by the row's doc address when
+/// the DISTINCT set also contains the source's key field: same key, same doc, same value. The
+/// rewrite then aggregates one representative doc address per group and re-derives the value
+/// above the aggregate, so wide text never enters the group keys, the hash shuffle, or (under
+/// MPP) the mesh.
+///
+/// Only string/bytes fast fields qualify (the doc-address decode is a fast-field lookup), and
+/// only when nothing else forces early materialization (join keys, join-level filters).
+fn distinct_deferrable_columns(
+    join_clause: &JoinCSClause,
+    source: &JoinSource,
+    is_partitioning_source: bool,
+) -> Vec<DistinctDeferrable> {
+    if !join_clause.has_distinct || join_clause.output_projection.is_none() {
+        return Vec::new();
+    }
+    // The partitioning source's segments are claimed per worker, so a lookup running in a
+    // different fragment could not resolve every group's doc address. Non-partitioning
+    // sources replicate their canonical segment set to every worker.
+    if is_partitioning_source {
+        return Vec::new();
+    }
+
+    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+    let Ok(index_schema) = crate::schema::SearchIndexSchema::open(&index_rel) else {
+        return Vec::new();
+    };
+    let key_field = index_schema.key_field_name().to_string();
+
+    // The DISTINCT pathkeys of THIS source, as (attno, registered name).
+    let mut distinct_cols: Vec<(pg_sys::AttrNumber, String)> = Vec::new();
+    for info in &join_clause.order_by {
+        let (name, rti) = match &info.feature {
+            OrderByFeature::Field { name, rti } => (Some(name.as_ref().to_string()), *rti),
+            OrderByFeature::Var { rti, attno, .. } => {
+                (source.column_name(*attno).map(|s| s.to_string()), *rti)
+            }
+            _ => continue,
+        };
+        if !source.contains_rti(rti) {
+            continue;
+        }
+        let Some(name) = name else { continue };
+        let attno = match unsafe { get_source_attno_by_name(source, &name) } {
+            Some(a) => a,
+            None => continue,
+        };
+        let registered = source
+            .column_name(attno)
+            .unwrap_or_else(|| name.to_string());
+        distinct_cols.push((attno, registered));
+    }
+
+    // Doc identity: without the key field in the DISTINCT set, two docs carrying equal strings
+    // must still dedup into one row, which value-grouping does and address-grouping doesn't.
+    if !distinct_cols.iter().any(|(_, name)| *name == key_field) {
+        return Vec::new();
+    }
+
+    // Columns something else needs materialized before the aggregate.
+    let mut required_early: crate::api::HashSet<String> = Default::default();
+    for jk in join_clause.plan.join_keys() {
+        for (rti, attno) in [
+            (jk.outer_rti, jk.outer_attno),
+            (jk.inner_rti, jk.inner_attno),
+        ] {
+            if source.contains_rti(rti) {
+                if let Some(col) = source.column_name(attno) {
+                    required_early.insert(col);
+                }
+            }
+        }
+    }
+    for (rti, attno) in join_clause.plan.filter_input_vars() {
+        if source.contains_rti(rti) {
+            if let Some(col) = source.column_name(attno) {
+                required_early.insert(col);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for (attno, name) in distinct_cols {
+        if name == key_field || required_early.contains(&name) {
+            continue;
+        }
+        let Some((ff_index, ftype)) =
+            source
+                .scan_info
+                .fields
+                .iter()
+                .enumerate()
+                .find_map(|(i, f)| match &f.field {
+                    WhichFastField::Named(n, t) if f.attno == attno && *n == name => Some((i, *t)),
+                    _ => None,
+                })
+        else {
+            continue;
+        };
+        let arrow_type = ftype.arrow_data_type();
+        let is_bytes = matches!(
+            arrow_type,
+            arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+        );
+        let is_string = matches!(
+            arrow_type,
+            arrow_schema::DataType::Utf8View | arrow_schema::DataType::LargeUtf8
+        );
+        if !(is_bytes || is_string) {
+            continue;
+        }
+        out.push(DistinctDeferrable {
+            attno,
+            name,
+            ff_index,
+            field_type: ftype,
+            is_bytes,
+        });
+    }
+    out
+}
+
 /// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the
 /// MIN of each ctid column as a stable representative. Returns the rewritten
 /// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
 /// projection stages to resolve column references against the new aliases.
+///
+/// Wide string/bytes columns that qualify for [`distinct_deferrable_columns`] are kept out of
+/// the group keys: the aggregate carries one representative doc address per group instead, and
+/// a [`DocAddressLookupNode`] above the aggregate re-derives the values. The address copy is
+/// projected below the aggregate so it binds before the visibility rule anchors its filter
+/// under the `Aggregate` barrier (the ctid columns themselves hold real ctids there, not doc
+/// addresses).
 ///
 /// When DISTINCT is not active (or there is no `output_projection`) the input
 /// frame is returned unchanged with an empty map.
@@ -720,10 +863,64 @@ fn apply_distinct_group_by(
         return Ok((df, distinct_col_map));
     };
 
+    let plan_sources = join_clause.plan.sources();
+    let partitioning_idx = join_clause.partitioning_source_index();
+    // (plan_position, deferrables) per source, computed once.
+    let source_deferrables: Vec<Vec<DistinctDeferrable>> = plan_sources
+        .iter()
+        .enumerate()
+        .map(|(pos, s)| distinct_deferrable_columns(join_clause, s, pos == partitioning_idx))
+        .collect();
+
     let mut group_exprs: Vec<Expr> = Vec::new();
+    // Address copies projected below the aggregate, the min() aggregates that carry them
+    // through it, and the decode descriptions for the lookup node above it.
+    let mut addr_copies: Vec<Expr> = Vec::new();
+    let mut addr_aggs: Vec<Expr> = Vec::new();
+    let mut lookups: Vec<(String, crate::scan::late_materialization::DeferredField)> = Vec::new();
 
     for (i, proj) in projection.iter().enumerate() {
         let col_alias = format!("col_{}", i + 1);
+
+        if let build::ChildProjection::Column { rti, attno } = proj {
+            let deferrable = plan_sources
+                .iter()
+                .enumerate()
+                .find(|(_, s)| s.contains_rti(*rti))
+                .and_then(|(pos, s)| {
+                    source_deferrables[pos]
+                        .iter()
+                        .find(|d| d.attno == *attno)
+                        .map(|d| (pos, s, d))
+                });
+            if let Some((pos, source, d)) = deferrable {
+                let addr_name = format!("__distinct_addr_{}", i + 1);
+                addr_copies.push(col(CtidColumn::new(pos).to_string()).alias(&addr_name));
+                addr_aggs.push(min(col(&addr_name)).alias(&col_alias));
+                // Same non-partitioning index computation the source build uses, so the
+                // worker-side rebuild resolves the same canonical segment set the scan's
+                // reader packed the addresses against.
+                let np_source_idx = (0..pos).filter(|i| *i != partitioning_idx).count();
+                lookups.push((
+                    col_alias.clone(),
+                    crate::scan::late_materialization::DeferredField {
+                        name: d.name.clone(),
+                        is_bytes: d.is_bytes,
+                        canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                            indexrelid: source.scan_info.indexrelid.to_u32(),
+                            ff_index: d.ff_index,
+                        },
+                        rebuild: Some(crate::scan::late_materialization::DeferredLookupRebuild {
+                            field_name: d.name.clone(),
+                            field_type: d.field_type,
+                            np_source_idx,
+                        }),
+                    },
+                ));
+                distinct_col_map.insert((*rti, *attno), col_alias);
+                continue;
+            }
+        }
 
         let (expr, map_key) = match proj {
             build::ChildProjection::Expression { pg_expr_string, .. } => {
@@ -758,12 +955,48 @@ fn apply_distinct_group_by(
     // (including its ctid) are discarded from the output frame once the join
     // condition is evaluated. Attempting to aggregate them would result in a
     // DataFusion SchemaError.
-    let agg_exprs: Vec<Expr> =
+    let mut agg_exprs: Vec<Expr> =
         surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
             .map(|ctid_name| min(col(&ctid_name)).alias(&ctid_name))
             .collect();
+    agg_exprs.extend(addr_aggs);
+
+    // Project the address copies below the aggregate: the visibility rule anchors its filter
+    // under the `Aggregate` barrier and rewrites the ctid columns to real ctids there, so a
+    // copy taken at the aggregate's input would no longer hold a doc address.
+    let df = if addr_copies.is_empty() {
+        df
+    } else {
+        let mut exprs: Vec<Expr> = df
+            .schema()
+            .columns()
+            .into_iter()
+            .map(Expr::Column)
+            .collect();
+        exprs.extend(addr_copies);
+        df.select(exprs)?
+    };
 
     let df = df.aggregate(group_exprs, agg_exprs)?;
+
+    let df = if lookups.is_empty() {
+        df
+    } else {
+        let (state, plan) = df.into_parts();
+        let output_schema =
+            crate::scan::late_materialization::doc_address_lookup_schema(&plan, &lookups)?;
+        let node = crate::scan::late_materialization::DocAddressLookupNode {
+            input: plan,
+            output_schema,
+            lookups,
+        };
+        DataFrame::new(
+            state,
+            datafusion::logical_expr::LogicalPlan::Extension(datafusion::logical_expr::Extension {
+                node: std::sync::Arc::new(node),
+            }),
+        )
+    };
     Ok((df, distinct_col_map))
 }
 
@@ -1056,12 +1289,27 @@ fn build_source_df<'a>(
         }
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys
-        // to include all DISTINCT columns.
+        // to include all DISTINCT columns. Columns the DISTINCT rewrite re-derives from the
+        // source's doc address above the aggregate stay deferred (and are dropped from the
+        // select below): they never participate in the group keys, so nothing between the
+        // scan and the aggregate needs their values.
+        let distinct_deferred: Vec<DistinctDeferrable> = if join_clause.has_distinct {
+            distinct_deferrable_columns(join_clause, source, is_parallel)
+        } else {
+            Vec::new()
+        };
         if join_clause.has_distinct {
+            let deferred_attnos: crate::api::HashSet<pg_sys::AttrNumber> =
+                distinct_deferred.iter().map(|d| d.attno).collect();
+            let is_deferred = |source: &JoinSource, name: &str| -> bool {
+                unsafe { get_source_attno_by_name(source, name) }
+                    .map(|attno| deferred_attnos.contains(&attno))
+                    .unwrap_or(false)
+            };
             for info in &join_clause.order_by {
                 match &info.feature {
                     OrderByFeature::Field { name, rti } => {
-                        if source.contains_rti(*rti) {
+                        if source.contains_rti(*rti) && !is_deferred(source, name.as_ref()) {
                             insert_field_name_required_early(
                                 source,
                                 name.as_ref(),
@@ -1071,7 +1319,7 @@ fn build_source_df<'a>(
                     }
                     OrderByFeature::Var { rti, attno, .. } => {
                         // Only insert columns belonging to THIS source
-                        if source.contains_rti(*rti) {
+                        if source.contains_rti(*rti) && !deferred_attnos.contains(attno) {
                             if let Some(col_name) = source.column_name(*attno) {
                                 required_early.insert(col_name);
                             }
@@ -1080,13 +1328,17 @@ fn build_source_df<'a>(
                     OrderByFeature::Score { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
                         OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
-                            insert_field_name_required_early(
-                                source,
-                                name.as_ref(),
-                                &mut required_early,
-                            );
+                            if !is_deferred(source, name.as_ref()) {
+                                insert_field_name_required_early(
+                                    source,
+                                    name.as_ref(),
+                                    &mut required_early,
+                                );
+                            }
                         }
-                        OrderByFeature::Var { rti, attno, .. } if source.contains_rti(*rti) => {
+                        OrderByFeature::Var { rti, attno, .. }
+                            if source.contains_rti(*rti) && !deferred_attnos.contains(attno) =>
+                        {
                             if let Some(col_name) = source.column_name(*attno) {
                                 required_early.insert(col_name);
                             }
@@ -1105,9 +1357,16 @@ fn build_source_df<'a>(
         let mut df = register_source_table(ctx, alias.as_str(), provider).await?;
 
         // Select fields AND ensure CTID is aliased uniquely
+        let distinct_deferred_names: crate::api::HashSet<&str> =
+            distinct_deferred.iter().map(|d| d.name.as_str()).collect();
         let mut exprs = Vec::new();
         for df_field in df.schema().fields().iter() {
             let name = df_field.name();
+            // The DISTINCT rewrite re-derives these from the source's doc address above the
+            // aggregate; nothing below it reads them, so keep them out of the frame entirely.
+            if distinct_deferred_names.contains(name.as_str()) {
+                continue;
+            }
             // NOTE: Matching on WhichFastField::Ctid specifically will fail if
             // the field list order doesn't match the DataFrame schema field order.
             let expr = match fields.iter().find(|w| w.name() == *name) {

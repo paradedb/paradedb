@@ -735,12 +735,41 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         display_name: deferred.name.clone(),
                         is_bytes: deferred.is_bytes,
                         canonical: deferred.canonical.clone(),
+                        rebuild: deferred.rebuild.clone(),
                     },
                 );
             }
 
             let exec = TantivyLookupExec::new(input_exec, physical_deferred_fields, ff_helpers)?;
 
+            Ok(Some(Arc::new(exec)))
+        } else if let Some(lookup_node) = node.as_any().downcast_ref::<DocAddressLookupNode>() {
+            let input_exec = Arc::clone(&physical_inputs[0]);
+            let input_schema = input_exec.schema();
+            let mut physical_deferred_fields = Vec::with_capacity(lookup_node.lookups.len());
+            for (col_name, deferred) in &lookup_node.lookups {
+                let col_idx = input_schema.index_of(col_name).map_err(|_| {
+                    DataFusionError::Internal(format!(
+                        "DocAddressLookup: address column '{col_name}' missing from the \
+                         physical input schema"
+                    ))
+                })?;
+                physical_deferred_fields.push(
+                    crate::scan::tantivy_lookup_exec::PhysicalDeferredField {
+                        col_idx,
+                        display_name: deferred.name.clone(),
+                        is_bytes: deferred.is_bytes,
+                        canonical: deferred.canonical.clone(),
+                        rebuild: deferred.rebuild.clone(),
+                    },
+                );
+            }
+
+            let ff_helpers = crate::scan::tantivy_lookup_exec::rebuild_ffhelpers_snapshot(
+                &physical_deferred_fields,
+                &input_schema,
+            )?;
+            let exec = TantivyLookupExec::new(input_exec, physical_deferred_fields, ff_helpers)?;
             Ok(Some(Arc::new(exec)))
         } else {
             Ok(None)
@@ -769,4 +798,157 @@ pub struct DeferredField {
     pub name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
+    /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing
+    /// behavior of collecting the helper from the plan subtree.
+    #[serde(default)]
+    pub rebuild: Option<DeferredLookupRebuild>,
+}
+
+/// Everything a worker needs to rebuild the fast-field reader for a deferred column when the
+/// scan that would normally supply it lives in a different plan fragment: the registered field
+/// name/type at `canonical.ff_index`, and the source's non-partitioning index, which resolves
+/// the canonical segment set every worker replicates.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeferredLookupRebuild {
+    pub field_name: String,
+    pub field_type: crate::schema::SearchFieldType,
+    pub np_source_idx: usize,
+}
+
+// `SearchFieldType` has no ordering; (name, np index) is enough for the opportunistic
+// plan-ordering these impls serve.
+impl PartialOrd for DeferredLookupRebuild {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeferredLookupRebuild {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.field_name, self.np_source_idx).cmp(&(&other.field_name, other.np_source_idx))
+    }
+}
+
+/// Re-derives string/bytes columns from packed doc-address columns above a DISTINCT
+/// aggregation.
+///
+/// The DISTINCT rewrite groups by the source's key column and aggregates one representative
+/// doc address per group under the dependent column's output alias. This node replaces those
+/// `UInt64` columns in place (same name, same position) with the materialized values, so the
+/// wide strings never enter the group keys or, under MPP, cross the network between stages.
+#[derive(Hash, PartialEq, Eq)]
+pub(crate) struct DocAddressLookupNode {
+    pub input: LogicalPlan,
+    pub output_schema: DFSchemaRef,
+    /// `(input column name, decode description)`. The named column carries packed doc
+    /// addresses; the output carries the decoded value under the same name.
+    pub lookups: Vec<(String, DeferredField)>,
+}
+
+impl Debug for DocAddressLookupNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("DocAddressLookupNode")
+            .field("lookups", &self.lookups)
+            .finish()
+    }
+}
+
+impl std::cmp::PartialOrd for DocAddressLookupNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let input_cmp = self.input.partial_cmp(&other.input);
+        if input_cmp != Some(std::cmp::Ordering::Equal) {
+            return input_cmp;
+        }
+        self.lookups.partial_cmp(&other.lookups)
+    }
+}
+
+/// Output schema for [`DocAddressLookupNode`]: the input schema with each looked-up column's
+/// type flipped from `UInt64` to its materialized string/bytes type.
+pub(crate) fn doc_address_lookup_schema(
+    input: &LogicalPlan,
+    lookups: &[(String, DeferredField)],
+) -> Result<DFSchemaRef> {
+    let child_schema = input.schema();
+    let mut qualified_fields = Vec::with_capacity(child_schema.fields().len());
+    for (i, field) in child_schema.fields().iter().enumerate() {
+        let (qualifier, _) = child_schema.qualified_field(i);
+        let new_field = match lookups.iter().find(|(name, _)| name == field.name()) {
+            Some((_, d)) => {
+                let out_type = if d.is_bytes {
+                    arrow_schema::DataType::BinaryView
+                } else {
+                    arrow_schema::DataType::Utf8View
+                };
+                arrow_schema::Field::new(field.name(), out_type, true)
+            }
+            None => arrow_schema::Field::new(
+                field.name(),
+                field.data_type().clone(),
+                field.is_nullable(),
+            ),
+        };
+        qualified_fields.push((qualifier.cloned(), Arc::new(new_field)));
+    }
+    Ok(Arc::new(datafusion::common::DFSchema::new_with_metadata(
+        qualified_fields,
+        child_schema.metadata().clone(),
+    )?))
+}
+
+impl UserDefinedLogicalNodeCore for DocAddressLookupNode {
+    fn name(&self) -> &str {
+        "DocAddressLookup"
+    }
+
+    fn inputs(&self) -> Vec<&LogicalPlan> {
+        vec![&self.input]
+    }
+
+    fn schema(&self) -> &DFSchemaRef {
+        &self.output_schema
+    }
+
+    fn expressions(&self) -> Vec<Expr> {
+        vec![]
+    }
+
+    fn necessary_children_exprs(&self, output_columns: &[usize]) -> Option<Vec<Vec<usize>>> {
+        Some(vec![output_columns.to_vec()])
+    }
+
+    fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "DocAddressLookup: decode=[{}]",
+            self.lookups
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+
+    fn with_exprs_and_inputs(
+        &self,
+        _exprs: Vec<Expr>,
+        mut inputs: Vec<LogicalPlan>,
+    ) -> Result<Self> {
+        let input = inputs.swap_remove(0);
+        // Keep only the lookups whose address column survived (OptimizeProjections may trim
+        // the child schema), then recompute the output schema against the new input.
+        let lookups: Vec<(String, DeferredField)> = self
+            .lookups
+            .iter()
+            .filter(|(name, _)| input.schema().field_with_unqualified_name(name).is_ok())
+            .cloned()
+            .collect();
+        let output_schema = doc_address_lookup_schema(&input, &lookups)?;
+        Ok(Self {
+            input,
+            output_schema,
+            lookups,
+        })
+    }
 }

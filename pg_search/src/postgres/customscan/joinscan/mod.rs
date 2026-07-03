@@ -1617,21 +1617,22 @@ impl CustomScan for JoinScan {
         if let Some(leader) = state.custom_state().mpp.as_ref() {
             leader.release_control_senders();
         }
-        // Wait for the producer workers to finish and flush their `TaskMetrics` before draining:
-        // `recv` blocks until every worker detaches its completion queue, which it does only after
-        // sending metrics. PG's parallel teardown joins Gather-spawned workers here; the
-        // builder-launched workers need this explicit join so the metrics land before the EXPLAIN
-        // render (which runs before end_custom_scan, where the context is finally destroyed).
-        if let Some(leader) = state.custom_state_mut().mpp.as_mut() {
-            if let Some(finish) = leader.finish.as_mut() {
-                let _ = finish.recv();
-            }
-        }
-        // The EXPLAIN hook runs after teardown and only reads the store, so drain the workers'
-        // metrics frames off the mesh now.
+        // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
+        // early-terminated query the rings still hold data the leader will never read; a worker's
+        // bounded metrics send spins on the full ring until the leader frees slots. Draining here
+        // is what frees them: the sends land on the next try, the workers detach, and the `recv`
+        // below returns immediately instead of waiting out the workers' full spin bound.
         if let Some(leader) = state.custom_state().mpp.as_ref() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
+            }
+        }
+        // Join the producer workers so their metrics land before the EXPLAIN render (which runs
+        // before end_custom_scan, where the context is finally destroyed). A worker error is
+        // re-raised from inside `recv`.
+        if let Some(leader) = state.custom_state_mut().mpp.as_mut() {
+            if let Some(finish) = leader.finish.as_mut() {
+                let _ = finish.recv();
             }
         }
     }

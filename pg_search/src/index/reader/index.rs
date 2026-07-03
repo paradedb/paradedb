@@ -446,6 +446,7 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             schema,
+            mutable_segment_ids,
         } = components;
 
         let index_created_by_version = index_relation.created_by_version();
@@ -488,7 +489,7 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
-            mutable_segment_ids: components.mutable_segment_ids,
+            mutable_segment_ids,
             _cleanup_lock: cleanup_lock,
         })
     }

@@ -49,6 +49,7 @@ pub struct PhysicalDeferredField {
     pub display_name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// See [`crate::scan::late_materialization::DeferredLookupRebuild`].
     #[serde(default)]
     pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
 }
@@ -171,6 +172,7 @@ impl TantivyLookupExec {
             })?;
         rebuild_missing_ffhelpers(
             &deferred_fields,
+            &input.schema(),
             &mut ffhelpers,
             LookupRebuildContext { parallel_state },
         )?;
@@ -238,25 +240,70 @@ pub(crate) fn open_rebuilt_ffhelper(
     Ok(Arc::new(FFHelper::with_fields(&reader, &which)))
 }
 
+/// An address-typed deferred column (plain `UInt64`, the DISTINCT rewrite's representative
+/// doc address) always rebuilds its helper: a scan's helper is projection-pruned, so its
+/// layout no longer lines up with `canonical.ff_index`.
+fn is_address_col(input_schema: &SchemaRef, col_idx: usize) -> bool {
+    input_schema
+        .fields()
+        .get(col_idx)
+        .map(|f| matches!(f.data_type(), DataType::UInt64))
+        .unwrap_or(false)
+}
+
+/// Planner-side helper rebuild for address-mode lookups: a snapshot reader sees the same
+/// segments, in the same deterministic order, as the serial scan that packed the addresses.
+/// The scans' own helpers cover their (projection-pruned) field lists, where
+/// `canonical.ff_index` no longer lines up, so the address decode always gets a dedicated
+/// helper laid out at the original indices.
+pub(crate) fn rebuild_ffhelpers_snapshot(
+    deferred_fields: &[PhysicalDeferredField],
+    input_schema: &SchemaRef,
+) -> Result<HashMap<u32, Arc<FFHelper>>> {
+    let mut per_index: HashMap<u32, Vec<&PhysicalDeferredField>> = HashMap::default();
+    for f in deferred_fields {
+        if f.rebuild.is_some() && is_address_col(input_schema, f.col_idx) {
+            per_index.entry(f.canonical.indexrelid).or_default().push(f);
+        }
+    }
+    let mut ffhelpers = HashMap::default();
+    for (indexrelid, fields) in per_index {
+        let entries: Vec<(
+            usize,
+            &crate::scan::late_materialization::DeferredLookupRebuild,
+        )> = fields
+            .iter()
+            .map(|f| (f.canonical.ff_index, f.rebuild.as_ref().unwrap()))
+            .collect();
+        ffhelpers.insert(
+            indexrelid,
+            open_rebuilt_ffhelper(indexrelid, &entries, MvccSatisfies::Snapshot)?,
+        );
+    }
+    Ok(ffhelpers)
+}
+
 /// Rebuild the fast-field readers for deferred columns whose scan lives in a different plan
 /// fragment (a lookup above a network shuffle finds no scan in its decoded subtree). The
 /// `context` picks how the segment set is resolved; either way the reader's segment ordering
 /// matches the ordering the addresses were packed against.
 fn rebuild_missing_ffhelpers(
     deferred_fields: &[PhysicalDeferredField],
+    input_schema: &SchemaRef,
     ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
     context: LookupRebuildContext,
 ) -> Result<()> {
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
     // lines up by construction); they rebuild only on a worker whose fragment has that scan
-    // behind a network boundary.
+    // behind a network boundary. Address-typed columns always rebuild and override the scan's
+    // helper.
     let mut rebuild_indexes: crate::api::HashSet<u32> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
         }
         let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
-        if scan_is_elsewhere {
+        if scan_is_elsewhere || is_address_col(input_schema, f.col_idx) {
             rebuild_indexes.insert(f.canonical.indexrelid);
         }
     }
@@ -306,9 +353,12 @@ fn build_schema_and_decoders(
     // This pairs the first "description" in the schema with the first "description"
     // in the deferred pool, removing it so the second one pairs correctly.
     for (col_idx, field) in input_schema.fields().iter().enumerate() {
-        let is_union = matches!(field.data_type(), DataType::Union(_, _));
+        // A deferred column arrives either as the 3-state union or as a plain packed-address
+        // UInt64 (the DISTINCT rewrite's representative doc address). Unclaimed columns of
+        // either type pass through untouched.
+        let claimable = matches!(field.data_type(), DataType::Union(_, _) | DataType::UInt64);
 
-        if is_union {
+        if claimable {
             if let Some(pos) = deferred_pool.iter().position(|d| d.col_idx == col_idx) {
                 let d = deferred_pool.remove(pos);
                 fields.push(Field::new(field.name(), d.output_data_type(), true));
@@ -445,16 +495,6 @@ fn enrich_batch(
     let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
 
     for decoder in decoders {
-        let union_array = output_columns[decoder.col_idx]
-            .as_any()
-            .downcast_ref::<arrow_array::UnionArray>()
-            .ok_or_else(|| {
-                DataFusionError::Execution(format!(
-                    "expected UnionArray for deferred column at index {}",
-                    decoder.col_idx
-                ))
-            })?;
-
         let ffhelper = ffhelpers
             .get(&decoder.canonical.indexrelid)
             .ok_or_else(|| {
@@ -474,9 +514,19 @@ fn enrich_batch(
             }
         };
 
-        // Replace the raw UnionArray with the decoded String/Binary array
+        // Replace the raw union/address column with the decoded String/Binary array.
+        let input = &output_columns[decoder.col_idx];
         output_columns[decoder.col_idx] =
-            materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?;
+            if let Some(union_array) = input.as_any().downcast_ref::<arrow_array::UnionArray>() {
+                materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?
+            } else if let Some(addresses) = input.as_any().downcast_ref::<UInt64Array>() {
+                materialize_address_column(ffhelper, &ffcolumn, addresses, num_rows)?
+            } else {
+                return Err(DataFusionError::Execution(format!(
+                    "expected UnionArray or UInt64Array for deferred column at index {}",
+                    decoder.col_idx
+                )));
+            };
     }
 
     RecordBatch::try_new(schema.clone(), output_columns)
@@ -499,7 +549,7 @@ fn resolve_doc_addresses_to_term_ords(
     state_0_rows: &[usize],
 ) -> Result<OrdsBySegment> {
     let num_segments = ffhelper.num_segments();
-    let mut ords_by_seg: OrdsBySegment = vec![Vec::new(); num_segments];
+    let ords_by_seg: OrdsBySegment = vec![Vec::new(); num_segments];
     if state_0_rows.is_empty() {
         return Ok(ords_by_seg);
     }
@@ -517,6 +567,18 @@ fn resolve_doc_addresses_to_term_ords(
         .iter()
         .map(|&row| (row, doc_address_child.value(offsets[row] as usize)));
 
+    resolve_packed_to_term_ords(ffhelper, ffcolumn, packed_iter, ords_by_seg)
+}
+
+/// Resolves `(row, packed doc address)` pairs to term ordinals, grouped by segment.
+/// Shared by the union State-0 path and the plain packed-address column path.
+fn resolve_packed_to_term_ords(
+    ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
+    packed_iter: impl Iterator<Item = (usize, u64)>,
+    mut ords_by_seg: OrdsBySegment,
+) -> Result<OrdsBySegment> {
+    let num_segments = ffhelper.num_segments();
     for_each_segment(num_segments, packed_iter, |seg_ord, rows| {
         let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
         let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
@@ -649,6 +711,67 @@ fn decode_term_ordinals(
         }
     }
     Ok(())
+}
+
+/// Materializes a plain packed-DocAddress column (`UInt64`, no union wrapper) into its text or
+/// bytes representation.
+///
+/// The DISTINCT rewrite aggregates one representative doc address per group and re-derives the
+/// group's key-dependent string columns from it here, above the aggregation, so the strings
+/// never enter the group keys or cross the network between stages.
+fn materialize_address_column(
+    ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
+    addresses: &UInt64Array,
+    num_rows: usize,
+) -> Result<ArrayRef> {
+    let mut packed: Vec<(usize, u64)> = Vec::with_capacity(num_rows);
+    let mut null_rows: Vec<usize> = Vec::new();
+    for row in 0..num_rows {
+        if addresses.is_null(row) {
+            null_rows.push(row);
+        } else {
+            packed.push((row, addresses.value(row)));
+        }
+    }
+
+    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    let ords_by_seg = resolve_packed_to_term_ords(
+        ffhelper,
+        ffcolumn,
+        packed.into_iter(),
+        vec![Vec::new(); ffhelper.num_segments()],
+    )?;
+    decode_term_ordinals(
+        ffhelper,
+        ffcolumn,
+        ords_by_seg,
+        &mut segment_arrays,
+        &mut indices,
+    )?;
+
+    let output_type = if matches!(ffcolumn, DeferredColumnKind::Bytes { .. }) {
+        DataType::BinaryView
+    } else {
+        DataType::Utf8View
+    };
+    if !null_rows.is_empty() {
+        segment_arrays.push(new_null_array(&output_type, 1));
+        let array_idx = segment_arrays.len() - 1;
+        for row in null_rows {
+            indices[row] = (array_idx, 0);
+        }
+    }
+    if segment_arrays.is_empty() {
+        return Ok(new_null_array(&output_type, num_rows));
+    }
+
+    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
+        segment_arrays.iter().map(|a| a.as_ref()).collect();
+    interleave(&segment_arrays_refs, &indices)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
 /// Materializes deferred union values into their original text or bytes representation.

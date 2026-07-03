@@ -209,6 +209,22 @@ fn try_inject_below_lookup(
             let lookup_child = &lookup.children()[0];
             let input_schema = lookup_child.schema();
 
+            // Only union-typed (term-ordinal) columns segment-sort like their strings; a
+            // packed doc-address column (the DISTINCT rewrite's UInt64 representative) has no
+            // value-order relationship at all, so it must not become a SegmentedTopK key.
+            let is_ord_sortable = |col_idx: usize| {
+                input_schema
+                    .fields()
+                    .get(col_idx)
+                    .map(|f| {
+                        matches!(
+                            f.data_type(),
+                            datafusion::arrow::datatypes::DataType::Union(_, _)
+                        )
+                    })
+                    .unwrap_or(false)
+            };
+
             // Check if ANY sort column is one of the deferred fields, using
             // physical index resolution to handle join-reordered schemas.
             let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
@@ -217,7 +233,7 @@ fn try_inject_below_lookup(
                     lookup
                         .deferred_fields()
                         .iter()
-                        .any(|d| d.col_idx == physical_idx)
+                        .any(|d| d.col_idx == physical_idx && is_ord_sortable(physical_idx))
                 } else {
                     false
                 }
@@ -238,7 +254,7 @@ fn try_inject_below_lookup(
                         if let Some(field) = lookup
                             .deferred_fields()
                             .iter()
-                            .find(|d| d.col_idx == physical_idx)
+                            .find(|d| d.col_idx == physical_idx && is_ord_sortable(physical_idx))
                         {
                             deferred_columns.push(
                                 crate::scan::segmented_topk_exec::DeferredSortColumn {

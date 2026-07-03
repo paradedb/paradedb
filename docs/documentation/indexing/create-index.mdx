@@ -196,7 +196,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :mock_items,
   fields: {
     id: {},
-    description: { tokenizer: Tokenizer.icu() },
+    description: { tokenizer: ParadeDB::Tokenizer.icu() },
     category: {}
   },
   key_field: :id,
@@ -420,7 +420,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   fields: {
     id: {},
     description: {
-      tokenizer: Tokenizer.simple(options: { stemmer: "english" })
+      tokenizer: ParadeDB::Tokenizer.simple(options: { stemmer: "english" })
     },
     category: {}
   },

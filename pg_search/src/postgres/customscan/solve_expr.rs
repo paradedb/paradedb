@@ -40,6 +40,18 @@ impl SearchQueryInput {
         found
     }
 
+    pub fn has_parameters(&mut self) -> bool {
+        let mut found = false;
+        self.visit(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
+                if field_filters.iter().any(|f| f.has_parameters()) {
+                    found = true;
+                }
+            }
+        });
+        found
+    }
+
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
         let mut cnt = 0;
         self.visit(&mut |sqi| {
@@ -61,8 +73,8 @@ impl SearchQueryInput {
 
             PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
                 let sqi_typoid = searchqueryinput_typoid();
-                self.visit(&mut |sqi| {
-                    if let SearchQueryInput::PostgresExpression { expr } = sqi {
+                self.visit(&mut |sqi| match sqi {
+                    SearchQueryInput::PostgresExpression { expr } => {
                         if let Some(resolved_sqi) = expr.solve(expr_context, sqi_typoid) {
                             *sqi = resolved_sqi;
                         } else {
@@ -75,6 +87,12 @@ impl SearchQueryInput {
                             *sqi = SearchQueryInput::Empty;
                         }
                     }
+                    SearchQueryInput::HeapFilter { field_filters, .. } => {
+                        for filter in field_filters {
+                            filter.solve_parameters(expr_context);
+                        }
+                    }
+                    _ => {}
                 });
             })
         }
@@ -108,8 +126,8 @@ impl PostgresExpression {
 
 pub trait SolvePostgresExpressions {
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState);
-    fn has_heap_filters(&mut self) -> bool;
     fn has_postgres_expressions(&mut self) -> bool;
+    fn has_parameters(&mut self) -> bool;
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext);
 
     unsafe fn init_expr_context(
@@ -117,7 +135,7 @@ pub trait SolvePostgresExpressions {
         estate: *mut pg_sys::EState,
         planstate: *mut pg_sys::PlanState,
     ) {
-        if self.has_postgres_expressions() || self.has_heap_filters() {
+        if self.has_postgres_expressions() || self.has_parameters() {
             // we have some runtime Postgres expressions/sub-queries that need to be evaluated
             //
             // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
@@ -143,7 +161,7 @@ pub trait SolvePostgresExpressions {
         expr_context: *mut pg_sys::ExprContext,
     ) {
         self.init_search_query_input();
-        if self.has_postgres_expressions() {
+        if self.has_postgres_expressions() || self.has_parameters() {
             self.init_postgres_expressions(planstate);
             self.solve_postgres_expressions(expr_context);
         }

@@ -20,6 +20,7 @@ use std::ptr::NonNull;
 
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+use crate::api::version::VersionInfo;
 use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -28,7 +29,11 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::json_rewrite::{
+    rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
+};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
@@ -375,13 +380,36 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,
-    agg_req: AggregateRequest,
+    mut agg_req: AggregateRequest,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
 ) -> Result<AggregationResults, Box<dyn Error>> {
+    if index.created_by_version().stores_datetimes_in_i64() {
+        // We need to rewrite date_histogram requests to regular histogram requests because we are
+        // no longer storing dates in tantivy's DateTime.
+        // We rewrite these here instead of at AggregateRequest construction time because we need
+        // the unmodified json later to decide how to rewrite the results.
+        match &mut agg_req {
+            AggregateRequest::Json(aggregations) => {
+                for agg in aggregations.values_mut() {
+                    rewrite_date_histogram_to_histogram(agg)
+                        .expect("a valid date_histogram should always be a valid histogram");
+                }
+            }
+            AggregateRequest::Sql(clause) => {
+                for agg in clause.aggregates_mut() {
+                    if let AggregateType::Custom { agg_json, .. } = agg {
+                        rewrite_json_date_histogram_to_histogram(agg_json);
+                    }
+                }
+            }
+        }
+    }
+    let agg_req = agg_req;
+
     unsafe {
         // Determine once whether this aggregation request originated from SQL
         let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));
@@ -517,6 +545,7 @@ pub fn execute_aggregate(
                 bucket_limit as _,
                 &mut state,
             );
+
             if let Some(agg_results) = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
@@ -592,9 +621,9 @@ fn set_missing_on_terms(
                         // This matches standard SQL behavior where NULLs are typically excluded
                         // from aggregations unless explicitly handled.
                         //
-                        // TODO: When Tantivy adds Key::Date support to its aggregation Key enum,
-                        // we should use that here to properly handle NULL datetime values in
-                        // GROUP BY, similar to how other types use sentinels.
+                        // As of v0.24.1 (DATETIME_I64_STORAGE_VERSION), this is a legacy-only
+                        // codepath: new indexes store datetime values as i64 and so use the
+                        // I64 sentinel arm above.
                         continue;
                     }
                     Some(SearchFieldType::U64(_)) => {

@@ -481,8 +481,7 @@ CREATE INDEX ts_orders_idx ON ts_orders
 USING bm25 (id, description, category, created_at)
 WITH (
     key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    datetime_fields='{"created_at": {"fast": true}}'
+    text_fields='{"description": {}, "category": {"fast": true}}'
 );
 
 CREATE INDEX ts_items_idx ON ts_items
@@ -556,8 +555,7 @@ CREATE INDEX tstz_orders_idx ON tstz_orders
 USING bm25 (id, description, category, created_at)
 WITH (
     key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    datetime_fields='{"created_at": {"fast": true}}'
+    text_fields='{"description": {}, "category": {"fast": true}}'
 );
 
 CREATE INDEX tstz_items_idx ON tstz_items

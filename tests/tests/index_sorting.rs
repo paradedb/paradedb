@@ -25,12 +25,10 @@
 //! Note: The sorted path is only used when ORDER BY matches the index's sort_by.
 //! Without ORDER BY, PostgreSQL has no obligation to maintain sorted output.
 
-mod fixtures;
-
-use fixtures::*;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 /// Helper to check if results are sorted in descending order by a given column
 fn is_sorted_desc<T: Ord>(values: &[T]) -> bool {

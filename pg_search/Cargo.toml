@@ -40,7 +40,10 @@ tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
 rustc-hash = "2.1.2"
 serde = "1.0.228"
-serde_json = { version = "1.0.149", features = ["preserve_order"] }
+serde_json = { version = "1.0.149", features = [
+  "preserve_order",
+  "float_roundtrip",
+] }
 serde_cbor = "0.11.2"
 tantivy.workspace = true
 thiserror = "2.0.18"
@@ -73,10 +76,9 @@ paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
-datafusion = { version = "53", default-features = false }
-datafusion-proto = { version = "53", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "602c6a03f7347bd2c6009f3f10bca2ee1a58dd84" }
-url = "2"
+datafusion = { version = "54", default-features = false }
+datafusion-proto = { version = "54", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "f2087994c4e7b8f742168762b2e1da5e9a9c13c1", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

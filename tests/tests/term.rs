@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 fn boolean_term(mut conn: PgConnection) {
@@ -256,13 +254,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value_date, value_timestamp, value_timestamptz, value_time, value_timetz) WITH (key_field='id', datetime_fields='{
-        "value_date": {}, 
-        "value_timestamp": {}, 
-        "value_timestamptz": {}, 
-        "value_time": {}, 
-        "value_timetz": {}
-    }');
+    USING bm25 (id, value_date, value_timestamp, value_timestamptz, value_time, value_timetz) WITH (key_field='id');
     "#
     .execute(&mut conn);
 

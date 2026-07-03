@@ -69,9 +69,7 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
                     tokenizers.push(SearchTokenizer::KoreanLinderaDeprecated(filters.clone()));
                 }
                 SearchTokenizer::Lindera {
-                    language,
-                    filters,
-                    keep_whitespace: _,
+                    language, filters, ..
                 } => {
                     tokenizers.push(SearchTokenizer::LinderaDeprecated(
                         language.clone(),

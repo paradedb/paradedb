@@ -1,0 +1,43 @@
+# workflows/check-released-migrations.yml
+#
+# Check Released Migrations
+# Fails a PR that edits a pg_search migration script whose target version is
+# already released (a `vX.Y.Z` tag exists), since such edits never reach users
+# already on that version. New schema must go on the current upgrade path after
+# bumping the workspace version -- see RELEASE.md.
+
+name: Check Released Migrations
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - "pg_search/sql/**"
+
+jobs:
+  check-released-migrations:
+    name: Check Released Migrations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true # Required: the check resolves release tags locally
+
+      - name: Reject Edits to Already-Released Migrations
+        run: |
+          fail=0
+          for f in $(git diff --name-only --diff-filter=AMD \
+              "${{ github.event.pull_request.base.sha }}...HEAD" \
+              -- 'pg_search/sql/pg_search--*--*.sql'); do
+            target="${f##*--}"; target="${target%.sql}"
+            if git rev-parse -q --verify "refs/tags/v$target" >/dev/null; then
+              echo "::error file=$f::Edits released migration (v$target is tagged). Bump workspace.package.version in Cargo.toml and add the change to a new pg_search--<released>--<next>.sql script instead. See RELEASE.md."
+              fail=1
+            fi
+          done
+          exit $fail

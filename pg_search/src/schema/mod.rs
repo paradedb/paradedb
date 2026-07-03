@@ -19,11 +19,14 @@ mod anyenum;
 mod config;
 pub mod range;
 
+use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
@@ -167,6 +170,10 @@ impl SearchFieldType {
             | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
 
             // Integer types
+            SearchFieldType::I64(oid) if is_datetime_type(*oid) => {
+                // Datetime fields stored as i64 microseconds from the PG epoch (v2 storage).
+                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
+            }
             SearchFieldType::I64(_) => arrow_schema::DataType::Int64,
             SearchFieldType::U64(_) => arrow_schema::DataType::UInt64,
 
@@ -176,9 +183,9 @@ impl SearchFieldType {
             // Boolean type
             SearchFieldType::Bool(_) => arrow_schema::DataType::Boolean,
 
-            // Date stored as timestamp
+            // Date stored as datetime (v1 legacy storage; tantivy `DateTime`).
             SearchFieldType::Date(_) => {
-                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
             }
 
             // Numeric64 is stored as Int64 (scaled integer)
@@ -211,16 +218,19 @@ fn derive_field_type_from_schema(
     });
 
     // For most types, the tantivy schema matches what we computed.
-    // The exception is NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
-    match field_entry.field_type() {
-        FieldType::F64(_) => {
-            // If computed type was Numeric64/NumericBytes but stored type is F64,
-            // this is a legacy index - use F64
-            if computed_type.is_numeric() {
-                SearchFieldType::F64(computed_type.typeoid().value())
-            } else {
-                computed_type
-            }
+    // The exceptions are:
+    // - NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
+    // - TIMESTAMP, TIMESTAMPTZ, TIME, TIMETZ, DATE, where legacy indexes used Date but new code computes I64
+    match (field_entry.field_type(), computed_type) {
+        // If computed type was Numeric64/NumericBytes but stored type is F64,
+        // this is a legacy index - use F64
+        (FieldType::F64(_), _) if computed_type.is_numeric() => {
+            SearchFieldType::F64(computed_type.typeoid().value())
+        }
+        // If computed_type was i64 but stored type is Date, this is a
+        // legacy index - use Date.
+        (FieldType::Date(_), SearchFieldType::I64(oid)) if is_datetime_type(oid) => {
+            SearchFieldType::Date(oid)
         }
         _ => {
             // For all other types, the computed type is correct
@@ -229,13 +239,13 @@ fn derive_field_type_from_schema(
     }
 }
 
-impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
-    type Error = SearchIndexSchemaError;
-    fn try_from(value: (PgOid, Typmod, pg_sys::Oid)) -> Result<Self, Self::Error> {
-        let pg_oid = value.0;
-        let typmod = value.1;
-        let inner_typoid = value.2;
-
+impl SearchFieldType {
+    pub fn try_from_type_info(
+        pg_oid: PgOid,
+        typmod: Typmod,
+        inner_typoid: pg_sys::Oid,
+        index_created_by_version: Option<Version>,
+    ) -> Result<Self, SearchIndexSchemaError> {
         if matches!(
             pg_oid,
             PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBARRAYOID | pg_sys::BuiltinOid::JSONARRAYOID)
@@ -307,11 +317,17 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                 | PgBuiltInOids::DATERANGEOID
                 | PgBuiltInOids::TSRANGEOID
                 | PgBuiltInOids::TSTZRANGEOID => Ok(SearchFieldType::Range((*builtin).into())),
-                PgBuiltInOids::DATEOID
-                | PgBuiltInOids::TIMESTAMPOID
+                PgBuiltInOids::TIMESTAMPOID
                 | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::DATEOID
                 | PgBuiltInOids::TIMEOID
-                | PgBuiltInOids::TIMETZOID => Ok(SearchFieldType::Date((*builtin).into())),
+                | PgBuiltInOids::TIMETZOID => {
+                    if index_created_by_version.stores_datetimes_in_i64() {
+                        Ok(SearchFieldType::I64((*builtin).into()))
+                    } else {
+                        Ok(SearchFieldType::Date((*builtin).into()))
+                    }
+                }
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
             },
             PgOid::Custom(custom) if unsafe { pgrx::pg_sys::type_is_enum(*custom) } => {
@@ -803,6 +819,22 @@ impl SearchField {
                 };
                 let datetime = convert_pg_date_string(typeoid, &s);
                 *value = PdbOwnedValue::Date(datetime);
+                Ok(())
+            }
+            (FieldType::I64(_), PdbOwnedValue::Str(s))
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
+            {
+                match self.field_type.typeoid() {
+                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPOID) => {
+                        let pg_dt = PostgresDateTime::try_from_timestamp_str(&s)?;
+                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
+                    }
+                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPTZOID) => {
+                        let pg_dt = PostgresDateTime::try_from_timestamptz_str(&s)?;
+                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
+                    }
+                    _ => unreachable!(),
+                }
                 Ok(())
             }
             (FieldType::U64(_), PdbOwnedValue::I64(v)) => {

@@ -203,35 +203,6 @@ WITH (
   </ParamField>
 </Accordion>
 
-### Datetime Fields
-
-Options for columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, `TIMETZ`, and their corresponding array types should be passed to `datetime_fields`.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, created_at)
-WITH (
-  key_field = 'id',
-  datetime_fields = '{
-      "created_at": {"fast": true}
-  }'
-);
-```
-
-`CREATE INDEX` accepts several configuration options for `datetime_fields`:
-
-<Accordion title="Advanced Options">
-  <ParamField body="indexed" default={true}>
-    Whether the field is indexed. Must be `true` in order for the field to be
-    tokenized and searchable.
-  </ParamField>
-  <ParamField body="fast" default={true}>
-    Fast fields can be random-accessed rapidly. Fields used for aggregation must
-    have `fast` set to `true`. Fast fields are also useful for accelerated
-    scoring and filtering.
-  </ParamField>
-</Accordion>
-
 ### Enumerated Types
 
 Options for custom Postgres [enums](https://www.postgresql.org/docs/current/datatype-enum.html) should be passed to `numeric_fields`.

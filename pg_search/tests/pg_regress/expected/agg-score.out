@@ -35,10 +35,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
+                     Worker Selection: Row-capped
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
@@ -64,10 +65,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
+                     Worker Selection: Row-capped
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
@@ -93,10 +95,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
+                     Worker Selection: Row-capped
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
@@ -142,10 +145,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
+                     Worker Selection: Row-capped
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
@@ -168,10 +172,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
          Output: paradedb.score(id), paradedb.score(id)
          Table: mock_items
          Index: search_idx
+         Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
 WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
@@ -200,10 +205,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                      Output: paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
+                     Worker Selection: Row-capped
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT min(paradedb.score(id)), max(paradedb.score(id)), avg(paradedb.score(id)) 
 FROM mock_items WHERE description @@@ 'keyboard';

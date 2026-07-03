@@ -147,7 +147,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :mock_items,
   fields: {
     id: {},
-    metadata: { tokenizer: Tokenizer.ngram(2, 3) }
+    metadata: { tokenizer: ParadeDB::Tokenizer.ngram(2, 3) }
   },
   key_field: :id,
   name: :search_idx
@@ -235,7 +235,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :mock_items,
   fields: {
     id: {},
-    "metadata->>'color'" => { tokenizer: Tokenizer.ngram(2, 3) }
+    "metadata->>'color'" => { tokenizer: ParadeDB::Tokenizer.ngram(2, 3) }
   },
   key_field: :id,
   name: :search_idx

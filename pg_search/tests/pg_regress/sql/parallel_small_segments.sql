@@ -4,6 +4,9 @@
 -- limits parallel workers based on row count, so each worker processes
 -- enough rows for parallelism to be worthwhile (~10ms startup overhead).
 --
+-- Since #4664 the cost model decides cost-able scans and ignores this GUC; the
+-- row heuristic (this GUC) governs only uncostable scans, so Tests 1-3 use one.
+--
 -- However, when the scan declares sorted output (TopK with ORDER BY, or
 -- sorted columnar), it must visit ALL segments to produce globally correct
 -- results. In that case, cost is segment-scan dominated and the
@@ -49,27 +52,26 @@ ANALYZE items;
 -- Verify reltuples is set correctly
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 
--- Test 1: Unsorted scan with high threshold (min_rows_per_worker=300000)
--- With 10000 rows, max_workers = 10000/300000 = 0, so parallel should be DISABLED
--- for non-sorted scans (Normal exec method, no ORDER BY).
-SET paradedb.min_rows_per_worker = 300000;
+-- Tests 1-3 use an uncostable predicate (id <> a runtime subquery) so the row
+-- heuristic decides; the planner estimates ~1000 rows, capping at 1000/min_rows.
+
+-- Test 1: min_rows_per_worker=2000 -> 1000/2000 = 0 workers -> serial
+SET paradedb.min_rows_per_worker = 2000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
+SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
 
--- Test 2: Unsorted scan with lower threshold (min_rows_per_worker=5000)
--- With 10000 rows, max_workers = 10000/5000 = 2, parallel SHOULD be used
-SET paradedb.min_rows_per_worker = 5000;
+-- Test 2: min_rows_per_worker=500 -> 1000/500 = 2 workers -> parallel
+SET paradedb.min_rows_per_worker = 500;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
+SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
 
--- Test 3: Unsorted scan with threshold disabled (0)
--- Parallel SHOULD be used based on segment count only
+-- Test 3: min_rows_per_worker=0 -> no cap -> parallel by segment count
 SET paradedb.min_rows_per_worker = 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
+SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
 
 -- Test 4: TopK sorted scan bypasses min_rows_per_worker
 -- Even with a high min_rows_per_worker threshold, TopK queries that declare sorted

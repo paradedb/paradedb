@@ -43,6 +43,8 @@ use std::str::FromStr;
 use tantivy::schema::{Facet, IntoIpv6Addr};
 use thiserror::Error;
 
+use super::jsonb_support::JsonbConversionError;
+
 /// A row-oriented wrapper around Tantivy's OwnedValue.
 ///
 /// When working with large batches of TantivyValues, consider using the `types_arrow` module
@@ -56,13 +58,14 @@ impl Default for TantivyValue {
     }
 }
 
-impl From<TantivyValue> for tantivy::schema::OwnedValue {
-    fn from(v: TantivyValue) -> Self {
-        v.0.into_tantivy_value()
-    }
-}
-
 impl TantivyValue {
+    pub fn into_tantivy_value(
+        self,
+        index_created_by_version: Option<crate::api::version::Version>,
+    ) -> tantivy::schema::OwnedValue {
+        self.0.into_tantivy_value(index_created_by_version)
+    }
+
     pub fn into_owned_datetime(self) -> Option<PdbOwnedValue> {
         match self.0 {
             PdbOwnedValue::Date(_) => Some(self.0),
@@ -237,7 +240,7 @@ impl TantivyValue {
                 PgBuiltInOids::JSONBOID => {
                     let serde_json_value = jsonb_datum_to_serde_json_value(datum)
                         .ok_or(TantivyValueError::DatumDeref)?
-                        .map_err(TantivyValueError::Utf8ConversionError)?;
+                        .map_err(TantivyValueError::from)?;
                     Self::try_json_value_to_tantivy_value(serde_json_value)
                 }
                 PgBuiltInOids::JSONOID => {
@@ -1309,15 +1312,31 @@ pub enum TantivyValueError {
     #[error("UTF8 conversion error: {0}")]
     Utf8ConversionError(#[from] std::str::Utf8Error),
 }
+impl From<JsonbConversionError> for TantivyValueError {
+    fn from(value: JsonbConversionError) -> Self {
+        match value {
+            JsonbConversionError::Utf8(v) => Self::Utf8ConversionError(v),
+            JsonbConversionError::Serde(v) => Self::SerdeJsonError(v),
+        }
+    }
+}
 
 /// Check if the given OID is a date/time type that requires special conversion
 pub fn is_datetime_type(typoid: pg_sys::Oid) -> bool {
-    matches!(
-        typoid,
-        pg_sys::DATEOID
-            | pg_sys::TIMESTAMPOID
-            | pg_sys::TIMESTAMPTZOID
-            | pg_sys::TIMEOID
-            | pg_sys::TIMETZOID
-    )
+    is_pgoid_datetime_type(PgOid::from_untagged(typoid))
+}
+
+pub fn is_pgoid_datetime_type(pgoid: PgOid) -> bool {
+    match pgoid {
+        PgOid::Invalid => false,
+        PgOid::Custom(_) => false,
+        PgOid::BuiltIn(oid) => matches!(
+            oid,
+            pgrx::pg_sys::BuiltinOid::DATEOID
+                | pgrx::pg_sys::BuiltinOid::TIMESTAMPOID
+                | pgrx::pg_sys::BuiltinOid::TIMESTAMPTZOID
+                | pgrx::pg_sys::BuiltinOid::TIMEOID
+                | pgrx::pg_sys::BuiltinOid::TIMETZOID
+        ),
+    }
 }

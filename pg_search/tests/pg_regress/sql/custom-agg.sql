@@ -54,8 +54,7 @@ CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, r
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "severity": {"fast": true}, "category": {"fast": true}}',
-    numeric_fields = '{"response_time": {"fast": true}, "status_code": {"fast": true}}',
-    datetime_fields = '{"timestamp": {"fast": true}}'
+    numeric_fields = '{"response_time": {"fast": true}, "status_code": {"fast": true}}'
 );
 
 -- Test 1: Simple custom agg with terms aggregation (without search query - should fail gracefully or not be intercepted)

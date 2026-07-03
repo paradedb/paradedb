@@ -17,7 +17,7 @@ pg-version:
 	@echo $(PGV)
 
 # Print the current PGRX version from Cargo.toml
-.PHONY: pg-version
+.PHONY: pgrx-version
 pgrx-version:
 	@echo $(PGRXV)
 

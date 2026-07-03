@@ -91,16 +91,16 @@ pub enum AggregateType {
 }
 
 impl SolvePostgresExpressions for AggregateType {
-    fn has_heap_filters(&mut self) -> bool {
-        self.filter_expr_mut()
-            .as_mut()
-            .is_some_and(|filter| filter.has_heap_filters())
-    }
-
     fn has_postgres_expressions(&mut self) -> bool {
         self.filter_expr_mut()
             .as_mut()
             .is_some_and(|filter| filter.has_postgres_expressions())
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        self.filter_expr_mut()
+            .as_mut()
+            .is_some_and(|filter| filter.has_parameters())
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
@@ -423,6 +423,14 @@ impl AggregateType {
         }
         Ok(())
     }
+
+    pub fn custom_agg_json(&self) -> Option<&serde_json::Value> {
+        if let Self::Custom { agg_json, .. } = self {
+            Some(agg_json)
+        } else {
+            None
+        }
+    }
 }
 
 /// Validate that all fields referenced in a JSON aggregation request exist in the
@@ -516,9 +524,11 @@ impl From<AggregateType> for AggregationVariants {
             AggregateType::Count { field, missing, .. } => {
                 AggregationVariants::Count(CountAggregation { field, missing })
             }
-            AggregateType::Sum { field, missing, .. } => {
-                AggregationVariants::Sum(SumAggregation { field, missing })
-            }
+            AggregateType::Sum { field, missing, .. } => AggregationVariants::Sum(SumAggregation {
+                field,
+                missing,
+                none_if_no_match: Some(true),
+            }),
             AggregateType::Avg { field, missing, .. } => {
                 AggregationVariants::Average(AverageAggregation { field, missing })
             }

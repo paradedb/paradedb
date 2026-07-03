@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::Version;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
@@ -63,27 +64,47 @@ impl RangeField {
     }
 
     pub fn empty(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(EMPTY_KEY))?;
+        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(EMPTY_KEY), None)?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &PdbOwnedValue::Bool(val),
+            Some(UPPER_INCLUSIVE_KEY),
+            None,
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &PdbOwnedValue::Bool(val),
+            Some(LOWER_INCLUSIVE_KEY),
+            None,
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &PdbOwnedValue::Bool(val),
+            Some(UPPER_UNBOUNDED_KEY),
+            None,
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &PdbOwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &PdbOwnedValue::Bool(val),
+            Some(LOWER_UNBOUNDED_KEY),
+            None,
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
@@ -91,23 +112,44 @@ impl RangeField {
         &self,
         owned: &PdbOwnedValue,
         comparison: Comparison,
+        index_created_by_version: Option<Version>,
     ) -> Result<RangeQuery> {
         let query = match comparison {
             Comparison::LessThan => RangeQuery::new(
-                Bound::Excluded(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
+                Bound::Excluded(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(LOWER_KEY),
+                    index_created_by_version,
+                )?),
                 Bound::Unbounded,
             ),
             Comparison::LessThanOrEqual => RangeQuery::new(
-                Bound::Included(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
+                Bound::Included(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(LOWER_KEY),
+                    index_created_by_version,
+                )?),
                 Bound::Unbounded,
             ),
             Comparison::GreaterThan => RangeQuery::new(
                 Bound::Unbounded,
-                Bound::Excluded(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
+                Bound::Excluded(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(LOWER_KEY),
+                    index_created_by_version,
+                )?),
             ),
             Comparison::GreaterThanOrEqual => RangeQuery::new(
                 Bound::Unbounded,
-                Bound::Included(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
+                Bound::Included(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(LOWER_KEY),
+                    index_created_by_version,
+                )?),
             ),
         };
 
@@ -118,31 +160,63 @@ impl RangeField {
         &self,
         owned: &PdbOwnedValue,
         comparison: Comparison,
+        index_created_by_version: Option<Version>,
     ) -> Result<RangeQuery> {
         let query = match comparison {
             Comparison::LessThan => RangeQuery::new(
-                Bound::Excluded(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
+                Bound::Excluded(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(UPPER_KEY),
+                    index_created_by_version,
+                )?),
                 Bound::Unbounded,
             ),
             Comparison::LessThanOrEqual => RangeQuery::new(
-                Bound::Included(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
+                Bound::Included(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(UPPER_KEY),
+                    index_created_by_version,
+                )?),
                 Bound::Unbounded,
             ),
             Comparison::GreaterThan => RangeQuery::new(
                 Bound::Unbounded,
-                Bound::Excluded(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
+                Bound::Excluded(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(UPPER_KEY),
+                    index_created_by_version,
+                )?),
             ),
             Comparison::GreaterThanOrEqual => RangeQuery::new(
                 Bound::Unbounded,
-                Bound::Included(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
+                Bound::Included(Self::as_range_term(
+                    self,
+                    owned,
+                    Some(UPPER_KEY),
+                    index_created_by_version,
+                )?),
             ),
         };
 
         Ok(query)
     }
 
-    fn as_range_term(&self, value: &PdbOwnedValue, path: Option<&str>) -> Result<Term> {
-        value_to_json_term(self.field, value, path, EXPAND_DOTS)
+    fn as_range_term(
+        &self,
+        value: &PdbOwnedValue,
+        path: Option<&str>,
+        index_created_by_version: Option<Version>,
+    ) -> Result<Term> {
+        value_to_json_term(
+            self.field,
+            value,
+            path,
+            EXPAND_DOTS,
+            index_created_by_version,
+        )
     }
 }
 

@@ -1,0 +1,17 @@
+sampling_seed = 0                                         # unused (no sampling), required by parser
+load_format = "parquet"
+s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
+tables = []
+
+[root_table]
+name = "cohere_wiki"
+primary_key = "_id"  # used only if sampled later
+
+[params]
+lists = "sqrt({{ dataset_size }})::int"
+# tuned for 95% recall
+probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 45 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
+probes_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 54 WHEN 10000000 THEN 108 ELSE round(0.035 * sqrt({{ dataset_size }}))::int END"
+probes_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 150 WHEN 10000000 THEN 240 ELSE round(0.079 * sqrt({{ dataset_size }}))::int END"
+ef_search_10pct = "200"                                                                                                                      # TODO: untuned placeholder
+ef_search_1pct = "400"                                                                                                                       # TODO: untuned placeholder

@@ -29,17 +29,16 @@
 //!     pre-filter memoization).
 //!   - State 2 (materialized): already-decoded strings/bytes — always kept.
 //!
-//! For States 0 and 1, a per-segment bounded heap of size K retains only the
-//! top rows per segment. All batches are collected during the input phase,
-//! and survivors are emitted in a single pass once all input is consumed.
+//! For States 0 and 1, a per-segment buffer (a `Vec` with capacity 2 * K) and
+//! QuickSelect retain only the top K rows per segment. All batches are
+//! collected during the input phase, and survivors are emitted in a single
+//! pass once all input is consumed.
 //!
 //! ## Global threshold
 //!
-//! As rows are ingested, a global threshold is published to the scanner:
-//!
-//! Once the global heap across all segments reaches K entries, the worst
-//!
-//! entry's deferred ordinals are converted back to strings via
+//! As rows are ingested, a global threshold is published to the scanner.
+//! Once a segment's buffer fills to 2 * K and undergoes its first QuickSelect,
+//! the K-th best row's deferred ordinals are converted back to strings via
 //! `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
 //! DataFusion's standard filter pushdown mechanism routes this to
 //! `PgSearchScanPlan`, where `pre_filter::try_rewrite_binary` translates
@@ -47,15 +46,15 @@
 //!
 //! ## Output bound
 //!
-//! The cutoff for each segment is the worst (K-th best) `OwnedRow` in that
-//! segment's heap. All rows with `OwnedRow <= cutoff` survive. When sort keys
+//! The cutoff for each segment is the K-th best `OwnedRow` selected from that
+//! segment's buffer. All rows with `OwnedRow <= cutoff` survive. When sort keys
 //! are unique, this is exactly K rows per segment. With ties at the boundary,
 //! all tied rows are conservatively retained:
 //!
 //!   survivors_s = K + (T_s - H_s)
 //!
 //! where `T_s` is the total number of rows in segment `s` sharing the cutoff
-//! value, and `H_s` is how many of those occupy heap slots (`H_s >= 1`).
+//! value, and `H_s` is how many of those occupy buffer slots (`H_s >= 1`).
 //! Total ordinal-comparable rows reaching `TantivyLookupExec`:
 //!
 //!   sum_s(survivors_s) <= K * S  (when no boundary ties)
@@ -98,8 +97,6 @@ use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use std::any::Any;
-use std::collections::BinaryHeap;
 use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
@@ -195,7 +192,6 @@ impl SegmentedTopKExec {
             .map(|expr| {
                 let is_deferred = expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
                         deferred_columns
@@ -247,13 +243,32 @@ impl SegmentedTopKExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ffhelper: Arc<FFHelper>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctx: &TaskContext,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (sort_bytes, deferred_columns, k): (Vec<Vec<u8>>, Vec<DeferredSortColumn>, usize) =
             serde_json::from_slice(buf).map_err(|e| {
                 DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
             })?;
+        // The deferred sort columns all resolve against one index (the sorted relation), and
+        // `ff_index` is relative to that index's fast-field list. A join leaves the other
+        // index's scan in the same subtree, so pick the helper by `indexrelid` instead of
+        // grabbing whichever scan comes first.
+        let ffhelper = match deferred_columns.first() {
+            Some(first) => ffhelpers
+                .get(&first.canonical.indexrelid)
+                .cloned()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "SegmentedTopKExec dispatch: no ffhelper for indexrelid {}",
+                        first.canonical.indexrelid
+                    ))
+                })?,
+            None => ffhelpers
+                .into_values()
+                .next()
+                .unwrap_or_else(|| Arc::new(FFHelper::empty())),
+        };
         let sort_proto = sort_bytes
             .iter()
             .map(|b| {
@@ -267,12 +282,13 @@ impl SegmentedTopKExec {
             })?;
         let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
         let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
+        let decode_ctx =
+            datafusion_proto::physical_plan::PhysicalPlanDecodeContext::new(ctx, &codec);
         let input_schema = input.schema();
         let exprs = datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
             &sort_proto,
-            ctx,
+            &decode_ctx,
             input_schema.as_ref(),
-            &codec,
             &proto_conv,
         )?;
         let sort_exprs = LexOrdering::new(exprs).ok_or_else(|| {
@@ -307,10 +323,6 @@ impl DisplayAs for SegmentedTopKExec {
 impl ExecutionPlan for SegmentedTopKExec {
     fn name(&self) -> &str {
         "SegmentedTopKExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {
@@ -359,7 +371,6 @@ impl ExecutionPlan for SegmentedTopKExec {
                 // If it's a deferred column, we treat its sorting type as UInt64 (the ordinal type).
                 let data_type = if expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .is_some_and(|c| {
                         self.deferred_columns
@@ -390,12 +401,13 @@ impl ExecutionPlan for SegmentedTopKExec {
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
-            segment_heaps: HashMap::default(),
+            segment_bufs: Vec::new(),
+            segment_cutoffs: Vec::new(),
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
             pass_through_rows: Vec::new(),
-            last_segment_cutoffs: HashMap::default(),
+            last_segment_cutoffs: Vec::new(),
             mat_row_converter,
             last_published_global: None,
             rows_input,
@@ -477,27 +489,36 @@ struct SegmentedTopKState {
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
-    /// Per-segment max-heaps of comparable Rows. We maintain max heaps so that
-    /// the 'worst' element (the boundary) is always at the root. We also store the
-    /// `(batch_idx, row_idx)` to allow for compaction.
-    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<OwnedRow>>,
+    /// Per-segment rolling buffers of comparable Rows, indexed by `SegmentOrdinal`
+    /// (dense, 0..N). Each buffer grows up to 2 * K rows; when it reaches 2 * K,
+    /// `select_nth_unstable(k - 1)` partitions it so the K best rows occupy the front,
+    /// the K-th best is recorded in `segment_cutoffs`, and the buffer is truncated back
+    /// to K. Row locations `(batch_idx, row_idx)` are tracked separately in
+    /// `row_ordinals` for compaction.
+    segment_bufs: Vec<Option<Vec<OwnedRow>>>,
+    /// Per-segment K-th best row (the cutoff threshold) after the most recent
+    /// QuickSelect, indexed by `SegmentOrdinal`. `None` for segments that have not yet
+    /// accumulated 2 * K rows, i.e. segments whose buffer has not been partitioned.
+    /// Updated by the inline QuickSelect in `collect_batch` and consulted to pre-filter
+    /// clearly worse rows.
+    segment_cutoffs: Vec<Option<OwnedRow>>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// Keeps track of the heap rows for compaction.
+    /// Keeps track of the buffered rows for compaction.
     /// (batch_idx, row_idx, seg_ord, row_data)
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
     /// Buffered pass-through rows (State 2 and NULL ordinals) that bypass
     /// ordinal comparison. These are included in the final sort + limit.
     pass_through_rows: Vec<(usize, usize)>,
 
-    /// For each segment heap that has reached size `k`, we cache the resolved values
-    /// of its current worst row (the root of the heap).
+    /// For each segment that has a cutoff, we cache the resolved values of its current
+    /// K-th best row (the cutoff threshold). Indexed by `SegmentOrdinal`; `None` for
+    /// segments without a resolved cutoff yet.
     /// Tuple: (local ordinal OwnedRow, materialized ScalarValues, materialized OwnedRow)
-    last_segment_cutoffs:
-        HashMap<SegmentOrdinal, (OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>,
+    last_segment_cutoffs: Vec<Option<(OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>>,
 
     /// Row converter for materialized sorts, used to compare resolved thresholds lexicographically.
     mat_row_converter: RowConverter,
@@ -514,21 +535,17 @@ struct SegmentedTopKState {
 }
 
 impl SegmentedTopKState {
-    /// Update the per-segment cutoff heap with a new ordinal. The heap tracks
-    /// the K best transformed ordinals to determine the boundary. Row locations
-    /// are tracked separately in `row_ordinals`.
-    fn update_cutoff_heap(heap: &mut BinaryHeap<OwnedRow>, heap_val: OwnedRow, k: usize) {
-        if heap.len() < k {
-            heap.push(heap_val);
-        } else if let Some(worst) = heap.peek() {
-            if &heap_val < worst {
-                heap.pop();
-                heap.push(heap_val);
-            }
+    /// Return a mutable reference to the per-segment slot at `idx`, growing the
+    /// vector with `None`s as needed. `SegmentOrdinal` is dense (0..N), so these
+    /// per-segment vectors are indexed directly by the ordinal.
+    fn ensure_slot<T>(vec: &mut Vec<Option<T>>, idx: usize) -> &mut Option<T> {
+        if idx >= vec.len() {
+            vec.resize_with(idx + 1, || None);
         }
+        &mut vec[idx]
     }
 
-    /// Ingest a single batch: extract ordinals, update per-segment heaps,
+    /// Ingest a single batch: extract ordinals, update per-segment buffers,
     /// and publish thresholds. The batch is buffered for the final emission
     /// phase. Pass-through rows (State 2 and NULL ordinals) are buffered
     /// in `pass_through_rows` for the final sort + limit.
@@ -554,7 +571,6 @@ impl SegmentedTopKState {
         for expr in &self.sort_exprs {
             let col_idx = expr
                 .expr
-                .as_any()
                 .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                 .map(|c| c.index());
 
@@ -575,15 +591,43 @@ impl SegmentedTopKState {
                 continue;
             }
             if let Some(seg_ord) = row_to_seg[row_idx] {
-                if !self.segment_heaps.contains_key(&seg_ord) {
+                let seg_idx = seg_ord as usize;
+                let row_val = converted_rows.row(row_idx).owned();
+
+                // Pre-filter: rows already worse than this segment's cutoff cannot
+                // enter the top K, so drop them before they reach the buffer.
+                let is_worse = self
+                    .segment_cutoffs
+                    .get(seg_idx)
+                    .and_then(|c| c.as_ref())
+                    .is_some_and(|cutoff| &row_val > cutoff);
+                if is_worse {
+                    continue;
+                }
+
+                if self
+                    .segment_bufs
+                    .get(seg_idx)
+                    .is_none_or(|buf| buf.is_none())
+                {
                     self.segments_seen.add(1);
                 }
-                let heap = self.segment_heaps.entry(seg_ord).or_default();
-
-                let heap_val = converted_rows.row(row_idx).owned();
-                Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+                let buf =
+                    Self::ensure_slot(&mut self.segment_bufs, seg_idx).get_or_insert_with(Vec::new);
+                buf.push(row_val.clone());
                 self.row_ordinals
-                    .push((batch_idx, row_idx, seg_ord, heap_val));
+                    .push((batch_idx, row_idx, seg_ord, row_val));
+
+                // QuickSelect: when the buffer reaches 2 * K, partition it around the
+                // K-th element (index k - 1). That element becomes the new segment
+                // cutoff and the buffer is truncated to its K best rows, mirroring
+                // Tantivy's TopNComputer.
+                if self.k > 0 && buf.len() >= 2 * self.k {
+                    buf.select_nth_unstable(self.k - 1);
+                    let cutoff = buf[self.k - 1].clone();
+                    buf.truncate(self.k);
+                    *Self::ensure_slot(&mut self.segment_cutoffs, seg_idx) = Some(cutoff);
+                }
             }
         }
 
@@ -824,16 +868,17 @@ impl SegmentedTopKState {
             .reduce(|a, b| Arc::new(BinaryExpr::new(a, Operator::Or, b)) as Arc<dyn PhysicalExpr>)
     }
 
-    /// Build the set of all survivors across all segments. A row survives if
-    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment.
+    /// Build the set of all survivors across all segments. A row survives if its
+    /// `OwnedRow` is <= the cutoff (K-th best row) for its segment. Segments without
+    /// a cutoff have not yet accumulated 2 * K rows, so all of their rows survive.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+        for (batch_idx, row_idx, seg_ord, row_val) in &self.row_ordinals {
             let dominated = self
-                .segment_heaps
-                .get(seg_ord)
-                .and_then(|h| h.peek())
-                .is_some_and(|cutoff| heap_val <= cutoff);
+                .segment_cutoffs
+                .get(*seg_ord as usize)
+                .and_then(|c| c.as_ref())
+                .is_none_or(|cutoff| row_val <= cutoff);
             if dominated {
                 survivors.insert((*batch_idx, *row_idx));
             }
@@ -852,16 +897,17 @@ impl SegmentedTopKState {
         let mut best_worst_mat_row: Option<OwnedRow> = None;
         let mut best_worst_values: Option<Vec<datafusion::common::ScalarValue>> = None;
 
-        // 1. Examine the "worst" row (the root of the heap) for each segment that
-        //    has reached size `K`.
-        let full_segment_heaps: Vec<(SegmentOrdinal, OwnedRow)> = self
-            .segment_heaps
+        // 1. Examine the K-th best row (the cutoff) for each segment that has one.
+        //    A cutoff exists only after a segment has accumulated 2 * K rows and been
+        //    partitioned, so every cutoff already reflects a full K rows.
+        let full_segment_cutoffs: Vec<(SegmentOrdinal, OwnedRow)> = self
+            .segment_cutoffs
             .iter()
-            .filter(|(_, heap)| heap.len() >= self.k)
-            .filter_map(|(&seg_ord, heap)| heap.peek().map(|row| (seg_ord, row.clone())))
+            .enumerate()
+            .filter_map(|(i, cutoff)| cutoff.as_ref().map(|c| (i as SegmentOrdinal, c.clone())))
             .collect();
 
-        for (seg_ord, worst_local) in full_segment_heaps {
+        for (seg_ord, worst_local) in full_segment_cutoffs {
             // 2. Resolve the local ordinal threshold into a materialized row.
             let (mat_values, mat_row) = self.resolve_segment_cutoff(seg_ord, &worst_local)?;
 
@@ -920,7 +966,11 @@ impl SegmentedTopKState {
         //    batch. If the threshold hasn't changed, reuse the materialized string
         //    values. If it has changed, pay the cost to resolve the segment-local
         //    ordinals into global string/bytes values via `resolve_global_threshold_values`.
-        if let Some((cached_local, vals, row)) = self.last_segment_cutoffs.get(&seg_ord) {
+        if let Some((cached_local, vals, row)) = self
+            .last_segment_cutoffs
+            .get(seg_ord as usize)
+            .and_then(|c| c.as_ref())
+        {
             if cached_local == worst_local {
                 return Ok((vals.clone(), row.clone()));
             }
@@ -943,10 +993,8 @@ impl SegmentedTopKState {
         let converted = self.mat_row_converter.convert_columns(&val_arrays)?;
 
         let mat_row = converted.row(0).owned();
-        self.last_segment_cutoffs.insert(
-            seg_ord,
-            (worst_local.clone(), values.clone(), mat_row.clone()),
-        );
+        *Self::ensure_slot(&mut self.last_segment_cutoffs, seg_ord as usize) =
+            Some((worst_local.clone(), values.clone(), mat_row.clone()));
         Ok((values, mat_row))
     }
 
@@ -966,7 +1014,6 @@ impl SegmentedTopKState {
         for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
             let is_deferred = sort_expr
                 .expr
-                .as_any()
                 .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                 .and_then(|c| {
                     self.deferred_columns
@@ -1025,7 +1072,12 @@ impl SegmentedTopKState {
     /// instead of O(N) for large inputs — analogous to the batch compaction
     /// step in upstream DataFusion Top K.
     fn maybe_compact(&mut self) {
-        let num_segments = self.segment_heaps.len().max(1);
+        let num_segments = self
+            .segment_bufs
+            .iter()
+            .filter(|buf| buf.is_some())
+            .count()
+            .max(1);
         if self.row_ordinals.len() <= self.k * num_segments * 4 {
             return;
         }
@@ -1035,14 +1087,15 @@ impl SegmentedTopKState {
         let mut survivors = crate::api::HashSet::default();
 
         // Use take() so we own row_ordinals and can move the OwnedRows.
-        for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
-            let keep = match self.segment_heaps.get(&seg_ord).and_then(|h| h.peek()) {
-                Some(cutoff_val) => &heap_val <= cutoff_val,
-                None => true,
-            };
+        for (batch_idx, row_idx, seg_ord, row_val) in std::mem::take(&mut self.row_ordinals) {
+            let keep = self
+                .segment_cutoffs
+                .get(seg_ord as usize)
+                .and_then(|c| c.as_ref())
+                .is_none_or(|cutoff| &row_val <= cutoff);
             if keep {
                 survivors.insert((batch_idx, row_idx));
-                new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
+                new_row_ordinals.push((batch_idx, row_idx, seg_ord, row_val));
             }
         }
 
@@ -1131,9 +1184,9 @@ impl SegmentedTopKState {
         type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
         let mut candidates: Vec<Candidate> = Vec::new();
 
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+        for (batch_idx, row_idx, seg_ord, row_val) in &self.row_ordinals {
             if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
-                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
+                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, row_val.clone()))));
             }
         }
         for &(batch_idx, row_idx) in &self.pass_through_rows {
@@ -1153,7 +1206,6 @@ impl SegmentedTopKState {
             .map(|expr| {
                 let is_deferred = expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
                         self.deferred_columns
@@ -1186,7 +1238,6 @@ impl SegmentedTopKState {
             for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
                 let is_deferred = sort_expr
                     .expr
-                    .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
                         self.deferred_columns

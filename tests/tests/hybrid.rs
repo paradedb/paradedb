@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
+use tests::fixtures::*;
 
 #[rstest]
 fn hybrid_deprecated(mut conn: PgConnection) {
@@ -37,7 +35,6 @@ fn hybrid_deprecated(mut conn: PgConnection) {
         text_fields = '{"description": {}, "category": {}}',
         numeric_fields = '{"rating": {}}',
         boolean_fields = '{"in_stock": {}}',
-        datetime_fields = '{"created_at": {}}',
         json_fields = '{"metadata": {}}'
     );
 

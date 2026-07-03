@@ -36,9 +36,9 @@ USING bm25 (id, (content::pdb.ngram(2, 4, 'prefix_only=true')))
 WITH (key_field = 'id');
 DROP INDEX idx_ngram;
 
--- lindera: language
+-- lindera: language, nfkc, reading_form
 CREATE INDEX idx_lindera ON test_tokenizer_params
-USING bm25 (id, (content::pdb.lindera('japanese')))
+USING bm25 (id, (content::pdb.lindera('japanese', 'nfkc=true', 'reading_form=true')))
 WITH (key_field = 'id');
 DROP INDEX idx_lindera;
 

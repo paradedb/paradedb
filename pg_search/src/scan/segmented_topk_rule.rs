@@ -111,7 +111,7 @@ fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> 
 /// If `plan` is a `SortExec(TopK)` sorting by at least one deferred column, inject
 /// `SegmentedTopKExec` below the `TantivyLookupExec` in its subtree.
 fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
-    let Some(sort_exec) = plan.as_any().downcast_ref::<SortExec>() else {
+    let Some(sort_exec) = plan.downcast_ref::<SortExec>() else {
         return Ok(plan);
     };
 
@@ -205,14 +205,14 @@ fn try_inject_below_lookup(
     let children = plan.children();
 
     for (child_idx, child) in children.iter().enumerate() {
-        if let Some(lookup) = child.as_any().downcast_ref::<TantivyLookupExec>() {
+        if let Some(lookup) = child.downcast_ref::<TantivyLookupExec>() {
             let lookup_child = &lookup.children()[0];
             let input_schema = lookup_child.schema();
 
             // Check if ANY sort column is one of the deferred fields, using
             // physical index resolution to handle join-reordered schemas.
             let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
-                if let Some(col) = expr.expr.as_any().downcast_ref::<Column>() {
+                if let Some(col) = expr.expr.downcast_ref::<Column>() {
                     let physical_idx = resolve_physical_index(col, &input_schema);
                     lookup
                         .deferred_fields()
@@ -233,7 +233,7 @@ fn try_inject_below_lookup(
                 // resolving logical → physical indices for each.
                 let mut deferred_columns = Vec::new();
                 for expr in &sort_exprs {
-                    if let Some(col) = expr.expr.as_any().downcast_ref::<Column>() {
+                    if let Some(col) = expr.expr.downcast_ref::<Column>() {
                         let physical_idx = resolve_physical_index(col, &input_schema);
                         if let Some(field) = lookup
                             .deferred_fields()
@@ -287,7 +287,7 @@ fn try_inject_below_lookup(
                     use datafusion::common::tree_node::{Transformed, TreeNode};
                     let input_schema_clone = Arc::clone(&input_schema);
                     let rewritten_expr = sort_expr.expr.clone().transform(|node| {
-                        if let Some(col) = node.as_any().downcast_ref::<Column>() {
+                        if let Some(col) = node.downcast_ref::<Column>() {
                             let physical_idx = resolve_physical_index(col, &input_schema_clone);
 
                             if physical_idx < input_schema_clone.fields().len() {
@@ -367,7 +367,7 @@ fn wrap_blocking_nodes(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn Execution
         plan
     };
 
-    if plan.as_any().is::<SortPreservingMergeExec>() {
+    if plan.is::<SortPreservingMergeExec>() {
         return Ok(Arc::new(FilterPassthroughExec::new(plan)));
     }
 

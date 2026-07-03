@@ -111,6 +111,81 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
+-- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
+-- Asserts presence, not content: how many workers launch and how they
+-- split the rows isn't pinned, so per-fragment metrics vary run to run.
+-- A fragment's row counts appear only once its TaskMetrics crossed the mesh.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  'SELECT f.title, p.size_bytes
+   FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+   WHERE f.content @@@ ''Section''
+   ORDER BY f.title, p.size_bytes
+   LIMIT 10'
+) AS line
+WHERE line LIKE '%output_rows%';
+
+DROP FUNCTION mpp_explain_analyze_lines(text);
+
+-- =====================================================================
+-- Pass 4: MPP with heap filter
+--
+-- A heap filter (like `length(f.title) > 6`) must be evaluated in the
+-- worker. This tests that the expression context is properly provided
+-- to the worker.
+-- =====================================================================
+
+SET paradedb.enable_mpp TO on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
+-- Pass 5: Serial fallback check
+--
+-- Ensure the same query returns identical results when executed serially.
+-- =====================================================================
+
+SET paradedb.enable_mpp TO off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

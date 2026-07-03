@@ -21,7 +21,6 @@
 //! `handle_child_pushdown_result` so that parent filters are routed to the
 //! correct child by column-name matching.
 
-use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
@@ -62,10 +61,6 @@ impl DisplayAs for FilterPassthroughExec {
 impl ExecutionPlan for FilterPassthroughExec {
     fn name(&self) -> &str {
         self.inner.name()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {

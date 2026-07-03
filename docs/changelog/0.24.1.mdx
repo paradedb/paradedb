@@ -1,0 +1,23 @@
+---
+title: 0.24.1
+noindex: true
+---
+
+## New Features 🎉
+
+- Enabled the join and aggregate scans by default to expand support for various query shapes, and improve performance.
+- Significantly improved support for indexing Postgres date/time types, improving alignment with Postgres's semantics.
+
+## Performance Improvements 🚀
+
+- Improved aggregate performance on frequently mutated indexes by sorting the index by `tid` by default.
+- Improved Top-K performance by sharing a threshold across segments being searched in parallel.
+
+## Stability Improvements 💪
+
+- Improved JSONB error handling and properly handle boundary floating point in JSON.
+- Fix correctness when visibility causes Top-K underflow with a shared threshold.
+- Solve correlated variables in heap filters, avoiding a crash on particular complex filters.
+- Expanded support for various join shapes in the join custom scan.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.24.1).

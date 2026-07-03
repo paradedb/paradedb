@@ -43,6 +43,10 @@ All changes to ParadeDB happen through GitHub Pull Requests. Here is the recomme
 7. Keep your pull request focused on the scope of its associated issue. Pull requests that balloon in scope (e.g. bundling unrelated refactors, tangential cleanups, or additional features into a single change) will not be reviewed or merged. If you discover related work that should be done, please open a separate issue and pull request for it.
 8. Congratulations! Our team will review your pull request.
 
+### Use of AI Tools
+
+We don't care what tools you use to write your code. You are free to use AI agents and assistants to help you write, refactor, or debug your contributions. However, by submitting a pull request, you confirm that you fully understand the code you are submitting and that you stand behind it. AI slop will be rejected.
+
 ### Documentation
 
 ParadeDB's public-facing documentation is stored in the `docs` folder. If you are adding a new feature that requires new documentation, please include the documentation in your pull request. We will not merge a feature without appropriate documentation.

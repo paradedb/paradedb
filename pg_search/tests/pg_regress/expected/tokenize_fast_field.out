@@ -33,12 +33,13 @@ LIMIT 5;
          Output: id, description
          Table: mock_items
          Index: search_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: description asc
             TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+(12 rows)
 
 SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()
@@ -104,12 +105,13 @@ LIMIT 5;
          Output: id, description, lower(description)
          Table: mock_items
          Index: search_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: description asc
             TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+(12 rows)
 
 SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()

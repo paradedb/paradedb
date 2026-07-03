@@ -18,9 +18,9 @@
 //! High-level glue between PostgreSQL parallel-query callbacks and the
 //! leader/worker MPP architecture.
 //!
-//! Customscan code calls into this module from four hooks; everything else
-//! (DSM math, shm_mq FFI, DF-D fork's `WorkerTransport` plumbing) is hidden
-//! behind the API:
+//! Customscan code calls into this module from four hooks; everything else (the shared-memory
+//! layout, the ring mesh, the `WorkerTransport` plumbing) lives in
+//! `datafusion_distributed::shm` and is reached through these thin wrappers:
 //!
 //! - [`mpp_is_active`] — gate for the customscan path-builder.
 //! - [`estimate_dsm_size`] — `estimate_dsm_custom_scan` body.
@@ -36,29 +36,20 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
+use datafusion_distributed::proto::SetPlanRequest;
+use datafusion_distributed::shm::{
+    self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
+    SendBatchStats, SetPlanFrame, Wakeup,
+};
+use datafusion_distributed::TaskKey;
+
+use crate::postgres::customscan::mpp::dispatch::StagePlan;
+
 use crate::gucs::{
     enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
 };
-use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
-};
-use crate::postgres::customscan::mpp::dsm_mpsc_ring::DsmMpscSender;
-use crate::postgres::customscan::mpp::mesh::{DsmInboxReceiver, DsmInboxSender};
-use crate::postgres::customscan::mpp::runtime::MppMesh;
-use crate::postgres::customscan::mpp::transport::{
-    in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
-    SELF_LOOP_CAPACITY,
-};
-
-/// Default stage id stamped on outbound sender headers before the per-fragment dispatcher
-/// rewrites them. Worker senders get `clone_with_header` immediately after `worker_setup`, so
-/// this placeholder is never observed on the wire.
-const NATURAL_GATHER_STAGE_ID: u32 = 0;
-
-/// Consumer-side partition stamped on natural-shape gather frames. The natural plan emits
-/// `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` at the top, so there is exactly one consumer
-/// partition on the leader.
-const NATURAL_GATHER_PARTITION: u32 = 0;
+use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
+use crate::postgres::ParallelScanState;
 
 /// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
 /// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
@@ -96,70 +87,10 @@ pub fn mpp_worker_count() -> u32 {
     gucs_mpp_worker_count() as u32
 }
 
-/// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
-/// `leader_setup` / workers see in `initialize_worker_custom_scan`. Tells workers where the
-/// MPP region begins (past the customscan's `ParallelScanState` block) and which entry in
-/// `plan.sources()` is the partitioning source.
-///
-/// DSM layout used by every customscan opting into MPP:
-///
-/// ```text
-/// [0 .. 8)                       u64 mpp_offset            (offset to MPP region)
-/// [8 .. 16)                      u64 partitioning_source_idx
-/// [pscan_offset .. mpp_offset)   ParallelScanState (variable size)
-/// [mpp_offset .. total)          MPP region (MppDsmHeader + queues + plan_bytes)
-/// ```
-///
-/// Workers don't carry the source manifests the leader saw, so these two `u64`s let them skip
-/// past the `ParallelScanState` block and key `index_segment_ids` the same way as the leader.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CustomScanMppHeader {
-    /// Byte offset of the MPP region within the coordinate. Always a real, initialized region:
-    /// the leader errors out of `initialize_dsm_custom_scan` on any setup failure, before
-    /// `LaunchParallelWorkers`, so no worker ever reads a half-written header.
-    pub mpp_offset: u64,
-    pub partitioning_source_idx: u64,
-}
-
-const CUSTOM_SCAN_MPP_HEADER_SIZE: usize = std::mem::size_of::<CustomScanMppHeader>();
-
-/// Round `n` up to the nearest `MAXIMUM_ALIGNOF` boundary. Used to align section boundaries
-/// inside the customscan's DSM coordinate so the `ParallelScanState` block and the MPP region
-/// each start on aligned bytes.
-pub fn mpp_align(n: usize) -> usize {
-    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
-    n.next_multiple_of(a)
-}
-
-/// Byte offset of the `ParallelScanState` block within the customscan's DSM coordinate. Lives
-/// right after the [`CustomScanMppHeader`], MAXALIGN-padded.
-pub fn pscan_offset() -> usize {
-    mpp_align(CUSTOM_SCAN_MPP_HEADER_SIZE)
-}
-
-/// Read the [`CustomScanMppHeader`] stamped by the leader at offset 0 of the DSM coordinate.
-///
-/// # Safety
-/// `coordinate` must point at a DSM coordinate that the leader populated via
-/// [`write_custom_scan_header`]. Callers in `initialize_worker_custom_scan` get this pointer
-/// from PG and are responsible for confirming it's the expected layout.
-pub unsafe fn read_custom_scan_header(coordinate: *const c_void) -> CustomScanMppHeader {
-    unsafe { *(coordinate as *const CustomScanMppHeader) }
-}
-
-/// Stamp the [`CustomScanMppHeader`] at offset 0 of the DSM coordinate so workers can read
-/// `mpp_offset` and `partitioning_source_idx` without re-deriving them from manifests.
-///
-/// # Safety
-/// `coordinate` must point at the leader's DSM coordinate from `initialize_dsm_custom_scan`,
-/// with at least `size_of::<CustomScanMppHeader>()` bytes writable. The customscan's
-/// `estimate_dsm_custom_scan` is responsible for reserving the space.
-pub unsafe fn write_custom_scan_header(coordinate: *mut c_void, header: CustomScanMppHeader) {
-    unsafe {
-        *(coordinate as *mut CustomScanMppHeader) = header;
-    }
-}
+// The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
+// builder's `shm_toc_allocate` hands out MAXALIGN-aligned blobs for the mesh region, so the two
+// must agree or the rings would be misaligned, which is UB-class.
+const _: () = assert!(pg_sys::MAXIMUM_ALIGNOF == 8);
 
 /// Per-edge queue size from the GUC.
 pub(super) fn mpp_queue_size() -> usize {
@@ -170,9 +101,8 @@ pub(super) fn mpp_queue_size() -> usize {
 /// for the header, the worker plan, and one MPSC inbox per process. `n_procs` is the
 /// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
-    let layout = compute_dsm_layout(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
-        .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
-    Ok(layout.region_total)
+    shm::dsm_region_bytes(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
+        .map_err(|e| e.to_string())
 }
 
 /// Number of producer workers PG should launch as `parallel_workers`.
@@ -193,103 +123,186 @@ pub struct MppLeaderState {
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
-    /// Borrowed pointer to the parallel context PG passed to
-    /// `initialize_dsm_custom_scan`. Lifetime: valid for the duration of
-    /// the parallel exec; PG destroys it after `ExecParallelFinish`. The
-    /// leader reads `(*pcxt).nworkers_launched` at exec time to detect
-    /// short worker launches (see #5061 for the long-term plan); the
-    /// raw pointer is the only way to get at that field since the
-    /// CustomScan exec callback doesn't get `ParallelContext` directly.
-    pub pcxt: *mut pg_sys::ParallelContext,
+    /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
+    /// frames. Held for the query's lifetime so no ring observes a sender count of zero before
+    /// every worker attaches (the rings latch `detached` permanently at zero).
+    ///
+    /// Dropping one of these decrements a counter inside the DSM ring, so they must never
+    /// outlive the mapping: [`MppLeaderState::release_control_senders`] clears them from
+    /// `shutdown_custom_scan` on the success path, and a transaction-abort callback (registered
+    /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
+    /// The scan state's own drop runs after detach and must find this empty.
+    pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
+    /// Plans for [`deliver_set_plans`], which runs at exec time when the launched workers are
+    /// draining their inboxes. Sending from the init callback instead could fill a small ring
+    /// with no drainer behind it and wedge the leader. Kept (not drained) so a parallel rescan
+    /// can re-deliver to relaunched workers, the frame analog of the plan blob persisting in
+    /// DSM. Mutex because the exec hook only sees a shared borrow of the scan state.
+    pub stage_plans: std::sync::Mutex<Vec<StagePlan>>,
+    /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
+    /// path before workers relaunch.
+    pub plans_delivered: std::sync::atomic::AtomicBool,
+    /// The builder handle owning the launched producer workers. The leader controls the launch, so
+    /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
+    /// the workers and destroy the parallel context. `None` until `launch` installs it on the
+    /// success path.
+    pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
+    /// The shared `ParallelScanState` the leader populated in DSM. The leader runs the top fragment
+    /// itself, and a non-partitioning source can land there (e.g. the SEMI/ANTI broadcast strategy),
+    /// where the scan claims per-source segments against this state just like a worker. The leader
+    /// stashes it on its custom state so the codec installs it into those providers. Null until
+    /// `launch` sets it.
+    pub parallel_state: *mut ParallelScanState,
 }
 
-/// Wrap each peer-indexed `DsmMpscSender` into an outbound `MppSender` keyed by `target_proc`.
-/// The per-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`] immediately
-/// `clone_with_header`s these to the right `(stage_id, partition)`, so the default placeholder
-/// header is never observed on the wire. Slot at index `this_proc` is `None`; the worker's
-/// self-loop install fills it in afterward.
-///
-/// Placeholder header is stamped with `sender_proc = this_proc` so a stray frame that escapes
-/// the dispatcher's `clone_with_header` overwrite still identifies its origin correctly on the
-/// drain side. Downstream `clone_with_header` callers MUST keep using `this_proc` as the
-/// `sender_proc` argument.
-fn build_outbound_senders(
-    this_proc: u32,
-    total_procs: u32,
-    peer_senders: Vec<DsmMpscSender>,
-) -> Vec<Option<MppSender>> {
-    let mut senders: Vec<Option<MppSender>> = (0..total_procs).map(|_| None).collect();
-    for (peer_idx, dsm_send) in peer_senders.into_iter().enumerate() {
-        let target_proc = peer_proc_for_index(this_proc, peer_idx as u32);
-        debug_assert!(target_proc != this_proc);
-        debug_assert!(target_proc < total_procs);
-        let shared: Arc<dyn BatchChannelSender> = Arc::new(DsmInboxSender::new(dsm_send));
-        senders[target_proc as usize] = Some(MppSender::with_header(
-            shared,
-            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, this_proc),
-        ));
-    }
-    senders
-}
-
-/// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
-/// the [`MppMesh`] handle, and serializes the worker plan into DSM.
-///
-/// # Safety
-/// - `coordinate` must be the DSM region pointer PG supplied to
-///   `initialize_dsm_custom_scan`.
-/// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
-///   so the leader doesn't overrun the DSM region PG allocated.
-pub unsafe fn leader_setup(
-    coordinate: *mut c_void,
-    pcxt: *mut pg_sys::ParallelContext,
-    plan_bytes: Vec<u8>,
-) -> Result<MppLeaderState, String> {
-    let total_procs = mpp_worker_count();
-    let layout = compute_dsm_layout(total_procs, mpp_queue_size(), plan_bytes.len())
-        .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
-
-    let attach = unsafe { leader_init(coordinate, &layout, &plan_bytes) }?;
-
-    // Wrap the leader's own-inbox in a DsmInboxReceiver and feed it to a single DrainHandle.
-    // Channel buffers (keyed by (sender_proc, stage_id, partition)) are created lazily on
-    // first frame, or up-front by `WorkerConnection::execute`.
-    let inbox = DsmInboxReceiver::new(attach.inbound_receiver);
-    // Register the leader as the receiver so producers' wakeups resolve to this process's
-    // procLatch via pgprocno + pid_guard. See dsm_mpsc_ring::wake_receiver.
-    unsafe {
-        register_self_as_receiver(&inbox);
-    }
-    let mpp_recv = MppReceiver::new(Box::new(inbox));
-    let inbound_receiver = Arc::new(DrainHandle::cooperative(vec![mpp_recv]));
-
-    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receiver));
-
-    // Drop the leader's own outbound senders. The leader is consumer-only and never hosts a
-    // producer fragment.
-    drop(attach.outbound_senders);
-
-    Ok(MppLeaderState { mesh, pcxt })
-}
-
-/// Register the current backend as the receiver on `inbox`'s underlying ring so producers
-/// can wake it via SetLatch resolved through `pgprocno + pid_guard`. Called by both
-/// leader_setup and worker_setup right after building the DsmInboxReceiver.
-///
-/// # Safety
-/// Must run on the backend thread (reads MyProcNumber + MyProc->pid via pgrx, both
-/// require an attached PGPROC). Both setup paths are called synchronously from PG's
-/// custom-scan init hooks on the backend before any tokio runtime spins up.
-unsafe fn register_self_as_receiver(inbox: &DsmInboxReceiver) {
-    // `pg_sys::MyProcNumber` is the PG17+ global. PG15/16 carry the same value on
+/// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
+/// producer's [`PgWakeup`] can `SetLatch` us. Read on the backend thread (both setup paths run
+/// synchronously from PG's custom-scan init hooks before any tokio runtime spins up).
+unsafe fn self_receiver_token() -> u64 {
+    // `pg_sys::MyProcNumber` is the PG17+ global; PG15/16 carry the same value on
     // `MyProc->pgprocno` (it moved to a process-global plus a field rename in PG17).
-    // Gate by feature so the build picks the right one on every supported PG.
     #[cfg(any(feature = "pg15", feature = "pg16"))]
     let my_pgprocno: i32 = unsafe { (*pg_sys::MyProc).pgprocno };
     #[cfg(not(any(feature = "pg15", feature = "pg16")))]
     let my_pgprocno: i32 = unsafe { pg_sys::MyProcNumber };
     let my_pid: i32 = unsafe { (*pg_sys::MyProc).pid };
-    inbox.set_receiver(my_pgprocno, my_pid);
+    pack_receiver(my_pgprocno, my_pid)
+}
+
+/// Initialize the leader's ring mesh in a DSM region and build its [`MppLeaderState`]. Called by
+/// the leader-driven [`crate::postgres::customscan::mpp::launch`] on a builder-allocated region.
+///
+/// # Safety
+/// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
+/// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
+///   so the leader doesn't overrun the region.
+pub unsafe fn leader_setup(
+    coordinate: *mut c_void,
+    plan_bytes: Vec<u8>,
+    stage_plans: Vec<StagePlan>,
+) -> Result<MppLeaderState, String> {
+    let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
+    let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
+    // Register the leader as receiver so producers' wakeups resolve to this backend's procLatch.
+    let token = unsafe { self_receiver_token() };
+    // `mpp_trace` reads a pgrx GucSetting, which requires the backend thread. Safe here
+    // because this runs synchronously from `initialize_dsm_custom_scan` before any tokio
+    // runtime spins up.
+    let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
+    let attach = unsafe {
+        shm::leader_setup(
+            coordinate,
+            mpp_worker_count(),
+            mpp_queue_size(),
+            &plan_bytes,
+            wakeup,
+            token,
+            interrupt,
+            // The leader ships `SetPlan` frames (and later, work units) through these senders.
+            // `MppLeaderState` holds them for the query's lifetime, which keeps the rings'
+            // sender count above zero across every worker attach.
+            /* attach_senders */
+            true,
+        )
+    }
+    .map_err(|e| e.to_string())?;
+    let mesh = attach.mesh;
+    if let Some(t) = t_setup {
+        pgrx::warning!(
+            "mpp trace: leader_setup (ring create + self attach) took {:.3} ms",
+            t.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+    let control_senders = Arc::new(std::sync::Mutex::new(attach.outbound_senders));
+    // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
+    // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
+    mesh.set_cancel_senders(Arc::clone(&control_senders));
+    // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
+    // are cleaned up; release the DSM-backed senders while the mapping is still alive.
+    let on_abort = Arc::clone(&control_senders);
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, move || {
+        on_abort.lock().unwrap().clear();
+    });
+    Ok(MppLeaderState {
+        mesh,
+        control_senders,
+        stage_plans: std::sync::Mutex::new(stage_plans),
+        plans_delivered: std::sync::atomic::AtomicBool::new(false),
+        finish: None,
+        parallel_state: std::ptr::null_mut(),
+    })
+}
+
+impl MppLeaderState {
+    /// Drop the DSM-backed control senders while the mapping is still attached. Called from
+    /// `shutdown_custom_scan`; the abort callback covers the error path. Idempotent.
+    pub fn release_control_senders(&self) {
+        self.control_senders.lock().unwrap().clear();
+    }
+}
+
+/// Ship every dispatched plan as `SetPlan` frames: one per `(stage, task)`, to the proc hosting
+/// the task, carrying the same `SetPlanRequest` Flight would put on its coordinator stream.
+///
+/// Runs at exec time, after the launched-worker check: the workers are attaching and draining by
+/// then, so a plan bigger than a ring drains through instead of wedging the send spin. One
+/// delivery per worker generation; re-execution without a relaunch is a no-op.
+pub fn deliver_set_plans(leader: &MppLeaderState) -> Result<(), String> {
+    if leader
+        .plans_delivered
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return Ok(());
+    }
+    let stage_plans = leader.stage_plans.lock().unwrap().clone();
+    if stage_plans.is_empty() {
+        return Ok(());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("mpp: set-plan runtime build: {e}"))?;
+    let n_workers = leader.mesh.n_workers();
+    runtime.block_on(async {
+        let mut stats = SendBatchStats::default();
+        for sp in &stage_plans {
+            for task in 0..sp.task_count {
+                let dest = proc_for_task(n_workers, task as u32);
+                // Clone the sender out under the lock so the guard never spans the await below.
+                let sender = {
+                    let senders = leader.control_senders.lock().unwrap();
+                    let Some(base) = senders.get(dest as usize).and_then(|s| s.as_ref()) else {
+                        return Err(format!("mpp: no leader sender for proc {dest}"));
+                    };
+                    base.clone_with_header(MppFrameHeader::set_plan(sp.stage_num, task as u32, 0))
+                        .with_cooperative_drain(
+                            Arc::clone(&leader.mesh) as Arc<dyn CooperativeDrainSet>
+                        )
+                };
+                let frame = SetPlanFrame {
+                    set_plan: Some(SetPlanRequest {
+                        plan_proto: sp.plan_proto.clone(),
+                        task_count: sp.task_count as u64,
+                        task_key: Some(TaskKey {
+                            query_id: sp.query_id.clone(),
+                            stage_id: sp.stage_num as u64,
+                            task_number: task as u64,
+                        }),
+                        work_unit_feed_declarations: vec![],
+                        target_worker_url: String::new(),
+                        query_start_time_ns: 0,
+                    }),
+                    header_keys: vec![],
+                    header_values: vec![],
+                };
+                sender
+                    .send_set_plan_traced(&frame, &mut stats)
+                    .await
+                    .map_err(|e| format!("mpp: set-plan send failed: {e}"))?;
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the
@@ -323,7 +336,7 @@ pub struct MppWorkerState {
 /// - `region_total` must match the DSM's attached size.
 pub unsafe fn worker_setup(
     coordinate: *mut c_void,
-    region_total: u64,
+    region_total: usize,
     worker_number: i32,
 ) -> Result<MppWorkerState, String> {
     if worker_number < 0 {
@@ -333,49 +346,118 @@ pub unsafe fn worker_setup(
     // `ParallelWorkerNumber = N` to `proc_idx = N + 1`.
     let proc_idx = (worker_number as u32) + 1;
 
-    let (header, plan_bytes, attach) =
-        unsafe { worker_attach(coordinate, region_total, proc_idx) }?;
-    let total_procs = header.n_procs;
-
-    let mut outbound_senders =
-        build_outbound_senders(proc_idx, total_procs, attach.outbound_senders);
-    debug_assert_eq!(
-        outbound_senders.iter().filter(|s| s.is_some()).count(),
-        (total_procs as usize).saturating_sub(1),
-        "worker outbound senders: expected {} non-self-loop entries before self-loop install",
-        total_procs.saturating_sub(1)
-    );
-
-    // Install a self-loop in-proc channel. Peer-mesh hash routing can land producer-side
-    // and consumer-side tasks for the same (stage, partition) on the same worker. With
-    // MPSC inboxes you can't be your own sender (only the owner attaches as receiver), so
-    // self-loops bypass DSM entirely and ride an in-proc channel. The unified drain pulls
-    // from BOTH receivers (own-inbox MPSC + self-loop in-proc) so the channel-buffer
-    // registry sees a single demux stream. Self-loop frames carry sender_proc=this_proc
-    // and route to the matching per-sender buffer.
-    let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
-    let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
-    outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
-        self_tx_arc,
-        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, proc_idx),
-    ));
-
-    // Build the unified drain: own-inbox MPSC + self-loop in-proc, both feeding the same
-    // DrainHandle. Register the worker as receiver before the drain starts polling so
-    // any producer that races ahead of us sees a valid pgprocno + pid.
-    let inbox = DsmInboxReceiver::new(attach.inbound_receiver);
-    unsafe {
-        register_self_as_receiver(&inbox);
+    let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
+    let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
+    // Register before the transport starts polling, so a producer racing ahead sees a valid token.
+    let token = unsafe { self_receiver_token() };
+    // Same backend-thread story as `leader_setup`: this runs on the parallel-worker backend
+    // before tokio starts.
+    let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
+    let attach =
+        unsafe { shm::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt) }
+            .map_err(|e| e.to_string())?;
+    if let Some(t) = t_setup {
+        pgrx::warning!(
+            "mpp trace: worker_setup (attach) took {:.3} ms",
+            t.elapsed().as_secs_f64() * 1000.0
+        );
     }
-    let inbox_recv = MppReceiver::new(Box::new(inbox));
-    let self_recv = MppReceiver::new(Box::new(self_rx));
-    let inbound_receiver = Arc::new(DrainHandle::cooperative(vec![inbox_recv, self_recv]));
-
-    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_receiver));
 
     Ok(MppWorkerState {
-        outbound_senders,
-        plan_bytes,
-        mesh,
+        outbound_senders: attach.outbound_senders,
+        plan_bytes: attach.plan_bytes,
+        mesh: attach.mesh,
     })
+}
+
+/// Merge the worker fragments' `TaskMetrics` frames into an executed `DistributedExec` plan for
+/// EXPLAIN ANALYZE. The workers send their frames as they exit, after the leader's gather
+/// already finished, so nothing has drained the leader inbox since; sweep it, file the frames
+/// into the plan's metrics store, and rewrite. Returns the rewritten plan, or `None` when there
+/// is nothing to merge (serial plan, metrics disabled) or a frame never arrived (the rewrite is
+/// bounded rather than trusting `wait_for_metrics`, which would block on a dead worker).
+/// Drain the workers' `TaskMetrics` frames off the mesh into the plan's metrics store.
+///
+/// Must run while the parallel DSM is still mapped: the mesh receivers read ring memory inside
+/// it. `shutdown_custom_scan` is the spot; the EXPLAIN hook runs after `ExecShutdownNode` tore
+/// the DSM down, so draining there reads unmapped memory.
+pub fn drain_worker_metrics(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    mesh: &Arc<MppMesh>,
+) -> Option<()> {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    use datafusion_distributed::shm::CooperativeDrainSet;
+    use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
+
+    let dist = plan.downcast_ref::<DistributedExec>()?;
+    let store = dist.metrics_store()?;
+
+    // The wire frames carry (stage, task); the query uuid lives on the plan's own stages. Count
+    // the expected reports while walking: one per task of every producer stage.
+    let mut query_id = None;
+    let mut expected = 0usize;
+    let _ = plan.apply(|node| {
+        if let Some(nb) = node.as_network_boundary() {
+            let stage = nb.input_stage();
+            query_id.get_or_insert_with(|| stage.query_id().as_bytes().to_vec());
+            expected += stage.task_count();
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    let query_id = query_id?;
+
+    // The workers send their metrics frames right after their last EOF, which may still be in
+    // flight when shutdown reaches this node; wait briefly, bounded, and stop as soon as every
+    // expected (stage, task) reported. Draining keeps the DSM ring from backing up before detach.
+    let mut rx = mesh.take_task_metrics_receiver()?;
+    let mut got = crate::api::HashSet::default();
+    for _ in 0..100 {
+        let _ = mesh.try_drain_pass();
+        while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
+            store.insert(
+                datafusion_distributed::TaskKey {
+                    query_id: query_id.clone(),
+                    stage_id: stage_id as u64,
+                    task_number: task_number as u64,
+                },
+                metrics,
+            );
+            got.insert((stage_id, task_number));
+        }
+        if got.len() >= expected {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    Some(())
+}
+
+/// Rewrite the executed plan with the worker metrics collected by [`drain_worker_metrics`].
+/// Mesh-free, so it is safe at EXPLAIN-render time, after the DSM is gone.
+///
+/// Owns a small timer-enabled runtime: the rewrite waits on the metrics store, and the bound on
+/// that wait needs timers, which the scans' cached runtimes don't enable.
+pub fn merge_worker_metrics(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    use datafusion_distributed::DistributedExec;
+
+    plan.downcast_ref::<DistributedExec>()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    runtime
+        .block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                datafusion_distributed::rewrite_distributed_plan_with_metrics(
+                    Arc::clone(plan),
+                    datafusion_distributed::DistributedMetricsFormat::PerTask,
+                ),
+            )
+            .await
+        })
+        .ok()?
+        .ok()
 }

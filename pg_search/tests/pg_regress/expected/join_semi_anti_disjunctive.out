@@ -955,7 +955,7 @@ LIMIT 5;
            :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, pdb_eval_expr_funcexpr_53eb87a5(CAST(name@1 AS Utf8)) as pdb_eval_expr_funcexpr_53eb87a5(i_0.name)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT i.id

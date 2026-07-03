@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 fn datetime_microsecond(mut conn: PgConnection) {
@@ -183,29 +181,4 @@ fn datetime_wide_range(
 
     let all_rows: Vec<(i32,)> = "SELECT id FROM wide_range ORDER BY id".fetch(&mut conn);
     assert_eq!(all_rows.len(), 3);
-}
-
-#[rstest]
-#[case::future_date("DATE", "'57439-03-01'")]
-#[case::ancient_date("DATE", "'0001-01-01'")]
-#[case::future_timestamp("TIMESTAMP", "'57439-03-01 00:00:00'")]
-#[case::ancient_timestamp("TIMESTAMP", "'0001-01-01 00:00:00'")]
-fn datetime_overflow_reports_error(
-    mut conn: PgConnection,
-    #[case] col_type: &str,
-    #[case] val: &str,
-) {
-    format!(
-        r#"
-        CREATE TABLE overflow_test (id SERIAL, v {col_type});
-        INSERT INTO overflow_test (v) VALUES ({val});
-        "#
-    )
-    .execute(&mut conn);
-
-    let result = "CREATE INDEX overflow_test_idx ON overflow_test USING bm25 (id, v) WITH (key_field = 'id')".execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "expected error for {col_type} value {val} beyond Tantivy nanosecond range"
-    );
 }

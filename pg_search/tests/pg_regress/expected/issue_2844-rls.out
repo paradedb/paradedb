@@ -209,9 +209,6 @@ CREATE INDEX IF NOT EXISTS
 				"tokenizer": {"type": "keyword"},
 				"record": "basic"
 			}
-		}',
-    datetime_fields='{
-			"created_at": {}
 		}'
     );
 -- Create the Tags table
@@ -344,8 +341,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) UPDATE "app"."contacts" AS t
 SET "assignee" = 'ad_singh'
 WHERE t.id IN (SELECT id FROM "app".contacts LIMIT 1)
 RETURNING t.*;
-                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Update on contacts t
    ->  Nested Loop Semi Join
          Join Filter: ((t.id)::text = ("ANY_subquery".id)::text)
@@ -354,7 +351,7 @@ RETURNING t.*;
                Index: contacts_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('app.contacts_search_idx'::regclass, paradedb.\"boolean\"((ARRAY[paradedb.term('org_id'::paradedb.fieldname, current_setting('app.org_id'::text))] || CASE WHEN (current_setting('app.has_full_contacts_access'::text) = 'true'::text) THEN '{}'::paradedb.searchqueryinput[] ELSE ARRAY[paradedb.term('assignee'::paradedb.fieldname, (app.current_actor_id())::text)] END), '{}'::paradedb.searchqueryinput[], '{}'::paradedb.searchqueryinput[]))"}}}
+               Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('app.contacts_search_idx'::regclass, paradedb.\"boolean\"((ARRAY[paradedb.term('org_id'::paradedb.fieldname, current_setting('app.org_id'::text))] || CASE WHEN (current_setting('app.has_full_contacts_access'::text) = 'true'::text) THEN '{}'::paradedb.searchqueryinput[] ELSE ARRAY[paradedb.term('assignee'::paradedb.fieldname, (app.current_actor_id())::text)] END), '{}'::paradedb.searchqueryinput[], '{}'::paradedb.searchqueryinput[], NULL::bigint))"}}}
          ->  Subquery Scan on "ANY_subquery"
                ->  Limit
                      ->  Custom Scan (ParadeDB Base Scan) on contacts
@@ -363,7 +360,7 @@ RETURNING t.*;
                            Exec Method: TopKScanExecState
                            Scores: false
                               TopK Limit: 1
-                           Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('app.contacts_search_idx'::regclass, paradedb.\"boolean\"((ARRAY[paradedb.term('org_id'::paradedb.fieldname, current_setting('app.org_id'::text))] || CASE WHEN (current_setting('app.has_full_contacts_access'::text) = 'true'::text) THEN '{}'::paradedb.searchqueryinput[] ELSE ARRAY[paradedb.term('assignee'::paradedb.fieldname, (app.current_actor_id())::text)] END), '{}'::paradedb.searchqueryinput[], '{}'::paradedb.searchqueryinput[]))"}}}
+                           Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('app.contacts_search_idx'::regclass, paradedb.\"boolean\"((ARRAY[paradedb.term('org_id'::paradedb.fieldname, current_setting('app.org_id'::text))] || CASE WHEN (current_setting('app.has_full_contacts_access'::text) = 'true'::text) THEN '{}'::paradedb.searchqueryinput[] ELSE ARRAY[paradedb.term('assignee'::paradedb.fieldname, (app.current_actor_id())::text)] END), '{}'::paradedb.searchqueryinput[], '{}'::paradedb.searchqueryinput[], NULL::bigint))"}}}
 (18 rows)
 
 --

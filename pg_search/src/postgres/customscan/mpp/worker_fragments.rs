@@ -47,11 +47,10 @@ use std::sync::Arc;
 
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::shm::proc_for_task;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
 };
-
-use crate::postgres::customscan::mpp::runtime::proc_for_task;
 
 /// One worker fragment to run for `this_proc`. The fragment is one task of a
 /// producer stage; the dispatcher runs `plan` with the matching
@@ -67,8 +66,6 @@ pub struct FragmentAssignment {
     pub task_idx: usize,
     /// Total task count for this stage (= `input_stage.tasks.len()`).
     pub task_count: usize,
-    /// Plan to execute: the boundary's `input_stage.plan`.
-    pub plan: Arc<dyn ExecutionPlan>,
     /// How to route each output partition to a destination proc.
     pub routing: FragmentRouting,
 }
@@ -112,6 +109,8 @@ pub enum FragmentRouting {
 pub struct StageEntry {
     /// `input_stage.num` of the boundary whose producer side this stage belongs to.
     pub stage_num: u32,
+    /// The query's id, carried so the leader can stamp each task's `TaskKey`.
+    pub query_id: uuid::Uuid,
     /// Total task count for the stage (= `input_stage.tasks.len()`).
     pub task_count: usize,
     /// How to route each output partition to a destination proc.
@@ -157,15 +156,13 @@ fn collect_stages(
                 .map(|q| Ok(nb.route_partition(q)?.consumer_task as u32))
                 .collect()
         };
-        let plan_any = plan.as_ref().as_any();
-
         // Classify the boundary by downcasting to its concrete `Network*Exec` type, then pick a
         // destination proc for every output partition from `(type, top_level)`. The fork's gRPC
         // path keys dispatch on resolver URLs and never has to decide this; our shm_mq peers are
         // push-driven without URLs, so the dispatcher has to. Shuffle and Broadcast share the
         // receive-side math but Broadcast caps to task 0; Coalesce collapses to one consumer task;
         // top-level (`nested == false`) routes to the leader.
-        let routing = if plan_any.is::<NetworkCoalesceExec>() {
+        let routing = if plan.is::<NetworkCoalesceExec>() {
             if nested {
                 // Nested NetworkCoalesceExec: consumer is a single task in the parent stage. The
                 // receive math collapses to task 0 of the parent group, so the destination proc
@@ -177,7 +174,7 @@ fn collect_stages(
                 // Top-level NetworkCoalesceExec (gather to leader): consumer is leader proc 0.
                 FragmentRouting::Coalesce { dest_proc: 0 }
             }
-        } else if plan_any.is::<NetworkShuffleExec>() {
+        } else if plan.is::<NetworkShuffleExec>() {
             if nested {
                 // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
                 // to the consumer task `route_partition(q)` selects.
@@ -197,7 +194,7 @@ fn collect_stages(
                      parent consumer stage; a top-level shuffle is a planner anomaly."
                 ))
             }
-        } else if plan_any.is::<NetworkBroadcastExec>() {
+        } else if plan.is::<NetworkBroadcastExec>() {
             if nested {
                 // Nested NetworkBroadcastExec: same receive-side routing as Shuffle (via
                 // `route_partition`), but the dispatcher only runs the producer plan on task 0 to
@@ -242,6 +239,7 @@ fn collect_stages(
         if let Some(stage_plan) = stage.local_plan() {
             out.push(StageEntry {
                 stage_num: stage_id,
+                query_id: stage.query_id(),
                 task_count,
                 routing,
                 plan: Arc::clone(stage_plan),

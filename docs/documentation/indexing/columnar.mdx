@@ -156,7 +156,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   fields: {
     id: {},
     description: {
-      tokenizer: Tokenizer.unicode_words(options: { columnar: true })
+      tokenizer: ParadeDB::Tokenizer.unicode_words(options: { columnar: true })
     },
     rating: {}
   },

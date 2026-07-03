@@ -56,7 +56,13 @@ PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make install
 
 ## Running the Extension
 
-Start an interactive Postgres session with the extension built and loaded:
+`pg_search` must be loaded via `shared_preload_libraries`. Before running for the first time, add it to the pgrx-managed `postgresql.conf` (replace `18` with your target version):
+
+```bash
+echo "shared_preload_libraries = 'pg_search'" >> ~/.pgrx/data-18/postgresql.conf
+```
+
+Then start an interactive Postgres session with the extension built and loaded:
 
 ```bash
 cargo pgrx run

@@ -57,10 +57,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
@@ -87,10 +88,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Dragon Hatchling","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon Hatchling', conjunction_mode => true)
@@ -120,10 +122,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"all_titles","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":true,"conjunction_mode":true}},"factor":50.0}},{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}],"tie_breaker":null}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ paradedb.disjunction_max(
@@ -155,10 +158,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"SQL","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ paradedb.match('all_titles_ngram', 'SQL', conjunction_mode => true)
@@ -181,10 +185,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Fire","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ paradedb.match('all_titles_ngram', 'Fire', conjunction_mode => true)
@@ -209,10 +214,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"all_titles","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":true,"conjunction_mode":true}},"factor":50.0}},{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":null}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ '{"disjunction_max":{"disjuncts":[{"boost":{"factor":50,"query":{"match":{"field":"all_titles","value":"Dragon","prefix":true,"conjunction_mode":true}}}},{"match":{"field":"all_titles_ngram","value":"Dragon","prefix":false,"conjunction_mode":true}}]}}'::jsonb
@@ -239,10 +245,11 @@ ORDER BY id;
          Output: id, all_titles
          Table: books
          Index: idx_books
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(10 rows)
+(11 rows)
 
 SELECT id, all_titles FROM books
 WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon')

@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 /// Recursively search an EXPLAIN (FORMAT JSON) plan tree for any node that
 /// declares `Workers Planned > 0`. Used to assert that parallelism survived

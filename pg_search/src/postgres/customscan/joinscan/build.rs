@@ -460,8 +460,8 @@ impl JoinSourceCandidate {
 
         self.segment_count = Some(reader.total_segment_count());
 
-        let (estimate, _) = reader.estimate_docs(row_estimate);
-        self.estimate = Some(RowEstimate::Known(estimate as u64));
+        let estimate = reader.estimate_docs(row_estimate);
+        self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }
 

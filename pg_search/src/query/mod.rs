@@ -30,6 +30,7 @@ use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
@@ -77,6 +78,10 @@ pub enum SearchQueryInput {
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         must_not: Vec<SearchQueryInput>,
+
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        minimum_should_match: Option<i64>,
     },
     Boost {
         query: Box<SearchQueryInput>,
@@ -222,6 +227,22 @@ where
     deserializer.deserialize_map(Visitor)
 }
 
+/// Cheap whitespace-based term-count estimate (avoids constructing a tokenizer/reader).
+fn estimate_term_count(s: &str) -> usize {
+    s.split_whitespace().count().max(1)
+}
+
+/// True when a query-parser string is a single *plain* term: non-empty and composed only
+/// of term characters (alphanumeric or `_`). This allowlist conservatively rejects *every*
+/// Tantivy query metacharacter -- boolean ops (`-` `!` `+`), field (`:`), grouping (`(`
+/// `)`), boost (`^`), escape (`\`), and the wildcard/regex/range/fuzzy/phrase set -- any of
+/// which can turn one whitespace token into a non-single-posting-list query (e.g. `-foo` is
+/// a negation over the whole complement). Flagged strings fall back to the (correct,
+/// slightly costlier) `DocSet::cost()` path.
+fn is_plain_single_term(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 impl SearchQueryInput {
     pub fn postgres_expression(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         SearchQueryInput::PostgresExpression {
@@ -239,6 +260,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => must
                 .iter()
                 .chain(should.iter())
@@ -275,6 +297,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 // For the query to be a full scan, ALL documents must match
 
@@ -340,6 +363,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => must
                 .iter()
                 .chain(should.iter())
@@ -370,6 +394,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => must
                 .iter()
                 .chain(should.iter())
@@ -405,6 +430,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not: _,
+                ..
             } => {
                 // AND: product of children selectivities; OR: max of children selectivities.
                 let must_sel = must
@@ -447,12 +473,103 @@ impl SearchQueryInput {
         }
     }
 
+    /// Whether a score-DESC TopK over this query can be Block-WAND-pruned by the
+    /// collector, making it sublinear and not worth parallelizing. Call only when the
+    /// ORDER BY is score-DESC; everything that returns false has a non-trivial docset
+    /// already weighted by Tantivy's `DocSet::cost()`.
+    ///
+    /// The reliably-cheap (Block-WAND-pruning) set is a single bare term. Transparent
+    /// wrappers (FieldedQuery, WithIndex) pass through to the inner query; the score-
+    /// modifying / filtering wrappers (Boost, ConstScore, ScoreFilter, HeapFilter) build
+    /// their OWN non-pruning weight, so they fall through to false.
+    pub(crate) fn is_topk_prunable(&self) -> bool {
+        // A bare single term keeps a SHOULD union collapsing to a prunable TermWeight.
+        fn is_bare_term(q: &SearchQueryInput) -> bool {
+            matches!(
+                q,
+                SearchQueryInput::FieldedQuery {
+                    query: pdb::Query::Term { .. },
+                    ..
+                }
+            )
+        }
+
+        match self {
+            // A FieldedQuery's prunability is its inner pdb::Query's shape: only a single
+            // posting list (a bare term, a one-token match, a plain parser string) is
+            // reliably Block-WAND-pruned. This is the one place the leaf rules live; bare
+            // pdb::Query values are checked by wrapping them in a FieldedQuery.
+            SearchQueryInput::FieldedQuery { query, .. } => match query {
+                pdb::Query::Term { .. } => true,
+
+                // A Match/MatchArray is a single posting list only when it collapses to one
+                // token with none of the modifiers that expand it into an automaton/union:
+                // fuzzy (`distance`), `prefix`, or a custom `tokenizer`.
+                pdb::Query::Match {
+                    value,
+                    tokenizer,
+                    distance,
+                    prefix,
+                    ..
+                } => {
+                    estimate_term_count(value) <= 1
+                        && distance.is_none()
+                        && *prefix != Some(true)
+                        && tokenizer.is_none()
+                }
+                pdb::Query::MatchArray {
+                    tokens,
+                    distance,
+                    prefix,
+                    ..
+                } => tokens.len() <= 1 && distance.is_none() && *prefix != Some(true),
+
+                // A single *plain* parser term parses to a TermQuery; any metacharacter
+                // (wildcard/regex/range/fuzzy/phrase) expands past one posting list. Fuzzy
+                // ParseWithField expands via automaton.
+                pdb::Query::Parse { query_string, .. }
+                | pdb::Query::ParseWithField {
+                    query_string,
+                    fuzzy_data: None,
+                    ..
+                } => is_plain_single_term(query_string),
+                pdb::Query::UnclassifiedString { string, .. } => is_plain_single_term(string),
+                pdb::Query::UnclassifiedArray { array, .. } => array.len() <= 1,
+
+                _ => false,
+            },
+
+            SearchQueryInput::WithIndex { query, .. } => query.is_topk_prunable(),
+
+            // Pure SHOULD union that collapses to a single bare term.
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                must.is_empty()
+                    && must_not.is_empty()
+                    && should.len() <= 1
+                    && should.iter().all(is_bare_term)
+            }
+
+            SearchQueryInput::Parse { query_string, .. } => is_plain_single_term(query_string),
+
+            // Everything else -- All, Empty, TermSet, the Boost/ConstScore/ScoreFilter/
+            // HeapFilter score-modifying wrappers, DisjunctionMax, MoreLikeThis, ... -- has
+            // no reliably-pruning weight, so route to DocSet::cost().
+            _ => false,
+        }
+    }
+
     pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
         match self {
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
                     q.extract_field_names(field_names);
@@ -493,6 +610,7 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                ..
             } => {
                 for q in must_not {
                     q.visit(visitor);
@@ -638,6 +756,7 @@ impl SearchQueryInput {
                 must: vec![],
                 should: elements,
                 must_not: vec![],
+                minimum_should_match: None,
             },
         }
     }
@@ -897,6 +1016,7 @@ impl SearchQueryInput {
     pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -907,6 +1027,7 @@ impl SearchQueryInput {
         self.into_tantivy_query_generic(
             &QueryOnlyBuilder,
             schema,
+            index_created_by_version,
             parser,
             searcher,
             index_oid,
@@ -922,6 +1043,7 @@ impl SearchQueryInput {
         self,
         builder: &B,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -933,6 +1055,7 @@ impl SearchQueryInput {
             input.into_tantivy_query_generic(
                 builder,
                 schema,
+                index_created_by_version,
                 parser,
                 searcher,
                 index_oid,
@@ -963,8 +1086,8 @@ impl SearchQueryInput {
                 must,
                 should,
                 must_not,
+                minimum_should_match,
             } => {
-                // Boolean query optimization pattern:
                 // ---------------------------------
                 // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
                 //
@@ -1011,7 +1134,12 @@ impl SearchQueryInput {
                     }
                 }
 
-                let query = Box::new(BooleanQuery::new(subqueries));
+                let query: Box<dyn TantivyQuery> = match minimum_should_match {
+                    Some(n) => Box::new(BooleanQuery::with_minimum_required_clauses(
+                        subqueries, n as usize,
+                    )),
+                    None => Box::new(BooleanQuery::new(subqueries)),
+                };
 
                 // Children are built lazily inside the closure - QueryOnlyBuilder
                 // never calls this closure, so wrapping work is skipped entirely
@@ -1172,7 +1300,8 @@ impl SearchQueryInput {
                 key_value,
                 fields,
             } => {
-                let mut mlt_builder = MoreLikeThisQuery::builder();
+                let mut mlt_builder = MoreLikeThisQuery::builder()
+                    .with_index_created_by_version(index_created_by_version);
 
                 // default min_doc_frequency to 1, Tantivy's default is 5
                 if let Some(min_doc_frequency) = min_doc_frequency {
@@ -1286,6 +1415,7 @@ impl SearchQueryInput {
                             &value,
                             field_type,
                             field.path().as_deref(),
+                            index_created_by_version,
                         )
                         .expect("could not convert argument to search term")
                     },
@@ -1346,6 +1476,7 @@ impl SearchQueryInput {
                 let query = pdb_query.clone().into_tantivy_query(
                     field.clone(),
                     schema,
+                    index_created_by_version,
                     parser,
                     searcher,
                 )?;
@@ -1364,6 +1495,7 @@ impl SearchQueryInput {
     pub fn into_tantivy_query_with_tree<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -1375,6 +1507,7 @@ impl SearchQueryInput {
         self.into_tantivy_query_generic(
             &QueryTreeBuilder,
             schema,
+            index_created_by_version,
             parser,
             searcher,
             index_oid,
@@ -1411,15 +1544,20 @@ fn value_to_json_term(
     value: &PdbOwnedValue,
     path: Option<&str>,
     expand_dots: bool,
+    index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         PdbOwnedValue::Str(text) => {
             if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
-                let dt: tantivy::DateTime = pgdt.try_into()?;
-                // https://github.com/quickwit-oss/tantivy/pull/2456
-                // It's a footgun that date needs to truncated when creating the Term
-                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    term.append_type_and_fast_value(pgdt.into_inner());
+                } else {
+                    let dt: tantivy::DateTime = pgdt.try_into()?;
+                    // https://github.com/quickwit-oss/tantivy/pull/2456
+                    // It's a footgun that date needs to truncated when creating the Term
+                    term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                }
             } else {
                 term.append_type_and_str(text);
             }
@@ -1441,10 +1579,14 @@ fn value_to_json_term(
             term.append_type_and_fast_value(*value);
         }
         PdbOwnedValue::Date(value) => {
-            let dt: tantivy::DateTime = (*value).try_into()?;
-            // https://github.com/quickwit-oss/tantivy/pull/2456
-            // It's a footgun that date needs to truncated when creating the Term
-            term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+            if index_created_by_version.stores_datetimes_in_i64() {
+                term.append_type_and_fast_value(value.into_inner());
+            } else {
+                let dt: tantivy::DateTime = (*value).try_into()?;
+                // https://github.com/quickwit-oss/tantivy/pull/2456
+                // It's a footgun that date needs to truncated when creating the Term
+                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+            }
         }
         unsupported => panic!(
             "Tantivy PdbOwnedValue type {:?} not supported for JSON term",
@@ -1465,6 +1607,7 @@ pub fn value_to_term(
     value: &PdbOwnedValue,
     field_type: &FieldType,
     path: Option<&str>,
+    index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
@@ -1472,7 +1615,13 @@ pub fn value_to_term(
     };
 
     if let Some(json_options) = json_options {
-        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
+        return value_to_json_term(
+            field,
+            value,
+            path,
+            json_options.is_expand_dots_enabled(),
+            index_created_by_version,
+        );
     }
 
     // For facet fields, convert string values to facet terms
@@ -1498,8 +1647,12 @@ pub fn value_to_term(
         PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
         PdbOwnedValue::Date(date) => {
-            let tantivy_date = tantivy::DateTime::try_from(*date)?;
-            Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
+            if index_created_by_version.stores_datetimes_in_i64() {
+                Term::from_field_i64(field, date.into_inner())
+            } else {
+                let tantivy_date = tantivy::DateTime::try_from(*date)?;
+                Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
+            }
         }
         PdbOwnedValue::Facet(facet) => Term::from_facet(field, facet),
         PdbOwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
@@ -1535,6 +1688,11 @@ pub enum QueryError {
     FieldTypeMismatch,
     #[error("could not build regex with pattern '{1}': {0}")]
     RegexError(#[source] tantivy::TantivyError, String),
+    #[error(
+        r#"could not parse query string '{0}'.
+           make sure to use column:term pairs, and to capitalize AND/OR."#
+    )]
+    GrammarParseError(String),
     #[error(
         r#"could not parse query string '{1}'.
            make sure to use column:term pairs, and to capitalize AND/OR."#
@@ -1737,6 +1895,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1745,6 +1904,7 @@ mod tests {
             must: vec![SearchQueryInput::All, SearchQueryInput::All],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1753,6 +1913,7 @@ mod tests {
             must: vec![SearchQueryInput::All, create_term_query()],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1761,6 +1922,7 @@ mod tests {
             must: vec![create_term_query()],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1772,6 +1934,7 @@ mod tests {
             must: vec![],
             should: vec![SearchQueryInput::All],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1780,6 +1943,7 @@ mod tests {
             must: vec![],
             should: vec![SearchQueryInput::All, create_term_query()],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1788,6 +1952,7 @@ mod tests {
             must: vec![],
             should: vec![create_term_query()],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1796,6 +1961,7 @@ mod tests {
             must: vec![],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1807,6 +1973,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![create_term_query()],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1815,6 +1982,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![SearchQueryInput::Empty],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1823,6 +1991,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![SearchQueryInput::Empty, SearchQueryInput::Empty],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1831,6 +2000,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![],
             must_not: vec![SearchQueryInput::Empty, create_term_query()],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1842,6 +2012,7 @@ mod tests {
             must: vec![SearchQueryInput::All],
             should: vec![create_term_query()],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1850,6 +2021,7 @@ mod tests {
             must: vec![create_term_query()],
             should: vec![SearchQueryInput::All],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }
@@ -1939,8 +2111,10 @@ mod tests {
                 must: vec![SearchQueryInput::All],
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             }],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
 
@@ -1951,6 +2125,7 @@ mod tests {
                 must: vec![SearchQueryInput::All],
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             }),
         }
         .is_full_scan_query());
@@ -1961,9 +2136,11 @@ mod tests {
                 must: vec![SearchQueryInput::All, create_term_query()], // Not all Must are full scan
                 should: vec![],
                 must_not: vec![],
+                minimum_should_match: None,
             }],
             should: vec![],
             must_not: vec![],
+            minimum_should_match: None,
         }
         .is_full_scan_query());
     }

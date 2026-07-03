@@ -99,17 +99,16 @@ LIMIT 26;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
            :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@1)]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
            :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@2)]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :         VisibilityFilterExec: tables=[c]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
-(23 rows)
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 SELECT p.id
 FROM issue_4719_people p

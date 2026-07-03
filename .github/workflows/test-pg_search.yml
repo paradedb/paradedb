@@ -11,10 +11,6 @@ on:
     - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - 0.*.x # Release branches
-      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
@@ -30,24 +26,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  set-matrix:
-    name: Define the PostgreSQL Version Matrix
-    runs-on: ubuntu-latest
-    if: ${{ !cancelled() }}
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Define the PostgreSQL Version Matrix
-        id: set-matrix
-        run: |
-          if [[ ${{ github.event_name }} == "push" ]]; then
-            echo "Push event detected; using only PostgreSQL version 18."
-            echo "matrix=[18]" >> $GITHUB_OUTPUT
-          else
-            echo "Pull request or schedule event detected, using all PostgreSQL versions."
-            echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
-          fi
-
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
     # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
@@ -61,12 +39,11 @@ jobs:
       - volume=40gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     if: ${{ !cancelled() }}
-    needs: set-matrix
     strategy:
       fail-fast: false
       matrix:
         # Base: system Postgres on ARM Ubuntu 24.04 for all versions.
-        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+        pg_version: [15, 16, 17, 18]
         pg_impl: [system]
         cpu: [8]
         ram: [16]
@@ -98,7 +75,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -124,7 +101,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v2-rust-cache"
+          prefix-key: "v3-rust-cache"
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
@@ -163,7 +140,7 @@ jobs:
       - name: Cache pgrx-compiled Postgres
         if: matrix.pg_impl == 'pgrx'
         id: cache-pgrx-pg
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.pgrx
           key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
@@ -355,7 +332,7 @@ jobs:
     if: success()
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download All Coverage Artifacts
         uses: actions/download-artifact@v8
@@ -365,7 +342,7 @@ jobs:
           merge-multiple: true
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           directory: ./coverage-reports
           files: "*.lcov"

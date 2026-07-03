@@ -20,6 +20,7 @@ use crate::api::tokenizers::definitions::pdb::DatumWithType;
 use crate::api::tokenizers::{
     type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
 };
+use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
@@ -40,7 +41,6 @@ use std::collections::{BTreeMap, HashSet};
 
 use std::ptr::addr_of_mut;
 use std::str::FromStr;
-use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
 
 use super::datetime::PostgresDateTime;
@@ -220,7 +220,6 @@ mod tests {
 /// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
 /// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
 /// bitpacking or compressing these values.
-#[allow(dead_code)]
 #[inline(always)]
 pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
     let (blockno, offno) = item_pointer_get_both(ctid);
@@ -506,6 +505,7 @@ pub unsafe fn extract_field_attributes(
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let pg_search_indexrel = PgSearchRelation::from_pg(indexrel);
+    let created_by_version = pg_search_indexrel.created_by_version();
     let index_info = pg_search_indexrel.index_info();
     let expressions = pg_search_indexrel.index_expressions();
     let mut expressions_iter = expressions.iter_ptr().enumerate();
@@ -554,11 +554,12 @@ pub unsafe fn extract_field_attributes(
                         }
 
                         let pg_type = PgOid::from_untagged(comp_field.type_oid);
-                        let tantivy_type = SearchFieldType::try_from((
+                        let tantivy_type = SearchFieldType::try_from_type_info(
                             pg_type,
                             comp_field.typmod,
                             comp_field.type_oid,
-                        ))
+                            created_by_version,
+                        )
                         .unwrap_or_else(|e| panic!("{e}"));
 
                         field_attributes.insert(
@@ -704,8 +705,13 @@ pub unsafe fn extract_field_attributes(
         }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
-            .unwrap_or_else(|e| panic!("{e}"));
+        let tantivy_type = SearchFieldType::try_from_type_info(
+            pg_type,
+            att_typmod,
+            inner_typoid,
+            created_by_version,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
 
         // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.literal` tokenizer
         let missing_tokenizer_cast = expression.is_some()
@@ -742,6 +748,7 @@ pub unsafe fn row_to_search_document<'a>(
         ),
     >,
     document: &mut tantivy::TantivyDocument,
+    created_by_version: Option<Version>,
 ) -> Result<(), IndexError> {
     for (
         datum,
@@ -790,7 +797,10 @@ pub unsafe fn row_to_search_document<'a>(
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             for value in converted_array {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.add_field_value(
+                    search_field.field(),
+                    &value.into_tantivy_value(created_by_version),
+                );
             }
         } else if *is_json {
             for value in
@@ -798,7 +808,10 @@ pub unsafe fn row_to_search_document<'a>(
                     panic!("could not parse field `{}`: {e}", search_field.field_name())
                 })
             {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.add_field_value(
+                    search_field.field(),
+                    &value.into_tantivy_value(created_by_version),
+                );
             }
         } else {
             // Check for NUMERIC field types that need special handling
@@ -818,7 +831,10 @@ pub unsafe fn row_to_search_document<'a>(
             .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
-            document.add_field_value(search_field.field(), &OwnedValue::from(tv));
+            document.add_field_value(
+                search_field.field(),
+                &tv.into_tantivy_value(created_by_version),
+            );
         }
     }
     Ok(())
@@ -1343,6 +1359,104 @@ pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_s
             let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
             let te = pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true);
             tlist.push(te);
+        }
+    }
+}
+
+/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
+pub unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if node.is_null() {
+            return node;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+            }
+            pg_sys::NodeTag::T_PlaceHolderVar => {
+                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+            }
+            _ => break,
+        }
+    }
+    node
+}
+
+/// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`
+/// whose OID is present in `funcoids`. Returns true if it matches.
+pub unsafe fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oid]) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    let check_node = strip_wrappers(node);
+
+    if (*check_node).type_ == pg_sys::NodeTag::T_FuncExpr {
+        let funcexpr = check_node as *mut pg_sys::FuncExpr;
+        if funcoids.contains(&(*funcexpr).funcid) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Helper function to inspect the parent plan's requirements (`processed_tlist`
+/// and `pathkeys`) and add any missing search operator function calls (like `pdb.score(...)`)
+/// into the CustomScan's targetlist.
+///
+/// This ensures that if the CustomScan is expected to output a score (or similar),
+/// it is actually present in its `targetlist` so the `Result` node can simply
+/// project it, rather than Postgres natively trying to execute the dummy function.
+pub unsafe fn add_missing_search_operators_to_tlist(
+    root: *mut pg_sys::PlannerInfo,
+    best_path: *mut pg_sys::Path,
+    tlist: &mut PgList<pg_sys::TargetEntry>,
+    search_operator_funcoids: &[pg_sys::Oid],
+) {
+    let mut add_missing_func = |expr: *mut pg_sys::Node| {
+        if !is_search_operator(expr, search_operator_funcoids) {
+            return;
+        }
+
+        let unwrapped_expr = strip_wrappers(expr.cast());
+        let already_present = tlist.iter_ptr().any(|te| {
+            pg_sys::equal(
+                strip_wrappers((*te).expr.cast()).cast(),
+                unwrapped_expr.cast(),
+            )
+        });
+
+        if !already_present {
+            let resno = tlist.len() as pg_sys::AttrNumber + 1;
+            let te = pg_sys::makeTargetEntry(
+                pg_sys::copyObjectImpl(expr.cast()).cast(),
+                resno,
+                std::ptr::null_mut(),
+                true, // resjunk
+            );
+            tlist.push(te);
+        }
+    };
+
+    // Look in processed_tlist
+    if !(*root).processed_tlist.is_null() {
+        let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
+        for te in p_tlist.iter_ptr() {
+            add_missing_func((*te).expr.cast());
+        }
+    }
+
+    // Look in pathkeys
+    if !best_path.is_null() && !(*best_path).pathkeys.is_null() {
+        let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*best_path).pathkeys);
+        for pk in pathkeys.iter_ptr() {
+            let eclass = (*pk).pk_eclass;
+            if !eclass.is_null() {
+                let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
+                for em in members.iter_ptr() {
+                    add_missing_func((*em).em_expr.cast());
+                }
+            }
         }
     }
 }

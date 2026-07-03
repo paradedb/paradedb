@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[fixture]
 fn setup_test_table(mut conn: PgConnection) -> PgConnection {

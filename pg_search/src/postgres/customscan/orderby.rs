@@ -28,6 +28,9 @@ use crate::api::FieldName;
 use crate::index::directory::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::nodecast;
+use crate::postgres::catalog::{
+    lookup_collation_locale, lookup_database_collation_locale, CollationLocale, CollationProvider,
+};
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::score_funcoids;
@@ -63,6 +66,8 @@ pub enum UnusableReason {
     PrefixOnly { matched: usize },
     /// Columns are not indexed with fast=true or not sortable
     NotSortable,
+    /// We cannot pushdown collations that are not byte-ordered (C-like)
+    UnsafeCollation,
 }
 
 #[derive(Debug, Clone)]
@@ -382,6 +387,42 @@ unsafe fn find_target_entry_by_ref(
         .find(|&te| (*te).ressortgroupref == ref_id)
 }
 
+/// Normalizes a collation name for case and hyphen-insensitive comparison
+/// for example: "C.utf8", "C.UTF-8", "C.UTF8" all normalize to "C.UTF8".
+fn normalize_collation_name(mut collation_name: String) -> String {
+    collation_name.retain(|c| c != '-');
+    collation_name.make_ascii_uppercase();
+    collation_name
+}
+
+// This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
+// If a field does not have a collation (ex: integers, non-text data), it's considered safe
+// Otherwise, for collatable fields, if the collation is C-like it's safe
+pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
+    const NORMALIZED_SAFE_COLLATION_NAMES: &[&str] = &["C", "POSIX", "C.UTF8", "POSIX.UTF8"];
+
+    let locale = match collation {
+        pg_sys::Oid::INVALID | pg_sys::C_COLLATION_OID => return true,
+        pg_sys::DEFAULT_COLLATION_OID => lookup_database_collation_locale(),
+        _ => lookup_collation_locale(collation),
+    };
+
+    // If using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check the name
+    match locale {
+        #[cfg(any(feature = "pg17", feature = "pg18"))]
+        Some(CollationLocale {
+            provider: CollationProvider::Builtin,
+            ..
+        }) => true,
+        Some(CollationLocale {
+            provider: CollationProvider::Libc,
+            name: Some(name),
+        }) => NORMALIZED_SAFE_COLLATION_NAMES.contains(&normalize_collation_name(name).as_str()),
+        // ICU and anything unrecognized: never byte-ordered
+        _ => false,
+    }
+}
+
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
 /// This function handles score functions, lower functions, relabel types, and regular variables
 ///
@@ -414,6 +455,16 @@ where
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         let mut found_valid_member = false;
+
+        // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let collation = (*equivclass).ec_collation;
+        if !is_collation_pushdown_safe(collation) {
+            if pathkey_styles.is_empty() {
+                return PathKeyInfo::Unusable(UnusableReason::UnsafeCollation);
+            } else {
+                return PathKeyInfo::UsablePrefix(pathkey_styles);
+            }
+        }
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
@@ -623,6 +674,22 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
         // Preserve original behavior: the first clause is analyzed without index info.
         let clause_index_info = if i == 0 { None } else { Some(&index_info) };
+        // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let expr_collation = pg_sys::exprCollation(expr as *const pg_sys::Node);
+        if !is_collation_pushdown_safe(expr_collation) {
+            return false;
+        }
+
+        // Pass index expressions if we have them (after first sort clause identifies the relation)
+        let index_info = target_relation_info
+            .as_ref()
+            .map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
+                index_expressions: idx_exprs,
+                schema,
+                // TODO: heap_rti should use the actual varno from target_relation_info
+                // rather than hardcoded 1. Only matters for the #3455 window function path.
+                heap_rti: 1 as pg_sys::Index,
+            });
 
         // Use analyze_sort_expression to identify the sort key type and underlying variable
         let Some((sort_type, var, field_name_opt)) =
@@ -813,7 +880,12 @@ pub unsafe fn pathkey_matches_sort_by(
     // Direction and NULLS ordering must both match for sorted path to apply.
     // If query requests incompatible NULLS ordering, we return None and
     // PostgreSQL will add a Sort node to achieve the requested ordering.
-    // Note: Collation checking is deferred - Tantivy uses byte ordering (like C locale).
-    // For text fields with non-C collation, sorted path may produce incorrect order.
-    is_desc == sort_by_is_desc && (*pathkey).pk_nulls_first == sort_by_nulls_first
+
+    // Note: Tantivy uses byte ordering (like C locale) - for fields with non-C collation, an incorrect order may be produced, so we must
+    // check for safety using `is_collation_pushdown_safe`
+    let collation = (*(*pathkey).pk_eclass).ec_collation;
+
+    is_desc == sort_by_is_desc
+        && (*pathkey).pk_nulls_first == sort_by_nulls_first
+        && is_collation_pushdown_safe(collation)
 }

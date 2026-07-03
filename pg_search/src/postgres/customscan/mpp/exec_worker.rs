@@ -33,7 +33,6 @@
 
 use std::sync::Arc;
 
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
@@ -44,18 +43,25 @@ use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::shm::{
+    collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
+    InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, MppSender,
+    ShmMqWorkerTransport,
+};
+use datafusion_distributed::PartitionSink;
+
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, InProcessWorkerResolver, MppMesh, ShmMqWorkerTransport,
-};
+use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
-use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
-use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
+use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
+use datafusion_distributed::shm::SetPlanFrame;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan
 /// [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls populate this from their
@@ -169,6 +175,24 @@ pub(crate) fn build_mpp_session_context(
     SessionContext::new_with_state(state_builder.build())
 }
 
+/// Take one fragment's `SetPlan` frame off the mesh, draining this proc's inbox while waiting:
+/// nothing else drains during the plan-wait phase, and the frame can't route itself.
+async fn take_set_plan_draining(
+    mesh: &Arc<MppMesh>,
+    stage_id: u32,
+    task: u32,
+) -> Result<SetPlanFrame, datafusion::common::DataFusionError> {
+    let take = mesh.take_set_plan(stage_id, task);
+    futures::pin_mut!(take);
+    loop {
+        if let std::task::Poll::Ready(result) = futures::poll!(take.as_mut()) {
+            return result;
+        }
+        mesh.try_drain_pass()?;
+        tokio::task::yield_now().await;
+    }
+}
+
 /// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
 /// pgrx::error!s on fatal failures, returns normally on EOF (the customscan's
 /// `exec_custom_scan` then returns `null_mut()` to signal end-of-stream to PG).
@@ -222,9 +246,6 @@ pub(crate) fn run_mpp_worker(
         Arc::clone(&worker_mesh),
         this_proc,
         n_workers,
-        parallel_state,
-        &non_partitioning_segments,
-        &index_segment_ids,
     ) {
         Ok(v) => v,
         Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
@@ -234,6 +255,61 @@ pub(crate) fn run_mpp_worker(
             "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
         );
         return;
+    }
+
+    // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same
+    // `SetPlanRequest` Flight ships. Collect the frames first (the take drains the inbox while
+    // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
+    // must stay off the produce futures.
+    let frames: Vec<SetPlanFrame> = {
+        let collected = runtime.block_on(async {
+            let mut frames = Vec::with_capacity(fragments.len());
+            for fragment in &fragments {
+                frames.push(
+                    take_set_plan_draining(
+                        &worker_mesh,
+                        fragment.stage_id,
+                        fragment.task_idx as u32,
+                    )
+                    .await?,
+                );
+            }
+            Ok::<_, datafusion::common::DataFusionError>(frames)
+        });
+        match collected {
+            Ok(frames) => frames,
+            Err(e) => pgrx::error!("mpp worker: plan frames did not arrive: {e}"),
+        }
+    };
+    let decode_ctx = session.task_ctx();
+    let mut plans = Vec::with_capacity(frames.len());
+    let expr_context_guard = ExprContextGuard::new();
+
+    // Deserialize under the decode ctx, not the run ctx. The run ctx limits
+    // allocations aggressively; decode builds the plan graph and can spike memory.
+    for (fragment, frame) in fragments.iter().zip(frames) {
+        let Some(set_plan) = frame.set_plan else {
+            pgrx::error!(
+                "mpp worker: SetPlan frame without a request (stage_id={}, task_idx={})",
+                fragment.stage_id,
+                fragment.task_idx
+            );
+        };
+        match deserialize_physical_plan_with_runtime(
+            &set_plan.plan_proto,
+            &decode_ctx,
+            parallel_state,
+            non_partitioning_segments.to_vec(),
+            index_segment_ids.to_vec(),
+            Some(expr_context_guard.as_ptr()),
+        ) {
+            Ok(plan) => plans.push(plan),
+            Err(e) => pgrx::error!(
+                "mpp worker: decode dispatched plan failed (stage_id={}, task_idx={}): {e}",
+                fragment.stage_id,
+                fragment.task_idx
+            ),
+        }
     }
 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
@@ -249,18 +325,23 @@ pub(crate) fn run_mpp_worker(
                 + Send,
         >,
     >;
+    // Hold cancel/die off for the duration so neither our drain/send loops nor a subroutine
+    // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
+    // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
+    let held = HeldInterrupts::hold();
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
-        for fragment in &fragments {
-            let n_out = fragment
-                .plan
+        let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
+            Vec::with_capacity(fragments.len());
+        for (fragment, frag_plan) in fragments.iter().zip(&plans) {
+            let n_out = frag_plan
                 .properties()
                 .output_partitioning()
                 .partition_count();
-            // Build per-output-partition senders. For each partition `q` emitted by this
-            // fragment, look up the destination proc via `fragment.routing` and clone the right
-            // outbound sender.
-            let mut per_partition_senders: Vec<MppSender> = Vec::with_capacity(n_out);
+            // Build a `PartitionSink` per output partition. For each partition `q` emitted by this
+            // fragment, look up the destination proc via `fragment.routing`, clone the right
+            // outbound sender, and wrap it as a sink the produce loop pushes through.
+            let mut per_partition_sinks: Vec<Box<dyn PartitionSink>> = Vec::with_capacity(n_out);
             for q in 0..n_out {
                 let dest_proc = match &fragment.routing {
                     FragmentRouting::Coalesce { dest_proc } => *dest_proc,
@@ -304,7 +385,7 @@ pub(crate) fn run_mpp_worker(
                 // ring doesn't block the backend thread. The spin pulls every inbound
                 // drain while retrying the send, breaking the symmetric-send stall
                 // pattern where every peer is blocked sending to a full peer.
-                per_partition_senders.push(
+                per_partition_sinks.push(Box::new(MppPartitionSink::new(
                     base.clone_with_header(MppFrameHeader::batch(
                         fragment.stage_id,
                         q_u32,
@@ -313,7 +394,7 @@ pub(crate) fn run_mpp_worker(
                     .with_cooperative_drain(
                         Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
                     ),
-                );
+                )));
             }
 
             // Broadcast invariant: fail-loud cap check.
@@ -365,26 +446,21 @@ pub(crate) fn run_mpp_worker(
                     task_count: fragment.task_count,
                 }));
             let memory_pool =
-                create_memory_pool(&fragment.plan, work_mem_bytes, hash_mem_multiplier);
+                create_memory_pool(frag_plan, work_mem_bytes, hash_mem_multiplier);
             let task_ctx = Arc::new(
                 TaskContext::default()
                     .with_session_config(cfg)
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
+                    .with_runtime(build_runtime_env(memory_pool)),
             );
 
-            // Wrap fragment.plan in a fresh `DistributedExec` and run `prepare_in_process_plan`
+            // Wrap the fragment's plan in a fresh `DistributedExec` and run `prepare_in_process_plan`
             // to convert any nested boundaries' input stages from `Stage::Local` to
             // `Stage::Remote`. Without this, a nested `NetworkShuffleExec` /
             // `NetworkBroadcastExec` hitting `LocalStage::execute` errors when its task count
             // exceeds 1; with the conversion, those boundaries dispatch through
             // `ShmMqWorkerTransport` exactly like outer boundaries.
             let plan = {
-                let dist = Arc::new(DistributedExec::new(Arc::clone(&fragment.plan)));
+                let dist = Arc::new(DistributedExec::new(Arc::clone(frag_plan)));
                 match dist.prepare_in_process_plan(&task_ctx) {
                     Ok(p) => p,
                     Err(e) => {
@@ -396,12 +472,27 @@ pub(crate) fn run_mpp_worker(
                     }
                 }
             };
+            // Kept for the post-run metrics frame: the executed nodes (and their metrics)
+            // live in this prepared plan.
+            executed_fragments.push((
+                fragment.stage_id,
+                fragment.task_idx,
+                fragment.task_count,
+                Arc::clone(&plan),
+            ));
             futures.push(Box::pin(run_worker_fragment(
                 plan,
-                per_partition_senders,
+                per_partition_sinks,
                 task_ctx,
             )));
         }
+        // The metrics frames go to the leader after the fragments finish; the clone keeps one
+        // sender on the leader's inbox alive past the drop below, which only delays that ring's
+        // detach observation, never a per-channel EOF.
+        let metrics_sender_base = outbound_senders
+            .first()
+            .and_then(|s| s.as_ref())
+            .map(|s| s.clone_with_header(MppFrameHeader::task_metrics(0, 0, this_proc)));
         // Drop the original outbound_senders so the only remaining Arcs to each shm_mq queue /
         // in-proc channel are the per-partition clones owned by the spawned fragments. Without
         // this, the originals would outlive the futures, the consumer-side drains would never
@@ -444,8 +535,29 @@ pub(crate) fn run_mpp_worker(
                 .collect::<Result<Vec<_>, _>>()
                 .map(|_| ())
         };
+
+        // Report each fragment's metrics to the leader, even after a fragment error: partial
+        // metrics still tell the user where the time went. Best-effort like every transport's
+        // metrics path; the bounded send drops the frame if the leader already went away.
+        if let Some(base) = metrics_sender_base {
+            for (stage_id, task_idx, task_count, plan) in &executed_fragments {
+                let frame = collect_task_metrics(plan, *task_idx, *task_count);
+                let sender = base.clone_with_header(MppFrameHeader::task_metrics(
+                    *stage_id,
+                    *task_idx as u32,
+                    this_proc,
+                ));
+                let _ = sender.send_task_metrics_best_effort(&frame).await;
+            }
+        }
         outcome
     });
+    // `block_on` has returned, so the runtime is idle and every fragment future (with its
+    // DSM senders) has dropped. Resume interrupts, then service any cancel/die the loops
+    // deferred, now on a stack with no live runtime; for a die this `proc_exit`s here instead
+    // of mid-`block_on`.
+    drop(held);
+    check_for_interrupts();
     if let Err(e) = result {
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }

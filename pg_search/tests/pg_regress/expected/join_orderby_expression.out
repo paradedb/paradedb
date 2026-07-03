@@ -82,7 +82,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT c.id, c.name
@@ -136,7 +136,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -227,7 +227,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -281,7 +281,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -335,7 +335,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -389,7 +389,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -444,7 +444,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- int8: big_id * 1::bigint
@@ -480,7 +480,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- const-on-left: 0 + id (commutative, should unwrap)
@@ -516,7 +516,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- const-on-left: 1 * id (commutative, should unwrap)
@@ -552,7 +552,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- =============================================================================
@@ -573,12 +573,13 @@ LIMIT 10;
          Output: id, name, (id + 0)
          Table: companies
          Index: companies_bm25_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 -- int4: id * 1
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -595,12 +596,13 @@ LIMIT 10;
          Output: id, name, (id * 1)
          Table: companies
          Index: companies_bm25_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 -- int8: big_id + 0::bigint
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -617,12 +619,13 @@ LIMIT 10;
          Output: id, name, (big_id + '0'::bigint)
          Table: companies
          Index: companies_bm25_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: big_id desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 -- const-on-left: 0 + id (commutative)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -639,12 +642,13 @@ LIMIT 10;
          Output: id, name, (0 + id)
          Table: companies
          Index: companies_bm25_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 -- =============================================================================
 -- TEST 8: Non-identity expression should NOT activate JoinScan
@@ -661,8 +665,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 1 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -677,6 +681,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -684,10 +689,11 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(24 rows)
 
 -- =============================================================================
 -- TEST 9: 0 - c.id should NOT unwrap (inverts ordering)
@@ -703,8 +709,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 0 - c.id DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -719,6 +725,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -726,10 +733,11 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(24 rows)
 
 -- =============================================================================
 -- TEST 10: Var + Var should NOT unwrap (not a Const)
@@ -745,8 +753,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + c.id DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -761,6 +769,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -768,10 +777,11 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(24 rows)
 
 -- =============================================================================
 -- TEST 11: Using === operator alongside @@@
@@ -808,7 +818,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -842,8 +852,8 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0::bigint DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -858,6 +868,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: c.id, c.name
                      Table: companies
                      Index: companies_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -865,10 +876,11 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Output: fr.company_id
                      Table: funding_rounds
                      Index: funding_rounds_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
-(22 rows)
+(24 rows)
 
 -- =============================================================================
 -- TEST 13: Production-shape query — multiple IN subqueries with NOT EXISTS

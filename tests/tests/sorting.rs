@@ -15,13 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 fn field_sort_fixture(conn: &mut PgConnection) -> Value {
     // ensure our custom scan wins against our small test table
@@ -49,11 +47,6 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
             }',
             json_fields = '{
                 "metadata": {}
-            }',
-            datetime_fields = '{
-                "created_at": {},
-                "last_updated_date": {},
-                "latest_available_time": {}
             }'
         );
     "#.execute(conn);
@@ -99,6 +92,73 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
     );
 }
 
+/// Regression test: a parallel `ORDER BY <fast field> ... LIMIT` (TopK) must
+/// return the same rows as plain Postgres when deleted tuples are present.
+///
+/// Reduced from a `generated_paging_small` qgen failure. Deleted tuples are
+/// filtered at query time (heap MVCC), so a TopK over the index can come up
+/// short on visible rows and re-query a deeper page with an `offset`. Under
+/// parallel execution the shared-threshold pruning optimization is kept in
+/// shared memory and only reset at scan setup. If left in-place during retries,
+/// valid tuples below the threshold will be skipped.
+#[rstest]
+fn parallel_topk_limit_visibility_retry(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 17 {
+        // We cannot reliably force parallel workers without `debug_parallel_query`.
+        return;
+    }
+
+    // a fast `sortk` deliberately uncorrelated with `id`
+    // so the index's physical (sort_by) order differs from id order; then delete
+    // 10% of rows at the top so the TopK visibility retry actually fires.
+    r#"
+        CREATE EXTENSION IF NOT EXISTS pg_search;
+        CREATE TABLE t (id bigint NOT NULL PRIMARY KEY, name text, sortk int);
+        CREATE INDEX idx ON t USING bm25 (id, (name::pdb.literal), sortk) WITH (
+            key_field = 'id',
+            sort_by = 'sortk DESC NULLS LAST',
+            target_segment_count = 1
+        );
+        INSERT INTO t (id, name, sortk)
+        SELECT g,
+               'alice',
+               100 - g
+        FROM generate_series(1, 100) g;
+        DELETE FROM t WHERE id > 90;
+    "#
+    .execute(&mut conn);
+
+    // Ground truth straight from Postgres,
+    let expected: Vec<i64> = "SELECT id FROM t WHERE NOT (name = 'bob') \
+                 ORDER BY id DESC NULLS FIRST LIMIT 3"
+        .fetch::<(i64,)>(&mut conn)
+        .into_iter()
+        .map(|(id,)| id)
+        .collect();
+
+    // Force the parallel custom-scan TopK path. `parallel_leader_participation =
+    // off` (with `debug_parallel_query = on`) makes a single worker do the whole
+    // scan, which is the configuration that exposed the bug.
+    r#"
+        SET parallel_leader_participation TO off;
+        SET debug_parallel_query TO on;
+        SET paradedb.enable_custom_scan TO on;
+    "#
+    .execute(&mut conn);
+
+    let actual = "SELECT id FROM t WHERE NOT (name @@@ 'bob') \
+             ORDER BY id DESC NULLS FIRST LIMIT 3"
+        .fetch::<(i64,)>(&mut conn)
+        .into_iter()
+        .map(|(id,)| id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        expected, actual,
+        "parallel BM25 TopK disagrees with Postgres at LIMIT 3"
+    );
+}
+
 #[rstest]
 fn sort_by_raw(mut conn: PgConnection) {
     // ensure our custom scan wins against our small test table
@@ -126,11 +186,6 @@ fn sort_by_raw(mut conn: PgConnection) {
             }',
             json_fields = '{
                 "metadata": {}
-            }',
-            datetime_fields = '{
-                "created_at": {},
-                "last_updated_date": {},
-                "latest_available_time": {}
             }'
         );
     "#.execute(&mut conn);

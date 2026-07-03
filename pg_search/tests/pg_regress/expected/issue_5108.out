@@ -59,6 +59,7 @@ ORDER BY s DESC, c.id LIMIT 100;
                            Output: c.body, c.id, c.doc_id, pdb.score(c.id), pdb.score(c.id)
                            Table: issue_5108_chunks
                            Index: issue_5108_chunks_bm25
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: true
                            Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
@@ -69,7 +70,7 @@ ORDER BY s DESC, c.id LIMIT 100;
                ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
                      Output: d.filename, d.id
                      Index Cond: (d.id = c.doc_id)
-(25 rows)
+(26 rows)
 
 SELECT c.body, d.filename, pdb.score(c.id) AS s
 FROM issue_5108_chunks c, issue_5108_docs d
@@ -201,6 +202,7 @@ ORDER BY snip DESC, c.id LIMIT 100;
                            Output: c.id, c.doc_id, pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer), pdb.snippet(c.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
                            Table: issue_5108_chunks
                            Index: issue_5108_chunks_bm25
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
@@ -211,7 +213,7 @@ ORDER BY snip DESC, c.id LIMIT 100;
                ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
                      Output: d.filename, d.id
                      Index Cond: (d.id = c.doc_id)
-(25 rows)
+(26 rows)
 
 SELECT pdb.snippet(c.body) AS snip, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
@@ -343,6 +345,7 @@ ORDER BY pos DESC, c.id LIMIT 100;
                            Output: c.id, c.doc_id, pdb.snippet_positions(c.body, NULL::integer, NULL::integer), pdb.snippet_positions(c.body, NULL::integer, NULL::integer)
                            Table: issue_5108_chunks
                            Index: issue_5108_chunks_bm25
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
@@ -353,7 +356,7 @@ ORDER BY pos DESC, c.id LIMIT 100;
                ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
                      Output: d.filename, d.id
                      Index Cond: (d.id = c.doc_id)
-(25 rows)
+(26 rows)
 
 SELECT pdb.snippet_positions(c.body) AS pos, d.filename
 FROM issue_5108_chunks c, issue_5108_docs d
@@ -489,6 +492,7 @@ ORDER BY m.s DESC, m.id;
                      Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, pdb.score(issue_5108_chunks.id)
                      Table: issue_5108_chunks
                      Index: issue_5108_chunks_bm25
+                     Worker Selection: Cost model
                      Exec Method: TopKScanExecState
                      Scores: true
                         TopK Order By: pdb.score() desc, id asc
@@ -501,7 +505,7 @@ ORDER BY m.s DESC, m.id;
          ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
                Output: d.filename, d.id
                Index Cond: (d.id = issue_5108_chunks.doc_id)
-(24 rows)
+(25 rows)
 
 WITH matched AS (
     SELECT id, body, doc_id, pdb.score(id) AS s
@@ -644,6 +648,7 @@ WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead)
                            Output: issue_5108_chunks.id, issue_5108_chunks.doc_id, pdb.snippet(issue_5108_chunks.body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
                            Table: issue_5108_chunks
                            Index: issue_5108_chunks_bm25
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
@@ -654,7 +659,7 @@ WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead)
          ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
                Output: d.filename, d.id
                Index Cond: (d.id = issue_5108_chunks.doc_id)
-(25 rows)
+(26 rows)
 
 WITH matched AS (
     SELECT id, doc_id, pdb.snippet(body) AS snip

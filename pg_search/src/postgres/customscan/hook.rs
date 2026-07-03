@@ -39,7 +39,9 @@ use std::collections::{hash_map::Entry, HashMap};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
-    path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
+    let offer_parallel = path.flags & Flags::OfferParallel as u32 != 0;
+    // Clear flags that are private to us before handing the path to PostgreSQL.
+    path.flags &= !(Flags::Force as u32 | Flags::OfferParallel as u32);
 
     // Force means our custom path is not interchangeable with native PostgreSQL paths.
     // Clear both complete and partial candidates up front so neither a regular path nor a
@@ -49,34 +51,30 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
         (*rel).partial_pathlist = std::ptr::null_mut();
     }
 
-    let mut custom_path = PgMemoryContexts::CurrentMemoryContext
+    let custom_path = PgMemoryContexts::CurrentMemoryContext
         .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
 
-    if (*custom_path).path.parallel_aware {
-        // add the partial path since the user-generated plan is parallel aware
-        pg_sys::add_partial_path(rel, custom_path.cast());
+    // Complete (serial) path: add it for consideration and we're done.
+    if !(*custom_path).path.parallel_aware {
+        pg_sys::add_path(rel, custom_path.cast());
+        return;
+    }
 
-        // remove all the existing possible paths
+    // Parallel-aware: offer the partial path so PostgreSQL can build a Gather over it.
+    pg_sys::add_partial_path(rel, custom_path.cast());
+
+    // CostedBoth (offer_parallel) stops here -- the real serial sibling stays in the pathlist for a
+    // fair compare. Binding parallel (ParallelOnly) instead clears the complete paths and adds a
+    // junk-cost serial stub so the Gather must win.
+    if !offer_parallel {
         (*rel).pathlist = std::ptr::null_mut();
-
-        // then make another copy of it, increase its costs really, really high and
-        // submit it as a regular path too, immediately after clearing out all the other
-        // existing possible paths.
-        //
-        // We don't want postgres to choose this path, but we have to have at least one
-        // non-partial path available for it to consider
         let copy = PgMemoryContexts::CurrentMemoryContext
             .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
         (*copy).path.parallel_aware = false;
         (*copy).path.total_cost = 1000000000.0;
         (*copy).path.startup_cost = 1000000000.0;
-
-        // will be added down below
-        custom_path = copy.cast();
+        pg_sys::add_path(rel, copy.cast());
     }
-
-    // add this path for consideration
-    pg_sys::add_path(rel, custom_path.cast());
 }
 
 pub fn register_rel_pathlist<CS>(_: CS)

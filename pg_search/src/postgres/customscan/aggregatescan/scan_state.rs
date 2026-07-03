@@ -30,6 +30,8 @@ use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use pgrx::pg_sys;
 
+use super::AggIndexInfo;
+
 #[derive(Default)]
 pub enum ExecutionState {
     #[default]
@@ -48,6 +50,8 @@ pub struct DataFusionAggState {
     pub topk: Option<DataFusionTopK>,
     /// Cross-table search predicates for join-level filtering.
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
+    /// Original predicates preserved for rescans.
+    pub base_join_level_predicates: Option<Vec<JoinLevelSearchPredicate>>,
     /// Non-@@@ cross-table predicates (descriptions for EXPLAIN).
     pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     /// Raw PG Expr pointers from custom_exprs (after setrefs transforms
@@ -62,6 +66,9 @@ pub struct DataFusionAggState {
     pub having_filter: Option<FilterExpr>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
+    /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that
+    /// arrive over the mesh into its display.
+    pub physical_plan: Option<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
     /// DataFusion result stream.
     pub stream: Option<SendableRecordBatchStream>,
     /// Current batch being consumed row-by-row.
@@ -73,24 +80,15 @@ pub struct DataFusionAggState {
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
     /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and
-    /// the query qualifies (binary join + supported aggregate). On the
-    /// leader this carries the runtime mesh + outbound senders for the
-    /// leader-as-worker-0 producer subplan; on workers it carries the
-    /// outbound senders for this worker plus the deserialized fragment plan.
-    pub mpp: Option<MppExecState>,
+    /// the query qualifies (binary join + supported aggregate). Held only by
+    /// the leader; builder-launched workers reconstruct their state from DSM
+    /// and never carry this.
+    pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
     /// Serialized logical-plan bytes that the leader writes into DSM and
     /// workers read back. Computed by `begin_custom_scan` when MPP is
     /// active; consulted by `estimate_dsm_custom_scan` and
     /// `initialize_dsm_custom_scan`.
     pub mpp_plan_bytes: Option<Vec<u8>>,
-}
-
-/// Per-query MPP state. Distinct variants for leader vs worker because the
-/// two participate differently: the leader runs the consumer plan plus a
-/// producer subplan (as worker 0); workers run only the producer subplan.
-pub enum MppExecState {
-    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
-    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own
@@ -121,6 +119,7 @@ pub struct AggregateScanState {
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
+    pub base_aggregate_clause: Option<AggregateCSClause>,
 
     /// DataFusion backend state. When `Some`, the DataFusion path is active
     /// and the Tantivy-specific fields above are unused.
@@ -134,19 +133,6 @@ pub struct AggregateScanState {
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
-
-    /// MPP-only: shared state for slicing the partitioning source's segments
-    /// across parallel workers. Set by `initialize_dsm_custom_scan` (leader)
-    /// or `initialize_worker_custom_scan` (worker). Threaded into
-    /// `deserialize_logical_plan_with_runtime` so each worker's
-    /// `PgSearchTableProvider` sees only its slice.
-    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-
-    /// MPP-only: canonical segment ID sets for non-partitioning sources, in
-    /// the same order they appear in `plan.sources()` (partitioning source
-    /// excluded). Populated alongside `parallel_state` and injected into
-    /// the codec so all workers replicate the same segment view.
-    pub non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>>,
 
     /// MPP-only: captured source manifests held by the leader. Serves two
     /// purposes (mirrors JoinScan):
@@ -162,6 +148,10 @@ pub struct AggregateScanState {
     /// header by the leader and read back by workers; used in
     /// `exec_mpp_worker` to key `index_segment_ids` correctly.
     pub mpp_partitioning_source_idx: Option<usize>,
+
+    /// A collection of things needed for result-rewriting decisions that
+    /// are expensive to look up.
+    precomputed_index_info: Option<AggIndexInfo>,
 }
 
 impl AggregateScanState {
@@ -170,6 +160,7 @@ impl AggregateScanState {
             lockmode,
             PgSearchRelation::with_lock(self.indexrelid, lockmode),
         ));
+        self.precomputed_index_info = Some(AggIndexInfo::from(self.indexrel()))
     }
 
     #[inline(always)]
@@ -184,6 +175,10 @@ impl AggregateScanState {
     pub fn is_datafusion_backend(&self) -> bool {
         self.datafusion_state.is_some()
     }
+
+    pub fn precomputed_index_info(&self) -> Option<&AggIndexInfo> {
+        self.precomputed_index_info.as_ref()
+    }
 }
 
 impl CustomScanState for AggregateScanState {
@@ -194,17 +189,6 @@ impl CustomScanState for AggregateScanState {
 }
 
 impl SolvePostgresExpressions for AggregateScanState {
-    fn has_heap_filters(&mut self) -> bool {
-        if self.is_datafusion_backend() {
-            return false;
-        }
-        self.aggregate_clause.query_mut().has_heap_filters()
-            || self
-                .aggregate_clause
-                .aggregates_mut()
-                .any(|agg| agg.has_heap_filters())
-    }
-
     fn has_postgres_expressions(&mut self) -> bool {
         // Check both the Tantivy-path search queries and DataFusion-path
         // join-level predicates for unresolved PostgresExpression nodes
@@ -223,6 +207,34 @@ impl SolvePostgresExpressions for AggregateScanState {
                 .aggregate_clause
                 .aggregates_mut()
                 .any(|agg| agg.has_postgres_expressions())
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        if let Some(ref mut df) = self.datafusion_state {
+            if df
+                .join_level_predicates
+                .iter_mut()
+                .any(|p| p.query.has_parameters())
+            {
+                return true;
+            }
+        }
+        self.aggregate_clause.query_mut().has_parameters()
+            || self
+                .aggregate_clause
+                .aggregates_mut()
+                .any(|agg| agg.has_parameters())
+    }
+
+    fn init_search_query_input(&mut self) {
+        if let Some(base) = &self.base_aggregate_clause {
+            self.aggregate_clause = base.clone();
+        }
+        if let Some(ref mut df) = self.datafusion_state {
+            if let Some(base) = &df.base_join_level_predicates {
+                df.join_level_predicates = base.clone();
+            }
+        }
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

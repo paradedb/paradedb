@@ -93,6 +93,14 @@ SET parallel_tuple_cost = 0;
 SET min_parallel_table_scan_size = 0;
 SET min_parallel_index_scan_size = 0;
 SET enable_gathermerge = on;
+-- Since #4664 pg_search emits both a serial and a partial path for a costable scan and
+-- lets PostgreSQL cost the Gather and choose. For an exact-match sorted scan (Test 1.7),
+-- each segment already yields sorted output, so the only parallelizable work is the
+-- per-row columnar read; on this tiny fixture that work is below PostgreSQL's Gather-Merge
+-- overhead and it would serialize. Raise the per-row index-scan cost so the parallel
+-- sorted (Gather Merge) path these tests exist to exercise wins; the real-cost crossover
+-- is data-size dependent (mirrors parallel_topk's `set_scaled_costs`).
+SET cpu_index_tuple_cost = 0.05;
 ALTER TABLE sorted_scan_test SET (parallel_workers = 2);
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
@@ -110,6 +118,7 @@ RESET min_parallel_index_scan_size;
 RESET min_parallel_table_scan_size;
 RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
+RESET cpu_index_tuple_cost;
 RESET paradedb.min_rows_per_worker;
 SET max_parallel_workers_per_gather = 0;
 
@@ -751,6 +760,11 @@ SET parallel_tuple_cost = 0;
 SET min_parallel_table_scan_size = 0;
 SET min_parallel_index_scan_size = 0;
 SET enable_gathermerge = on;
+-- See Test 1.6: pg_search offers both serial and partial paths and PostgreSQL chooses.
+-- Raise the per-row index-scan cost so the parallel sorted path wins on this fixture (an
+-- exact-match sorted scan has only the per-row read to parallelize, which is otherwise
+-- below the Gather-Merge overhead).
+SET cpu_index_tuple_cost = 0.05;
 ALTER TABLE parallel_sorted_test SET (parallel_workers = 4);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
@@ -788,6 +802,7 @@ RESET min_parallel_index_scan_size;
 RESET min_parallel_table_scan_size;
 RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
+RESET cpu_index_tuple_cost;
 RESET paradedb.min_rows_per_worker;
 SET max_parallel_workers_per_gather = 0;
 

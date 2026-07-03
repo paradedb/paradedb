@@ -15,17 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
-use fixtures::*;
 use pgvector::Vector;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
+use tests::fixtures::*;
 
 #[rstest]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
@@ -128,6 +126,21 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32]);
+}
+
+#[rstest]
+fn search_with_query_input_non_fast_field_issue_5264(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search
+        WHERE paradedb.search_with_query_input(
+            id,
+            paradedb.parse_with_field('description', 'keyboard')
+        ) ORDER BY id"
+        .to_string()
+        .fetch_collect(&mut conn);
+
+    assert_eq!(columns.id, vec![1, 2]);
 }
 
 #[rstest]

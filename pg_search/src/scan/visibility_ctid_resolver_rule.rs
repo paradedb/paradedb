@@ -62,7 +62,7 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
 /// Walk the plan tree. When we find a VisibilityFilterExec, wire FFHelpers
 /// from matching PgSearchScanPlans in its subtree.
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
-    if let Some(vis_exec) = plan.as_any().downcast_ref::<VisibilityFilterExec>() {
+    if let Some(vis_exec) = plan.downcast_ref::<VisibilityFilterExec>() {
         for &(plan_pos, _) in vis_exec.plan_pos_oids() {
             let ffhelper =
                 find_ffhelper_for_plan_position(plan.as_ref(), plan_pos).ok_or_else(|| {
@@ -87,7 +87,7 @@ fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
     plan_position: usize,
 ) -> Option<Arc<FFHelper>> {
-    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         if scan.deferred_ctid_plan_position() == Some(plan_position) {
             return scan.ffhelper();
         }

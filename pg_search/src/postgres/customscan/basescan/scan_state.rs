@@ -20,6 +20,7 @@ use std::cell::UnsafeCell;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
@@ -67,6 +68,7 @@ pub struct BaseScanState {
 
     pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
+    pub(super) worker_selection_reason: Option<WorkerDecisionReason>,
     pub quals: Option<Qual>,
 
     pub need_scores: bool,
@@ -351,6 +353,10 @@ impl BaseScanState {
         }
     }
 
+    pub fn query_count(&self) -> usize {
+        self.query_count
+    }
+
     pub fn increment_query_count(&mut self) {
         self.query_count += 1;
         if let Some(parallel_state) = self.parallel_state {
@@ -491,12 +497,12 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input = self.base_search_query_input.clone();
     }
 
-    fn has_heap_filters(&mut self) -> bool {
-        self.base_search_query_input.has_heap_filters()
-    }
-
     fn has_postgres_expressions(&mut self) -> bool {
         self.search_query_input.has_postgres_expressions()
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        self.search_query_input.has_parameters()
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

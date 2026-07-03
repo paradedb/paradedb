@@ -169,6 +169,16 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
     let mut did_delete = false;
 
+    // We periodically poll for a pending interrupt, which raises a cancel query ERROR.
+    // On PG18+, `vacuum_delay_point` requires an `is_analyze` parameter indicating whether
+    // it is being called inside an ANALYZE query.
+    let vacuum_delay_point = || unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        pg_sys::vacuum_delay_point();
+        #[cfg(feature = "pg18")]
+        pg_sys::vacuum_delay_point(false);
+    };
+
     for segment_reader in reader.segment_readers() {
         let segment_id = segment_reader.segment_id();
         if !writer_segment_ids.contains(&segment_id) {
@@ -186,33 +196,52 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             .unwrap_or_else(|| panic!("segment meta not found for segment_id: {segment_id:?}"));
         let mut deleter = SegmentDeleter::open(&index_relation, &directory, segment_meta)
             .expect("ambulkdelete: should be able to open a SegmentDeleter");
-        let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+
+        // VACUUM only needs each segment's ctids. The two segment kinds differ only in where
+        // those ctids come from and how a delete is keyed:
+        //   * immutable segments expose ctids via the materialized `ctid` fast field and are
+        //     deleted by tantivy `doc_id`;
+        //   * mutable segments record their live ctids in an in-memory add/remove log and are
+        //     deleted by `ctid`. We read them from there rather than via the fast field, since
+        //     touching the fast field would re-materialize and detoast the segment's heap rows,
+        //     racing a concurrent VACUUM (see https://github.com/paradedb/paradedb/issues/5365).
+        // Build a uniform stream of delete targets so the callback loop below is shared.
+        let targets: Box<dyn Iterator<Item = DeleteTarget> + '_> =
+            if directory.is_mutable(&segment_id) {
+                // `is_mutable` is true, so the entry exists and is mutable.
+                let entry = directory
+                    .segment_meta_entry(&segment_id)
+                    .expect("is_mutable() guarantees a loaded entry for this segment");
+                let ctids = entry
+                    .mutable_snapshot(&index_relation)
+                    .expect("is_mutable() guarantees this is a mutable segment");
+                Box::new(ctids.into_iter().map(|ctid| DeleteTarget::Ctid { ctid }))
+            } else {
+                let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+                Box::new(
+                    (0..segment_reader.max_doc()).map(move |doc_id| DeleteTarget::DocId {
+                        ctid: ctid_ff.as_u64(doc_id).expect("ctid should be present"),
+                        doc_id,
+                    }),
+                )
+            };
+
         let mut needs_commit = false;
-
-        for doc_id in 0..segment_reader.max_doc() {
-            if doc_id % 100 == 0 {
-                // we think there's a pending interrupt, so this should raise a cancel query ERROR
-                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                pg_sys::vacuum_delay_point();
-
-                // On PG18+, vacuum_delay_point requires passing an is_analyze parameter for whether it
-                // is being called inside an ANALYZE query
-                #[cfg(feature = "pg18")]
-                pg_sys::vacuum_delay_point(false);
+        for (i, target) in targets.enumerate() {
+            if i % 100 == 0 {
+                vacuum_delay_point();
             }
-
-            let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
-            if callback(ctid) {
+            if callback(target.ctid()) {
                 did_delete = true;
                 needs_commit = true;
-                deleter.delete_document(ctid, doc_id);
+                deleter.delete(target);
             }
         }
 
         if needs_commit {
             let meta_change = deleter
                 .commit(&index)
-                .expect("ambulkdelete: segment deletercommit should succeed");
+                .expect("ambulkdelete: segment deleter commit should succeed");
             if let Some((old_meta, new_meta)) = meta_change {
                 old_metas.push(old_meta);
                 new_metas.push(new_meta);
@@ -275,6 +304,24 @@ enum SegmentDeleter {
     Mutable(SegmentDeleterMutable),
 }
 
+/// How a single VACUUM-visited document is keyed when recording its delete.
+///
+/// Immutable (persisted) segments are addressed by their tantivy `doc_id`; mutable segments
+/// have no materialized `doc_id` and are addressed by `ctid`. Modeling this explicitly keeps us
+/// from having to pass a meaningless placeholder `doc_id` for the mutable case.
+enum DeleteTarget {
+    DocId { ctid: u64, doc_id: DocId },
+    Ctid { ctid: u64 },
+}
+
+impl DeleteTarget {
+    fn ctid(&self) -> u64 {
+        match *self {
+            DeleteTarget::DocId { ctid, .. } | DeleteTarget::Ctid { ctid } => ctid,
+        }
+    }
+}
+
 impl SegmentDeleter {
     pub fn open(
         indexrel: &PgSearchRelation,
@@ -304,9 +351,12 @@ impl SegmentDeleter {
         }
     }
 
-    pub fn delete_document(&mut self, ctid: u64, doc_id: DocId) {
+    pub fn delete(&mut self, target: DeleteTarget) {
         match self {
             Self::Immutable(inner) => {
+                let DeleteTarget::DocId { doc_id, .. } = target else {
+                    unreachable!("immutable segments are deleted by doc_id, not ctid");
+                };
                 inner.opstamp += 1;
                 inner.delete_queue.push(DeleteOperation::ByAddress {
                     opstamp: inner.opstamp,
@@ -314,9 +364,7 @@ impl SegmentDeleter {
                     doc_id,
                 });
             }
-            Self::Mutable(inner) => {
-                inner.deleted_ctids.push(ctid);
-            }
+            Self::Mutable(inner) => inner.deleted_ctids.push(target.ctid()),
         }
     }
 

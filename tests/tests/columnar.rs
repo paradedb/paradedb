@@ -18,15 +18,13 @@
 // Tests for ColumnarExecState implementation
 // Includes both basic functionality tests and corner/edge cases
 
-mod fixtures;
-
 use bigdecimal::BigDecimal;
-use fixtures::db::Query;
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::db::Query;
+use tests::fixtures::*;
 
 // Helper function to get all execution methods in the plan
 fn get_all_exec_methods(plan: &Value) -> Vec<String> {

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::Version;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -44,6 +45,7 @@ impl MoreLikeThis {
 pub struct MoreLikeThisQuery {
     mlt: MoreLikeThis,
     doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>,
+    index_created_by_version: Option<Version>,
 }
 
 impl MoreLikeThisQuery {
@@ -70,7 +72,7 @@ impl Query for MoreLikeThisQuery {
                     *field,
                     values
                         .iter()
-                        .map(|v| v.clone().into_tantivy_value())
+                        .map(|v| v.clone().into_tantivy_value(self.index_created_by_version))
                         .collect::<Vec<OwnedValue>>(),
                 )
             })
@@ -89,6 +91,7 @@ impl Query for MoreLikeThisQuery {
 #[derive(Debug, Clone, Default)]
 pub struct MoreLikeThisQueryBuilder {
     mlt: MoreLikeThis,
+    index_created_by_version: Option<Version>,
 }
 
 impl MoreLikeThisQueryBuilder {
@@ -137,6 +140,12 @@ impl MoreLikeThisQueryBuilder {
     #[must_use]
     pub fn with_stop_words(mut self, value: Vec<String>) -> Self {
         self.mlt.inner.stop_words = value;
+        self
+    }
+
+    #[must_use]
+    pub fn with_index_created_by_version(mut self, value: Option<Version>) -> Self {
+        self.index_created_by_version = value;
         self
     }
 
@@ -226,6 +235,7 @@ impl MoreLikeThisQueryBuilder {
             Ok(doc_fields) => Some(MoreLikeThisQuery {
                 mlt: self.mlt,
                 doc_fields,
+                index_created_by_version: self.index_created_by_version,
             }),
             Err(_) => None,
         }
@@ -235,6 +245,7 @@ impl MoreLikeThisQueryBuilder {
         MoreLikeThisQuery {
             mlt: self.mlt,
             doc_fields,
+            index_created_by_version: self.index_created_by_version,
         }
     }
 }

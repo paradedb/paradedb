@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::VersionInfo;
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
@@ -133,6 +134,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         panic!("{}", BM25IndexOptions::MISSING_KEY_FIELD_CONFIG);
     }
 
+    let created_by_version = index_relation.created_by_version();
     let options = index_relation.options();
     let key_field_name = options.key_field_name();
 
@@ -187,10 +189,18 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     }
 
     let datetime_configs = options.datetime_config();
-    for (field_name, config) in datetime_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
-            matches!(t, SearchFieldType::Date(_))
-        });
+    if created_by_version.stores_datetimes_in_i64() {
+        if datetime_configs.iter().flatten().next().is_some() {
+            warning!(
+                "As of v0.24.1, \"datetime_fields\" is deprecated and should be removed. It no longer has any effect. The performance improvement options it provided are now on by default."
+            );
+        }
+    } else {
+        for (field_name, config) in datetime_configs.iter().flatten() {
+            validate_field_config(field_name, &key_field_name, config, options, |t| {
+                matches!(t, SearchFieldType::Date(_))
+            });
+        }
     }
 }
 

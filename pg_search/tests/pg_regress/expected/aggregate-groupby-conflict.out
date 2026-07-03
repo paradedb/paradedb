@@ -81,15 +81,15 @@ FROM groupby_conflict_test
 WHERE title @@@ 'Product'
 GROUP BY price
 ORDER BY price;
-                                                                                    QUERY PLAN                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: price, pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(price), COUNT(*)
      Group By: price
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"price","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null,"none_if_no_match":true}}},"terms":{"field":"price","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
 -- Execute the query
@@ -222,10 +222,11 @@ WARNING:  Aggregate Scan not used: grouping column title exists, but is not a fa
                Output: title, rating
                Table: groupby_conflict_test
                Index: groupby_conflict_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT title,

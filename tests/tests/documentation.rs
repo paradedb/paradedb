@@ -15,16 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use approx::assert_relative_eq;
-use fixtures::*;
 use num_traits::ToPrimitive;
 use pgvector::Vector;
 use rstest::*;
 use sqlx::types::BigDecimal;
 use sqlx::PgConnection;
 use std::str::FromStr;
+use tests::fixtures::*;
 
 #[rstest]
 fn quickstart(mut conn: PgConnection) {
@@ -2139,7 +2137,7 @@ fn schema(mut conn: PgConnection) {
 
     let expected = vec![
         ("category".to_string(), "Str".to_string()),
-        ("created_at".to_string(), "Date".to_string()),
+        ("created_at".to_string(), "I64".to_string()),
         ("ctid".to_string(), "U64".to_string()),
         ("description".to_string(), "Str".to_string()),
         ("id".to_string(), "I64".to_string()),
@@ -2276,10 +2274,7 @@ fn field_configuration(mut conn: PgConnection) {
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, created_at)
     WITH (
-    key_field = 'id',
-    datetime_fields = '{
-        "created_at": {"fast": true}
-    }'
+    key_field = 'id'
     );
     DROP INDEX search_idx;
     "#

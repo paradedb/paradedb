@@ -15,14 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::db::Query;
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::db::Query;
+use tests::fixtures::*;
 
 #[rstest]
 fn plans_numeric_fast_field(mut conn: PgConnection) {
@@ -38,12 +36,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -70,12 +63,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -102,12 +90,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -135,12 +118,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
 SET paradedb.enable_aggregate_custom_scan = false;
     "#
@@ -168,12 +146,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);
@@ -199,12 +172,7 @@ WITH (
     }',
     numeric_fields='{"rating": {"fast": true}}',
     boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}',
-    datetime_fields='{
-        "created_at": {},
-        "last_updated_date": {},
-        "latest_available_time": {}
-    }'
+    json_fields='{"metadata": {}}'
 );
     "#
     .execute(&mut conn);

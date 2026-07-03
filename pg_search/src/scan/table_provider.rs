@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::any::Any;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -674,10 +673,6 @@ impl PgSearchTableProvider {
 
 #[async_trait]
 impl TableProvider for PgSearchTableProvider {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn schema(&self) -> SchemaRef {
         self.get_schema()
     }
@@ -771,7 +766,7 @@ impl PgSearchTableProvider {
         // deserializes the logical plan in its own executor context. The
         // planstate and expr_context are injected by the execution codec.
         let mut query = self.combine_query_with_filters(self.scan_info.query.clone(), filters);
-        if query.has_postgres_expressions() {
+        if query.has_postgres_expressions() || query.has_parameters() {
             let Some(planstate) = planstate else {
                 return Err(DataFusionError::Internal(
                     "postgres expressions have not been solved: missing planstate".to_string(),

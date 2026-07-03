@@ -45,8 +45,7 @@ CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, r
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}, "severity": {"fast": true}, "category": {"fast": true}}',
-    numeric_fields = '{"response_time": {"fast": true}, "status_code": {"fast": true}}',
-    datetime_fields = '{"timestamp": {"fast": true}}'
+    numeric_fields = '{"response_time": {"fast": true}, "status_code": {"fast": true}}'
 );
 -- Test 1: Simple custom agg with terms aggregation (without search query - should fail gracefully or not be intercepted)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -91,12 +90,13 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
@@ -237,13 +237,14 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
          Full Index Scan: true
          Tantivy Query: "all"
-(12 rows)
+(13 rows)
 
 -- Execute the query - should work now with custom scan
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
@@ -279,12 +280,13 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
          Tantivy Query: {"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}}
-(11 rows)
+(12 rows)
 
 -- Execute the query - should work with custom scan
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
@@ -559,15 +561,15 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(response_time), CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"response_time","missing":null}},"1":{"avg":{"field":"response_time","missing":null}},"2":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"response_time","missing":null,"none_if_no_match":true}},"1":{"avg":{"field":"response_time","missing":null}},"2":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT category,
@@ -800,12 +802,13 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
@@ -840,12 +843,13 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *,
        COUNT(*) OVER () AS total_count,
@@ -879,12 +883,13 @@ ORDER BY response_time DESC LIMIT 5;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: response_time desc
             TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
@@ -1077,7 +1082,7 @@ WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}]}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}}}
 (6 rows)
@@ -1100,7 +1105,7 @@ WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}]}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}}}
 (6 rows)
@@ -1340,12 +1345,13 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, unindexed_metric, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
@@ -1442,8 +1448,8 @@ ORDER BY timestamp DESC
 LIMIT 1;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.01 rows=1 width=76)
-   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
+ Limit  (cost=10.00..10.12 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.12 rows=1 width=76)
          Table: logs
          Index: logs_idx
          Segment Count: 1
@@ -1473,8 +1479,8 @@ ORDER BY timestamp DESC
 LIMIT 1;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.01 rows=1 width=76)
-   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
+ Limit  (cost=10.00..10.12 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.12 rows=1 width=76)
          Table: logs
          Index: logs_idx
          Segment Count: 1
@@ -2057,12 +2063,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_value
 FROM mvcc_test
@@ -2090,12 +2097,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_value
 FROM mvcc_test
@@ -2123,12 +2131,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_value
 FROM mvcc_test
@@ -2155,12 +2164,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS category_counts
 FROM mvcc_test
@@ -2190,12 +2200,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *,
        pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_no_mvcc,
@@ -2305,12 +2316,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"value","ranges":[{"to":200},{"to":400,"from":200},{"from":400}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"range": {"field": "value", "ranges": [{"to": 200}, {"from": 200, "to": 400}, {"from": 400}]}}'::jsonb, false) OVER () AS value_ranges
 FROM mvcc_test

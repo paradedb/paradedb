@@ -63,9 +63,14 @@ To publish a patch for an older release:
 
 ## Post-Release Steps
 
-1. **Verify** that the GitHub Release and GitHub Tag properly created and that all jobs completed.
-2. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `0.20.0` or `0.20.0-rc.1`).
-3. **Merge** that PR so `main` reflects ongoing work.
-4. **Release** `paradedb/paradedb-enterprise`, `paradedb/charts` and `paradedb/terraform-paradedb-byoc`. More context to come here as we automate more of the release flow.
+1. **Verify** that the GitHub Release and GitHub Tag properly created and that all jobs completed successfully.
+2. **Release** `paradedb/paradedb-enterprise` by following the instructions in the repository's RELEASE.md file.
+3. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `0.24.2` if the previous version was `0.24.1`), run `cargo check` to refresh `Cargo.lock`, and merge it so `main` reflects ongoing work.
+
+> [!IMPORTANT]
+> **Do step 3 before merging any new schema work.** Until `main` is bumped, the
+> current upgrade script targets the version you just released, so it's frozen —
+> changes added to it never reach users already on that version. The
+> **Check Released Migrations** CI guard enforces this.
 
 That's it! Go for a walk, you deserve it.

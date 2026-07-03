@@ -29,7 +29,7 @@ permissions:
   attestations: write
 
 jobs:
-  publish-pg_search:
+  publish-pg_search-ubuntu:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     # Compute-optimized c-family — Rust release build is CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
@@ -163,7 +163,7 @@ jobs:
         run: DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -222,7 +222,7 @@ jobs:
 
       - name: Cache pgrx binary
         id: cache-pgrx
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-pgrx
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-ubuntu

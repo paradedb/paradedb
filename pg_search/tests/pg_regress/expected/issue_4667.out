@@ -61,14 +61,13 @@ LIMIT 26;
                              : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0]
                              :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
                              :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
-                             :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@1)]
+                             :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
                              :         VisibilityFilterExec: tables=[p]
                              :           CooperativeExec
                              :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-                             :         VisibilityFilterExec: tables=[c]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query="all"
-(28 rows)
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(27 rows)
 
 SELECT DISTINCT
     p.id AS id,
@@ -113,13 +112,14 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c,
                Filter: ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 1).col1)))
                Table: people
                Index: people_search_idx
+               Worker Selection: Row-capped
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                SubPlan 1
                  ->  Seq Scan on public.companies c
                        Output: c.id
-(16 rows)
+(17 rows)
 
 SELECT DISTINCT
     p.id AS id,

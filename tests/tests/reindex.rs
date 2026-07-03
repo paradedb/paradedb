@@ -15,13 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use anyhow::Result;
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
@@ -248,8 +246,7 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
         }',
         numeric_fields='{"rating": {}}',
         boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}',
-        datetime_fields='{"created_at": {}, "last_updated_date": {}}'
+        json_fields='{"metadata": {}}'
     )"#.execute(&mut conn);
 
     // Query using the new index

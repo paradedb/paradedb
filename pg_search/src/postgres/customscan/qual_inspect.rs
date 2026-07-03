@@ -266,6 +266,220 @@ impl Qual {
     }
 }
 
+fn generic_negation(input: SearchQueryInput) -> SearchQueryInput {
+    SearchQueryInput::Boolean {
+        must: vec![SearchQueryInput::All],
+        should: Default::default(),
+        must_not: vec![input],
+        minimum_should_match: None,
+    }
+}
+
+/// Caches the index relation opened while negating a `WithIndex` query tree so
+/// schema lookups are not repeated for every negated leaf.
+struct NegationContext {
+    index_oid: Option<pg_sys::Oid>,
+    index_relation: Option<PgSearchRelation>,
+}
+
+impl NegationContext {
+    fn new() -> Self {
+        Self {
+            index_oid: None,
+            index_relation: None,
+        }
+    }
+
+    fn ensure_index(&mut self, oid: pg_sys::Oid) {
+        if self.index_oid != Some(oid) || self.index_relation.is_none() {
+            self.index_oid = Some(oid);
+            self.index_relation = Some(PgSearchRelation::with_lock(
+                oid,
+                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+            ));
+        }
+    }
+
+    fn index_relation(&self) -> Option<&PgSearchRelation> {
+        self.index_relation.as_ref()
+    }
+}
+
+/// Whether the null-preserving existence guard is valid for this field.
+///
+/// The guard equates "field absent from the index" with SQL NULL, which is only
+/// correct for scalar fast fields. Array and JSON columns can be non-NULL in
+/// SQL while having no indexed values (e.g. `'{}'::text[]`, `'{}'::jsonb`).
+fn field_supports_null_preserving_guard(
+    index_relation: &PgSearchRelation,
+    field: &crate::api::FieldName,
+) -> bool {
+    let Ok(schema) = index_relation.schema() else {
+        return false;
+    };
+    let root = field.root();
+    let Some(search_field) = schema.search_field(&root) else {
+        return false;
+    };
+    if !search_field.is_fast() {
+        return false;
+    }
+
+    let categorized = schema.categorized_fields();
+    categorized
+        .iter()
+        .find(|(sf, _)| sf.field_name().root() == root)
+        .is_none_or(|(_, data)| !data.is_array && !data.is_json)
+}
+
+/// Existence guard for null-preserving negation, scored at 0.0 so it does not
+/// shift relative rankings inside boolean `should` clauses.
+fn null_preserving_exists_guard(field: &crate::api::FieldName) -> SearchQueryInput {
+    SearchQueryInput::ConstScore {
+        query: Box::new(SearchQueryInput::FieldedQuery {
+            field: field.root().into(),
+            query: pdb::Query::Exists,
+        }),
+        score: 0.0,
+    }
+}
+
+/// Negate a `SearchQueryInput` while preserving PostgreSQL's three-valued NULL
+/// semantics.
+///
+/// For a fielded predicate, `NOT (field @@@ q)` must exclude rows where `field`
+/// is NULL (i.e. not indexed). We express this as `field exists AND NOT q`,
+/// which requires an `Exists` query on `field`. Since `Exists` is only available
+/// on fast fields, we only add the existence guard when `field` is fast;
+/// otherwise we fall back to the generic negation (the historical behavior),
+/// which keeps non-fast fields working at the cost of NULL-exactness.
+///
+/// An `Exists` query is special-cased: negating "field exists" must return the
+/// rows where the field is *missing*, so it never gets an existence guard (that
+/// would produce `exists AND NOT exists`, which is unsatisfiable).
+///
+/// `index_oid` carries the index from the enclosing `WithIndex` wrapper so the
+/// recursion can resolve whether a field is fast.
+fn negate_fielded_input(input: SearchQueryInput, ctx: &mut NegationContext) -> SearchQueryInput {
+    match input {
+        SearchQueryInput::WithIndex { oid, query } => {
+            ctx.ensure_index(oid);
+            SearchQueryInput::WithIndex {
+                oid,
+                query: Box::new(negate_fielded_input(*query, ctx)),
+            }
+        }
+        SearchQueryInput::FieldedQuery { field, query } => {
+            // Negating an existence check must return rows where the field is
+            // missing, so it never gets an existence guard. Any other fielded
+            // predicate gets the guard on eligible scalar fast fields so NULLs
+            // are excluded; otherwise we fall back to the generic negation.
+            if !matches!(query, pdb::Query::Exists)
+                && ctx
+                    .index_relation()
+                    .is_some_and(|rel| field_supports_null_preserving_guard(rel, &field))
+            {
+                SearchQueryInput::Boolean {
+                    must: vec![null_preserving_exists_guard(&field)],
+                    should: Default::default(),
+                    must_not: vec![SearchQueryInput::FieldedQuery { field, query }],
+                    minimum_should_match: None,
+                }
+            } else {
+                generic_negation(SearchQueryInput::FieldedQuery { field, query })
+            }
+        }
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+            ..
+        } if must_not.is_empty() => {
+            if should.is_empty() {
+                SearchQueryInput::Boolean {
+                    must: Default::default(),
+                    should: must
+                        .into_iter()
+                        .map(|query| negate_fielded_input(query, ctx))
+                        .collect(),
+                    must_not: Default::default(),
+                    minimum_should_match: None,
+                }
+            } else if must.is_empty() {
+                SearchQueryInput::Boolean {
+                    must: should
+                        .into_iter()
+                        .map(|query| negate_fielded_input(query, ctx))
+                        .collect(),
+                    should: Default::default(),
+                    must_not: Default::default(),
+                    minimum_should_match: None,
+                }
+            } else {
+                generic_negation(SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                    minimum_should_match: None,
+                })
+            }
+        }
+        other => generic_negation(other),
+    }
+}
+
+fn negated_search_query_input(qual: &Qual) -> SearchQueryInput {
+    negated_search_query_input_with_context(qual, &mut NegationContext::new())
+}
+
+fn negated_search_query_input_with_context(
+    qual: &Qual,
+    ctx: &mut NegationContext,
+) -> SearchQueryInput {
+    match qual {
+        Qual::PushdownVarEqTrue { field } => SearchQueryInput::from(&Qual::PushdownVarEqFalse {
+            field: field.clone(),
+        }),
+        Qual::PushdownVarEqFalse { field } => SearchQueryInput::from(&Qual::PushdownVarEqTrue {
+            field: field.clone(),
+        }),
+        Qual::ExternalVar | Qual::ExternalExpr => SearchQueryInput::All,
+        Qual::Not(inner) => SearchQueryInput::from(inner.as_ref()),
+        Qual::And(quals)
+            if !qual.contains_external_var()
+                && !qual.contains_heap_expr()
+                && !qual.contains_score_exprs() =>
+        {
+            SearchQueryInput::Boolean {
+                must: Default::default(),
+                should: quals
+                    .iter()
+                    .map(|q| negated_search_query_input_with_context(q, ctx))
+                    .collect(),
+                must_not: Default::default(),
+                minimum_should_match: None,
+            }
+        }
+        Qual::Or(quals)
+            if !qual.contains_external_var()
+                && !qual.contains_heap_expr()
+                && !qual.contains_score_exprs() =>
+        {
+            SearchQueryInput::Boolean {
+                must: quals
+                    .iter()
+                    .map(|q| negated_search_query_input_with_context(q, ctx))
+                    .collect(),
+                should: Default::default(),
+                must_not: Default::default(),
+                minimum_should_match: None,
+            }
+        }
+        Qual::OpExpr { .. } => negate_fielded_input(SearchQueryInput::from(qual), ctx),
+        _ => generic_negation(SearchQueryInput::from(qual)),
+    }
+}
+
 impl From<&Qual> for SearchQueryInput {
     #[track_caller]
     fn from(value: &Qual) -> Self {
@@ -307,6 +521,7 @@ impl From<&Qual> for SearchQueryInput {
                             must,
                             should,
                             must_not: vec![],
+                            minimum_should_match: None,
                         }
                     }
                 } else {
@@ -456,6 +671,7 @@ impl From<&Qual> for SearchQueryInput {
                     must,
                     should: vec![],
                     must_not: vec![],
+                    minimum_should_match: None,
                 };
 
                 // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
@@ -484,55 +700,17 @@ impl From<&Qual> for SearchQueryInput {
                         must: Default::default(),
                         should: Default::default(),
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                     _ => SearchQueryInput::Boolean {
                         must: Default::default(),
                         should,
                         must_not: Default::default(),
+                        minimum_should_match: None,
                     },
                 }
             }
-            Qual::Not(qual) => {
-                // Special handling for boolean fields to correctly handle NULL values
-                match qual.as_ref() {
-                    // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
-                    // rather than using must_not, to avoid including NULLs
-                    // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqTrue { field } => Self::from(&Qual::PushdownVarEqFalse {
-                        field: field.clone(),
-                    }),
-                    // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
-                    // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
-                        field: field.clone(),
-                    }),
-
-                    // If the Qual represents a placeholder to another Var elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalVar => SearchQueryInput::All,
-
-                    // If the Qual represents a placeholder to another Expr elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalExpr => SearchQueryInput::All,
-
-                    // For other types of negation, use the standard Boolean query with must_not
-                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
-                    // NULL values differently than when negating equality operators
-                    _ => {
-                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
-
-                        SearchQueryInput::Boolean {
-                            must: vec![SearchQueryInput::All],
-                            should: Default::default(),
-                            must_not,
-                        }
-                    }
-                }
-            }
+            Qual::Not(qual) => negated_search_query_input(qual.as_ref()),
         }
     }
 }
@@ -979,54 +1157,47 @@ unsafe fn opexpr(
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
-            // direct support for pdb.score() in the WHERE clause
-            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
-            if !score_funcoids().contains(&(*funcexpr).funcid) {
-                return node_opexpr(
-                    context,
-                    rti,
-                    ri_type,
-                    indexrel,
-                    state,
-                    opexpr,
-                    lhs,
-                    rhs,
-                    convert_external_to_special_qual,
-                    attempt_pushdown,
-                );
-            }
+            if crate::postgres::utils::is_search_operator(lhs, &score_funcoids()) {
+                state.uses_our_operator = true;
 
-            state.uses_our_operator = true;
-
-            if is_complex(rhs) {
-                return None;
-            }
-
-            Some(Qual::ScoreExpr {
-                opoid: opexpr.opno(),
-                value: rhs,
-            })
-        }
-        pg_sys::NodeTag::T_PlaceHolderVar => {
-            // PlaceHolderVar may wrap a score function when the query has joins or aggregates.
-            // We need to unwrap it to check if it's a score expression.
-            let phv = nodecast!(PlaceHolderVar, T_PlaceHolderVar, lhs)?;
-            let phexpr = (*phv).phexpr;
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, phexpr) {
-                if score_funcoids().contains(&(*funcexpr).funcid) {
-                    state.uses_our_operator = true;
-
-                    if is_complex(rhs) {
-                        return None;
-                    }
-
-                    return Some(Qual::ScoreExpr {
-                        opoid: opexpr.opno(),
-                        value: rhs,
-                    });
+                if is_complex(rhs) {
+                    return None;
                 }
+
+                return Some(Qual::ScoreExpr {
+                    opoid: opexpr.opno(),
+                    value: rhs,
+                });
             }
-            // Not a score function - fall through to pushdown
+
+            node_opexpr(
+                context,
+                rti,
+                ri_type,
+                indexrel,
+                state,
+                opexpr,
+                lhs,
+                rhs,
+                convert_external_to_special_qual,
+                attempt_pushdown,
+            )
+        }
+
+        pg_sys::NodeTag::T_PlaceHolderVar => {
+            if crate::postgres::utils::is_search_operator(lhs, &score_funcoids()) {
+                state.uses_our_operator = true;
+
+                if is_complex(rhs) {
+                    return None;
+                }
+
+                return Some(Qual::ScoreExpr {
+                    opoid: opexpr.opno(),
+                    value: rhs,
+                });
+            }
+
             if attempt_pushdown {
                 try_pushdown(
                     context,
@@ -1801,6 +1972,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                         must: indexed_queries.clone(),
                         should: vec![],
                         must_not: vec![],
+                        minimum_should_match: None,
                     };
                 }
             }
@@ -2006,6 +2178,171 @@ mod tests {
         assert_eq!(got, want);
     }
 
+    #[pg_test]
+    fn test_negated_fielded_query_adds_exists_guard() {
+        // `Exists` is only available on fast fields, so the existence guard that
+        // preserves NULL semantics should only be added when the negated field
+        // is fast. A non-fast field must fall back to the generic negation.
+        Spi::run(
+            r#"
+            CREATE TABLE exists_guard_test (
+                id SERIAL8 PRIMARY KEY,
+                color TEXT,
+                description TEXT
+            );
+            CREATE INDEX exists_guard_test_idx ON exists_guard_test
+            USING bm25 (id, color, description) WITH (
+                key_field = 'id',
+                text_fields = '{
+                    "color": {"tokenizer": {"type": "keyword"}, "fast": true},
+                    "description": {}
+                }'
+            );
+            "#,
+        )
+        .unwrap();
+
+        let index_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'exists_guard_test_idx'::regclass::oid;")
+                .expect("spi should succeed")
+                .expect("index oid should exist");
+
+        let negate_for = |field: &str, query: pdb::Query| -> SearchQueryInput {
+            let const_value = SearchQueryInput::WithIndex {
+                oid: index_oid,
+                query: Box::new(SearchQueryInput::FieldedQuery {
+                    field: field.into(),
+                    query,
+                }),
+            }
+            .into_datum()
+            .unwrap();
+
+            let qual = Qual::Not(Box::new(Qual::OpExpr {
+                lhs: std::ptr::null_mut(),
+                opno: pg_sys::Oid::INVALID,
+                val: unsafe {
+                    pg_sys::makeConst(
+                        searchqueryinput_typoid(),
+                        -1,
+                        pg_sys::Oid::INVALID,
+                        -1,
+                        const_value,
+                        false,
+                        false,
+                    )
+                },
+                scalar_array_use_or: None,
+            }));
+
+            SearchQueryInput::from(&qual)
+        };
+
+        let term_blue = || pdb::Query::Term {
+            value: PdbOwnedValue::Str("blue".into()),
+        };
+
+        // Fast field: the existence guard is added so NULLs are excluded.
+        let fast = negate_for("color", term_blue());
+        let want_fast = SearchQueryInput::WithIndex {
+            oid: index_oid,
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::ConstScore {
+                    query: Box::new(SearchQueryInput::FieldedQuery {
+                        field: "color".into(),
+                        query: pdb::Query::Exists,
+                    }),
+                    score: 0.0,
+                }],
+                should: vec![],
+                must_not: vec![SearchQueryInput::FieldedQuery {
+                    field: "color".into(),
+                    query: pdb::Query::Term {
+                        value: PdbOwnedValue::Str("blue".into()),
+                    },
+                }],
+                minimum_should_match: None,
+            }),
+        };
+        assert_eq!(fast, want_fast);
+
+        // Non-fast field: fall back to the generic negation (no existence guard).
+        let non_fast = negate_for("description", term_blue());
+        let want_non_fast = SearchQueryInput::WithIndex {
+            oid: index_oid,
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::FieldedQuery {
+                    field: "description".into(),
+                    query: pdb::Query::Term {
+                        value: PdbOwnedValue::Str("blue".into()),
+                    },
+                }],
+                minimum_should_match: None,
+            }),
+        };
+        assert_eq!(non_fast, want_non_fast);
+
+        // Negating an `Exists` query (even on a fast field) must NOT add an
+        // existence guard, otherwise the result is the unsatisfiable
+        // `exists AND NOT exists`. It should be the generic negation, which
+        // returns the rows where the field is missing.
+        let negated_exists = negate_for("color", pdb::Query::Exists);
+        let want_negated_exists = SearchQueryInput::WithIndex {
+            oid: index_oid,
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::FieldedQuery {
+                    field: "color".into(),
+                    query: pdb::Query::Exists,
+                }],
+                minimum_should_match: None,
+            }),
+        };
+        assert_eq!(negated_exists, want_negated_exists);
+    }
+
+    #[pg_test]
+    fn test_negated_and_uses_de_morgan() {
+        let qual = Qual::Not(Box::new(Qual::And(vec![
+            Qual::PushdownVarEqTrue {
+                field: PushdownField::new("a"),
+            },
+            Qual::PushdownVarIsTrue {
+                field: PushdownField::new("b"),
+            },
+        ])));
+
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![
+                SearchQueryInput::FieldedQuery {
+                    field: "a".into(),
+                    query: pdb::Query::Term {
+                        value: PdbOwnedValue::Bool(false),
+                    },
+                },
+                SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: vec![],
+                    must_not: vec![SearchQueryInput::FieldedQuery {
+                        field: "b".into(),
+                        query: pdb::Query::Term {
+                            value: PdbOwnedValue::Bool(true),
+                        },
+                    }],
+                    minimum_should_match: None,
+                },
+            ],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        assert_eq!(got, want);
+    }
+
     fn arb_leaf() -> impl Strategy<Value = Qual> {
         prop_oneof![
             Just(Qual::All),
@@ -2076,6 +2413,7 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => should.is_empty() && must_not.is_empty() && quals.len() == must.len(),
 
@@ -2086,18 +2424,62 @@ mod tests {
                     must,
                     should,
                     must_not,
+                    ..
                 },
             ) => must.is_empty() && must_not.is_empty() && quals.len() == should.len(),
 
-            // Match NOT clauses
+            // Double negation: NOT(NOT(x)) is converted directly to the
+            // conversion of x (the two negations cancel out).
+            (Qual::Not(inner), converted) if matches!(inner.as_ref(), Qual::Not(_)) => {
+                let Qual::Not(inner_inner) = inner.as_ref() else {
+                    unreachable!()
+                };
+                is_logical_equivalent(inner_inner.as_ref(), converted)
+            }
+
+            // Match negation of AND via De Morgan: NOT(a AND b) => (NOT a) OR (NOT b),
+            // represented as a Boolean with `should` clauses, one per negated child.
             (
-                Qual::Not(_inner),
+                Qual::Not(inner),
                 SearchQueryInput::Boolean {
                     must,
-                    should: _,
+                    should,
                     must_not,
+                    ..
                 },
-            ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
+            ) if matches!(inner.as_ref(), Qual::And(_)) => {
+                let Qual::And(quals) = inner.as_ref() else {
+                    unreachable!()
+                };
+                must.is_empty()
+                    && must_not.is_empty()
+                    && should.len() == quals.len()
+                    && quals.iter().zip(should.iter()).all(|(qual, sub)| {
+                        is_logical_equivalent(&Qual::Not(Box::new(qual.clone())), sub)
+                    })
+            }
+
+            // Match negation of OR via De Morgan: NOT(a OR b) => (NOT a) AND (NOT b),
+            // represented as a Boolean with `must` clauses, one per negated child.
+            (
+                Qual::Not(inner),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                    ..
+                },
+            ) if matches!(inner.as_ref(), Qual::Or(_)) => {
+                let Qual::Or(quals) = inner.as_ref() else {
+                    unreachable!()
+                };
+                should.is_empty()
+                    && must_not.is_empty()
+                    && must.len() == quals.len()
+                    && quals.iter().zip(must.iter()).all(|(qual, sub)| {
+                        is_logical_equivalent(&Qual::Not(Box::new(qual.clone())), sub)
+                    })
+            }
 
             // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
             (
@@ -2128,6 +2510,17 @@ mod tests {
             ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == *f) => {
                 true
             }
+
+            // Generic negation: NOT(x) => Boolean { must: [All], must_not: [x] }
+            (
+                Qual::Not(_inner),
+                SearchQueryInput::Boolean {
+                    must,
+                    should: _,
+                    must_not,
+                    ..
+                },
+            ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 
             _ => false,
         }

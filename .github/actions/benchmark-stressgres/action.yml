@@ -182,6 +182,7 @@ runs:
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
 
     - name: Print Postgres Logs
+      if: always()
       shell: bash
       run: |
         for f in `ls /tmp/stressgres/*.log`; do

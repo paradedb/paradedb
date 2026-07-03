@@ -38,8 +38,7 @@ USING bm25 (id, description, rating, created_at)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}',
-    numeric_fields = '{"rating": {"fast": true}}',
-    datetime_fields = '{"created_at": {"fast": true}}'
+    numeric_fields = '{"rating": {"fast": true}}'
 );
 -- =====================================================================
 -- SECTION 1: Valid field references (should succeed)
@@ -114,9 +113,9 @@ WHERE id @@@ pdb.all();
 SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-                                               agg                                                
---------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 1702944000000.0, "doc_count": 5, "key_as_string": "2023-12-19T00:00:00Z"}]}
+                                                agg                                                 
+----------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 756259200000000.0, "doc_count": 5, "key_as_string": "2023-12-19T00:00:00Z"}]}
 (1 row)
 
 -- Test 4: Valid field in window function context
@@ -133,12 +132,13 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, rating, created_at, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mock_items
          Index: mock_items_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+(12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM mock_items
@@ -242,6 +242,76 @@ ERROR:  Aggregation references invalid field 'nonexistent_field'. Available inde
 -- Test 15: Invalid nested field via paradedb.aggregate() - should error
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
 ERROR:  Aggregation references invalid field 'no_such_field'. Available indexed fields are: [created_at, description, id, rating]
+-- =====================================================================
+-- SECTION 6: Single-value metrics on datetime fields
+-- These should attach a `key_as_string` ISO timestamp next to the raw
+-- i64 micros `value`, mirroring the bucket key_as_string convention.
+-- =====================================================================
+-- Test 16: min on a datetime field
+SELECT pdb.agg('{"min": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+                                  agg                                  
+-----------------------------------------------------------------------
+ {"value": 757418400000000.0, "key_as_string": "2024-01-01T10:00:00Z"}
+(1 row)
+
+-- Test 17: max on a datetime field
+SELECT pdb.agg('{"max": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+                                  agg                                  
+-----------------------------------------------------------------------
+ {"value": 757778400000000.0, "key_as_string": "2024-01-05T14:00:00Z"}
+(1 row)
+
+-- Test 18: avg on a datetime field
+SELECT pdb.agg('{"avg": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+                                  agg                                  
+-----------------------------------------------------------------------
+ {"value": 757598400000000.0, "key_as_string": "2024-01-03T12:00:00Z"}
+(1 row)
+
+-- Test 19: sum on a datetime field (also gets key_as_string even though it's
+-- not a meaningful timestamp — the rewriter applies uniformly across min/max/sum/avg)
+SELECT pdb.agg('{"sum": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+                                  agg                                   
+------------------------------------------------------------------------
+ {"value": 3787992000000000.0, "key_as_string": "2120-01-14T12:00:00Z"}
+(1 row)
+
+-- Test 20: single-value metric on a non-datetime field — no key_as_string
+SELECT pdb.agg('{"min": {"field": "rating"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+      agg       
+----------------
+ {"value": 3.0}
+(1 row)
+
+-- Test 21: nested sub-agg: terms over rating with a min on the datetime field —
+-- the sub-agg should also pick up key_as_string
+SELECT sort_agg_buckets(agg) FROM (
+    SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"earliest": {"min": {"field": "created_at"}}}}'::jsonb) as agg
+    FROM mock_items
+    WHERE id @@@ pdb.all()
+) sub;
+                                                                                                                                                                                                    sort_agg_buckets                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 3, "earliest": {"value": 757598400000000.0, "key_as_string": "2024-01-03T12:00:00Z"}, "doc_count": 1}, {"key": 4, "earliest": {"value": 757508400000000.0, "key_as_string": "2024-01-02T11:00:00Z"}, "doc_count": 2}, {"key": 5, "earliest": {"value": 757418400000000.0, "key_as_string": "2024-01-01T10:00:00Z"}, "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 22: same key_as_string behavior via paradedb.aggregate() direct API
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"first_seen": {"min": {"field": "created_at"}}}');
+                                       aggregate                                       
+---------------------------------------------------------------------------------------
+ {"first_seen": {"value": 757418400000000.0, "key_as_string": "2024-01-01T10:00:00Z"}}
+(1 row)
+
 -- Cleanup
 DROP TABLE mock_items CASCADE;
 DROP FUNCTION sort_agg_buckets(jsonb);

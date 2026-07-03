@@ -30,7 +30,6 @@
 //! [`crate::postgres::types_arrow`] — this module is a consumer, not an
 //! implementer of type conversions.
 
-use std::any::Any;
 use std::sync::OnceLock;
 
 use datafusion::arrow::array::*;
@@ -308,10 +307,6 @@ macro_rules! eval_expr_to_arrow {
 }
 
 impl ScalarUDFImpl for PgExprUdf {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn name(&self) -> &str {
         &self.name
     }

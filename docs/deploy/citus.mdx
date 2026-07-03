@@ -30,6 +30,11 @@ sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_se
 ```
 
 <Note>
+  Match the Citus version to your Postgres major version: Citus 13 supports
+  Postgres 15–17, and Citus 14 supports Postgres 16–18.
+</Note>
+
+<Note>
   The order in `shared_preload_libraries` matters. Always list `citus` before
   `pg_search` to ensure proper planner hook chaining.
 </Note>

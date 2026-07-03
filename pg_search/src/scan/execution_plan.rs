@@ -28,7 +28,6 @@
 //! For sorted scans, `create_sorted_scan` can be used to wrap the plan in a
 //! `SortPreservingMergeExec` to merge sorted outputs from multiple segments.
 
-use std::any::Any;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -373,6 +372,7 @@ impl PgSearchScanPlan {
         buf: &[u8],
         parallel_state: Option<*mut ParallelScanState>,
         non_partitioning_segment_ids: &[HashSet<SegmentId>],
+        expr_context: Option<*mut pg_sys::ExprContext>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
@@ -428,8 +428,10 @@ impl PgSearchScanPlan {
             query.clone(),
             descriptor.score_needed,
             mvcc,
-            None, // expr_context: the query ships pre-solved
-            None, // planstate: same
+            expr_context.and_then(std::ptr::NonNull::new),
+            // TODO: MPP is currently disabled when a scan requires parameter solving: see
+            // https://github.com/paradedb/paradedb/issues/5445.
+            None,
             needs_tokenizer,
         )
         .map_err(|e| {
@@ -598,15 +600,11 @@ impl ExecutionPlan for PgSearchScanPlan {
         "PgSearchScan"
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
-    fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
         let num_rows = match partition {
             Some(i) => {
                 if i >= self.partition_row_counts.len() {
@@ -630,11 +628,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             .map(|_| ColumnStatistics::default())
             .collect();
 
-        Ok(Statistics {
+        Ok(Arc::new(Statistics {
             num_rows,
             total_byte_size: Precision::Absent,
             column_statistics,
-        })
+        }))
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
@@ -821,12 +819,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
 
         for filter_result in &child_pushdown_result.parent_filters {
-            if filter_result
-                .filter
-                .as_any()
-                .downcast_ref::<DynamicFilterPhysicalExpr>()
-                .is_some()
-            {
+            if filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
                 dynamic_filters.push(Arc::clone(&filter_result.filter));
                 filters.push(PushedDown::Yes);
             } else {
@@ -891,7 +884,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) -> Vec<PreFilter> {
     let mut filters = Vec::new();
     for df in dynamic_filters {
-        if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+        if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {
                 collect_filters(&current_expr, schema, &mut filters);
             }

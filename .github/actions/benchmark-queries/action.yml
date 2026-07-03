@@ -8,6 +8,9 @@ inputs:
   size:
     description: "Size label for pre-sampled dataset, e.g. '100k', '1m', '20m'"
     required: true
+  index:
+    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25, hnsw, ivfflat"
+    required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
@@ -37,12 +40,13 @@ runs:
       run: |
         POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 
-        # Pre-sampled dataset loaded from S3.
+        # The heap is assumed to already be restored from a snapshot; the benchmark builds the
+        # index and runs queries against it.
         cargo run --release -- benchmark \
           --url "${POSTGRES_URL}" \
-          --size ${{ inputs.size }} \
           --dataset ${{ inputs.dataset }} \
-          --data-source s3://paradedb-ci-benchmarks/datasets/${{ inputs.dataset }}/ \
+          --index ${{ inputs.index }} \
+          --size ${{ inputs.size }} \
           --runs 10 \
           --output json \
           --fail-on-error ${{ inputs.fail_on_error }}
@@ -69,7 +73,7 @@ runs:
     - name: Publish Benchmark Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:
-        name: "pg_search '${{ inputs.dataset }}' (${{ env.ROWS_LABEL }} rows)"
+        name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: benchmarks/results.json
@@ -92,5 +96,5 @@ runs:
         payload: |
           channel: ${{ inputs.slack_channel }}
           text: |
-            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}` (${{ env.ROWS_LABEL }} rows)
+            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}` (${{ inputs.index }}, ${{ env.ROWS_LABEL }} rows)
             <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>

@@ -15,16 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use anyhow::Result;
 use cmd_lib::run_fun;
-use fixtures::{conn, db::Query};
 use rstest::*;
 use sqlx::PgConnection;
 use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
+use tests::fixtures::{conn, db::Query};
 
 fn pg_bin_path() -> Option<PathBuf> {
     let pg_config_path = std::env::var("PG_CONFIG").ok()?;

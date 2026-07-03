@@ -17,15 +17,13 @@
 
 //! Tests for the paradedb.tokenize function
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
-fn defult_tokenizer(mut conn: PgConnection) {
+fn default_tokenizer(mut conn: PgConnection) {
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(paradedb.tokenizer('default'), 'hello world');
     "#
@@ -142,8 +140,7 @@ fn test_index_fields(mut conn: PgConnection) {
             numeric_fields='{"price": {}}',
             boolean_fields='{"in_stock": {}}',
             json_fields='{"metadata": {}}',
-            range_fields='{"price_range": {}}',
-            datetime_fields='{"created_at": {}}'
+            range_fields='{"price_range": {}}'
         );
     "#
     .execute(&mut conn);
@@ -229,19 +226,6 @@ fn test_index_fields(mut conn: PgConnection) {
     );
 
     assert!(fields.contains_key("price_range"));
-
-    // Check datetime field (created_at)
-    assert!(fields.contains_key("created_at"));
-    let date_config = fields
-        .get("created_at")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Date")
-        .unwrap()
-        .as_object()
-        .unwrap();
-    assert_eq!(date_config.get("indexed").unwrap().as_bool().unwrap(), true);
 
     // Cleanup
     r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);

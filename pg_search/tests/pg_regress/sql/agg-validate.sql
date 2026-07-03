@@ -44,8 +44,7 @@ USING bm25 (id, description, rating, created_at)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}',
-    numeric_fields = '{"rating": {"fast": true}}',
-    datetime_fields = '{"created_at": {"fast": true}}'
+    numeric_fields = '{"rating": {"fast": true}}'
 );
 
 -- =====================================================================
@@ -173,6 +172,49 @@ SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(),
 
 -- Test 15: Invalid nested field via paradedb.aggregate() - should error
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
+
+-- =====================================================================
+-- SECTION 6: Single-value metrics on datetime fields
+-- These should attach a `key_as_string` ISO timestamp next to the raw
+-- i64 micros `value`, mirroring the bucket key_as_string convention.
+-- =====================================================================
+
+-- Test 16: min on a datetime field
+SELECT pdb.agg('{"min": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+-- Test 17: max on a datetime field
+SELECT pdb.agg('{"max": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+-- Test 18: avg on a datetime field
+SELECT pdb.agg('{"avg": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+-- Test 19: sum on a datetime field (also gets key_as_string even though it's
+-- not a meaningful timestamp — the rewriter applies uniformly across min/max/sum/avg)
+SELECT pdb.agg('{"sum": {"field": "created_at"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+-- Test 20: single-value metric on a non-datetime field — no key_as_string
+SELECT pdb.agg('{"min": {"field": "rating"}}'::jsonb)
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+-- Test 21: nested sub-agg: terms over rating with a min on the datetime field —
+-- the sub-agg should also pick up key_as_string
+SELECT sort_agg_buckets(agg) FROM (
+    SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"earliest": {"min": {"field": "created_at"}}}}'::jsonb) as agg
+    FROM mock_items
+    WHERE id @@@ pdb.all()
+) sub;
+
+-- Test 22: same key_as_string behavior via paradedb.aggregate() direct API
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"first_seen": {"min": {"field": "created_at"}}}');
 
 -- Cleanup
 DROP TABLE mock_items CASCADE;

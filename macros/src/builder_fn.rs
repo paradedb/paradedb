@@ -61,7 +61,7 @@ fn build_function(item_fn: &ItemFn) -> Result<proc_macro2::TokenStream, syn::Err
     if attributes.is_empty() {
         return Err(syn::Error::new(
             item_fn.span(),
-            err("`#[builder_fn]` be attached to a function prior to the `#[pg_extern]` definition"),
+            err("`#[builder_fn]` must be attached to a function prior to the `#[pg_extern]` definition"),
         ));
     }
 

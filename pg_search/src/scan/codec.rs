@@ -246,7 +246,6 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         buf: &mut Vec<u8>,
     ) -> Result<()> {
         let provider = node
-            .as_any()
             .downcast_ref::<PgSearchTableProvider>()
             .ok_or_else(|| {
                 DataFusionError::Internal(
@@ -316,7 +315,6 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         if name == "pdb_search_predicate" {
             let udf = node
                 .inner()
-                .as_any()
                 .downcast_ref::<SearchPredicateUDF>()
                 .ok_or_else(|| {
                     DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
@@ -331,7 +329,6 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         if name.starts_with(PG_EXPR_UDF_PREFIX) {
             let udf = node
                 .inner()
-                .as_any()
                 .downcast_ref::<PgExprUdf>()
                 .ok_or_else(|| DataFusionError::Internal("UDF is not a PgExprUdf".into()))?;
             let bytes = serde_json::to_vec(udf).map_err(|e| {

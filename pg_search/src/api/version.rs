@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[allow(dead_code)]
 pub struct Version {
     pub major: u16,
@@ -23,9 +25,13 @@ pub struct Version {
     pub patch: u16,
 }
 
+/// The first pg_search version in which datetime fields are stored as i64 microseconds from the
+/// PG epoch (rather than tantivy `DateTime` nanoseconds from the Unix epoch). Used at read/write
+/// time to gate which storage representation an index uses.
+pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
+
 impl Version {
-    #[allow(dead_code)]
-    pub fn new(major: u16, minor: u16, patch: u16) -> Self {
+    pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
             major,
             minor,
@@ -37,6 +43,24 @@ impl Version {
 impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+/// Capability queries against an index's `created_by_version`. Implemented for both `Version`
+/// and `Option<Version>` so callers can dispatch on `MetaPage::created_by_version()`'s return
+/// type directly without an unwrap. `None` represents indexes built before version stamping
+/// existed; for capability checks that gate new behavior, treat `None` as "does not have it".
+pub trait VersionInfo {
+    fn stores_datetimes_in_i64(&self) -> bool;
+}
+impl VersionInfo for Version {
+    fn stores_datetimes_in_i64(&self) -> bool {
+        self >= &DATETIME_I64_STORAGE_VERSION
+    }
+}
+impl VersionInfo for Option<Version> {
+    fn stores_datetimes_in_i64(&self) -> bool {
+        self.filter(|v| v.stores_datetimes_in_i64()).is_some()
     }
 }
 

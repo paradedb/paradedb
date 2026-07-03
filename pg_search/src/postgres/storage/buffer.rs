@@ -26,6 +26,7 @@ use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::mem::size_of;
 use std::ops::Deref;
+use std::time::{Duration, Instant};
 
 /// A module to help with tracking when/where blocks are acquired and released.
 ///
@@ -291,6 +292,16 @@ impl Buffer {
             dirty: false,
             inner: Buffer::new(pg_buffer),
         })
+    }
+
+    /// Like [`Buffer::upgrade`] but bounded by `timeout`. Polls
+    /// `ConditionalLockBuffer` instead of doing an unbounded `LWLockAcquire`.
+    /// Raises a PG error on timeout. Use for contended paths where waiting
+    /// forever is worse than failing the query.
+    pub fn upgrade_with_timeout(self, bman: &mut BufferManager, timeout: Duration) -> BufferMut {
+        let blockno = self.number();
+        drop(self);
+        bman.get_buffer_mut_with_timeout(blockno, timeout)
     }
 }
 
@@ -926,6 +937,62 @@ impl BufferManager {
             style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
             dirty: false,
             inner: Buffer::new(pg_buffer),
+        }
+    }
+
+    /// Like [`Self::get_buffer_mut`] but bounded by `timeout`. Pins the buffer
+    /// and then polls `ConditionalLockBuffer` until either the EXCLUSIVE lock
+    /// is granted or the deadline passes. On timeout the pin is released and
+    /// `pgrx::error!` is raised so the query fails instead of hanging.
+    ///
+    /// Use for paths where an unbounded wait would mask a leaked lock holder
+    /// (e.g. the FSM root during parallel index work).
+    pub fn get_buffer_mut_with_timeout(
+        &mut self,
+        blockno: pg_sys::BlockNumber,
+        timeout: Duration,
+    ) -> BufferMut {
+        let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+        let start = Instant::now();
+        let warn_after = Duration::from_secs(5);
+        let mut warned = false;
+        let poll_us: std::os::raw::c_long = 1_000;
+
+        loop {
+            if unsafe { pg_sys::ConditionalLockBuffer(pg_buffer) } {
+                block_tracker::track!(Write, blockno);
+                return BufferMut {
+                    style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
+                    dirty: false,
+                    inner: Buffer::new(pg_buffer),
+                };
+            }
+
+            let elapsed = start.elapsed();
+            if elapsed >= timeout {
+                unsafe { pg_sys::ReleaseBuffer(pg_buffer) };
+                pgrx::error!(
+                    "pg_search: could not acquire EXCLUSIVE lock on blockno {} within {}s. \
+                     This usually means another backend leaked a SHARE lock on this page. \
+                     Failing the query so the system can recover instead of deadlocking.",
+                    blockno,
+                    timeout.as_secs()
+                );
+            }
+
+            if !warned && elapsed >= warn_after {
+                pgrx::warning!(
+                    "pg_search: still waiting for EXCLUSIVE lock on blockno {} after {}ms",
+                    blockno,
+                    elapsed.as_millis()
+                );
+                warned = true;
+            }
+
+            unsafe {
+                pgrx::check_for_interrupts!();
+                pg_sys::pg_usleep(poll_us);
+            }
         }
     }
 

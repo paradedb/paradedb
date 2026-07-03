@@ -19,16 +19,20 @@ use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use paradedb::{confidence_interval_half_width, mean, Window};
 use sqlx::{Connection, PgConnection, Row};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 
+mod backrest;
 mod config;
 mod convert;
 mod sample;
 mod utils;
+
+use config::{load_dataset_config, LoadFormat};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -41,10 +45,19 @@ struct Cli {
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
     Benchmark(BenchmarkArgs),
+    /// Measure recall@k of a built vector index against a held-out query set (cohere).
+    Recall(RecallArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
     /// Sample a CSV dataset to a target row count, preserving table relationships.
     Sample(sample::SampleArgs),
+    /// Load a dataset's heap without building the index or running queries, so the resulting
+    /// cluster can be captured as a snapshot (e.g. by pgBackRest).
+    LoadHeap(LoadHeapArgs),
+    /// Capture a loaded heap as a pgBackRest snapshot.
+    SnapshotHeap(backrest::SnapshotHeapArgs),
+    /// Restore a heap snapshot with pgBackRest.
+    RestoreHeap(backrest::RestoreHeapArgs),
 }
 
 #[derive(Parser)]
@@ -57,6 +70,16 @@ struct BenchmarkArgs {
     #[arg(long, default_value = "stackoverflow")]
     dataset: String,
 
+    /// Which index variant to build and benchmark (e.g. "bm25", "hnsw", "ivfflat"). Required;
+    /// resolves to `datasets/{dataset}/indexes/{index}.sql`.
+    #[arg(long)]
+    index: String,
+
+    /// Dataset size label (e.g. "1m", "10m"). Used to scale size-dependent index parameters such as
+    /// ivfflat's `lists`; only required for indexes that reference it.
+    #[arg(long)]
+    size: Option<String>,
+
     /// Whether to pre-warm the dataset using `pg_prewarm`.
     #[arg(long, default_value_t = true, num_args = 1)]
     prewarm: bool,
@@ -65,9 +88,10 @@ struct BenchmarkArgs {
     #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
-    /// Skip data setup and index creation. Assumes tables and indexes already exist.
+    /// Skip index creation (and the after-create-index hook). Assumes the index already exists;
+    /// useful for iterating on queries against an already-indexed database.
     #[arg(long, default_value_t = false)]
-    skip_setup: bool,
+    skip_index: bool,
 
     /// Number of runs to execute for each query.
     #[arg(long, default_value = "3")]
@@ -85,6 +109,17 @@ struct BenchmarkArgs {
     /// Whether to clear the OS page cache and Postgres buffer cache before each query.
     #[arg(long, default_value_t = true, num_args = 1)]
     clear_caches: bool,
+}
+
+#[derive(Parser)]
+struct LoadHeapArgs {
+    /// Postgres URL.
+    #[arg(long)]
+    url: String,
+
+    /// Dataset to load.
+    #[arg(long, default_value = "stackoverflow")]
+    dataset: String,
 
     /// Size label for the pre-sampled dataset (e.g. "10k", "100k", "1m").
     #[arg(long)]
@@ -96,26 +131,57 @@ struct BenchmarkArgs {
     data_source: Option<String>,
 }
 
+#[derive(Parser)]
+struct RecallArgs {
+    /// Postgres URL. The corpus and its vector index are assumed to already exist (built by a prior
+    /// `benchmark` run), so recall measures that exact index.
+    #[arg(long)]
+    url: String,
+
+    /// Dataset to measure recall for.
+    #[arg(long, default_value = "cohere")]
+    dataset: String,
+
+    /// Dataset size label (e.g. "1m", "10m"). Selects the precomputed ground-truth parquet
+    /// (`{data_source}/queries/ground_truth_{query}_{size}.parquet`), which is query- and
+    /// corpus-size-specific.
+    #[arg(long)]
+    size: String,
+
+    /// Base path to the held-out query + ground-truth parquets (S3 or local). Overrides s3_base_path
+    /// in config.toml; files load from `{data_source}/queries/`.
+    #[arg(long)]
+    data_source: Option<String>,
+
+    /// Query file (stem of `queries/{query}.sql`) to measure recall for. Recall runs that exact
+    /// query for each held-out vector and compares to `ground_truth_{query}_{size}.parquet`.
+    /// Defaults to the unfiltered query.
+    #[arg(long, default_value = "knn_top10_unfiltered")]
+    query: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Benchmark(args) => run_benchmark(args).await,
+        // The dataset's heap is assumed to already be present, restored from a snapshot before this
+        // run (e.g. by the CI workflow, before Postgres started). The index is (re)built by
+        // run_sql_benchmarks, gated on `--skip-index`.
+        Commands::Benchmark(args) => run_sql_benchmarks(&args).await,
+        Commands::Recall(args) => run_recall(&args).await,
         Commands::Convert(args) => convert::run_convert(args),
         Commands::Sample(args) => sample::run_sample(args),
-    }
-}
-
-async fn run_benchmark(args: BenchmarkArgs) -> anyhow::Result<()> {
-    if !args.skip_setup {
-        load_external_data(
+        // Load the heap without building the index or running queries, leaving a heap-only cluster
+        // ready to be captured as a snapshot. The benchmark job rebuilds the index after restore.
+        Commands::LoadHeap(args) => load_external_data(
             &args.url,
             &args.dataset,
             &args.size,
             args.data_source.as_deref(),
-        )?;
+        ),
+        Commands::SnapshotHeap(args) => backrest::run_snapshot_heap(args),
+        Commands::RestoreHeap(args) => backrest::run_restore_heap(args),
     }
-    run_sql_benchmarks(&args).await
 }
 
 async fn run_sql_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<()> {
@@ -134,11 +200,52 @@ pub struct QueryRunResults {
     pub num_results: usize,
 }
 
-struct IndexCreationResult {
-    duration_min_ms: f64,
-    index_name: String,
-    index_size: i64,
-    segment_count: i64,
+enum IndexCreationResult {
+    Bm25 {
+        duration_min_ms: f64,
+        index_name: String,
+        index_size: i64,
+        segment_count: i64,
+    },
+    /// Non-bm25 access methods (e.g. pgvector hnsw/ivfflat) have no segments.
+    Other {
+        duration_min_ms: f64,
+        index_name: String,
+        index_size: i64,
+    },
+}
+
+impl IndexCreationResult {
+    fn index_name(&self) -> &str {
+        match self {
+            Self::Bm25 { index_name, .. } | Self::Other { index_name, .. } => index_name,
+        }
+    }
+
+    fn duration_min_ms(&self) -> f64 {
+        match self {
+            Self::Bm25 {
+                duration_min_ms, ..
+            }
+            | Self::Other {
+                duration_min_ms, ..
+            } => *duration_min_ms,
+        }
+    }
+
+    fn index_size(&self) -> i64 {
+        match self {
+            Self::Bm25 { index_size, .. } | Self::Other { index_size, .. } => *index_size,
+        }
+    }
+
+    /// Segment count, or `None` for access methods without segments (non-bm25).
+    fn segment_count(&self) -> Option<i64> {
+        match self {
+            Self::Bm25 { segment_count, .. } => Some(*segment_count),
+            Self::Other { .. } => None,
+        }
+    }
 }
 
 struct QueryResult {
@@ -183,14 +290,105 @@ impl From<QueryResult> for JSONBenchmarkResult {
     }
 }
 
+/// Nominal row count for a size label like `100k`, `1m`, `20m`.
+fn dataset_rows(size: &str) -> anyhow::Result<i64> {
+    let s = size.trim().to_lowercase();
+    let (digits, mult) = if let Some(d) = s.strip_suffix('k') {
+        (d, 1_000)
+    } else if let Some(d) = s.strip_suffix('m') {
+        (d, 1_000_000)
+    } else {
+        (s.as_str(), 1)
+    };
+    let n: i64 = digits
+        .parse()
+        .with_context(|| format!("Invalid --size label `{size}`"))?;
+    Ok(n * mult)
+}
+
+/// The `{{ name }}` references in a template string.
+fn template_names(s: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = s;
+    while let Some(open) = rest.find("{{") {
+        let after = &rest[open + 2..];
+        let Some(close) = after.find("}}") else { break };
+        names.push(after[..close].trim().to_owned());
+        rest = &after[close + 2..];
+    }
+    names
+}
+
+/// Replace every `{{ name }}` in `s` with `vars[name]`, erroring on an unknown name.
+fn substitute_vars(s: &str, vars: &HashMap<String, String>) -> anyhow::Result<String> {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(open) = rest.find("{{") {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 2..];
+        let close = after
+            .find("}}")
+            .with_context(|| format!("Unterminated '{{{{' in `{s}`"))?;
+        let name = after[..close].trim();
+        let value = vars
+            .get(name)
+            .with_context(|| format!("Unknown template variable `{name}` in `{s}`"))?;
+        out.push_str(value);
+        rest = &after[close + 2..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// Resolve the dataset's `[params]` referenced by SQL (index DDL or query files) into concrete
+/// values. Each param is an expression over recognized variables (currently `dataset_size`, from
+/// `--size`) and is evaluated as a SQL scalar — so the SQL stays plain (e.g. per-query probes).
+async fn resolve_template_params(
+    conn: &mut PgConnection,
+    dataset: &str,
+    size: Option<&str>,
+    statements: &[String],
+) -> anyhow::Result<HashMap<String, String>> {
+    let referenced: HashSet<String> = statements.iter().flat_map(|s| template_names(s)).collect();
+    if referenced.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let (config, _) = load_dataset_config(&format!("datasets/{dataset}/config.toml"))?;
+
+    let mut vars = HashMap::new();
+    if let Some(size) = size {
+        vars.insert("dataset_size".to_owned(), dataset_rows(size)?.to_string());
+    }
+
+    let mut params = HashMap::new();
+    for name in referenced {
+        let expr = config.params.get(&name).with_context(|| {
+            format!("SQL references `{{{{ {name} }}}}` but the dataset's [params] has no `{name}`")
+        })?;
+        let expr = substitute_vars(expr, &vars).with_context(|| format!("In [params] `{name}`"))?;
+        let value: i64 = sqlx::query_scalar(&format!("SELECT ({expr})::bigint"))
+            .fetch_one(&mut *conn)
+            .await
+            .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))?;
+        params.insert(name, value.to_string());
+    }
+    Ok(params)
+}
+
 async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<IndexCreationResult>> {
     let mut conn = PgConnection::connect(&args.url)
         .await
         .with_context(|| "Failed to connect to database")?;
-    let index_sql = format!("datasets/{}/create_index.sql", args.dataset);
+    let index_sql = format!("datasets/{}/indexes/{}.sql", args.dataset, args.index);
+    let statements = queries(Path::new(&index_sql));
+    let params =
+        resolve_template_params(&mut conn, &args.dataset, args.size.as_deref(), &statements)
+            .await?;
     let mut results = Vec::new();
 
-    for statement in queries(Path::new(&index_sql)) {
+    for statement in statements {
+        let statement = substitute_vars(&statement, &params)?;
         println!("{statement}");
 
         let start = Instant::now();
@@ -201,29 +399,38 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         let duration_min_ms = start.elapsed().as_secs_f64() / 60.0;
 
         let index_name = extract_index_name(&statement).to_owned();
-
-        let row = sqlx::query(&format!(
-            "SELECT pg_relation_size('{index_name}') / (1024 * 1024)"
-        ))
+        let (index_size, amname) = sqlx::query_as::<_, (i64, String)>(
+            "SELECT pg_relation_size(c.oid) / (1024 * 1024), am.amname \
+             FROM pg_class c JOIN pg_am am ON am.oid = c.relam WHERE c.relname = $1",
+        )
+        .bind(&index_name)
         .fetch_one(&mut conn)
         .await
-        .with_context(|| "Failed to get index size")?;
-        let index_size: i64 = row.get(0);
+        .with_context(|| "Failed to get index metadata")?;
 
-        let row = sqlx::query(&format!(
-            "SELECT count(*) FROM paradedb.index_info('{index_name}')"
-        ))
-        .fetch_one(&mut conn)
-        .await
-        .with_context(|| "Failed to get segment count")?;
-        let segment_count: i64 = row.get(0);
-
-        results.push(IndexCreationResult {
-            duration_min_ms,
-            index_name,
-            index_size,
-            segment_count,
-        });
+        // `paradedb.index_info()` (segment count) only applies to pg_search (bm25) indexes;
+        // other access methods (e.g. pgvector's hnsw/ivfflat) have no segments.
+        let result = if amname == "bm25" {
+            let segment_count = sqlx::query_scalar(&format!(
+                "SELECT count(*) FROM paradedb.index_info('{index_name}')"
+            ))
+            .fetch_one(&mut conn)
+            .await
+            .with_context(|| "Failed to get segment count")?;
+            IndexCreationResult::Bm25 {
+                duration_min_ms,
+                index_name,
+                index_size,
+                segment_count,
+            }
+        } else {
+            IndexCreationResult::Other {
+                duration_min_ms,
+                index_name,
+                index_size,
+            }
+        };
+        results.push(result);
     }
 
     Ok(results)
@@ -231,17 +438,224 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
 
 async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
-    if Path::new(&after_create_index_sql).exists() {
-        let status = Command::new("psql")
-            .arg(&args.url)
-            .arg("-f")
-            .arg(&after_create_index_sql)
-            .status()
-            .with_context(|| "Failed to execute after_create_index.sql")?;
-        if !status.success() {
-            bail!("Failed to create tables from {after_create_index_sql}");
+    if !Path::new(&after_create_index_sql).exists() {
+        return Ok(());
+    }
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+
+    // Resolve `{{ params }}` (e.g. probes, sized to the dataset) and run each statement.
+    let statements = queries(Path::new(&after_create_index_sql));
+    let params =
+        resolve_template_params(&mut conn, &args.dataset, args.size.as_deref(), &statements)
+            .await?;
+    for statement in statements {
+        let statement = substitute_vars(&statement, &params)?;
+        sqlx::query(&statement)
+            .execute(&mut conn)
+            .await
+            .with_context(|| {
+                let preview: String = statement.chars().take(60).collect();
+                format!("Failed to run after_create_index statement: {preview}")
+            })?;
+    }
+    Ok(())
+}
+
+/// Database-level GUC holding the query vector that every query file orders by.
+const QVEC_GUC: &str = "cohere.qvec";
+/// Number of neighbors per query the ground truth stores (recall@k).
+const RECALL_K: usize = 10;
+
+/// Measure recall@k of an already-built vector index for one query file. Recall runs the *actual*
+/// latency query (`queries/{query}.sql`) verbatim -- including its `current_setting('cohere.qvec')`
+/// operand and any `SET` lines -- once per held-out vector, setting `cohere.qvec` to that vector
+/// each time. Running the query with the vector as a per-call *constant* (not a join parameter) is
+/// what keeps recall's query plan identical to the benchmark's: a lateral parameter can tip the
+/// planner to a different plan (e.g. a btree/GIN pre-filter + exact sort instead of the ANN index),
+/// which would make recall measure something the benchmark never runs. The returned top-k is
+/// intersected with the precomputed exact top-k in `ground_truth_{query}_{size}.parquet`. Assumes
+/// the corpus and its index already exist (from a prior `benchmark` run).
+async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
+    let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
+    if !Path::new(&recall_sql).exists() {
+        bail!("Dataset '{}' has no recall.sql", args.dataset);
+    }
+    let query_file = format!("datasets/{}/queries/{}.sql", args.dataset, args.query);
+    if !Path::new(&query_file).exists() {
+        bail!("No query file at {query_file}; --query must name a queries/<query>.sql file");
+    }
+    let config_path = format!("datasets/{}/config.toml", args.dataset);
+    let (config, _) = config::load_dataset_config(&config_path)
+        .with_context(|| format!("Failed to load config '{config_path}'"))?;
+
+    let base = args
+        .data_source
+        .as_deref()
+        .or(config.s3_base_path.as_deref())
+        .with_context(|| {
+            format!(
+                "Dataset '{}' has no S3 base path. Provide --data-source or set s3_base_path in \
+                 datasets/{}/config.toml",
+                args.dataset, args.dataset
+            )
+        })?;
+    let base = base.trim_end_matches('/');
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+
+    // Parse the query file: resolve its `{{ param }}` references (per-query probes/ef_search scaled
+    // by dataset_size), then split into the `SET` statements (operating point, applied to the
+    // session) and the single kNN query. A file may hold multiple variants (the benchmark runs all
+    // of them -- see benchmark_queries); recall measures only the FIRST variant (the one the
+    // benchmark labels with the bare file stem), so later variants' queries and SETs don't leak in.
+    // Splitting on `;` handles the inline `SET ...; SELECT ...` compound the harness uses. The query
+    // is run verbatim per held-out vector, so it must order by current_setting('cohere.qvec') --
+    // that lets recall vary the vector without changing the query (and thus its plan).
+    let raw_statements = queries(Path::new(&query_file));
+    let params =
+        resolve_template_params(&mut conn, &args.dataset, Some(&args.size), &raw_statements)
+            .await?;
+    let first_variant = raw_statements
+        .first()
+        .with_context(|| format!("Query file {query_file} is empty"))?;
+    let mut set_statements = Vec::new();
+    let mut knn_query = None;
+    for part in substitute_vars(first_variant, &params)?.split(';') {
+        let part = part.trim().to_string();
+        if part.is_empty() {
+            continue;
+        }
+        if part.to_uppercase().starts_with("SET ") {
+            set_statements.push(part);
+        } else {
+            knn_query = Some(part);
         }
     }
+    let knn_query =
+        knn_query.with_context(|| format!("Query file {query_file} has no query to score"))?;
+    if !knn_query.contains(&format!("current_setting('{QVEC_GUC}')")) {
+        bail!(
+            "Query file {query_file} does not order by current_setting('{QVEC_GUC}'); recall cannot \
+             vary the query vector for it"
+        );
+    }
+
+    // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
+    // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
+    let mut fixtures = vec![
+        (
+            "cohere_queries",
+            format!("{base}/queries/cohere_queries.parquet"),
+        ),
+        (
+            "recall_gt",
+            format!(
+                "{base}/queries/ground_truth_{}_{}.parquet",
+                args.query, args.size
+            ),
+        ),
+    ];
+
+    // Create the fixture tables (recall.sql) and load each from parquet right after its CREATE.
+    // (Keying on the CREATE statement, not table existence, avoids loading a leftover table from a
+    // prior run before recall.sql drops/recreates it.)
+    for statement in queries(Path::new(&recall_sql)) {
+        sqlx::query(&statement)
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
+        let is_create = statement.to_lowercase().contains("create table");
+        let mut pending = Vec::new();
+        for (table, source) in fixtures {
+            if is_create && statement.contains(table) {
+                println!("Loading {table} from {source}...");
+                load_parquet_into(&args.url, table, &source)?;
+            } else {
+                pending.push((table, source));
+            }
+        }
+        fixtures = pending;
+    }
+    if !fixtures.is_empty() {
+        let missing: Vec<_> = fixtures.iter().map(|(t, _)| *t).collect();
+        bail!(
+            "recall.sql did not create expected table(s): {}",
+            missing.join(", ")
+        );
+    }
+
+    // Apply the query file's SET statements so recall runs at the latency query's operating point.
+    for stmt in &set_statements {
+        sqlx::query(stmt)
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
+    }
+
+    // Held-out query vectors (as pgvector text, ready to assign to cohere.qvec) and the exact ground
+    // truth, keyed by query id.
+    let vectors: Vec<(i32, String)> =
+        sqlx::query_as("SELECT id, emb::text FROM cohere_queries ORDER BY id")
+            .fetch_all(&mut conn)
+            .await
+            .with_context(|| "Failed to read cohere_queries")?;
+    let ground_truth: HashMap<i32, HashSet<String>> =
+        sqlx::query_as::<_, (i32, Vec<String>)>("SELECT query_id, gt_ids FROM recall_gt")
+            .fetch_all(&mut conn)
+            .await
+            .with_context(|| "Failed to read recall_gt")?
+            .into_iter()
+            .map(|(id, ids)| (id, ids.into_iter().collect()))
+            .collect();
+
+    // For each held-out vector, set cohere.qvec then run the latency query verbatim via the simple
+    // protocol (matching the benchmark, so the planner picks the same plan), and intersect its
+    // top-k with the exact ground truth.
+    let mut total_hits = 0usize;
+    for (id, emb_text) in &vectors {
+        sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{emb_text}';"))
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to set {QVEC_GUC} for query {id}"))?;
+        let rows = sqlx::raw_sql(&knn_query)
+            .fetch_all(&mut conn)
+            .await
+            .with_context(|| format!("Failed to run recall query for query {id}"))?;
+        let gt = ground_truth
+            .get(id)
+            .with_context(|| format!("No ground truth for query id {id}"))?;
+        for row in &rows {
+            let neighbor: String = row.try_get("_id").with_context(|| {
+                format!("recall query for {id} returned a row with no text `_id` column")
+            })?;
+            if gt.contains(&neighbor) {
+                total_hits += 1;
+            }
+        }
+    }
+
+    let recall = total_hits as f64 / (vectors.len() * RECALL_K) as f64;
+    println!("recall = {recall:.4}");
+    Ok(())
+}
+
+/// Load `source` (a parquet path/URL) into the already-created Postgres `table` via DuckDB's
+/// postgres extension, preserving native column types (embedding vectors, text arrays).
+fn load_parquet_into(url: &str, table: &str, source: &str) -> anyhow::Result<()> {
+    let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    conn.execute_batch("INSTALL postgres; LOAD postgres;")
+        .with_context(|| "Failed to load DuckDB postgres extension")?;
+    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
+        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+    conn.execute_batch(&format!(
+        "INSERT INTO pg.public.\"{table}\" SELECT * FROM read_parquet('{source}');"
+    ))
+    .with_context(|| format!("Failed to load '{table}' from '{source}'"))?;
     Ok(())
 }
 
@@ -253,6 +667,12 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     println!("vacuuming...");
     if args.vacuum {
         sqlx::query("VACUUM FULL ANALYZE")
+            .execute(&mut utility_conn)
+            .await
+            .with_context(|| "Failed to vacuum")?;
+        // VACUUM FULL does not update the visibility map. Run both types so that our heap file
+        // contains no wasted space and we get an updated vm
+        sqlx::query("VACUUM ANALYZE")
             .execute(&mut utility_conn)
             .await
             .with_context(|| "Failed to vacuum")?;
@@ -284,44 +704,59 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     let mut query_paths: Vec<_> = query_paths?.into_iter().flatten().collect();
     query_paths.sort_unstable();
 
+    // Parse each query file once (reused below for execution). Resolve their `{{ param }}` references
+    // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
+    // templating used for index DDL.
+    let parsed_queries: Vec<(String, String)> = query_paths
+        .iter()
+        .flat_map(|p| benchmark_queries(p))
+        .collect();
+    let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
+    let query_params = resolve_template_params(
+        &mut utility_conn,
+        &args.dataset,
+        args.size.as_deref(),
+        &query_stmts,
+    )
+    .await?;
+
     let mut results = Vec::new();
-    for path in query_paths {
-        for (query_type, query) in benchmark_queries(&path) {
-            if args.clear_caches {
-                if let Err(err) = clear_caches(&mut utility_conn).await {
-                    panic!("Failed to clear caches before query: {err}");
-                }
+    for (query_type, query) in parsed_queries {
+        let query = substitute_vars(&query, &query_params)?;
+        if args.clear_caches {
+            if let Err(err) = clear_caches(&mut utility_conn).await {
+                panic!("Failed to clear caches before query: {err}");
             }
+        }
 
-            sqlx::raw_sql("CHECKPOINT;")
-                .execute(&mut utility_conn)
-                .await
-                .with_context(|| "Failed to execute checkpoint.")?;
+        sqlx::raw_sql("CHECKPOINT;")
+            .execute(&mut utility_conn)
+            .await
+            .with_context(|| "Failed to execute checkpoint.")?;
 
-            println!("Query Type: {query_type}\nQuery: {query}");
-            let result = execute_query_multiple_times(
-                &args.url,
-                &query_type,
-                &query,
-                args.runs,
-                args.fail_on_error,
-            )
-            .await?;
-            match result {
-                Some(query_results) => {
-                    println!(
-                        "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
-                        query_results.cold, query_results.samples, query_results.num_results
-                    );
-                    results.push(QueryResult {
-                        query_type,
-                        query,
-                        results: query_results,
-                    });
-                }
-                None => {
-                    println!("Skipped (query error)\n");
-                }
+        println!("Query Type: {query_type}\nQuery: {query}");
+        let result = execute_query_multiple_times(
+            &args.url,
+            &query_type,
+            &query,
+            args.runs,
+            args.fail_on_error,
+        )
+        .await?;
+        match result {
+            Some(query_results) => {
+                println!(
+                    "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
+                    query_results.cold, query_results.samples, query_results.num_results
+                );
+                results.push(QueryResult {
+                    query_type,
+                    query,
+                    results: query_results,
+                });
+            }
+            None => {
+                println!("Skipped (query error)\n");
             }
         }
     }
@@ -336,7 +771,7 @@ async fn generate_markdown_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     write_benchmark_header(&mut file)?;
     write_test_info(&mut file, args).await?;
     write_postgres_settings(&mut file, &args.url).await?;
-    if !args.skip_setup {
+    if !args.skip_index {
         process_index_creation_md(&mut file, args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -347,7 +782,7 @@ async fn generate_markdown_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     write_test_info_csv(args).await?;
     write_postgres_settings_csv(&args.url).await?;
-    if !args.skip_setup {
+    if !args.skip_index {
         process_index_creation_csv(args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -356,7 +791,7 @@ async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 }
 
 async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    if !args.skip_setup {
+    if !args.skip_index {
         process_index_creation_json(args).await?;
         process_after_create_index_sql(args).await?;
     }
@@ -364,12 +799,28 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Returns the live row count of the dataset's root table, for reporting.
+async fn root_table_row_count(args: &BenchmarkArgs) -> anyhow::Result<i64> {
+    let config_path = format!("datasets/{}/config.toml", args.dataset);
+    let (config, _) = config::load_dataset_config(&config_path)
+        .with_context(|| format!("Failed to load config '{config_path}'"))?;
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+    let table = &config.root_table.name;
+    let row = sqlx::query(&format!("SELECT count(*) FROM \"{table}\""))
+        .fetch_one(&mut conn)
+        .await
+        .with_context(|| format!("Failed to count rows in '{table}'"))?;
+    Ok(row.get(0))
+}
+
 async fn write_test_info_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let filename = "results_pg_search_test_info.csv";
     let mut file = File::create(filename).with_context(|| "Failed to create test info CSV")?;
 
     writeln!(file, "Key,Value").unwrap();
-    writeln!(file, "Dataset Size,{}", args.size)?;
+    writeln!(file, "Dataset Rows,{}", root_table_row_count(args).await?)?;
     writeln!(file, "Prewarm,{}", args.prewarm)?;
     writeln!(file, "Vacuum,{}", args.vacuum)?;
 
@@ -427,15 +878,16 @@ async fn process_index_creation_csv(args: &BenchmarkArgs) -> anyhow::Result<()> 
     )?;
 
     for result in process_index_creation(args).await? {
-        let IndexCreationResult {
-            duration_min_ms,
-            index_name,
-            index_size,
-            segment_count,
-        } = result;
+        let segment_count = result
+            .segment_count()
+            .map_or_else(|| "-".to_string(), |c| c.to_string());
         writeln!(
             file,
-            "{index_name},{duration_min_ms:.2},{index_size},{segment_count}"
+            "{},{:.2},{},{}",
+            result.index_name(),
+            result.duration_min_ms(),
+            result.index_size(),
+            segment_count
         )?;
     }
     Ok(())
@@ -483,7 +935,11 @@ async fn write_test_info(file: &mut File, args: &BenchmarkArgs) -> anyhow::Resul
     writeln!(file, "\n## Test Info")?;
     writeln!(file, "| Key         | Value       |")?;
     writeln!(file, "|-------------|-------------|")?;
-    writeln!(file, "| Dataset Size | {} |", args.size)?;
+    writeln!(
+        file,
+        "| Dataset Rows | {} |",
+        root_table_row_count(args).await?
+    )?;
     writeln!(file, "| Prewarm     | {} |", args.prewarm)?;
     writeln!(file, "| Vacuum      | {} |", args.vacuum)?;
 
@@ -539,7 +995,7 @@ fn load_external_data(
     let (config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
-    // Determine CSV data source path.
+    // Determine data source path.
     let base_path = match data_source {
         Some(path) => path,
         None => config.s3_base_path.as_deref().with_context(|| {
@@ -550,9 +1006,10 @@ fn load_external_data(
         })?,
     };
     let source_path = format!(
-        "{}/sampled/{}/csv",
+        "{}/sampled/{}/{}",
         base_path.trim_end_matches('/'),
-        size_label
+        size_label,
+        config.load_format.as_str(),
     );
     println!("Data source: {source_path}");
 
@@ -573,7 +1030,22 @@ fn load_external_data(
         bail!("Failed to create tables from {create_tables_sql}");
     }
 
-    // Download CSV data from source and load into PostgreSQL.
+    match config.load_format {
+        LoadFormat::Csv => load_tables_csv(url, dataset, &config, &source_path)?,
+        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path)?,
+    }
+
+    println!("External data loaded successfully.");
+    Ok(())
+}
+
+/// Download each table's CSV files locally via DuckDB, then `psql \copy` them into Postgres.
+fn load_tables_csv(
+    url: &str,
+    dataset: &str,
+    config: &config::DatasetConfig,
+    source_path: &str,
+) -> anyhow::Result<()> {
     let temp_dir = format!("/tmp/benchmark_data/{dataset}");
     if Path::new(&temp_dir).exists() {
         std::fs::remove_dir_all(&temp_dir)
@@ -641,7 +1113,32 @@ fn load_external_data(
         eprintln!("Warning: Failed to clean up temp directory '{temp_dir}': {e}");
     }
 
-    println!("External data loaded successfully.");
+    Ok(())
+}
+
+/// Load each table's parquet files directly into Postgres via DuckDB's postgres extension,
+/// preserving native column types (e.g. embedding vectors) and float precision.
+fn load_tables_parquet(
+    url: &str,
+    config: &config::DatasetConfig,
+    source_path: &str,
+) -> anyhow::Result<()> {
+    let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    conn.execute_batch("INSTALL postgres; LOAD postgres;")
+        .with_context(|| "Failed to load DuckDB postgres extension")?;
+    conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
+        .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
+
+    for table_name in config.all_table_names() {
+        let glob = format!("{source_path}/{table_name}/*.parquet");
+        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
+        conn.execute_batch(&format!(
+            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
+        ))
+        .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
+        println!("  Loaded '{table_name}'.");
+    }
+
     Ok(())
 }
 
@@ -657,16 +1154,17 @@ async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) -> any
     )?;
 
     for result in process_index_creation(args).await? {
-        let IndexCreationResult {
-            duration_min_ms,
-            index_name,
-            index_size,
-            segment_count,
-        } = result;
+        let segment_count = result
+            .segment_count()
+            .map_or_else(|| "-".to_string(), |c| c.to_string());
 
         writeln!(
             file,
-            "| {index_name} | {duration_min_ms:.2} | {index_size} | {segment_count} |"
+            "| {} | {:.2} | {} | {} |",
+            result.index_name(),
+            result.duration_min_ms(),
+            result.index_size(),
+            segment_count
         )?;
     }
     Ok(())
@@ -767,7 +1265,7 @@ fn queries(file: &Path) -> Vec<String> {
         .filter_map(|query| {
             let query = query
                 .trim()
-                .split("\n")
+                .split('\n')
                 .map(|line| line.split("--").next().unwrap().trim())
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -780,6 +1278,13 @@ fn queries(file: &Path) -> Vec<String> {
             }
         })
         .collect()
+}
+
+fn extract_index_name(statement: &str) -> &str {
+    statement
+        .split_whitespace()
+        .nth(2)
+        .expect("Failed to parse index name")
 }
 
 fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
@@ -801,13 +1306,6 @@ fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
             (query_type, query)
         })
         .collect()
-}
-
-fn extract_index_name(statement: &str) -> &str {
-    statement
-        .split_whitespace()
-        .nth(2)
-        .expect("Failed to parse index name")
 }
 
 async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Result<()> {
@@ -988,6 +1486,6 @@ async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<
     sqlx::raw_sql(evict_query)
         .execute(conn)
         .await
-        .with_context(|| format!("Failed to PostgreSQL buffer cache: {evict_query}"))?;
+        .with_context(|| format!("Failed to evict PostgreSQL buffer cache: {evict_query}"))?;
     Ok(())
 }

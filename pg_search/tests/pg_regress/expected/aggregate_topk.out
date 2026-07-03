@@ -30,8 +30,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -45,7 +45,7 @@ LIMIT 3;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0]
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (16 rows)
@@ -75,8 +75,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (sum(rating))
    ->  Sort
@@ -90,7 +90,7 @@ LIMIT 3;
                Aggregates: SUM(rating)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@1 as category], aggr=[agg_0]
+                 :   AggregateExec: mode=Single, gby=[category@1 as category], aggr=[sum(mock_items_0.rating) as agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (16 rows)
@@ -133,7 +133,7 @@ LIMIT 2;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=2), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0]
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (16 rows)
@@ -219,8 +219,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*)), (sum(rating)), (min(rating)), (max(rating))
    ->  Sort
@@ -234,7 +234,7 @@ LIMIT 3;
                Aggregates: COUNT(*), SUM(rating), MIN(rating), MAX(rating)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_1@2 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@1 as category], aggr=[agg_0, agg_1, agg_2, agg_3]
+                 :   AggregateExec: mode=Single, gby=[category@1 as category], aggr=[count(1) as agg_0, sum(mock_items_0.rating) as agg_1, min(mock_items_0.rating) as agg_2, max(mock_items_0.rating) as agg_3]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (16 rows)
@@ -262,8 +262,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -277,7 +277,7 @@ LIMIT 1;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0]
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (16 rows)

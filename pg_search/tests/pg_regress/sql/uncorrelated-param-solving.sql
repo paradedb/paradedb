@@ -23,8 +23,7 @@ WITH (
     text_fields = '{
         "group_id": { "fast": true, "tokenizer": { "type": "keyword" } },
         "status": { "fast": true, "tokenizer": { "type": "keyword" } }
-    }',
-    datetime_fields = '{"created_at": {}}'
+    }'
 );
 
 INSERT INTO items (id, group_id, status, created_at)

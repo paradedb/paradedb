@@ -15,10 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Leader-dispatch blob: the leader serializes the distributed physical plan once and ships
-//! per-stage subplans to the workers, so workers run their fragments without re-planning.
+//! Leader dispatch: the leader serializes the distributed physical plan once and ships each
+//! task's subplan to the workers, so workers run their fragments without re-planning.
 //!
-//! The blob is one shared buffer in DSM. Every worker reads it and selects the `(stage, task)`
+//! Plans travel as `SetPlan` frames through the mesh rings, the same `SetPlanRequest` message
+//! Flight ships over its coordinator stream. The DSM blob carries only the routing tables:
+//! which destination proc each fragment's output partitions go to, which is push-side knowledge
+//! the message has no field for. Every worker reads the blob and selects the `(stage, task)`
 //! slots it owns under [`proc_for_task`]. The fork's `DistributedCodec` serializes the
 //! `Network*Exec` boundaries; [`crate::scan::physical_codec`] serializes the `pg_search` execs.
 //!
@@ -29,31 +32,41 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::execution::TaskContext;
 use datafusion::prelude::SessionContext;
 use tantivy::index::SegmentId;
 
+use datafusion_distributed::shm::{proc_for_task, MppMesh};
+
 use crate::api::HashSet;
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
-use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh};
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_dispatched_stages, FragmentAssignment, FragmentRouting,
 };
-use crate::postgres::ParallelScanState;
+use crate::postgres::utils::ExprContextGuard;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
 use crate::scan::physical_codec::{
     deserialize_physical_plan_with_runtime, serialize_physical_plan,
 };
 
-/// One stage of the dispatch blob: a serialized producer subplan plus the metadata a worker needs
-/// to run and route it. Shared by all workers; each selects the `task_idx` slots it owns.
+/// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.
+/// Shared by all workers; each selects the `task_idx` slots it owns. The stage's plan arrives
+/// separately, as a per-task `SetPlan` frame.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct DispatchedStage {
     stage_num: u32,
     task_count: usize,
     routing: FragmentRouting,
+}
+
+/// One stage's plan bytes, headed for per-task `SetPlan` frames. Stays leader-side: the leader
+/// stamps each task's `TaskKey` from `query_id`/`stage_num` and ships `plan_proto` once per task.
+#[derive(Clone)]
+pub struct StagePlan {
+    pub stage_num: u32,
+    pub query_id: Vec<u8>,
+    pub task_count: usize,
     /// `PhysicalPlanNode`-encoded `stage.local_plan()` (via the combined codec).
-    plan_proto: Vec<u8>,
+    pub plan_proto: Vec<u8>,
 }
 
 /// First byte of the DSM plan region. Only the dispatch blob is shipped today (every MPP
@@ -138,12 +151,13 @@ pub fn build_dispatch_blob(
     n_workers: u32,
     runtime: &tokio::runtime::Runtime,
     non_partitioning_segments: &[HashSet<SegmentId>],
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, Vec<StagePlan>)> {
+    let expr_context_guard = ExprContextGuard::new();
     let logical = deserialize_logical_plan_with_runtime(
         logical_bytes,
         &seed.task_ctx(),
         None,
-        None,
+        Some(expr_context_guard.as_ptr()),
         None,
         Vec::new(),
         Vec::new(),
@@ -154,6 +168,7 @@ pub fn build_dispatch_blob(
 
     let stages = collect_dispatched_stages(&physical, n_workers)?;
     let mut dispatched = Vec::with_capacity(stages.len());
+    let mut stage_plans = Vec::with_capacity(stages.len());
     let decode_ctx = session.task_ctx();
     for stage in stages {
         let plan_proto = serialize_physical_plan(stage.plan)?;
@@ -169,16 +184,23 @@ pub fn build_dispatch_blob(
             None,
             non_partitioning_segments.to_vec(),
             Vec::new(),
+            Some(expr_context_guard.as_ptr()),
         )?;
         dispatched.push(DispatchedStage {
             stage_num: stage.stage_num,
             task_count: stage.task_count,
             routing: stage.routing,
+        });
+        stage_plans.push(StagePlan {
+            stage_num: stage.stage_num,
+            query_id: stage.query_id.as_bytes().to_vec(),
+            task_count: stage.task_count,
             plan_proto,
         });
     }
-    bincode::serde::encode_to_vec(&dispatched, blob_config())
-        .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))
+    let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
+        .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
+    Ok((blob, stage_plans))
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.
@@ -195,7 +217,6 @@ fn push_owned_tasks(
     stage_num: u32,
     task_count: usize,
     routing: &FragmentRouting,
-    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     this_proc: u32,
     n_workers: u32,
 ) {
@@ -205,7 +226,6 @@ fn push_owned_tasks(
                 stage_id: stage_num,
                 task_idx,
                 task_count,
-                plan: Arc::clone(plan),
                 routing: routing.clone(),
             });
         }
@@ -221,57 +241,38 @@ pub fn build_dispatch_payload(
     seed: SessionContext,
     n_workers: u32,
     non_partitioning_segments: &[HashSet<SegmentId>],
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, Vec<StagePlan>)> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: runtime build: {e}")))?;
-    let blob = build_dispatch_blob(
+    let (blob, stage_plans) = build_dispatch_blob(
         logical_bytes,
         seed,
         n_workers,
         &runtime,
         non_partitioning_segments,
     )?;
-    frame_dispatch_payload(&blob, dispatch_plan_capacity(logical_bytes.len()))
+    let payload = frame_dispatch_payload(&blob, dispatch_plan_capacity(logical_bytes.len()))?;
+    Ok((payload, stage_plans))
 }
 
-/// Expand the dispatch blob body into this worker's fragment assignments. Each stage's subplan is
-/// decoded once (injecting the worker's runtime context) and fanned out to the `task_idx` slots
-/// this proc owns.
-#[allow(clippy::too_many_arguments)]
+/// Expand the dispatch blob body into this worker's fragment assignments: the `(stage, task)`
+/// slots this proc owns plus their routing. The plans arrive separately, one `SetPlan` frame per
+/// fragment.
 fn expand_to_assignments(
     body: &[u8],
     this_proc: u32,
     n_workers: u32,
-    decode_ctx: &TaskContext,
-    parallel_state: Option<*mut ParallelScanState>,
-    non_partitioning_segments: &[HashSet<SegmentId>],
-    index_segment_ids: &[HashSet<SegmentId>],
 ) -> Result<Vec<FragmentAssignment>> {
     let stages = read_dispatch_blob(body)?;
     let mut out = Vec::new();
     for stage in stages {
-        // Decode opens index readers, so skip stages this proc owns no tasks of (broadcast
-        // stages put all work on task 0, leaving the other procs with nothing).
-        let owns_any = (0..stage.task_count)
-            .any(|task_idx| proc_for_task(n_workers, task_idx as u32) == this_proc);
-        if !owns_any {
-            continue;
-        }
-        let plan = deserialize_physical_plan_with_runtime(
-            &stage.plan_proto,
-            decode_ctx,
-            parallel_state,
-            non_partitioning_segments.to_vec(),
-            index_segment_ids.to_vec(),
-        )?;
         push_owned_tasks(
             &mut out,
             stage.stage_num,
             stage.task_count,
             &stage.routing,
-            &plan,
             this_proc,
             n_workers,
         );
@@ -279,19 +280,14 @@ fn expand_to_assignments(
     Ok(out)
 }
 
-/// Build this worker's fragment assignments from the DSM dispatch payload: run the leader's
-/// sliced per-stage subplans directly, without re-planning. Returns the distributed session
-/// context too, since the caller needs it to run the fragments.
-#[allow(clippy::too_many_arguments)]
+/// Build this worker's fragment assignments from the DSM dispatch payload. Returns the
+/// distributed session context too, since the caller needs it to decode and run the fragments.
 pub fn fragments_for_worker(
     plan_bytes: &[u8],
     seed: SessionContext,
     mesh: Arc<MppMesh>,
     this_proc: u32,
     n_workers: u32,
-    parallel_state: Option<*mut ParallelScanState>,
-    non_partitioning_segments: &[HashSet<SegmentId>],
-    index_segment_ids: &[HashSet<SegmentId>],
 ) -> Result<(Vec<FragmentAssignment>, SessionContext)> {
     let Some((&tag, body)) = plan_bytes.split_first() else {
         return Err(DataFusionError::Internal(
@@ -304,17 +300,6 @@ pub fn fragments_for_worker(
         )));
     }
     let session = build_mpp_session_context(seed, Some(mesh));
-    // Decode against the full session task context: by-name functions (DataFusion built-ins)
-    // resolve through its registry, while pg_search UDFs travel with their definition and
-    // decode through the codec.
-    let fragments = expand_to_assignments(
-        body,
-        this_proc,
-        n_workers,
-        &session.task_ctx(),
-        parallel_state,
-        non_partitioning_segments,
-        index_segment_ids,
-    )?;
+    let fragments = expand_to_assignments(body, this_proc, n_workers)?;
     Ok((fragments, session))
 }

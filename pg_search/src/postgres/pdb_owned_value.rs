@@ -22,6 +22,7 @@ use std::net::Ipv6Addr;
 use serde::ser::SerializeMap;
 use tantivy::schema::{Facet, OwnedValue};
 
+use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::TantivyValueError;
 
@@ -50,21 +51,38 @@ pub enum PdbOwnedValue {
 impl Eq for PdbOwnedValue {}
 
 impl PdbOwnedValue {
-    pub fn into_tantivy_value(self) -> OwnedValue {
+    pub fn into_tantivy_value(self, index_created_by_version: Option<Version>) -> OwnedValue {
         match self {
-            PdbOwnedValue::Date(date) => OwnedValue::Date(
-                date.try_into()
-                    .expect("legacy timestamps should always fit into tantivy's DateTime"),
-            ),
-            PdbOwnedValue::Array(array) => {
-                OwnedValue::Array(array.into_iter().map(Self::into_tantivy_value).collect())
+            PdbOwnedValue::Date(date) => {
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    OwnedValue::I64(date.into_inner())
+                } else {
+                    OwnedValue::Date(
+                        date.try_into()
+                            .expect("legacy timestamps should always fit into tantivy's DateTime"),
+                    )
+                }
             }
+            PdbOwnedValue::Array(array) => OwnedValue::Array(
+                array
+                    .into_iter()
+                    .map(|v| Self::into_tantivy_value(v, index_created_by_version))
+                    .collect(),
+            ),
             PdbOwnedValue::Object(object) => OwnedValue::Object(
                 object
                     .into_iter()
-                    .map(|(k, v)| (k, v.into_tantivy_value()))
+                    .map(|(k, v)| (k, Self::into_tantivy_value(v, index_created_by_version)))
                     .collect(),
             ),
+            _ => Self::into_tantivy_value_no_version_awareness(self),
+        }
+    }
+
+    /// Convert variants that don't require knowledge of the `index_created_by_version`.
+    /// Useful for locations where Date/Array/Object are handled separately.
+    pub fn into_tantivy_value_no_version_awareness(self) -> OwnedValue {
+        match self {
             PdbOwnedValue::Null => OwnedValue::Null,
             PdbOwnedValue::Str(val) => OwnedValue::Str(val),
             PdbOwnedValue::PreTokStr(val) => OwnedValue::PreTokStr(val),
@@ -75,6 +93,11 @@ impl PdbOwnedValue {
             PdbOwnedValue::Facet(val) => OwnedValue::Facet(val),
             PdbOwnedValue::Bytes(val) => OwnedValue::Bytes(val),
             PdbOwnedValue::IpAddr(val) => OwnedValue::IpAddr(val),
+            PdbOwnedValue::Date(_) | PdbOwnedValue::Array(_) | PdbOwnedValue::Object(_) => {
+                unreachable!(
+                    "This should be handled by PdbOwnedValue::into_tantivy_value or elsewhere"
+                )
+            }
         }
     }
 
@@ -147,7 +170,10 @@ impl serde::Serialize for PdbOwnedValue {
                 map.end()
             }
             PdbOwnedValue::Array(ref array) => array.serialize(serializer),
-            _ => self.clone().into_tantivy_value().serialize(serializer),
+            _ => self
+                .clone()
+                .into_tantivy_value_no_version_awareness()
+                .serialize(serializer),
         }
     }
 }

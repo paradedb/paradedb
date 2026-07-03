@@ -15,9 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
@@ -25,9 +22,10 @@ use proptest_derive::Arbitrary;
 use rstest::*;
 use sqlx::PgConnection;
 use std::fmt::Debug;
+use tests::fixtures::*;
 
-use crate::fixtures::querygen::opexprgen::{ArrayQuantifier, Operator, ScalarArrayOperator};
-use crate::fixtures::querygen::{compare, PgGucs};
+use tests::fixtures::querygen::opexprgen::{ArrayQuantifier, Operator, ScalarArrayOperator};
+use tests::fixtures::querygen::{compare, PgGucs};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {

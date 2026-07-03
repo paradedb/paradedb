@@ -99,7 +99,7 @@ impl SortMergeJoinEnforcer {
              -> Option<(Arc<dyn ExecutionPlan>, Vec<arrow_schema::SortOptions>)> {
                 // 1. Check if CoalescePartitions wrapping sorted partitions
                 // We check this first to "rescue" sortedness from Coalesce
-                if let Some(coalesce) = plan.as_any().downcast_ref::<CoalescePartitionsExec>() {
+                if let Some(coalesce) = plan.downcast_ref::<CoalescePartitionsExec>() {
                     let child = coalesce.input().clone();
                     if let Some(opts) = check_ordering(child.equivalence_properties(), keys) {
                         // Replace Coalesce with SortPreservingMerge
@@ -204,7 +204,7 @@ impl PhysicalOptimizerRule for SortMergeJoinEnforcer {
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         plan.transform_up(|plan| {
-            if let Some(hash_join) = plan.as_any().downcast_ref::<HashJoinExec>() {
+            if let Some(hash_join) = plan.downcast_ref::<HashJoinExec>() {
                 if let Some(smj) = self.try_convert_to_smj(hash_join)? {
                     return Ok(Transformed::yes(smj));
                 }
@@ -351,7 +351,7 @@ fn normalize_join_filter_ordering(filter: &JoinFilter) -> JoinFilter {
         .expression()
         .clone()
         .transform_up(|expr| {
-            if let Some(col) = expr.as_any().downcast_ref::<Column>() {
+            if let Some(col) = expr.downcast_ref::<Column>() {
                 let new_index = old_to_new[col.index()];
                 if new_index != col.index() {
                     return Ok(Transformed::yes(Arc::new(Column::new(

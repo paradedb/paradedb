@@ -59,8 +59,7 @@ USING bm25 (
     }',
     numeric_fields = '{"price":{}}',
     boolean_fields = '{"in_stock":{}}',
-    range_fields = '{"quantity_range":{},"valid_period":{}}',
-    datetime_fields = '{"created_at":{}}'
+    range_fields = '{"quantity_range":{},"valid_period":{}}'
 );
 -- '--- Tests with index WITHOUT explicit fast:true for text fields ---'
 -- 'Test 1: ORDER BY title with LIMIT should use NormalScanExecState'
@@ -234,8 +233,7 @@ USING bm25 (
     }',
     numeric_fields = '{"price":{"fast":true}}',
     boolean_fields = '{"in_stock":{"fast":true}}',
-    range_fields = '{"quantity_range":{"fast":true},"valid_period":{"fast":true}}',
-    datetime_fields = '{"created_at":{"fast":true}}'
+    range_fields = '{"quantity_range":{"fast":true},"valid_period":{"fast":true}}'
 );
 -- '--- Tests with index WITH explicit fast:true for non-text fields ---'
 -- 'Test 4: ORDER BY with LIMIT (should use TopKScanExecState)'
@@ -349,8 +347,7 @@ USING bm25 (
     }',
     numeric_fields = '{"price":{"fast":false}}',
     boolean_fields = '{"in_stock":{"fast":false}}',
-    range_fields = '{"quantity_range":{"fast":false},"valid_period":{"fast":false}}',
-    datetime_fields = '{"created_at":{"fast":false}}'
+    range_fields = '{"quantity_range":{"fast":false},"valid_period":{"fast":false}}'
 );
 -- '--- Tests with index WITH explicit fast:false for non-text fields ---'
 -- 'Test 6: ORDER BY with LIMIT (should not use TopKScanExecState, because fast:false)'
@@ -406,26 +403,6 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
  Limit
    ->  Sort
          Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Base Scan) on data_records
-               Table: data_records
-               Index: records_with_fast_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, title, category
-FROM data_records
-WHERE title @@@ 'product'
-ORDER BY created_at
-LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: created_at
          ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx

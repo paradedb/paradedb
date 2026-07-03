@@ -217,12 +217,33 @@ pub unsafe fn leader_setup(
     // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
     // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
     mesh.set_cancel_senders(Arc::clone(&control_senders));
-    // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
-    // are cleaned up; release the DSM-backed senders while the mapping is still alive.
-    let on_abort = Arc::clone(&control_senders);
-    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, move || {
-        on_abort.lock().unwrap().clear();
-    });
+    // On abort, `AbortTransaction` destroys the parallel contexts (unmapping the DSM) before it
+    // runs the xact callbacks, so by the time these fire the senders' ring headers are gone.
+    // Dropping a sender writes a detach signal into its ring header, which would fault; forget
+    // them instead. The signal has no audience anyway: the abort already terminated the workers.
+    // The few heap bytes leaked per sender only accrue on aborted MPP queries.
+    //
+    // The commit hook covers a subtransaction rollback of this scan: no top-level abort fires,
+    // and the senders would otherwise sit populated until pgrx drops the unused abort closure at
+    // commit, past the DSM's lifetime. A non-empty vec at commit always means the mapping is
+    // already gone (the success path cleared it in `shutdown_custom_scan`), so forgetting is
+    // the only safe disposal on both events.
+    let forget_senders = |senders: &Arc<std::sync::Mutex<Vec<Option<MppSender>>>>| {
+        let senders = Arc::clone(senders);
+        move || {
+            for sender in senders.lock().unwrap().drain(..).flatten() {
+                std::mem::forget(sender);
+            }
+        }
+    };
+    pgrx::register_xact_callback(
+        pgrx::PgXactCallbackEvent::Abort,
+        forget_senders(&control_senders),
+    );
+    pgrx::register_xact_callback(
+        pgrx::PgXactCallbackEvent::PreCommit,
+        forget_senders(&control_senders),
+    );
     Ok(MppLeaderState {
         mesh,
         control_senders,

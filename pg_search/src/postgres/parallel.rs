@@ -114,7 +114,7 @@ pub unsafe fn maybe_init_parallel_scan(
     scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
 ) -> Option<i32> {
-    if unsafe { (*scan).parallel_scan.is_null() } {
+    if (*scan).parallel_scan.is_null() {
         // not a parallel scan, so there's nothing to initialize
         return None;
     }
@@ -153,7 +153,7 @@ pub unsafe fn maybe_init_parallel_scan(
             .collect();
         state.populate(&[&immutable_readers], 0, &[], false);
     }
-    Some(unsafe { pg_sys::ParallelWorkerNumber })
+    Some(pg_sys::ParallelWorkerNumber)
 }
 
 /// Claim a segment from the shared pool.

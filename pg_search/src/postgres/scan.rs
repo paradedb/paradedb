@@ -219,7 +219,7 @@ pub extern "C-unwind" fn amrescan(
 
         if is_parallel {
             let is_worker = pg_sys::ParallelWorkerNumber >= 0;
-            
+
             if !is_worker {
                 // Leader pre-searches mutable segments to prevent workers from independently materializing them
                 let mutable_ids = search_reader.mutable_segment_ids();

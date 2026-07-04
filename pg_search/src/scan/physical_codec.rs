@@ -30,6 +30,8 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
@@ -379,5 +381,10 @@ pub fn deserialize_physical_plan_with_runtime(
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))
     })?;
-    proto.try_into_physical_plan(ctx, &codec)
+    let plan = proto.try_into_physical_plan(ctx, &codec)?;
+    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between a
+    // node and the scans below it; serialization drops them. Re-running the post-optimization
+    // pushdown pass on the decoded fragment re-creates the links, so this task's probe scans
+    // prune against its build side instead of scanning every segment.
+    FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

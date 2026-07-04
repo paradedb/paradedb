@@ -84,6 +84,9 @@ pub struct DataFusionAggState {
     /// the leader; builder-launched workers reconstruct their state from DSM
     /// and never carry this.
     pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
+    /// The prepared-but-unlaunched MPP DSM. Set on the first exec call before planning; consumed
+    /// by `launch_mpp_commit` once the leader's plan is built, in the same call.
+    pub mpp_prep: Option<crate::postgres::customscan::mpp::launch::MppLaunchPrep>,
     /// Serialized logical-plan bytes that the leader writes into DSM and
     /// workers read back. Computed by `begin_custom_scan` when MPP is
     /// active; consulted by `estimate_dsm_custom_scan` and

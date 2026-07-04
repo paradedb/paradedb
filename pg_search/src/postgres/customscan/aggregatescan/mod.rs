@@ -407,6 +407,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: None,
+                    mpp_prep: None,
                     mpp_plan_bytes: None,
                 });
                 builder.build()
@@ -890,7 +891,7 @@ impl AggregateScan {
     /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
     /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
     /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
-    fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
+    fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         if !mpp_is_active() {
             return;
         }
@@ -924,15 +925,15 @@ impl AggregateScan {
             with_aggregates: false,
         };
 
-        let Some(leader) = crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
-            plan_bytes,
+        let Some(prep) = crate::postgres::customscan::mpp::launch::prepare_mpp_aggregate(
+            plan_bytes.len(),
             args,
             partitioning_idx,
         ) else {
             return;
         };
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
-            df_state.mpp = Some(leader);
+            df_state.mpp_prep = Some(prep);
         }
     }
 
@@ -1523,17 +1524,19 @@ impl AggregateScan {
         let ps = state.planstate();
         let runtime_planstate = (!ps.is_null()).then_some(ps);
 
-        // First exec call: the leader launches its producer workers and picks the count, so a
-        // short launch falls back to serial instead of hanging the query. Done before the
-        // df_state borrow below because it needs `state` for the source manifests.
+        // First exec call: build the MPP DSM before planning. The workers launch only after
+        // the leader's plan is built and its stages serialize (`launch_mpp_commit` below).
+        // Done before the df_state borrow below because it needs `state` for the source
+        // manifests.
         let first_call = state
             .custom_state()
             .datafusion_state
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
         if first_call {
-            Self::maybe_launch_mpp(state);
+            Self::maybe_prepare_mpp(state);
         }
+        let mpp_partitioning_idx = state.custom_state().mpp_partitioning_source_idx;
 
         let df_state = state
             .custom_state_mut()
@@ -1548,49 +1551,84 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            // MPP leader: install the mesh + DF-D fork's distributed planner so
-            // `create_physical_plan` produces a `DistributedExec` whose
-            // `NetworkShuffleExec`s use our `ShmChannelResolver` to read
-            // from worker queues at execute time. Otherwise: existing serial
-            // session context.
-            let ctx = match df_state.mpp.as_ref() {
-                Some(leader) => {
-                    // The coordinator sources these structure-only subplans and routes them to the
-                    // workers during execution, so there is no separate delivery pass.
-                    let source =
-                        crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::new(
-                            &leader.stage_plans.lock().unwrap(),
-                        );
-                    Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
-                        .with_distributed_dispatch_plan_source(source)
-                }
-                _ => create_aggregate_session_context(),
+            // When the MPP DSM is prepared, layer the DF-D fork's distributed planner over the
+            // aggregate profile so `create_physical_plan` produces a `DistributedExec`. The
+            // mesh and the dispatch source are execute-time concerns; the exec session below
+            // carries them once the workers are committed.
+            let prep = df_state.mpp_prep.take();
+            let plan_ctx = if prep.is_some() {
+                Self::build_mpp_session_context(None)
+            } else {
+                create_aggregate_session_context()
             };
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
-            let physical_plan = runtime.block_on(async {
-                let (logical, group_df_indices) = build_join_aggregate_plan(
-                    &df_state.plan,
-                    &df_state.targetlist,
-                    df_state.topk.as_ref(),
-                    &df_state.join_level_predicates,
-                    custom_exprs,
-                    custom_scan_tlist,
-                    df_state.having_filter.as_ref(),
-                    &ctx,
-                    runtime_expr_context,
-                    runtime_planstate,
-                    None,
-                )
-                .await?;
-                df_state.group_df_indices = group_df_indices;
-                build_physical_plan(&ctx, logical).await
+            // `mpp_ctx` marks the partitioning source and stamps each provider's per-source
+            // dispatch metadata (`is_parallel`, `non_partitioning_index`). The worker-bound
+            // stage encodes carry that metadata, so it must be present on the plan the
+            // dispatch payload is derived from; the serial fallback plans without it.
+            let mut build_plan =
+                |ctx: &datafusion::prelude::SessionContext, mpp_ctx: Option<MppPlanContext>| {
+                    let built = runtime.block_on(async {
+                        let (logical, group_df_indices) = build_join_aggregate_plan(
+                            &df_state.plan,
+                            &df_state.targetlist,
+                            df_state.topk.as_ref(),
+                            &df_state.join_level_predicates,
+                            custom_exprs,
+                            custom_scan_tlist,
+                            df_state.having_filter.as_ref(),
+                            ctx,
+                            runtime_expr_context,
+                            runtime_planstate,
+                            mpp_ctx,
+                        )
+                        .await?;
+                        df_state.group_df_indices = group_df_indices;
+                        build_physical_plan(ctx, logical).await
+                    });
+                    match built {
+                        Ok(p) => p,
+                        Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
+                    }
+                };
+            let plan_mpp_ctx = prep.as_ref().and_then(|_| {
+                mpp_partitioning_idx.map(|idx| MppPlanContext {
+                    partitioning_plan_position: idx,
+                })
             });
+            let physical_plan = build_plan(&plan_ctx, plan_mpp_ctx);
 
-            let physical_plan = match physical_plan {
-                Ok(p) => p,
-                Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
+            // Commit the MPP launch against the built plan: serialize its producer stages,
+            // spawn the workers, and hand the coordinator the same stages to dispatch. On a
+            // short launch the workers are gone and the `DistributedExec` shape has no mesh to
+            // read from, so replan serially.
+            let (ctx, physical_plan) = match prep {
+                Some(prep) => {
+                    match crate::postgres::customscan::mpp::launch::launch_mpp_commit(
+                        prep,
+                        &physical_plan,
+                    ) {
+                        Some(leader) => {
+                            let source =
+                                crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::new(
+                                    &leader.stage_plans.lock().unwrap(),
+                                );
+                            let exec_ctx =
+                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                                    .with_distributed_dispatch_plan_source(source);
+                            df_state.mpp = Some(leader);
+                            (exec_ctx, physical_plan)
+                        }
+                        None => {
+                            let serial_ctx = create_aggregate_session_context();
+                            let plan = build_plan(&serial_ctx, None);
+                            (serial_ctx, plan)
+                        }
+                    }
+                }
+                None => (plan_ctx, physical_plan),
             };
 
             let task_ctx = build_task_context(

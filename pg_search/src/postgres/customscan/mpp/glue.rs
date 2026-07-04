@@ -129,9 +129,10 @@ pub struct MppLeaderState {
     /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
     /// The scan state's own drop runs after detach and must find this empty.
     pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
-    /// The structure-only subplans the leader wraps in a [`StagePlanDispatchSource`] on the exec
-    /// session; the coordinator sources them by `stage_num` and routes them to the workers during
-    /// execution. Mutex because the exec hook only sees a shared borrow of the scan state.
+    /// The producer-stage subplans serialized from the leader's own execution plan; the
+    /// coordinator sources them by `stage_num` through a [`StagePlanDispatchSource`] and routes
+    /// them to the workers during execution. Mutex because the exec hook only sees a shared
+    /// borrow of the scan state.
     pub stage_plans: std::sync::Mutex<Vec<StagePlan>>,
     /// The builder handle owning the launched producer workers. The leader controls the launch, so
     /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
@@ -252,12 +253,11 @@ impl MppLeaderState {
     }
 }
 
-/// The dispatch bytes the coordinator routes to workers, keyed by `stage_num`. pg builds a
-/// structure-only subplan per producer stage (`build_dispatch_blob`) whose scans stay segment-free
-/// recipes; the coordinator ships those instead of encoding its exec-time plan, which carries state
-/// wrong to dispatch (a runtime `Limit`, `FilterPassthroughExec`) or not serializable (its
-/// `SortMergeJoinExec` variant). Every task of a stage runs the same subplan; each worker
-/// specializes its own segment slice on decode.
+/// The dispatch bytes the coordinator routes to workers, keyed by `stage_num`. The subplans are
+/// serialized from the leader's execution plan (`dispatch_payload_from_plan`): scan encodes are
+/// context-free recipes and `serialize_physical_plan` strips the optimization-only wrappers, so
+/// the plan the leader runs is the plan the workers decode. Every task of a stage runs the same
+/// subplan; each worker specializes its own segment slice on decode.
 pub struct StagePlanDispatchSource {
     plans: std::collections::HashMap<u32, Vec<u8>>,
 }

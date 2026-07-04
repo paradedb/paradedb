@@ -32,21 +32,16 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
-use tantivy::index::SegmentId;
 
 use datafusion_distributed::shm::{proc_for_task, MppMesh};
 
-use crate::api::HashSet;
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_dispatched_stages, FragmentAssignment, FragmentRouting,
 };
-use crate::postgres::utils::ExprContextGuard;
-use crate::scan::codec::deserialize_logical_plan_with_runtime;
-use crate::scan::physical_codec::{
-    deserialize_physical_plan_with_runtime, serialize_physical_plan,
-};
+use crate::scan::physical_codec::serialize_physical_plan;
 
 /// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.
 /// Shared by all workers; each selects the `task_idx` slots it owns. The stage's plan arrives
@@ -131,60 +126,23 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
     })
 }
 
-/// Build the dispatch blob on the leader at DSM-init: deserialize the leader's logical plan, build
-/// the distributed physical plan once, and serialize each producer stage's subplan.
+/// Build the dispatch payload from the leader's own execution plan: collect every producer
+/// stage, serialize each subplan, and frame the routing blob to `capacity`.
 ///
-/// This is a structure-only build: no `parallel_state` is injected, so the leader never claims
-/// segments while planning (a throttled sorted scan would otherwise checkout the workers' segments
-/// against the shared state here; with no state it falls to an eager scan that the codec declines,
-/// dropping the query to serial with the real state intact). Lazy scans ship source indices, and
-/// each worker injects its own `ParallelScanState` + segments on decode. `mesh = None` keeps the
-/// build off the transport; the stage numbering matches the consumer plan the leader builds at exec.
-///
-/// The logical bytes predate exec-time rewrites: joinscan injects a runtime `Limit` for
-/// parameterized LIMIT/OFFSET only at exec, after this build. Workers re-planned from these same
-/// bytes before dispatch existed, so the producer-stage shapes here match that precedent.
-pub fn build_dispatch_blob(
-    logical_bytes: &[u8],
-    seed: SessionContext,
+/// The leader executes the same plan object it serialized from, so stage numbering and routing
+/// cannot drift from what the coordinator dispatches. Scan encodes are context-free recipes;
+/// each worker injects its own `ParallelScanState` + segment view on decode, and re-runs the
+/// pushdown pass to re-link dynamic filters.
+pub fn dispatch_payload_from_plan(
+    physical: &Arc<dyn ExecutionPlan>,
     n_workers: u32,
-    runtime: &tokio::runtime::Runtime,
-    non_partitioning_segments: &[HashSet<SegmentId>],
+    capacity: usize,
 ) -> Result<(Vec<u8>, Vec<StagePlan>)> {
-    let expr_context_guard = ExprContextGuard::new();
-    let logical = deserialize_logical_plan_with_runtime(
-        logical_bytes,
-        &seed.task_ctx(),
-        None,
-        Some(expr_context_guard.as_ptr()),
-        None,
-        Vec::new(),
-        Vec::new(),
-    )?;
-    let session = build_mpp_session_context(seed, None);
-    let physical =
-        runtime.block_on(async { session.state().create_physical_plan(&logical).await })?;
-
-    let stages = collect_dispatched_stages(&physical, n_workers)?;
+    let stages = collect_dispatched_stages(physical, n_workers)?;
     let mut dispatched = Vec::with_capacity(stages.len());
     let mut stage_plans = Vec::with_capacity(stages.len());
-    let decode_ctx = session.task_ctx();
     for stage in stages {
         let plan_proto = serialize_physical_plan(stage.plan)?;
-        // Encode can succeed while decode fails (a codec gap). The first decode otherwise
-        // happens in a worker, where failure is a hard query error instead of the serial
-        // fallback this Result feeds; one extra decode per stage (readers released with the
-        // init context) buys the fallback. With no ParallelScanState, a non-partitioning scan
-        // resolves its MVCC view from these canonical sets by its `non_partitioning_index`;
-        // `index_segment_ids` stays empty, which skips the UDF injection without failing it.
-        deserialize_physical_plan_with_runtime(
-            &plan_proto,
-            &decode_ctx,
-            None,
-            non_partitioning_segments.to_vec(),
-            Vec::new(),
-            Some(expr_context_guard.as_ptr()),
-        )?;
         dispatched.push(DispatchedStage {
             stage_num: stage.stage_num,
             task_count: stage.task_count,
@@ -197,7 +155,8 @@ pub fn build_dispatch_blob(
     }
     let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
-    Ok((blob, stage_plans))
+    let payload = frame_dispatch_payload(&blob, capacity)?;
+    Ok((payload, stage_plans))
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.
@@ -227,31 +186,6 @@ fn push_owned_tasks(
             });
         }
     }
-}
-
-/// Builds and frames the dispatch payload for the DSM plan region: a single-thread runtime for
-/// the planning pass, the per-stage blob, then the fixed-capacity frame. One `Err` covers the
-/// whole pipeline so a caller warns once and falls back to serial. Capacity is derived from
-/// `logical_bytes.len()`, the same input `estimate_dsm` sized the region with.
-pub fn build_dispatch_payload(
-    logical_bytes: &[u8],
-    seed: SessionContext,
-    n_workers: u32,
-    non_partitioning_segments: &[HashSet<SegmentId>],
-) -> Result<(Vec<u8>, Vec<StagePlan>)> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: runtime build: {e}")))?;
-    let (blob, stage_plans) = build_dispatch_blob(
-        logical_bytes,
-        seed,
-        n_workers,
-        &runtime,
-        non_partitioning_segments,
-    )?;
-    let payload = frame_dispatch_payload(&blob, dispatch_plan_capacity(logical_bytes.len()))?;
-    Ok((payload, stage_plans))
 }
 
 /// Expand the dispatch blob body into this worker's fragment assignments: the `(stage, task)`

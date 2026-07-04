@@ -104,3 +104,12 @@ FROM (SELECT relname,
       ORDER BY relname , low DESC ) AS x ;
 
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
+
+CREATE OR REPLACE FUNCTION "alias_typmod_in"(
+	"typmod_parts" cstring[] /* Array < '_, & '_ CStr > */
+) RETURNS INT /* i32 */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'alias_typmod_in_wrapper';
+
+ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typmod_out);

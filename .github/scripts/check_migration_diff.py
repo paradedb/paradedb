@@ -35,6 +35,8 @@ def extract_statements(content):
     content = re.sub(r"\\[a-zA-Z]+[^\n]*", "", content)
     # Normalize whitespace
     content = re.sub(r"\s+", " ", content).strip()
+    # Treat CREATE OR REPLACE as equivalent to CREATE
+    content = re.sub(r"\bCREATE\s+OR\s+REPLACE\b", "CREATE", content, flags=re.IGNORECASE)
 
     # Split by semicolons and extract SQL statements
     statements = set()

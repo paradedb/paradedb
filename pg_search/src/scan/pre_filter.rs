@@ -791,21 +791,38 @@ fn extract_in_list_exprs<'a>(
     }
 }
 
+/// Outcome of trying to convert one join-derived `InList` predicate.
+enum InListPushdown {
+    /// AND the converted term-set query into the tantivy search.
+    Query(Box<dyn Query>),
+    /// Drop the predicate: evaluating it in the scan costs more per row than the hash
+    /// join above, which re-checks the same keys against its build table anyway.
+    Skip,
+    /// Not convertible; keep it as a batch-level pre-filter.
+    Keep,
+}
+
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
     index_created_by_version: Option<crate::api::version::Version>,
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
-) -> Option<Box<dyn Query>> {
+    max_segment_docs: u32,
+    sorted_by_field: Option<&str>,
+) -> InListPushdown {
     if in_list.negated() {
-        return None;
+        return InListPushdown::Keep;
     }
 
-    let col = in_list.expr().downcast_ref::<Column>()?;
-    let field = schema.search_field(col.name())?;
+    let Some(col) = in_list.expr().downcast_ref::<Column>() else {
+        return InListPushdown::Keep;
+    };
+    let Some(field) = schema.search_field(col.name()) else {
+        return InListPushdown::Keep;
+    };
 
     if field.is_text() && !field.is_keyword() {
-        return None;
+        return InListPushdown::Keep;
     }
 
     let field_type = field.field_type();
@@ -819,18 +836,41 @@ fn try_convert_in_list_to_query(
     // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
     // reasoning and trade-off. Set to 0 to disable pushdown.
     if in_list.list().len() > max_distinct {
-        return None;
+        return InListPushdown::Keep;
     }
 
     // Estimate size: this is a rough estimate based on the number of elements
     // and their typical size.
     let estimated_size = in_list.list().len() * 32; // Assume ~32 bytes per element
     if estimated_size > max_size {
-        return None;
+        return InListPushdown::Keep;
+    }
+
+    // Integrating the term set only pays when the segments admit an index-driven strategy.
+    // Past its density gate tantivy's planner falls back to `LinearScan`, a per-candidate
+    // fast-field probe that re-does the membership test the hash join above performs against
+    // its build table anyway, at a far higher per-row cost than the join's own vectorized
+    // probe — so the predicate is dropped rather than kept. The gate only guards that
+    // fallback: a keyword column or one without a fast representation routes to the FST
+    // automaton, and a column the segments are sorted by routes to gallop, both index-driven
+    // at any density.
+    // Gate on the largest segment: the big segments carry the linear cost, and a small
+    // segment's linear scan is cheap even when it misses its own bitset gate. The looser
+    // multi-column threshold is used because the column's docs-per-term isn't known here; a
+    // unique-keyed column between the two thresholds still lands on `LinearScan`, an
+    // accepted residual since either path is inexpensive in that band.
+    let linear_fallback_possible = field.is_fast()
+        && !field.is_text()
+        && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));
+    let density = in_list.list().len() as f64 / max_segment_docs.max(1) as f64;
+    if linear_fallback_possible && density > crate::gucs::term_set_bitset_max_density_multi() {
+        return InListPushdown::Skip;
     }
 
     let tantivy_schema = schema.tantivy_schema();
-    let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+    let Ok(tantivy_field) = tantivy_schema.get_field(col.name()) else {
+        return InListPushdown::Keep;
+    };
     let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
 
     let terms: Option<Vec<Term>> = in_list
@@ -850,9 +890,11 @@ fn try_convert_in_list_to_query(
         })
         .collect();
 
-    let terms = terms?;
+    let Some(terms) = terms else {
+        return InListPushdown::Keep;
+    };
     if terms.is_empty() {
-        return None;
+        return InListPushdown::Keep;
     }
 
     // Build a strategy config from the paradedb.term_set_* GUCs so the
@@ -874,7 +916,7 @@ fn try_convert_in_list_to_query(
 
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
     let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
-    Some(Box::new(const_score_query) as Box<dyn Query>)
+    InListPushdown::Query(Box::new(const_score_query) as Box<dyn Query>)
 }
 
 /// Try to push down `InList` expressions from `dynamic_filters` into the search query.
@@ -900,6 +942,13 @@ pub fn try_dynamic_filter_pushdown(
     let mut pushed_down_pointers = HashSet::default();
     let schema = reader.schema();
     let index_created_by_version = reader.index_created_by_version();
+    let max_segment_docs = reader
+        .segment_readers()
+        .iter()
+        .map(|sr| sr.num_docs())
+        .max()
+        .unwrap_or(0);
+    let sorted_by_field = reader.sort_order().map(|s| s.field_name.to_string());
 
     for df in dynamic_filters {
         let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() else {
@@ -915,14 +964,22 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) = try_convert_in_list_to_query(
+            match try_convert_in_list_to_query(
                 in_list,
                 schema,
                 index_created_by_version,
                 strategy_sink.clone(),
+                max_segment_docs,
+                sorted_by_field.as_deref(),
             ) {
-                pushed_down_queries.push(query);
-                pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+                InListPushdown::Query(query) => {
+                    pushed_down_queries.push(query);
+                    pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+                }
+                InListPushdown::Skip => {
+                    pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+                }
+                InListPushdown::Keep => {}
             }
         }
 

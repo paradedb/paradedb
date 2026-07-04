@@ -91,6 +91,48 @@ pub trait ParallelState {
 
     /// Return a byte slice pointing to the raw bytes of this instance in memory
     fn as_bytes(&self) -> &[u8];
+
+    /// When true, the builder allocates this entry's space in the DSM but copies nothing
+    /// into it; the contents start uninitialized. For large regions whose first writer runs
+    /// after the DSM is mapped, this skips materializing (and zeroing) a same-sized buffer
+    /// on the host side only to memcpy it over.
+    fn reserve_only(&self) -> bool {
+        false
+    }
+}
+
+/// A [`ParallelState`] entry that only reserves `len` bytes in the DSM (see
+/// [`ParallelState::reserve_only`]). Workers read it back as a `u8` slice.
+pub struct UninitializedBytesParallelState {
+    len: usize,
+}
+
+impl UninitializedBytesParallelState {
+    pub fn new(len: usize) -> Self {
+        Self { len }
+    }
+}
+
+impl ParallelState for UninitializedBytesParallelState {
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<u8>()
+    }
+
+    fn size_of(&self) -> usize {
+        self.len
+    }
+
+    fn array_len(&self) -> usize {
+        self.len
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &[]
+    }
+
+    fn reserve_only(&self) -> bool {
+        true
+    }
 }
 
 impl ParallelStateType for u8 {}

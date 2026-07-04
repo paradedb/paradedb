@@ -23,7 +23,7 @@
 //! serial fallback instead of the hang it used to be when PG's Gather decided the count.
 //!
 //! The MPP DSM region rides as builder `ParallelState` entries instead of a hand-laid coordinate:
-//! a zeroed byte blob for the ring mesh (`shm::dsm_region_bytes`), a zeroed byte blob for the
+//! a reserve-only region for the ring mesh (`shm::dsm_region_bytes`), a zeroed byte blob for the
 //! `ParallelScanState`, plus the partitioning-source index and a go flag. The leader initializes
 //! the mesh and populates the scan state in place between `build()` and worker attach; workers
 //! reconstruct their `MppWorkerInputs` from the same entries, with no PG plan node in reach.
@@ -69,10 +69,12 @@ const GO_ABORT: u32 = 2;
 /// `shm_mq_create` has room for its header.
 const MPP_MQ_SIZE: usize = 1024;
 
-/// The builder process carrying the MPP DSM entries. The two byte blobs are handed over zeroed;
-/// the leader initializes them in place after the DSM is mapped.
+/// The builder process carrying the MPP DSM entries. The mesh region is reserve-only: at the
+/// default queue size it is hundreds of megabytes, and `shm::leader_setup` writes every header
+/// and ring slot it reads, so materializing (zeroing, copying) a host-side buffer of that size
+/// per query would buy nothing. The scan state is a small zeroed blob populated in place.
 struct MppParallelProcess {
-    mesh_region: Vec<u8>,
+    mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
     go: u32,
     partitioning_source_idx: u64,
@@ -213,7 +215,7 @@ fn launch_mpp(
         ParallelScanState::size_of(&args.all_nsegments(), partitioning_source_idx, &[], false);
 
     let process = MppParallelProcess {
-        mesh_region: vec![0u8; region_bytes],
+        mesh_region: crate::parallel_worker::UninitializedBytesParallelState::new(region_bytes),
         scan_state: vec![0u8; scan_size],
         go: GO_WAIT,
         partitioning_source_idx: partitioning_source_idx as u64,

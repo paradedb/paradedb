@@ -289,6 +289,12 @@ jobs:
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
+        # Debug-profile stack frames in the plan-serialization path (datafusion-proto + serde)
+        # are large enough that a deep join plan trips Postgres's default 2MB max_stack_depth,
+        # while release builds sit far below it. Give the test sessions more headroom; the
+        # runner's 8MB thread stack caps what Postgres accepts at 7680kB.
+        env:
+          PGOPTIONS: -c max_stack_depth=6MB
         run: |
           set -e
           if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto; then

@@ -1007,10 +1007,11 @@ impl JoinScan {
         )
     }
 
-    /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
-    /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
-    /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
-    fn maybe_launch_mpp(state: &mut CustomScanStateWrapper<Self>) {
+    /// First-exec MPP prepare. Builds the DSM (mesh region + shared scan state) but launches no
+    /// workers yet: the leader plans first, and `launch_mpp_commit` spawns the producers only
+    /// once the plan's stages serialize. Any fallback here leaves `mpp_prep` unset and the query
+    /// runs serially.
+    fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         if !mpp_is_active()
             || Self::source_queries_have_parameters(&state.custom_state().join_clause)
         {
@@ -1033,16 +1034,20 @@ impl JoinScan {
             query: vec![],
             with_aggregates: false,
         };
-        if let Some(leader) = crate::postgres::customscan::mpp::launch::launch_mpp_join(
-            plan_bytes,
+        if let Some(prep) = crate::postgres::customscan::mpp::launch::prepare_mpp_join(
+            plan_bytes.len(),
             args,
             partitioning_idx,
         ) {
             // The leader runs the top fragment itself. When a non-partitioning source lands there
             // (the SEMI/ANTI broadcast strategy), its scan claims per-source segments against the
             // same shared state the workers use, so the codec needs this pointer to install it.
-            state.custom_state_mut().parallel_state = Some(leader.parallel_state);
-            state.custom_state_mut().mpp = Some(leader);
+            // The canonical per-source segment sets feed the same deserialize the worker-bound
+            // stages are serialized from.
+            state.custom_state_mut().parallel_state = Some(prep.scan_ptr);
+            state.custom_state_mut().non_partitioning_segments =
+                prep.non_partitioning_segments.clone();
+            state.custom_state_mut().mpp_prep = Some(prep);
         }
     }
 }
@@ -1435,10 +1440,10 @@ impl CustomScan for JoinScan {
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         if state.custom_state().datafusion_stream.is_none() {
-            // First exec call: the leader launches its MPP producer workers via the builder
-            // (leader-chosen count, with a serial fallback on a short launch). Done before the
-            // consumer plan is built below.
-            Self::maybe_launch_mpp(state);
+            // First exec call: build the MPP DSM before planning. The workers launch only after
+            // the leader's plan is built and its stages serialize (`launch_mpp_commit` below),
+            // so every planning fallback is a serial run with no workers to abort.
+            Self::maybe_prepare_mpp(state);
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1480,66 +1485,121 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                // Leader session context: when MPP is active and we're the leader, layer the
-                // DF-D fork's distributed-planner knobs over the Join profile so the resulting
-                // physical plan is a `DistributedExec`. Without this, the leader builds a serial
-                // plan and the worker fragments would have nothing to consume from.
-                let ctx = match state.custom_state().mpp.as_ref() {
-                    Some(leader) => {
-                        // Workers are launched and draining (the launcher verified the full producer
-                        // set came up, else it fell back to serial); ship each fragment's plan now.
-                        if let Err(e) =
-                            crate::postgres::customscan::mpp::glue::deliver_set_plans(leader)
-                        {
-                            pgrx::error!("mpp join: plan delivery failed: {e}");
-                        }
-                        Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
-                    }
-                    _ => create_datafusion_session_context(SessionContextProfile::Join),
-                };
-                let logical_plan = deserialize_logical_plan_with_runtime(
-                    &plan_bytes,
-                    &ctx.task_ctx(),
-                    state.custom_state().parallel_state,
-                    Some(state.runtime_context),
-                    Some(planstate),
-                    state.custom_state().non_partitioning_segments.clone(),
-                    index_segment_ids,
-                )
-                .expect("Failed to deserialize logical plan");
-
-                // For parameterized LIMIT/OFFSET, the planning-time logical
-                // plan has no Limit node. Inject one now (before physical
-                // planning) so SegmentedTopKRule can detect SortExec(fetch=K)
-                // and apply its TopK optimization. Static cases were already
-                // pushed in `build_clause_df`.
-                let needs_runtime_limit = join_clause
-                    .limit_offset
-                    .as_ref()
-                    .map(|lo| lo.has_any_param())
-                    .unwrap_or(false);
-                let logical_plan = if needs_runtime_limit {
-                    use datafusion::logical_expr::LogicalPlanBuilder;
-                    let lo = join_clause.limit_offset.as_mut().unwrap();
+                // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
+                // node. Resolve the fetch once; each planning pass below injects it (before
+                // physical planning) so SegmentedTopKRule can detect SortExec(fetch=K) and
+                // apply its TopK optimization. Static cases were already pushed in
+                // `build_clause_df`.
+                let runtime_fetch = {
                     let estate = state.csstate.ss.ps.state;
-                    let fetch = lo
-                        .resolve_mut(estate)
-                        .expect("LIMIT must be resolvable from EState")
-                        .static_fetch()
-                        .expect("static_fetch must succeed after resolve_mut");
-                    LogicalPlanBuilder::from(logical_plan)
-                        .limit(0, Some(fetch))
-                        .expect("failed to add Limit to logical plan")
-                        .build()
-                        .expect("failed to build logical plan with Limit")
-                } else {
-                    logical_plan
+                    join_clause
+                        .limit_offset
+                        .as_mut()
+                        .filter(|lo| lo.has_any_param())
+                        .map(|lo| {
+                            lo.resolve_mut(estate)
+                                .expect("LIMIT must be resolvable from EState")
+                                .static_fetch()
+                                .expect("static_fetch must succeed after resolve_mut")
+                        })
                 };
 
-                // Convert logical plan to physical plan
-                let plan = runtime
-                    .block_on(build_physical_plan(&ctx, logical_plan))
-                    .expect("Failed to create execution plan");
+                // Raw pointers precomputed so the planning closure below never borrows `state`.
+                let runtime_context = state.runtime_context;
+                let build_plan = |ctx: &datafusion::prelude::SessionContext,
+                                  parallel_state: Option<*mut ParallelScanState>,
+                                  non_partitioning_segments: Vec<
+                    crate::api::HashSet<tantivy::index::SegmentId>,
+                >|
+                 -> Arc<dyn ExecutionPlan> {
+                    let logical_plan = deserialize_logical_plan_with_runtime(
+                        &plan_bytes,
+                        &ctx.task_ctx(),
+                        parallel_state,
+                        Some(runtime_context),
+                        Some(planstate),
+                        non_partitioning_segments,
+                        index_segment_ids.clone(),
+                    )
+                    .expect("Failed to deserialize logical plan");
+                    let logical_plan = match runtime_fetch {
+                        Some(fetch) => {
+                            use datafusion::logical_expr::LogicalPlanBuilder;
+                            LogicalPlanBuilder::from(logical_plan)
+                                .limit(0, Some(fetch))
+                                .expect("failed to add Limit to logical plan")
+                                .build()
+                                .expect("failed to build logical plan with Limit")
+                        }
+                        None => logical_plan,
+                    };
+                    runtime
+                        .block_on(build_physical_plan(ctx, logical_plan))
+                        .expect("Failed to create execution plan")
+                };
+
+                // Leader session context: when the MPP DSM is prepared, layer the DF-D fork's
+                // distributed-planner knobs over the Join profile so the resulting physical
+                // plan is a `DistributedExec`. The mesh and the dispatch source are
+                // execute-time concerns; the exec session below carries them once the workers
+                // are committed.
+                let plan_ctx = if state.custom_state().mpp_prep.is_some() {
+                    Self::build_mpp_session_context(None)
+                } else {
+                    create_datafusion_session_context(SessionContextProfile::Join)
+                };
+                // A rescan after an MPP run replans serially: the launched generation's
+                // workers have already claimed the shared scan state, so binding the fresh
+                // plan to it would leave the leader with nothing to scan.
+                let plan_parallel_state = if state.custom_state().mpp.is_some()
+                    && state.custom_state().mpp_prep.is_none()
+                {
+                    None
+                } else {
+                    state.custom_state().parallel_state
+                };
+                let plan = build_plan(
+                    &plan_ctx,
+                    plan_parallel_state,
+                    state.custom_state().non_partitioning_segments.clone(),
+                );
+
+                // Commit the MPP launch against the built plan: serialize its producer stages,
+                // spawn the workers, and hand the coordinator the same stages to dispatch. On a
+                // short launch the workers are gone and the `DistributedExec` shape has no mesh
+                // to read from, so replan serially.
+                let (ctx, plan) = match state.custom_state_mut().mpp_prep.take() {
+                    Some(prep) => {
+                        match crate::postgres::customscan::mpp::launch::launch_mpp_commit(
+                            prep, &plan,
+                        ) {
+                            Some(leader) => {
+                                // Workers are attaching and draining after the commit; ship each
+                                // fragment's plan frame now, before anything pulls from the mesh.
+                                if let Err(e) =
+                                    crate::postgres::customscan::mpp::glue::deliver_set_plans(
+                                        &leader,
+                                    )
+                                {
+                                    pgrx::error!("mpp join: plan delivery failed: {e}");
+                                }
+                                let exec_ctx =
+                                    Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)));
+                                state.custom_state_mut().mpp = Some(leader);
+                                (exec_ctx, plan)
+                            }
+                            None => {
+                                state.custom_state_mut().parallel_state = None;
+                                state.custom_state_mut().non_partitioning_segments = Vec::new();
+                                let serial_ctx =
+                                    create_datafusion_session_context(SessionContextProfile::Join);
+                                let plan = build_plan(&serial_ctx, None, Vec::new());
+                                (serial_ctx, plan)
+                            }
+                        }
+                    }
+                    None => (plan_ctx, plan),
+                };
 
                 let task_ctx = build_task_context(
                     &ctx,

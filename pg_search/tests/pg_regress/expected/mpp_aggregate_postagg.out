@@ -82,6 +82,8 @@ ORDER BY f.category;
 (5 rows)
 
 SET paradedb.enable_mpp TO on;
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category,
        COUNT(*) AS row_count,

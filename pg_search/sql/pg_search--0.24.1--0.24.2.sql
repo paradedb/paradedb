@@ -105,7 +105,7 @@ FROM (SELECT relname,
 
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
 
-CREATE OR REPLACE FUNCTION "alias_typmod_in"(
+CREATE FUNCTION "alias_typmod_in"(
 	"typmod_parts" cstring[] /* Array < '_, & '_ CStr > */
 ) RETURNS INT /* i32 */
 IMMUTABLE STRICT PARALLEL SAFE

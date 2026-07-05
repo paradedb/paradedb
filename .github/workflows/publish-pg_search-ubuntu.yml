@@ -31,7 +31,7 @@ permissions:
 jobs:
   publish-pg_search-ubuntu:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    # Compute-optimized c-family — Rust release build is CPU-bound.
+    # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -39,6 +39,8 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+    container:
+      image: ${{ matrix.image }}
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
@@ -49,7 +51,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu26-full-x64
+            runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 15
             arch: amd64
           - name: Ubuntu 26.04 (Resolute)
@@ -57,7 +60,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 15
             arch: arm64
           - name: Ubuntu 26.04 (Resolute)
@@ -65,7 +69,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu26-full-x64
+            runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 16
             arch: amd64
           - name: Ubuntu 26.04 (Resolute)
@@ -73,7 +78,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 16
             arch: arm64
           - name: Ubuntu 26.04 (Resolute)
@@ -81,7 +87,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu26-full-x64
+            runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 17
             arch: amd64
           - name: Ubuntu 26.04 (Resolute)
@@ -89,7 +96,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 17
             arch: arm64
           - name: Ubuntu 26.04 (Resolute)
@@ -97,7 +105,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu26-full-x64
+            runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 18
             arch: amd64
           - name: Ubuntu 26.04 (Resolute)
@@ -105,7 +114,8 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 18
             arch: arm64
           # Ubuntu 24.04
@@ -115,6 +125,7 @@ jobs:
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
@@ -123,6 +134,7 @@ jobs:
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
@@ -131,6 +143,7 @@ jobs:
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
@@ -139,6 +152,7 @@ jobs:
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 16
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
@@ -147,6 +161,7 @@ jobs:
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
@@ -155,6 +170,7 @@ jobs:
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
@@ -163,6 +179,7 @@ jobs:
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 18
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
@@ -171,12 +188,13 @@ jobs:
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 18
             arch: arm64
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7

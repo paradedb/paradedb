@@ -324,6 +324,71 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
+-- Pass 6: the size gate falls back to a plain serial run. The plan was
+-- built while MPP was eligible, so the fallback must not carry per-source
+-- claim markers that have no shared scan state to draw from.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 4;
+SET paradedb.mpp_min_rows TO 1000000000;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, p.size_bytes
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.title, p.size_bytes
+         Relation Tree: p INNER f
+         Join Cond: f.id = p.file_id
+         Limit: 10
+         Order By: f.title asc, p.size_bytes asc
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
+           : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── tasks=3, partitions=9
+           :   │ LocalLimitExec: fetch=10
+           :   │   TantivyLookupExec: decode=[title]
+           :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
+           :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
+           :   │         CoalescePartitionsExec
+           :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :   │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=1, partitions=3
+           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+           :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+(28 rows)
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
+SET paradedb.mpp_min_rows TO 0;
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE mpp_join_pages;

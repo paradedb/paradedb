@@ -110,6 +110,8 @@ LIMIT 5;
 -- =====================================================================
 
 SET paradedb.enable_mpp TO on;
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)

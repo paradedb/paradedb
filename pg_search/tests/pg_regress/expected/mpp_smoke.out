@@ -66,6 +66,8 @@ SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
 
 -- Toggle the boolean GUCs and verify they stick.
 SET paradedb.enable_mpp TO on;
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_after_set_on;
  enable_mpp_after_set_on 
 -------------------------

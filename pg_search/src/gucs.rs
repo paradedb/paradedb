@@ -152,6 +152,13 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// at exec time, so users in constrained environments see fewer.
 static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 
+/// Minimum document count in the partitioning source's index for MPP to engage. The launch
+/// (worker spawn, plan dispatch, per-worker index opens) costs tens of milliseconds; below
+/// this size a serial plan finishes in the same order, so the query stays serial. The
+/// benchmark grid loses across the board at 100k documents and wins from 1m up; the default
+/// sits between.
+static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
+
 /// Per-edge shm_mq queue size in bytes. Each MPP query allocates
 /// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory: at
 /// N=4 with 3 meshes (group-by aggregate's worst case) the default 64 MiB
@@ -597,6 +604,19 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_rows",
+        c"Minimum partitioning-source document count for MPP",
+        c"MPP engages only when the partitioning source's index holds at least this many \
+          documents; smaller queries run serially, where the launch cost would dominate. \
+          Set to 0 to always engage.",
+        &MPP_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-edge shm_mq queue size for MPP shuffles",
         c"Sets the per-edge shm_mq queue size for MPP shuffles. Accepts standard \
@@ -815,6 +835,10 @@ pub fn mpp_trace() -> bool {
 
 pub fn mpp_worker_count() -> i32 {
     MPP_WORKER_COUNT.get()
+}
+
+pub fn mpp_min_rows() -> i32 {
+    MPP_MIN_ROWS.get()
 }
 
 pub fn mpp_queue_size() -> usize {

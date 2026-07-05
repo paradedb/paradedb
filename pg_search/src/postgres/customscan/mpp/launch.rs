@@ -204,6 +204,23 @@ fn launch_mpp(
 ) -> Option<MppLeaderState> {
     let producer_count = producer_worker_count();
 
+    // Match Postgres' refusal to parallelize small scans (`min_parallel_table_scan_size`):
+    // below this size the launch cost (worker spawn, plan dispatch, per-worker index opens)
+    // dominates whatever the split saves.
+    let min_rows = crate::gucs::mpp_min_rows() as u64;
+    let partitioning_docs: u64 = args
+        .all_sources
+        .get(partitioning_source_idx)
+        .map(|segments| segments.iter().map(|s| s.num_docs() as u64).sum())
+        .unwrap_or(0);
+    if partitioning_docs < min_rows {
+        pgrx::debug1!(
+            "mpp: partitioning source has {partitioning_docs} docs, below \
+             paradedb.mpp_min_rows={min_rows}; running serially"
+        );
+        return None;
+    }
+
     let region_bytes = match estimate_dsm_size(dispatch_plan_capacity(plan_bytes.len())) {
         Ok(sz) => sz,
         Err(e) => {

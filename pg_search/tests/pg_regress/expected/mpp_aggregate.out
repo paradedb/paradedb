@@ -145,6 +145,8 @@ LIMIT 5;
 -- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
 -- =====================================================================
 SET paradedb.enable_mpp TO on;
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id

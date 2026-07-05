@@ -116,6 +116,8 @@ LIMIT 10;
 -- fragment dispatch, leader-side NetworkCoalesceExec gather).
 -- =====================================================================
 SET paradedb.enable_mpp TO on;
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id

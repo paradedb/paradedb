@@ -19,10 +19,12 @@ LOAD 'pg_search';
 -- GUCs must be visible after the extension loads.
 SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_queue_size;
+SHOW paradedb.mpp_min_rows;
 
 -- Defaults: the debug knob stays off.
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
+SELECT current_setting('paradedb.mpp_min_rows')::int AS mpp_min_rows_default;
 
 -- Toggle the boolean GUCs and verify they stick.
 SET paradedb.mpp_debug TO on;
@@ -36,6 +38,11 @@ SET paradedb.mpp_queue_size TO '1GB';
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_after_1gb;
 SET paradedb.mpp_queue_size TO '8MB';
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_back_to_default;
+
+-- Size gate: zero must be accepted (regress suites rely on it to engage
+-- MPP on tiny tables).
+SET paradedb.mpp_min_rows TO 0;
+SELECT current_setting('paradedb.mpp_min_rows')::int AS mpp_min_rows_zero;
 
 -- Out-of-range queue size must fail (GUC min=64kB, max=1GB).
 DO $$
@@ -63,3 +70,4 @@ SET paradedb.mpp_debug TO off;
 
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_queue_size;
+RESET paradedb.mpp_min_rows;

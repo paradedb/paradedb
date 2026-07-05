@@ -273,6 +273,25 @@ fn launch_mpp(
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
+    // Match Postgres' refusal to parallelize small scans (`min_parallel_table_scan_size`):
+    // below this size the launch cost (worker spawn, plan dispatch, per-worker index opens)
+    // dominates whatever the split saves. The largest source stands for the scan: it is
+    // the bulk of the work the split divides, and the smaller sides ride along.
+    let min_rows = crate::gucs::mpp_min_rows() as u64;
+    let largest_source_docs: u64 = args
+        .all_sources
+        .iter()
+        .map(|segments| segments.iter().map(|s| s.num_docs() as u64).sum())
+        .max()
+        .unwrap_or(0);
+    if largest_source_docs < min_rows {
+        pgrx::debug1!(
+            "mpp: largest source has {largest_source_docs} docs, below \
+             paradedb.mpp_min_rows={min_rows}; running serially"
+        );
+        return None;
+    }
+
     let stages = collect_stages(physical);
 
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment

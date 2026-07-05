@@ -13,6 +13,8 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based

@@ -16,6 +16,8 @@ SET paradedb.enable_custom_scan = on;
 SET paradedb.enable_join_custom_scan = on;
 SET paradedb.min_rows_per_worker = 0;
 SET max_parallel_workers = 4;
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers_per_gather = 3;
 SET parallel_tuple_cost = 0;
 SET parallel_setup_cost = 0;

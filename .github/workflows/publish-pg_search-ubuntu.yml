@@ -45,63 +45,72 @@ jobs:
         include:
           # Ubuntu 22.04
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_image: ubuntu22-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu22-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_image: ubuntu22-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu22-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_image: ubuntu22-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu22-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
+            runner_image: ubuntu22-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
+            os_codename: jammy
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
+            runner_image: ubuntu22-full-arm64
             pg_version: 18
             arch: arm64
           # Ubuntu 24.04
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
@@ -109,6 +118,7 @@ jobs:
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
@@ -116,6 +126,7 @@ jobs:
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
@@ -123,6 +134,7 @@ jobs:
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
@@ -130,6 +142,7 @@ jobs:
             pg_version: 16
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
@@ -137,6 +150,7 @@ jobs:
             pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
@@ -144,6 +158,7 @@ jobs:
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
@@ -151,6 +166,7 @@ jobs:
             pg_version: 18
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
@@ -198,6 +214,10 @@ jobs:
 
           OS_VERSION="$(lsb_release -cs)"
           echo "OS Version: $OS_VERSION"
+          if [[ "$OS_VERSION" != "${{ matrix.os_codename }}" ]]; then
+            echo "Expected Ubuntu codename '${{ matrix.os_codename }}' for ${{ matrix.name }}, but runner reports '$OS_VERSION'"
+            exit 1
+          fi
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
@@ -225,7 +245,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-ubuntu
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.os_codename }}-ubuntu
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'

@@ -45,7 +45,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator, strip_wrappers};
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 
@@ -1871,25 +1871,6 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
     }
 
     false
-}
-
-/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
-pub(super) unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    loop {
-        if node.is_null() {
-            return node;
-        }
-        match (*node).type_ {
-            pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
-            }
-            pg_sys::NodeTag::T_PlaceHolderVar => {
-                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
-            }
-            _ => break,
-        }
-    }
-    node
 }
 
 /// Extracts the RTI of the variable passed to a `paradedb.score(var)` function call.

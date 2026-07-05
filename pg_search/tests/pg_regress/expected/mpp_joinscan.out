@@ -328,6 +328,60 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
+-- Pass 4: the size gate falls back to a plain serial run. The plan was
+-- built while MPP was eligible, so the fallback must not carry per-source
+-- claim markers that have no shared scan state to draw from.
+-- =====================================================================
+SET paradedb.mpp_min_rows TO 1000000000;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, p.size_bytes
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.title, p.size_bytes
+         Relation Tree: p INNER f
+         Join Cond: f.id = p.file_id
+         Limit: 10
+         Order By: f.title asc, p.size_bytes asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyLookupExec: decode=[title]
+           :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10
+           :       VisibilityFilterExec: tables=[p, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
+SET paradedb.mpp_min_rows TO 0;
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE mpp_join_pages;

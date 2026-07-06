@@ -52,6 +52,11 @@ SELECT id FROM multi_bm25
  WHERE custom_identifiers->>'invoice_number' &&& 'abc-001'
  ORDER BY id;
 
+-- A successful aggregate plan for this table calls `mark_contexts_successful()`. The
+-- dead-index warning must survive that (it is emitted with no suppressible context), so
+-- it still fires for an aggregate query too.
+SELECT count(*) FROM multi_bm25 WHERE description &&& 'alpha';
+
 -- Drop the older index. From here only `multi_bm25_new` remains and the query
 -- continues to work.
 DROP INDEX multi_bm25_old;

@@ -183,14 +183,18 @@ pub fn rel_get_bm25_index(
                 .map(|i| format!("\"{}\"", i.name()))
                 .collect::<Vec<_>>()
                 .join(", ");
+            // Pass `()` as the context (and name the table in the message) so a later
+            // successful plan for this table can't suppress the warning via
+            // `mark_contexts_successful`.
             planner_warnings::add_planner_warning(
                 "Dead Index",
                 format!(
-                    "invalid `bm25` index(es) {names} are not being rebuilt; they are likely \
-                     leftovers from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and should \
-                     be dropped with `DROP INDEX`"
+                    "table \"{}\" has invalid `bm25` index(es) {names} that are not being \
+                     rebuilt; they are likely leftovers from a failed `CREATE INDEX \
+                     CONCURRENTLY` or `REINDEX` and should be dropped with `DROP INDEX`",
+                    rel.name()
                 ),
-                rel.name(),
+                (),
             );
         }
     }

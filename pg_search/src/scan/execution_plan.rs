@@ -193,11 +193,6 @@ pub struct PgSearchScanPlan {
     /// this scan to write a tag — the EXPLAIN renderer falls back to
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
-    /// For queries eligible for score-based pruning (i.e. ORDER BY score DESC),
-    /// this indicates the need to use a pruning scorer and holds the dynamic filter
-    /// that DataFusion will update with a new threshold. We extract this threshold
-    /// and pass it to the scanner each batch.
-    score_based_pruning_dynamic_filter: Option<Arc<dyn PhysicalExpr>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -283,7 +278,6 @@ impl PgSearchScanPlan {
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
-            score_based_pruning_dynamic_filter: None,
         }
     }
 
@@ -699,7 +693,6 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
         let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
-        let score_based_pruning_dynamic_filter = self.score_based_pruning_dynamic_filter.clone();
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -752,9 +745,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     )
                 }
             };
-            if score_based_pruning_dynamic_filter.is_some() {
-                scanner.use_pruning_scorer();
-            }
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
@@ -872,7 +862,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_strategy: Arc::new(AtomicU8::new(
                     self.dynamic_filter_strategy.load(Ordering::Relaxed),
                 )),
-                score_based_pruning_dynamic_filter: self.score_based_pruning_dynamic_filter.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

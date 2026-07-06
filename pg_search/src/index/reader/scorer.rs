@@ -20,18 +20,12 @@ use std::sync::OnceLock;
 use tantivy::query::{PruningScorer, Query, Scorer};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
-enum ScorerType {
-    Regular(Box<dyn Scorer>),
-    Pruning(Box<dyn PruningScorer>),
-}
-
 pub struct DeferredScorer {
     query: Box<dyn Query>,
     need_scores: bool,
-    pruning: bool,
     segment_reader: SegmentReader,
     searcher: Searcher,
-    scorer: OnceLock<ScorerType>,
+    scorer: OnceLock<Box<dyn PruningScorer>>,
 }
 
 impl DeferredScorer {
@@ -44,7 +38,6 @@ impl DeferredScorer {
         Self {
             query,
             need_scores,
-            pruning: false,
             segment_reader,
             searcher,
             scorer: Default::default(),
@@ -53,68 +46,30 @@ impl DeferredScorer {
 
     #[track_caller]
     #[inline(always)]
-    fn scorer_mut(&mut self) -> &mut dyn Scorer {
+    fn scorer_mut(&mut self) -> &mut dyn PruningScorer {
         self.scorer();
-        match self
-            .scorer
+        self.scorer
             .get_mut()
             .expect("deferred scorer should have been initialized")
-        {
-            ScorerType::Regular(scorer) => scorer,
-            ScorerType::Pruning(pruning) => pruning,
-        }
     }
 
     #[track_caller]
     #[inline(always)]
-    fn pruning_scorer_mut(&mut self) -> Option<&mut dyn PruningScorer> {
-        self.scorer();
-        match self
-            .scorer
-            .get_mut()
-            .expect("deferred scorer should have been initialized")
-        {
-            ScorerType::Regular(_) => None,
-            ScorerType::Pruning(pruning) => Some(pruning),
-        }
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    fn scorer(&self) -> &dyn Scorer {
-        let scorer = self.scorer.get_or_init(|| {
+    fn scorer(&self) -> &dyn PruningScorer {
+        self.scorer.get_or_init(|| {
             let weight = self
                 .query
                 .weight(enable_scoring(self.need_scores, &self.searcher))
                 .expect("weight should be constructable");
 
-            if self.pruning {
-                let pruning_scorer = weight
-                    .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)
-                    .expect("pruning scorer should be constructable");
-                ScorerType::Pruning(pruning_scorer)
-            } else {
-                let scorer = weight
-                    .scorer(&self.segment_reader, 1.0)
-                    .expect("scorer should be constructable");
-                ScorerType::Regular(scorer)
-            }
-        });
-        match scorer {
-            ScorerType::Regular(scorer) => scorer,
-            ScorerType::Pruning(pruning) => pruning,
-        }
-    }
-
-    /// Should only be called before `self.scorer` is initialized
-    pub fn set_pruning(&mut self, pruning: bool) {
-        self.pruning = pruning;
+            weight
+                .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)
+                .expect("pruning scorer should be constructable")
+        })
     }
 
     pub fn set_threshold(&mut self, threshold: Score) {
-        let scorer = self
-            .pruning_scorer_mut()
-            .expect("should only call set_threshold when `self.scorer` is a `PruningScorer`");
+        let scorer = self.scorer_mut();
         scorer.set_threshold(threshold);
     }
 }
@@ -174,12 +129,6 @@ impl ScorerIter {
     /// This is used for query planning statistics and uses Tantivy's `size_hint`.
     pub fn estimated_doc_count(&self) -> u32 {
         self.deferred.size_hint()
-    }
-
-    /// Update the pruning field on `deferred`. This should only be called before `self.deferred.scorer`
-    /// is initialized
-    pub fn set_pruning(&mut self, pruning: bool) {
-        self.deferred.set_pruning(pruning);
     }
 
     pub fn set_threshold(&mut self, threshold: Score) {

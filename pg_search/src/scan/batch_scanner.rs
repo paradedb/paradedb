@@ -502,8 +502,4 @@ impl Scanner {
             }
         }
     }
-
-    pub fn use_pruning_scorer(&mut self) {
-        self.search_results.use_pruning_scorer()
-    }
 }

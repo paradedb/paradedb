@@ -574,13 +574,17 @@
       "apple-mobile-web-app-title": "ParadeDB Docs",
       "og:type": "website",
       "og:locale": "en_US",
+      "og:title": "ParadeDB Docs",
+      "og:description": "ParadeDB unifies your application data, full-text search, vector retrieval, and aggregations in Postgres.",
+      "og:image": "https://www.paradedb.com/opengraph-image.png",
+      "og:image:alt": "ParadeDB: Search without a second system.",
       "twitter:card": "summary_large_image",
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
       "twitter:title": "ParadeDB Docs",
-      "twitter:description": "Developer docs for ParadeDB: Simple, Elastic-Quality Search for Postgres.",
+      "twitter:description": "ParadeDB unifies your application data, full-text search, vector retrieval, and aggregations in Postgres.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
-      "twitter:image:alt": "ParadeDB: Simple, Elastic-Quality Search for Postgres."
+      "twitter:image:alt": "ParadeDB: Search without a second system."
     },
     "indexing": "navigable"
   }

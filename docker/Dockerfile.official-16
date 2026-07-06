@@ -31,7 +31,7 @@ RUN apt-get update \
     && echo "deb [ signed-by=/usr/local/share/keyrings/postgres.gpg.asc ] https://apt-archive.postgresql.org/pub/repos/apt trixie-pgdg-archive main" > /etc/apt/sources.list.d/pgdg-archive.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-    postgresql-16-pgvector=0.8.2-1.pgdg13+1 \
+    postgresql-16-pgvector=0.8.4-1.pgdg13+1 \
     postgresql-16-cron=1.6.7-2.pgdg13+1 \
     postgresql-16-pg-ivm=1.13-1.pgdg13+1 \
     postgresql-16-postgis-$POSTGIS_VERSION_MAJOR \

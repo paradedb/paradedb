@@ -753,7 +753,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let pre_filters = build_filters(&dynamic_filters, &schema);
-                println!("filters: {pre_filters:?}");
+                //println!("filters: {pre_filters:?}");
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {

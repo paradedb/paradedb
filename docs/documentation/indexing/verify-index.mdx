@@ -904,7 +904,7 @@ SELECT paradedb.index_created_at('search_idx');
  2026-07-02 14:31:07.442218+00
 ```
 
-This returns `NULL` for indexes built before build-time stamping was added.
+Build-time stamping is supported on ParadeDB `0.24.2` and up. Indexes created before upgrading to `0.24.2` will return `NULL`.
 
 ## Function Reference
 
@@ -971,7 +971,7 @@ Returns:
 
 ### `paradedb.index_created_at`
 
-Returns the wall-clock time the given BM25 index was built, or `NULL` for indexes built before build-time stamping was added.
+Returns the wall-clock time the given BM25 index was built. Supported on ParadeDB `0.24.2` and up; indexes created before upgrading to `0.24.2` return `NULL`.
 
 | Parameter | Type     | Default    | Description          |
 | --------- | -------- | ---------- | -------------------- |

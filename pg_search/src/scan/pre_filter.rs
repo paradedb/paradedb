@@ -686,6 +686,7 @@ fn try_convert_in_list_to_query(
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
     max_segment_docs: u32,
     sorted_by_field: Option<&str>,
+    full_consumption: bool,
 ) -> InListPushdown {
     if in_list.negated() {
         return InListPushdown::Keep;
@@ -736,11 +737,19 @@ fn try_convert_in_list_to_query(
     // multi-column threshold is used because the column's docs-per-term isn't known here; a
     // unique-keyed column between the two thresholds still lands on `LinearScan`, an
     // accepted residual since either path is inexpensive in that band.
+    //
+    // The drop only pays under a plan that can exit early: linear's up-front, demand-blind
+    // scan is then wasted work a `LIMIT` never amortizes. Under full consumption every
+    // candidate is decoded and probed anyway, and integration prunes rows before that cost,
+    // which beats re-checking them in the join above.
     let linear_fallback_possible = field.is_fast()
         && !field.is_text()
         && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));
     let density = in_list.list().len() as f64 / max_segment_docs.max(1) as f64;
-    if linear_fallback_possible && density > crate::gucs::term_set_bitset_max_density_multi() {
+    if linear_fallback_possible
+        && !full_consumption
+        && density > crate::gucs::term_set_bitset_max_density_multi()
+    {
         return InListPushdown::Skip;
     }
 
@@ -814,6 +823,7 @@ pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    full_consumption: bool,
 ) -> bool {
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
@@ -848,6 +858,7 @@ pub fn try_dynamic_filter_pushdown(
                 strategy_sink.clone(),
                 max_segment_docs,
                 sorted_by_field.as_deref(),
+                full_consumption,
             ) {
                 InListPushdown::Query(query) => {
                     pushed_down_queries.push(query);

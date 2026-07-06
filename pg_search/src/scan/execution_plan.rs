@@ -171,6 +171,13 @@ pub struct PgSearchScanPlan {
     /// this scan to write a tag — the EXPLAIN renderer falls back to
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
+    /// Set when a full-consumption operator (a sort or an aggregate) sits above this scan,
+    /// so a `LIMIT` at the plan root cannot stop the scan early. Dropping a dense join-key
+    /// `InList` is only worthwhile when early exit is possible; under full consumption the
+    /// integrated term set prunes rows before they are decoded and probed, which is where
+    /// the benchmark grid shows the win. Marked by [`mark_full_consumption_scans`] after the
+    /// final plan exists; the default (false) preserves the drop.
+    full_consumption: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -253,11 +260,16 @@ impl PgSearchScanPlan {
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
+            full_consumption: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn has_deferred_fields(&self) -> bool {
         !self.deferred_fields.is_empty()
+    }
+
+    fn mark_full_consumption(&self) {
+        self.full_consumption.store(true, Ordering::Relaxed);
     }
 
     pub fn ffhelper(&self) -> Option<Arc<FFHelper>> {
@@ -659,6 +671,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
         let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
+        let full_consumption = self.full_consumption.clone();
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -671,6 +684,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     &mut reader,
                     &mut dynamic_filters,
                     Some(dynamic_filter_strategy.clone()),
+                    full_consumption.load(Ordering::Relaxed),
                 )
             {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
@@ -813,6 +827,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_strategy: Arc::new(AtomicU8::new(
                     self.dynamic_filter_strategy.load(Ordering::Relaxed),
                 )),
+                full_consumption: Arc::new(AtomicBool::new(
+                    self.full_consumption.load(Ordering::Relaxed),
+                )),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -822,6 +839,32 @@ impl ExecutionPlan for PgSearchScanPlan {
             Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
         }
     }
+}
+
+/// Marks every [`PgSearchScanPlan`] that sits below a full-consumption operator (a sort,
+/// an aggregate, or a segmented Top K), meaning a `LIMIT` at the plan root cannot stop the
+/// scan early. The flag steers the dense join-key `InList` decision: with early exit
+/// possible the predicate is dropped (its up-front evaluation is demand-blind), without it
+/// the term set integrates into the tantivy query so rows are pruned before decode.
+///
+/// Call on the final plan, after the filter-pushdown pass: that pass rebuilds scan nodes,
+/// which would discard an earlier mark.
+pub fn mark_full_consumption_scans(plan: &dyn ExecutionPlan) {
+    fn walk(node: &dyn ExecutionPlan, under_barrier: bool) {
+        let under_barrier = under_barrier
+            || node.is::<datafusion::physical_plan::sorts::sort::SortExec>()
+            || node.is::<datafusion::physical_plan::aggregates::AggregateExec>()
+            || node.is::<crate::scan::segmented_topk_exec::SegmentedTopKExec>();
+        if under_barrier {
+            if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+                scan.mark_full_consumption();
+            }
+        }
+        for child in node.children() {
+            walk(child.as_ref(), under_barrier);
+        }
+    }
+    walk(plan, false);
 }
 
 /// Evaluate the current dynamic filter expressions and convert them into

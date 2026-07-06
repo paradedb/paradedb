@@ -386,5 +386,10 @@ pub fn deserialize_physical_plan_with_runtime(
     // node and the scans below it; serialization drops them. Re-running the post-optimization
     // pushdown pass on the decoded fragment re-creates the links, so this task's probe scans
     // prune against its build side instead of scanning every segment.
-    FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
+    let plan =
+        FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())?;
+    // The consumption mark doesn't ride the wire either; re-derive it from the decoded
+    // fragment's shape.
+    crate::scan::execution_plan::mark_full_consumption_scans(plan.as_ref());
+    Ok(plan)
 }

@@ -436,6 +436,10 @@ pub async fn build_physical_plan(
         .create_physical_plan(&plan, &state)
         .await?;
 
+    // After the optimizer passes: filter pushdown rebuilds scan nodes, which would drop an
+    // earlier mark.
+    crate::scan::execution_plan::mark_full_consumption_scans(plan.as_ref());
+
     if plan.output_partitioning().partition_count() > 1 {
         Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
     } else {

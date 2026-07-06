@@ -890,6 +890,22 @@ await dbContext.Database
  app        | articles    | articles_idx  |      16448 |            2 |      10000
 ```
 
+## Index Build Time
+
+To see the wall-clock time a BM25 index was built:
+
+```sql SQL
+SELECT paradedb.index_created_at('search_idx');
+```
+
+```
+       index_created_at
+------------------------------
+ 2026-07-02 14:31:07.442218+00
+```
+
+This returns `NULL` for indexes built before build-time stamping was added.
+
 ## Function Reference
 
 ### `pdb.verify_index`
@@ -952,3 +968,13 @@ Returns:
 | `indexrelid`   | oid    | OID of the index                    |
 | `num_segments` | int    | Number of Tantivy segments          |
 | `total_docs`   | bigint | Total documents across all segments |
+
+### `paradedb.index_created_at`
+
+Returns the wall-clock time the given BM25 index was built, or `NULL` for indexes built before build-time stamping was added.
+
+| Parameter | Type     | Default    | Description          |
+| --------- | -------- | ---------- | -------------------- |
+| `index`   | regclass | (required) | The index to inspect |
+
+Returns a `timestamp with time zone`.

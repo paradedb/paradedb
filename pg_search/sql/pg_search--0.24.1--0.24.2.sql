@@ -1,5 +1,13 @@
 \echo Use "ALTER EXTENSION pg_search UPDATE TO '0.24.2'" to load this file. \quit
 
+-- Expose the build-time creation timestamp stamped into an index's metadata page.
+CREATE FUNCTION "index_created_at"(
+	"index" regclass /* pgrx::rel::PgRelation */
+) RETURNS timestamp with time zone /* core::option::Option<pgrx::datum::time_stamp_with_timezone::TimestampWithTimeZone> */
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_created_at_wrapper';
+
 -- Update boolean() overloads to add minimum_should_match parameter
 DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput, should searchqueryinput, must_not searchqueryinput);
 CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput DEFAULT NULL, should searchqueryinput DEFAULT NULL, must_not searchqueryinput DEFAULT NULL, minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_singles_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;

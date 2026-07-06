@@ -38,11 +38,14 @@ use arrow_schema::{SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
+use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::{
     EquivalenceProperties, LexOrdering, PhysicalExpr, PhysicalSortExpr,
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::expressions::{
+    BinaryExpr, Column, DynamicFilterPhysicalExpr, Literal,
+};
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
@@ -53,8 +56,10 @@ use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMerge
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
+use datafusion::scalar::ScalarValue;
 use futures::Stream;
 use tantivy::index::SegmentId;
+use tantivy::Score;
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFHelper;
@@ -752,7 +757,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let pre_filters = build_filters(&dynamic_filters, &schema);
+                let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema);
                 //println!("filters: {pre_filters:?}");
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
@@ -767,7 +772,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     &ffhelper,
                     &mut visibility,
                     pre_filters_wrapper.as_ref(),
-                    None,
+                    score_threshold,
                 );
                 timer.done();
 
@@ -875,6 +880,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
 /// Evaluate the current dynamic filter expressions and convert them into
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
+/// Pull out a top-k score threshold if one exists and return it seperately
 ///
 /// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
 /// from Top K) are picked up immediately.
@@ -883,18 +889,56 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// comparisons are retained. Anything else (unsupported types, non-comparison
 /// operators) is silently dropped — the parent operator is still responsible
 /// for enforcing the full predicate, so correctness is not affected.
-fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) -> Vec<PreFilter> {
+fn build_filters(
+    dynamic_filters: &[Arc<dyn PhysicalExpr>],
+    schema: &SchemaRef,
+) -> (Vec<PreFilter>, Option<Score>) {
     let mut filters = Vec::new();
+    let mut score_threshold = None;
+    let score_idx: Option<usize> = schema
+        .column_with_name(&WhichFastField::Score.name())
+        .map(|(idx, _)| idx);
     for df in dynamic_filters {
         if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {
-                collect_filters(&current_expr, schema, &mut filters);
+                if let Some(treshold) = try_extract_score_threshold(&current_expr, score_idx) {
+                    score_threshold = Some(treshold);
+                } else {
+                    collect_filters(&current_expr, schema, &mut filters);
+                }
             }
         } else {
             collect_filters(df, schema, &mut filters);
         }
     }
-    filters
+    (filters, score_threshold)
+}
+
+/// Attempt to extract a score threshold from the expr. This will return a score for any top-level binary
+/// expression that looks like: score > f32, where the f32 is the threshold. This is necessary for
+/// using the blockmax-wand optimization in joins
+fn try_extract_score_threshold(
+    expr: &Arc<dyn PhysicalExpr>,
+    score_idx: Option<usize>,
+) -> Option<Score> {
+    let score_idx = score_idx?;
+    let binary_expr = expr.downcast_ref::<BinaryExpr>()?;
+    match binary_expr.op() {
+        Operator::Or => try_extract_score_threshold(binary_expr.left(), Some(score_idx))
+            .or_else(|| try_extract_score_threshold(binary_expr.right(), Some(score_idx))),
+        Operator::Gt => {
+            // We check for a binary expr that looks like: score > f32
+            let col = binary_expr.left().downcast_ref::<Column>()?;
+            if col.index() != score_idx {
+                return None;
+            }
+            match binary_expr.right().downcast_ref::<Literal>()?.value() {
+                ScalarValue::Float32(Some(t)) => Some(*t),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// A wrapper that unsafely implements Send for a Stream.

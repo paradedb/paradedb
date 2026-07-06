@@ -60,4 +60,16 @@ SELECT id FROM multi_bm25
  WHERE custom_identifiers->>'invoice_number' &&& 'abc-001'
  ORDER BY id;
 
+-- Marking the sole remaining index invalid leaves the relation with no usable bm25
+-- index. A search query then errors, but the error now names the dead leftover index
+-- and advises dropping it instead of only reporting a missing index.
+SET allow_system_table_mods = on;
+UPDATE pg_index SET indisvalid = false
+WHERE indexrelid = 'multi_bm25_new'::regclass;
+SET allow_system_table_mods = off;
+
+SELECT id FROM multi_bm25
+ WHERE custom_identifiers->>'invoice_number' &&& 'abc-001'
+ ORDER BY id;
+
 DROP TABLE multi_bm25 CASCADE;

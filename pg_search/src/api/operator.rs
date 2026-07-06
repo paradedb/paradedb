@@ -421,10 +421,23 @@ pub unsafe fn tantivy_field_name_from_node(
         return None;
     }
     let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
+        let heaprel = PgSearchRelation::open(heaprelid);
+        let dead = crate::postgres::dead_bm25_indexes(&heaprel, heaprelid);
+        if dead.is_empty() {
+            panic!("`{}` does not contain a `USING bm25` index", heaprel.name());
+        }
+        let names = dead
+            .iter()
+            .map(|i| format!("\"{}\"", i.name()))
+            .collect::<Vec<_>>()
+            .join(", ");
         panic!(
-            "`{}` does not contain a `USING bm25` index",
-            PgSearchRelation::open(heaprelid).name()
-        )
+            "`{}` has no valid `USING bm25` index: invalid index(es) {} are dead leftovers of \
+             a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and should be dropped with \
+             `DROP INDEX`",
+            heaprel.name(),
+            names
+        );
     });
 
     let field_name =

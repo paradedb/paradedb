@@ -138,14 +138,13 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 /// Finds and returns the `USING bm25` index on the specified relation with the highest OID,
 /// along with the heap relation. Returns [`None`] if there isn't one.
 ///
-/// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
+/// Filters out indexes that aren't `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
 /// or a failed `REINDEX`). When more than one valid bm25 index exists on the relation
 /// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-bm25-index
 /// check), the highest-OID one is chosen so that the index added most recently wins.
 ///
-/// When an invalid bm25 index is found that no live backend is currently building or
-/// reindexing, it's a dead leftover of a failed `CREATE INDEX CONCURRENTLY` / `REINDEX`
-/// and a warning is emitted suggesting it be dropped.
+/// If an invalid bm25 index is a dead leftover of a failed `CREATE INDEX CONCURRENTLY` /
+/// `REINDEX` (see [`dead_bm25_indexes`]), a warning suggesting it be dropped is emitted.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
@@ -156,60 +155,87 @@ pub fn rel_get_bm25_index(
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
 
     let mut chosen: Option<PgSearchRelation> = None;
-    let mut invalid: Vec<PgSearchRelation> = Vec::new();
+    let mut has_invalid = false;
     for index in rel.indices(pg_sys::AccessShareLock as _) {
         if !is_bm25_index(&index) {
             continue;
         }
-        if unsafe { pg_sys::get_index_isvalid(index.oid()) } {
+        if index.is_valid() {
             if chosen
                 .as_ref()
                 .is_none_or(|c| index.oid().to_u32() > c.oid().to_u32())
             {
                 chosen = Some(index);
             }
-        } else {
-            invalid.push(index);
+        } else if index.is_live() {
+            has_invalid = true;
         }
     }
 
-    // Flag dead invalid indexes even when no valid index remains (`chosen` is `None`) — that
-    // case is the most severe, since the relation then has no usable bm25 index at all.
-    if !invalid.is_empty() {
-        // An invalid index that no live backend is building is a dead leftover of a failed
-        // `CREATE INDEX CONCURRENTLY` / `REINDEX`. Scan the backend status array once for all
-        // in-progress builds on this relation, then flag the rest.
-        let building = indexes_being_built(relid);
-        let names = invalid
-            .iter()
-            .filter(|i| !building.contains(&i.oid().to_u32()))
-            .map(|i| format!("\"{}\"", i.name()))
-            .collect::<Vec<_>>();
-        if !names.is_empty() {
-            planner_warnings::add_planner_warning(
-                "Dead Index",
-                format!(
-                    "invalid `bm25` index(es) {} are not being rebuilt; they are likely \
-                     leftovers from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and \
-                     should be dropped with `DROP INDEX`",
-                    names.join(", ")
-                ),
-                rel.name(),
-            );
-        }
+    // Warn about dead invalid indexes even when no valid index remains (`chosen` is `None`) --
+    // that case is the most severe, since the relation then has no usable bm25 index at all.
+    // Gated on `has_invalid` so the extra work stays off the common all-valid path.
+    if has_invalid {
+        warn_dead_bm25_indexes(&rel, relid);
     }
 
     let index = chosen?;
     Some((rel, index))
 }
 
-/// Returns the OIDs of indexes on `heap_relid` that a live backend is currently building via
-/// `CREATE INDEX` or `REINDEX` (concurrent or not).
+/// Emits a planner warning naming the dead bm25 indexes on `rel`.
+fn warn_dead_bm25_indexes(rel: &PgSearchRelation, relid: pg_sys::Oid) {
+    let dead = dead_bm25_indexes(rel, relid);
+    if dead.is_empty() {
+        return;
+    }
+    let names = dead
+        .iter()
+        .map(|i| format!("\"{}\"", i.name()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    planner_warnings::add_planner_warning(
+        "Dead Index",
+        format!(
+            "invalid `bm25` index(es) {names} are not being rebuilt; they are likely leftovers \
+             from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and should be dropped \
+             with `DROP INDEX`"
+        ),
+        rel.name(),
+    );
+}
+
+/// Returns the bm25 indexes on `relid` that are dead leftovers of a failed `CREATE INDEX
+/// CONCURRENTLY` / `REINDEX`: `!indisvalid`, still live, and not currently being rebuilt by any
+/// backend.
 ///
-/// Reads the backend status array from shared memory directly — the same data
-/// `pg_stat_progress_create_index` exposes — to avoid the overhead of an SPI query. Only
-/// invoked once an invalid bm25 index has already been found, so the scan never runs on the
-/// common path.
+/// During the earlier phases of `DROP INDEX CONCURRENTLY` the index is still live and has no
+/// build entry, so it can transiently appear here; that report is harmless (the advice is to
+/// drop it, which is already happening) and clears once the drop makes the index non-live.
+pub fn dead_bm25_indexes(rel: &PgSearchRelation, relid: pg_sys::Oid) -> Vec<PgSearchRelation> {
+    let invalid: Vec<PgSearchRelation> = rel
+        .indices(pg_sys::AccessShareLock as _)
+        .filter(|i| is_bm25_index(i) && !i.is_valid() && i.is_live())
+        .collect();
+    if invalid.is_empty() {
+        return invalid;
+    }
+    let building = indexes_being_built(relid);
+    invalid
+        .into_iter()
+        .filter(|i| !building.contains(&i.oid().to_u32()))
+        .collect()
+}
+
+/// Returns the OIDs of indexes on `heap_relid` that a backend in this database is currently
+/// building via `CREATE INDEX` or `REINDEX` (concurrent or not).
+///
+/// This reads the `pgstat` backend-status snapshot (the same data behind
+/// `pg_stat_progress_create_index`), avoiding an SPI query. The snapshot is transaction-local:
+/// it's copied out of shared memory on first access (under the `st_changecount` protocol) and
+/// cached until end of transaction, so inside a long transaction it can be stale -- a build that
+/// started after the snapshot is invisible. Only consulted once an invalid bm25 index has
+/// already been found, so it never runs on the common path.
 fn indexes_being_built(heap_relid: pg_sys::Oid) -> HashSet<u32> {
     let index_oid_param = pg_sys::PROGRESS_CREATEIDX_INDEX_OID.to_u32() as usize;
     let mut building = HashSet::default();

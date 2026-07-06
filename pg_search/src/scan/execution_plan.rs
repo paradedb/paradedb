@@ -755,10 +755,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 scanner.set_batch_size(df_batch_size as usize);
             }
 
+            let mut round = 0;
             loop {
+                println!("round {round:?}");
+                round += 1;
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema);
-                //println!("filters: {pre_filters:?}");
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -880,7 +882,8 @@ impl ExecutionPlan for PgSearchScanPlan {
 
 /// Evaluate the current dynamic filter expressions and convert them into
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
-/// Pull out a top-k score threshold if one exists and return it separately
+/// Pulls out a top-k score threshold if one exists. (We process the filter it's
+/// a part of as usual as it may be part of a more complex expression)
 ///
 /// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
 /// from Top K) are picked up immediately.
@@ -903,9 +906,8 @@ fn build_filters(
             if let Ok(current_expr) = dynamic.current() {
                 if let Some(threshold) = try_extract_score_threshold(&current_expr, score_idx) {
                     score_threshold = Some(threshold);
-                } else {
-                    collect_filters(&current_expr, schema, &mut filters);
                 }
+                collect_filters(&current_expr, schema, &mut filters);
             }
         } else {
             collect_filters(df, schema, &mut filters);
@@ -914,9 +916,12 @@ fn build_filters(
     (filters, score_threshold)
 }
 
-/// Attempt to extract a score threshold from the expr. This will return a score for any top-level binary
-/// expression that looks like: score > f32, where the f32 is the threshold. This is necessary for
-/// using the blockmax-wand optimization in joins
+/// Attempt to extract a score threshold from the expr. This will return a score for any binary
+/// expression or OR-child sub-expression that looks like: score > f32, where the f32 is the threshold.
+/// Applies `.next_down()` to the f32 result so that equality filters can still be applied by datafusion
+/// for score tie-breakers.
+///
+/// This is necessary for using the blockmax-wand optimization in joins
 fn try_extract_score_threshold(
     expr: &Arc<dyn PhysicalExpr>,
     score_idx: Option<usize>,
@@ -933,6 +938,17 @@ fn try_extract_score_threshold(
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
+                ScalarValue::Float32(Some(t)) => Some(t.next_down()),
+                _ => None,
+            }
+        }
+        Operator::Lt => {
+            // We check for a binary expr that looks like: f32 < score
+            let col = binary_expr.right().downcast_ref::<Column>()?;
+            if col.index() != score_idx {
+                return None;
+            }
+            match binary_expr.left().downcast_ref::<Literal>()?.value() {
                 ScalarValue::Float32(Some(t)) => Some(*t),
                 _ => None,
             }

@@ -1423,8 +1423,11 @@ async fn execute_query_multiple_times(
     {
         use sqlx::Row;
         sqlx::raw_sql(query).execute(&mut conn).await.ok();
-        let explain =
-            format!("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) {measured_query}");
+        // VERBOSE because the JoinScan renderer only includes per-node `elapsed_compute`
+        // timing for verbose EXPLAINs.
+        let explain = format!(
+            "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) {measured_query}"
+        );
         match sqlx::raw_sql(&explain).fetch_all(&mut conn).await {
             Ok(rows) => {
                 println!("plan for `{query_type}`:");

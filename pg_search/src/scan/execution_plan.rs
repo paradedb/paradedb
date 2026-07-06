@@ -758,10 +758,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 scanner.set_batch_size(df_batch_size as usize);
             }
 
-            let mut round = 0;
             loop {
-                println!("round {round:?}");
-                round += 1;
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema, score_column_schema_idx);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
@@ -930,8 +927,10 @@ fn try_extract_score_threshold(
     let score_idx = score_idx?;
     let binary_expr = expr.downcast_ref::<BinaryExpr>()?;
     match binary_expr.op() {
-        Operator::Or => try_extract_score_threshold(binary_expr.left(), Some(score_idx))
-            .or_else(|| try_extract_score_threshold(binary_expr.right(), Some(score_idx))),
+        Operator::Or | Operator::And => {
+            try_extract_score_threshold(binary_expr.left(), Some(score_idx))
+                .or_else(|| try_extract_score_threshold(binary_expr.right(), Some(score_idx)))
+        }
         Operator::Gt => {
             // We check for a binary expr that looks like: score > f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
@@ -940,17 +939,6 @@ fn try_extract_score_threshold(
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
                 ScalarValue::Float32(Some(t)) => Some(t.next_down()),
-                _ => None,
-            }
-        }
-        Operator::Lt => {
-            // We check for a binary expr that looks like: f32 < score
-            let col = binary_expr.right().downcast_ref::<Column>()?;
-            if col.index() != score_idx {
-                return None;
-            }
-            match binary_expr.left().downcast_ref::<Literal>()?.value() {
-                ScalarValue::Float32(Some(t)) => Some(*t),
                 _ => None,
             }
         }

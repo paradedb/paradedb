@@ -130,7 +130,6 @@ use tantivy::Term;
 ///
 /// Wraps a DataFusion `PhysicalExpr` that has been validated to only contain
 /// operations we can evaluate early (e.g. before fetching expensive string dictionaries).
-#[derive(Debug)]
 pub struct PreFilter {
     /// The validated DataFusion physical expression.
     pub expr: Arc<dyn PhysicalExpr>,
@@ -139,7 +138,6 @@ pub struct PreFilter {
 }
 
 /// A wrapper bundling a list of `PreFilter`s with the schema they apply to.
-#[derive(Debug)]
 pub struct PreFilters<'a> {
     pub filters: &'a [PreFilter],
     pub schema: &'a SchemaRef,

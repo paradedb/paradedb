@@ -151,6 +151,7 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    score_threshold: Option<Score>,
 }
 
 impl Scanner {
@@ -208,6 +209,7 @@ impl Scanner {
             defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            score_threshold: None,
         }
     }
 
@@ -221,15 +223,16 @@ impl Scanner {
         self.search_results.estimated_doc_count()
     }
 
-    fn try_get_batch_ids(
-        &mut self,
-        threshold: Option<Score>,
-    ) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+    pub(crate) fn set_score_threshold(&mut self, threshold: Option<Score>) {
+        self.score_threshold = threshold;
+    }
+
+    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         // Collect a batch of ids for a single segment.
         loop {
             let scorer_iter = self.search_results.current_segment()?;
             let segment_ord = scorer_iter.segment_ord();
-            if let Some(threshold) = threshold {
+            if let Some(threshold) = self.score_threshold {
                 scorer_iter.set_threshold(threshold);
             }
 
@@ -272,14 +275,13 @@ impl Scanner {
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
-        threshold: Option<Score>,
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
         }
         pgrx::check_for_interrupts!();
 
-        let (segment_ord, scores, mut ids) = self.try_get_batch_ids(threshold)?;
+        let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
 
         // Memoize fetched columns to avoid redundant fetches.
         // - Numeric columns: stores the values directly.
@@ -498,7 +500,7 @@ impl Scanner {
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) {
         if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters, None) {
+            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
                 self.prefetched = Some(batch);
             }
         }

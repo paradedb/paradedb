@@ -693,6 +693,9 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let schema = self.properties.eq_properties.schema().clone();
+        let score_column_schema_idx: Option<usize> = schema
+            .column_with_name(&WhichFastField::Score.name())
+            .map(|(idx, _)| idx);
         let dynamic_filters = self.dynamic_filters.clone();
 
         // Capture self-references for the async block
@@ -760,7 +763,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 println!("round {round:?}");
                 round += 1;
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema);
+                let (pre_filters, score_threshold) = build_filters(&dynamic_filters, &schema, score_column_schema_idx);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
@@ -770,11 +773,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                     })
                 };
 
+                scanner.set_score_threshold(score_threshold);
                 let next_batch = scanner.next(
                     &ffhelper,
                     &mut visibility,
                     pre_filters_wrapper.as_ref(),
-                    score_threshold,
                 );
                 timer.done();
 
@@ -895,12 +898,10 @@ impl ExecutionPlan for PgSearchScanPlan {
 fn build_filters(
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
+    score_idx: Option<usize>,
 ) -> (Vec<PreFilter>, Option<Score>) {
     let mut filters = Vec::new();
     let mut score_threshold = None;
-    let score_idx: Option<usize> = schema
-        .column_with_name(&WhichFastField::Score.name())
-        .map(|(idx, _)| idx);
     for df in dynamic_filters {
         if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {

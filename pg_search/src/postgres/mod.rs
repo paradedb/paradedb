@@ -176,38 +176,38 @@ pub fn rel_get_bm25_index(
     // that case is the most severe, since the relation then has no usable bm25 index at all.
     // Gated on `has_invalid` so the extra work stays off the common all-valid path.
     if has_invalid {
-        warn_dead_bm25_indexes(&rel, relid);
+        let dead = dead_bm25_indexes(&rel, relid);
+        if !dead.is_empty() {
+            let names = dead
+                .iter()
+                .map(|i| format!("\"{}\"", i.name()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            planner_warnings::add_planner_warning(
+                "Dead Index",
+                format!(
+                    "invalid `bm25` index(es) {names} are not being rebuilt; they are likely \
+                     leftovers from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and should \
+                     be dropped with `DROP INDEX`"
+                ),
+                rel.name(),
+            );
+        }
     }
 
     let index = chosen?;
     Some((rel, index))
 }
 
-/// Emits a planner warning naming the dead bm25 indexes on `rel`.
-fn warn_dead_bm25_indexes(rel: &PgSearchRelation, relid: pg_sys::Oid) {
-    let dead = dead_bm25_indexes(rel, relid);
-    if dead.is_empty() {
-        return;
-    }
-    let names = dead
-        .iter()
-        .map(|i| format!("\"{}\"", i.name()))
-        .collect::<Vec<_>>()
-        .join(", ");
-    planner_warnings::add_planner_warning(
-        "Dead Index",
-        format!(
-            "invalid `bm25` index(es) {names} are not being rebuilt; they are likely leftovers \
-             from a failed `CREATE INDEX CONCURRENTLY` or `REINDEX` and should be dropped \
-             with `DROP INDEX`"
-        ),
-        rel.name(),
-    );
-}
-
 /// Returns the bm25 indexes on `relid` that are dead leftovers of a failed `CREATE INDEX
 /// CONCURRENTLY` / `REINDEX`: `!indisvalid`, still live, and not currently being rebuilt by any
 /// backend.
+///
+/// "Being rebuilt" is read from the `pgstat` backend-status snapshot (the same data behind
+/// `pg_stat_progress_create_index`), avoiding an SPI query. That snapshot is transaction-local:
+/// copied out of shared memory on first access (under the `st_changecount` protocol) and cached
+/// until end of transaction, so inside a long transaction it can be stale -- a build that started
+/// after the snapshot is invisible.
 ///
 /// During the earlier phases of `DROP INDEX CONCURRENTLY` the index is still live and has no
 /// build entry, so it can transiently appear here; that report is harmless (the advice is to
@@ -220,26 +220,11 @@ pub fn dead_bm25_indexes(rel: &PgSearchRelation, relid: pg_sys::Oid) -> Vec<PgSe
     if invalid.is_empty() {
         return invalid;
     }
-    let building = indexes_being_built(relid);
-    invalid
-        .into_iter()
-        .filter(|i| !building.contains(&i.oid().to_u32()))
-        .collect()
-}
 
-/// Returns the OIDs of indexes on `heap_relid` that a backend in this database is currently
-/// building via `CREATE INDEX` or `REINDEX` (concurrent or not).
-///
-/// This reads the `pgstat` backend-status snapshot (the same data behind
-/// `pg_stat_progress_create_index`), avoiding an SPI query. The snapshot is transaction-local:
-/// it's copied out of shared memory on first access (under the `st_changecount` protocol) and
-/// cached until end of transaction, so inside a long transaction it can be stale -- a build that
-/// started after the snapshot is invisible. Only consulted once an invalid bm25 index has
-/// already been found, so it never runs on the common path.
-fn indexes_being_built(heap_relid: pg_sys::Oid) -> HashSet<u32> {
+    // OIDs of indexes on `relid` a backend in this database is currently building, so we don't
+    // flag those as dead.
     let index_oid_param = pg_sys::PROGRESS_CREATEIDX_INDEX_OID.to_u32() as usize;
-    let mut building = HashSet::default();
-
+    let mut building = HashSet::<u32>::default();
     unsafe {
         // The backend status array is cluster-wide, but relation/index OIDs are database-local,
         // so a build in another database could otherwise match on OID alone.
@@ -265,14 +250,17 @@ fn indexes_being_built(heap_relid: pg_sys::Oid) -> HashSet<u32> {
             if status.st_progress_command
                 == pg_sys::ProgressCommandType::PROGRESS_COMMAND_CREATE_INDEX
                 && status.st_databaseid == my_database_id
-                && status.st_progress_command_target == heap_relid
+                && status.st_progress_command_target == relid
             {
                 building.insert(status.st_progress_param[index_oid_param] as u32);
             }
         }
     }
 
-    building
+    invalid
+        .into_iter()
+        .filter(|i| !building.contains(&i.oid().to_u32()))
+        .collect()
 }
 
 // 16 bytes for segment UUID

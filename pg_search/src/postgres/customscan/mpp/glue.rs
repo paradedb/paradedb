@@ -107,6 +107,31 @@ pub fn producer_worker_count() -> u32 {
     mpp_worker_count() - 1
 }
 
+/// Leader-observable per-phase timing of an MPP launch, in microseconds. Populated so
+/// `EXPLAIN ANALYZE` can show where the launch floor goes. Zero means unmeasured. The
+/// worker-side cost the leader can't see directly is captured indirectly: `attach_us` is the
+/// spawn-plus-fork-plus-ring-attach wait, and `first_frame_us` folds in the workers' plan
+/// decode and first scan.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct MppLaunchTiming {
+    /// DSM alloc and scan-state populate, before the dispatch payload is built.
+    pub prepare_us: u64,
+    /// Leader physical planning.
+    pub plan_us: u64,
+    /// Dispatch-payload serialization from the leader's own plan.
+    pub payload_us: u64,
+    /// Wait for every worker to fork and attach to the ring mesh.
+    pub attach_us: u64,
+    /// Leader ring-mesh init (`leader_setup`).
+    pub leader_setup_us: u64,
+    /// `plan.execute` stream construction.
+    pub exec_us: u64,
+    /// First batch out (worker decode, first scan, and network hop to the leader).
+    pub first_frame_us: u64,
+    /// Producer workers that attached.
+    pub workers: u32,
+}
+
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
 /// state and consults it during `exec_custom_scan`.
 ///
@@ -138,6 +163,8 @@ pub struct MppLeaderState {
     /// stashes it on its custom state so the codec installs it into those providers. Null until
     /// `launch` sets it.
     pub parallel_state: *mut ParallelScanState,
+    /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
+    pub timing: MppLaunchTiming,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
@@ -222,6 +249,7 @@ pub unsafe fn leader_setup(
         control_senders,
         finish: None,
         parallel_state: std::ptr::null_mut(),
+        timing: MppLaunchTiming::default(),
     })
 }
 

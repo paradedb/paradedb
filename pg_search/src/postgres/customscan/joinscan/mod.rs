@@ -1381,6 +1381,27 @@ impl CustomScan for JoinScan {
                     explainer.add_text("  ", line);
                 }
             }
+
+            // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
+            // DataFusion plan, so surface its per-phase breakdown separately when the query ran
+            // distributed.
+            if let Some(t) = state.custom_state().launch_timing {
+                explainer.add_text(
+                    "MPP Launch",
+                    format!(
+                        "workers={} prepare={}us plan={}us payload={}us attach={}us \
+                         leader_setup={}us exec={}us first_frame={}us",
+                        t.workers,
+                        t.prepare_us,
+                        t.plan_us,
+                        t.payload_us,
+                        t.attach_us,
+                        t.leader_setup_us,
+                        t.exec_us,
+                        t.first_frame_us,
+                    ),
+                );
+            }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
             // plan and calling PgSearchTableProvider::scan(), but without executor state
@@ -1472,11 +1493,14 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
         if state.custom_state().datafusion_stream.is_none() {
             // First exec call: build the MPP DSM before planning. The workers launch only after
             // the leader's plan is built and its stages serialize (`launch_mpp_commit` below),
             // so every planning fallback is a serial run with no workers to abort.
+            let t_prepare = std::time::Instant::now();
             Self::maybe_prepare_mpp(state);
+            launch_us.prepare_us = t_prepare.elapsed().as_micros() as u64;
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1589,11 +1613,13 @@ impl CustomScan for JoinScan {
                 } else {
                     state.custom_state().parallel_state
                 };
+                let t_plan = std::time::Instant::now();
                 let plan = build_plan(
                     &plan_ctx,
                     plan_parallel_state,
                     state.custom_state().non_partitioning_segments.clone(),
                 );
+                launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
                 // Commit the MPP launch against the built plan: serialize its producer stages,
                 // spawn the workers, and hand the coordinator the same stages to dispatch. On a
@@ -1609,6 +1635,10 @@ impl CustomScan for JoinScan {
                                 let exec_ctx =
                                     Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                                         .with_distributed_dispatch_plan_source(source);
+                                launch_us.payload_us = leader.timing.payload_us;
+                                launch_us.attach_us = leader.timing.attach_us;
+                                launch_us.leader_setup_us = leader.timing.leader_setup_us;
+                                launch_us.workers = leader.timing.workers;
                                 state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
                                 (exec_ctx, plan)
                             }
@@ -1631,13 +1661,21 @@ impl CustomScan for JoinScan {
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
                 );
+                let t_exec = std::time::Instant::now();
                 let stream = {
                     let _guard = runtime.enter();
                     plan.execute(0, task_ctx)
                         .expect("Failed to execute DataFusion plan")
                 };
+                launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
-                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
+                // launch timing only when the query actually ran distributed (workers attached);
+                // a serial fallback never reaches `Launched` and leaves `workers` at zero.
+                if state.custom_state().mpp.is_launched() {
+                    state.custom_state_mut().launch_timing = Some(launch_us);
+                    state.custom_state_mut().stream_built_at = Some(std::time::Instant::now());
+                }
                 state.custom_state_mut().physical_plan = Some(plan.clone());
 
                 let schema = plan.schema();
@@ -1678,6 +1716,16 @@ impl CustomScan for JoinScan {
 
                 match next_batch {
                     Some(Ok(batch)) => {
+                        // First distributed batch out: fold the worker decode, first scan, and
+                        // network hop into the launch timing.
+                        if let Some(built) = state.custom_state().stream_built_at {
+                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut() {
+                                if t.first_frame_us == 0 {
+                                    t.first_frame_us = built.elapsed().as_micros() as u64;
+                                }
+                            }
+                            state.custom_state_mut().stream_built_at = None;
+                        }
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }

@@ -880,7 +880,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
 /// Evaluate the current dynamic filter expressions and convert them into
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
-/// Pull out a top-k score threshold if one exists and return it seperately
+/// Pull out a top-k score threshold if one exists and return it separately
 ///
 /// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
 /// from Top K) are picked up immediately.
@@ -901,8 +901,8 @@ fn build_filters(
     for df in dynamic_filters {
         if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {
-                if let Some(treshold) = try_extract_score_threshold(&current_expr, score_idx) {
-                    score_threshold = Some(treshold);
+                if let Some(threshold) = try_extract_score_threshold(&current_expr, score_idx) {
+                    score_threshold = Some(threshold);
                 } else {
                     collect_filters(&current_expr, schema, &mut filters);
                 }

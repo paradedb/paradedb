@@ -6,7 +6,7 @@
 
 -- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'the' chosen deliberately to introduce a very large pool of candidates for the 
---    topk (12.5K in the 100K datset), to ensure we see the effect of the threshold 
+--    topk (12.5K in the 100K dataset), to ensure we see the effect of the threshold 
 --    tightening.
 
 -- version with scan off (Postgres-driven join)

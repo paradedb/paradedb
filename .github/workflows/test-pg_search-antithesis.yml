@@ -400,8 +400,8 @@ jobs:
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
             custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}
-            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg,logical-replication-publisher
-            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg,logical-replication-publisher
+            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},cloudnative-pg,logical-replication-publisher
+            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},cloudnative-pg,logical-replication-publisher
 
   # Ping Slack if any of the nightly (scheduled) jobs failed. Scheduled runs only execute on
   # paradedb-enterprise (see the `if` on `setup`), so this notification only fires there.

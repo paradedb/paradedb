@@ -1,5 +1,13 @@
 \echo Use "ALTER EXTENSION pg_search UPDATE TO '0.24.2'" to load this file. \quit
 
+-- Expose the build-time creation timestamp stamped into an index's metadata page.
+CREATE FUNCTION "index_created_at"(
+	"index" regclass /* pgrx::rel::PgRelation */
+) RETURNS timestamp with time zone /* core::option::Option<pgrx::datum::time_stamp_with_timezone::TimestampWithTimeZone> */
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_created_at_wrapper';
+
 -- Update boolean() overloads to add minimum_should_match parameter
 DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput, should searchqueryinput, must_not searchqueryinput);
 CREATE OR REPLACE FUNCTION "boolean"(must searchqueryinput DEFAULT NULL, should searchqueryinput DEFAULT NULL, must_not searchqueryinput DEFAULT NULL, minimum_should_match pg_catalog.int8 DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boolean_singles_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
@@ -104,3 +112,43 @@ FROM (SELECT relname,
       ORDER BY relname , low DESC ) AS x ;
 
 GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
+
+CREATE FUNCTION "alias_typmod_in"(
+	"typmod_parts" cstring[] /* Array < '_, & '_ CStr > */
+) RETURNS INT /* i32 */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'alias_typmod_in_wrapper';
+
+ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typmod_out);
+
+-- Fix the typo in the function behind the `@@@(anyelement, pdb.query)` operator:
+-- `search_with_fieled_query_input` -> `search_with_field_query_input`. This function is never
+-- called directly (it only panics), but it is part of the public `paradedb` schema. Because the
+-- pgrx-generated C wrapper symbol is derived from the Rust function name, the symbol changes with
+-- the rename, so the operator and function are dropped and recreated rather than renamed in place.
+-- NOTE: drop the operator before the function it depends on. (pg-schema-diff emits these in the
+-- opposite order; the migration-diff check is order-independent, but the upgrade runs top-to-bottom
+-- and DROP FUNCTION would fail while the @@@ operator still references it.)
+DROP OPERATOR IF EXISTS pg_catalog.@@@(anyelement, pdb.query);
+DROP FUNCTION IF EXISTS search_with_fieled_query_input(_element anyelement, query pdb.query);
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/atatat.rs:41
+-- pg_search::api::operator::atatat::search_with_field_query_input
+CREATE  FUNCTION "search_with_field_query_input"(
+	"_element" anyelement, /* AnyElement */
+	"query" pdb.Query /* pdb :: Query */
+) RETURNS bool /* bool */
+IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_field_query_input_wrapper';
+-- pg_search/src/api/operator/atatat.rs:41
+-- pg_search::api::operator::atatat::search_with_field_query_input
+CREATE OPERATOR pg_catalog.@@@ (
+	PROCEDURE="search_with_field_query_input",
+	LEFTARG=anyelement, /* AnyElement */
+	RIGHTARG=pdb.Query /* pdb :: Query */
+);
+ALTER FUNCTION paradedb.search_with_field_query_input SUPPORT paradedb.atatat_support;

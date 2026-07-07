@@ -67,20 +67,6 @@
 //!   prunes doc IDs in-place            before materializing Arrow columns.
 //! ```
 //!
-//! # SortMergeJoin Propagation
-//!
-//! DataFusion's `SortMergeJoinExec` blocks filter pushdown by default (its
-//! `gather_filters_for_pushdown` marks all parent filters as unsupported).
-//! `FilterPassthroughExec` (in `joinscan::planner`) wraps it and overrides the
-//! two filter-pushdown methods to route filters through.
-//!
-//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after* the
-//! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
-//! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
-//! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
-//! pass (registered in `joinscan::scan_state::create_datafusion_session_context`) wires the
-//! new filter to the scan.
-//!
 //! # Native DataFusion Evaluation
 //!
 //! `PreFilter`s do not execute custom matching logic. Instead, they leverage native DataFusion

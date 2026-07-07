@@ -425,9 +425,7 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
     if let ExecMethodType::Columnar {
-        which_fast_fields,
-        sort_order,
-        ..
+        which_fast_fields, ..
     } = &state.custom_state().exec_method_type
     {
         // Get all fast fields used, sorted for deterministic output
@@ -439,17 +437,5 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
         fields.sort();
 
         explainer.add_text("Fast Fields", fields.join(", "));
-
-        if let Some(sort_order) = sort_order {
-            use crate::postgres::options::SortByDirection;
-            let direction = match sort_order.direction {
-                SortByDirection::Asc => "ASC",
-                SortByDirection::Desc => "DESC",
-            };
-            explainer.add_text(
-                "Order By",
-                format!("{} {}", sort_order.field_name, direction),
-            );
-        }
     }
 }

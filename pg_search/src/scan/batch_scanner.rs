@@ -143,7 +143,6 @@ pub struct Scanner {
     table_oid: u32,
     maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
-    prefetched: Option<Batch>,
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
     defer_visibility: bool,
@@ -205,7 +204,6 @@ impl Scanner {
             table_oid,
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
-            prefetched: None,
             defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
@@ -216,11 +214,6 @@ impl Scanner {
     /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
     pub(crate) fn set_batch_size(&mut self, size: usize) {
         self.batch_size = size.min(MAX_BATCH_SIZE);
-    }
-
-    /// Returns the estimated number of rows that will be produced by this scanner.
-    pub fn estimated_rows(&self) -> u64 {
-        self.search_results.estimated_doc_count()
     }
 
     pub(crate) fn set_score_threshold(&mut self, threshold: Option<Score>) {
@@ -276,9 +269,6 @@ impl Scanner {
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
-        if let Some(batch) = self.prefetched.take() {
-            return Some(batch);
-        }
         pgrx::check_for_interrupts!();
 
         let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
@@ -482,27 +472,5 @@ impl Scanner {
             num_rows: ids.len(),
             fields,
         })
-    }
-
-    /// Prefetch a single batch and store it for the next `next()` call.
-    ///
-    /// This is used to force some work between parallel segment checkouts while
-    /// preserving correctness (the prefetched batch will still be returned).
-    ///
-    /// **WARNING:** This method is specialized for multi-partition parallel workflows
-    /// (where all partitions must be opened concurrently and checked out via throttled loop).
-    /// It should **not** be used for single-partition lazy execution, as chaining segments
-    /// end-on-end dynamically does not require prefetching to yield time.
-    pub fn prefetch_next(
-        &mut self,
-        ffhelper: &FFHelper,
-        visibility: &mut VisibilityChecker,
-        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
-    ) {
-        if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
-                self.prefetched = Some(batch);
-            }
-        }
     }
 }

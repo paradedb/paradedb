@@ -18,7 +18,7 @@
 use crate::api::tokenizers::typmod::{save_typmod, ParsedTypmod};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{extension_sql, function_name, pg_extern, Array, PgLogLevel, PgSqlErrorCode};
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
@@ -490,7 +490,7 @@ pub(crate) mod pdb {
         varchar_array_to_alias,
         "alias",
         preferred = false,
-        custom_typmod = false
+        custom_typmod = true
     );
 
     define_tokenizer_type!(
@@ -992,4 +992,41 @@ extension_sql!(
     "#,
     name = "literal_typmod",
     requires = [literal_typmod_in, generic_typmod_out, "literal_definition"]
+);
+
+#[pg_extern(immutable, parallel_safe)]
+fn alias_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
+    let parts: Vec<_> = typmod_parts.iter().collect();
+
+    if parts.len() != 1 {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+            "pdb.alias requires exactly one argument",
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+        unreachable!()
+    }
+
+    let raw = parts[0]
+        .expect("pdb.alias requires a name argument")
+        .to_str()
+        .expect("alias name must be valid utf-8");
+
+    let normalized = if raw.starts_with("alias=") {
+        CString::new(raw).unwrap()
+    } else {
+        CString::new(format!("alias={raw}")).unwrap()
+    };
+
+    save_typmod(std::iter::once(Some(normalized.as_c_str())))
+        .expect("should not fail to save typmod")
+}
+
+extension_sql!(
+    r#"
+        ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typmod_out);
+    "#,
+    name = "alias_typmod",
+    requires = [alias_typmod_in, generic_typmod_out, "alias_definition"]
 );

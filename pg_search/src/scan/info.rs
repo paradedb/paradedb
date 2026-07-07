@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::options::SortByField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -108,14 +107,6 @@ pub struct ScanInfo {
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
     pub fields: Vec<FieldInfo>,
-    /// The sort order of the BM25 index segments, if the index was created with `sort_by`.
-    ///
-    /// When this is `Some`, the index segments are physically sorted by this field.
-    /// This enables DataFusion-based execution to:
-    /// - Declare sort ordering via `EquivalenceProperties`
-    /// - Use `SortPreservingMergeExec` to merge sorted segment streams
-    /// - Enable sort-merge joins when both sides are sorted on join keys
-    pub sort_order: Option<SortByField>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
     pub estimate: RowEstimate,
@@ -142,10 +133,5 @@ impl ScanInfo {
         if !self.fields.iter().any(|f| f.field.name() == name) {
             self.fields.push(FieldInfo { attno, field });
         }
-    }
-
-    /// Returns true if this scan's index produces sorted output.
-    pub fn is_sorted(&self) -> bool {
-        self.sort_order.is_some()
     }
 }

@@ -11,9 +11,10 @@
 # Chunks are cut by ntile(N) over ORDER BY _id, a stable total order (ids are unique), so the split is
 # deterministic. With the default 10 chunks, 1m -> ten ~100k chunks.
 #
-# The chunk assignment sorts only the id list (cheap); the corpus itself is streamed through a join
-# and written partitioned in one pass, so this stays feasible at larger sizes without sorting the full
-# set of vectors.
+# Each chunk is written as a SINGLE exact key `sampled/{size}_chunkK/parquet/cohere_wiki/data.parquet`
+# (not a directory of shards). This lets `load-heap --single-file` read it by exact key, which needs
+# only s3:GetObject -- a `*.parquet` glob would need s3:ListBucket, which the CI cross-account user
+# does not have on the public-GetObject datasets bucket.
 #
 # Requires the DuckDB CLI and AWS credentials on the standard chain. Usage:
 #   ./split_cohere_chunks.sh <size> [chunks] [s3://bucket/datasets/cohere]
@@ -26,32 +27,31 @@ BASE="${3:-s3://paradedb-benchmarks/datasets/cohere}"
 BASE="${BASE%/}"
 SRC="${BASE}/sampled/${SIZE}/parquet/cohere_wiki/*.parquet"
 
-STAGE="$(mktemp -d)/chunks"
-mkdir -p "${STAGE}.spill"
-trap 'rm -rf "$(dirname "${STAGE}")"' EXIT
+SPILL="$(mktemp -d)"
+trap 'rm -rf "${SPILL}"' EXIT
 
 echo "Splitting ${SRC} into ${CHUNKS} chunks under ${BASE}/sampled/${SIZE}_chunk{0..$((CHUNKS - 1))}/ ..."
 
-# Assign each row a chunk (ntile over the id list -- a small sort), then stream the corpus through a
-# join on _id and write it partitioned by chunk to local parquet in one pass. http_timeout is raised
-# from the 30s default so large multi-file S3 reads don't time out.
+# Materialize the corpus once with its chunk assignment (ntile over ORDER BY _id), then write each
+# chunk to a single exact `data.parquet` key. http_timeout is raised from the 30s default so large
+# multi-file S3 reads don't time out.
+copies=""
+for k in $(seq 0 $((CHUNKS - 1))); do
+  dst="${BASE}/sampled/${SIZE}_chunk${k}/parquet/cohere_wiki/data.parquet"
+  echo "  chunk ${k} -> ${dst}"
+  copies="${copies}
+    COPY (SELECT _id, url, title, text, emb FROM corpus WHERE chunk = ${k})
+      TO '${dst}' (FORMAT PARQUET, COMPRESSION 'zstd');"
+done
+
 duckdb -c "
   INSTALL httpfs; LOAD httpfs;
   CREATE OR REPLACE SECRET s3_secret (TYPE s3, PROVIDER credential_chain);
-  SET http_timeout=300; SET http_retries=10; SET temp_directory='${STAGE}.spill';
-  CREATE TEMP TABLE assign AS
-    SELECT _id, ntile(${CHUNKS}) OVER (ORDER BY _id) - 1 AS chunk FROM read_parquet('${SRC}');
-  COPY (
-    SELECT c._id, c.url, c.title, c.text, c.emb, a.chunk
-    FROM read_parquet('${SRC}') c JOIN assign a USING (_id)
-  ) TO '${STAGE}' (FORMAT PARQUET, COMPRESSION 'zstd', PARTITION_BY (chunk), OVERWRITE_OR_IGNORE true);
+  SET http_timeout=300; SET http_retries=10; SET temp_directory='${SPILL}';
+  CREATE TEMP TABLE corpus AS
+    SELECT _id, url, title, text, emb, ntile(${CHUNKS}) OVER (ORDER BY _id) - 1 AS chunk
+    FROM read_parquet('${SRC}');
+  ${copies}
 "
-
-# Upload each local partition (`chunk=k/`) to its chunk path.
-for k in $(seq 0 $((CHUNKS - 1))); do
-  dst="${BASE}/sampled/${SIZE}_chunk${k}/parquet/cohere_wiki/"
-  echo "  chunk ${k} -> ${dst}"
-  aws s3 cp "${STAGE}/chunk=${k}/" "${dst}" --recursive --exclude '*' --include '*.parquet'
-done
 
 echo "Done. Next: generate ground truth with ./scripts/generate_cohere_ground_truth.sh ${SIZE}"

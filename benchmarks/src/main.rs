@@ -136,6 +136,13 @@ struct LoadHeapArgs {
     /// the update benchmark, which loads disjoint chunks of `sampled/1m` between query runs).
     #[arg(long, default_value_t = false)]
     append: bool,
+
+    /// Load each table from a single exact parquet key (`{table}/data.parquet`) instead of a
+    /// `{table}/*.parquet` glob. A glob requires `s3:ListBucket`; an exact key needs only GetObject,
+    /// so this reads a public-GetObject bucket (e.g. the update benchmark's chunks) from CI, which
+    /// has no ListBucket. Requires each table to have been written as one `data.parquet` file.
+    #[arg(long, default_value_t = false)]
+    single_file: bool,
 }
 
 #[derive(Parser)]
@@ -192,6 +199,7 @@ async fn main() -> anyhow::Result<()> {
             &args.size,
             args.data_source.as_deref(),
             args.append,
+            args.single_file,
         ),
         Commands::SnapshotHeap(args) => backrest::run_snapshot_heap(args),
         Commands::RestoreHeap(args) => backrest::run_restore_heap(args),
@@ -1016,6 +1024,7 @@ fn load_external_data(
     size_label: &str,
     data_source: Option<&str>,
     append: bool,
+    single_file: bool,
 ) -> anyhow::Result<()> {
     // Read dataset config for table names and S3 path.
     let config_path = format!("datasets/{dataset}/config.toml");
@@ -1062,7 +1071,7 @@ fn load_external_data(
 
     match config.load_format {
         LoadFormat::Csv => load_tables_csv(url, dataset, &config, &source_path)?,
-        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path)?,
+        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path, single_file)?,
     }
 
     println!("External data loaded successfully.");
@@ -1152,6 +1161,7 @@ fn load_tables_parquet(
     url: &str,
     config: &config::DatasetConfig,
     source_path: &str,
+    single_file: bool,
 ) -> anyhow::Result<()> {
     let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
     conn.execute_batch("INSTALL postgres; LOAD postgres;")
@@ -1160,10 +1170,16 @@ fn load_tables_parquet(
         .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
 
     for table_name in config.all_table_names() {
-        let glob = format!("{source_path}/{table_name}/*.parquet");
-        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
+        // A `*.parquet` glob needs s3:ListBucket; an exact `data.parquet` key needs only GetObject,
+        // so `--single-file` can read a public-GetObject bucket without ListBucket (see LoadHeapArgs).
+        let source = if single_file {
+            format!("{source_path}/{table_name}/data.parquet")
+        } else {
+            format!("{source_path}/{table_name}/*.parquet")
+        };
+        println!("Loading '{table_name}' from {source} into PostgreSQL...");
         conn.execute_batch(&format!(
-            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
+            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{source}');"
         ))
         .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
         println!("  Loaded '{table_name}'.");

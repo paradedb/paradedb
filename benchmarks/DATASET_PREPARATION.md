@@ -261,9 +261,12 @@ prep artifacts in S3, both produced by scripts and consumed by the workflow:
 
 1. **Chunks.** Run `scripts/split_cohere_chunks.sh 1m`, which cuts `sampled/1m` into
    `sampled/1m_chunk0 … sampled/1m_chunk9` by `ntile(10) OVER (ORDER BY _id)`. The union of all ten
-   equals `sampled/1m` exactly, so the final step's corpus matches the one-shot benchmark. The
-   workflow loads `1m_chunk0` (creating the table + index), then `load-heap --append`s each later
-   chunk. (The script takes a size argument, so larger targets can be split the same way if needed.)
+   equals `sampled/1m` exactly, so the final step's corpus matches the one-shot benchmark. Each chunk
+   is written as a single exact key `…/cohere_wiki/data.parquet`, and the workflow loads it with
+   `load-heap --single-file` — an exact GetObject, avoiding the `*.parquet` glob's `s3:ListBucket`,
+   which the CI cross-account user lacks on the public-GetObject datasets bucket. The workflow loads
+   `1m_chunk0` (creating the table + index), then `load-heap --append`s each later chunk. (The script
+   takes a size argument, so larger targets can be split the same way if needed.)
 
 2. **Ground truth.** Run `scripts/generate_cohere_ground_truth.sh 1m`, which computes exact top-10
    recall ground truth in DuckDB (brute-force cosine, plus the stemmed text filter for the filtered
@@ -276,7 +279,7 @@ prep artifacts in S3, both produced by scripts and consumed by the workflow:
 s3://<dataset-bucket>/datasets/cohere/
 ├── sampled/
 │   ├── 1m/                          # split source (unchanged)
-│   ├── 1m_chunk0/ … 1m_chunk9/      # from split_cohere_chunks.sh 1m
+│   ├── 1m_chunk0/parquet/cohere_wiki/data.parquet … 1m_chunk9/…   # from split_cohere_chunks.sh 1m
 │   └── ...
 └── queries/
     ├── cohere_queries.parquet                          # held-out query vectors (existing)

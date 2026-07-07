@@ -110,14 +110,14 @@ jobs:
 
             if [ "$k" -eq 0 ]; then
               cargo run --release -- load-heap \
-                --url "$POSTGRES_URL" --dataset cohere --size "1m_chunk0"
+                --url "$POSTGRES_URL" --dataset cohere --size "1m_chunk0" --single-file
               # Build the index on the first chunk, sized to that chunk's cumulative size.
               cargo run --release -- benchmark \
                 --url "$POSTGRES_URL" --dataset cohere --index "${{ env.COHERE_INDEX }}" \
                 --size "$size" --runs 10 --output json --skip-index false --vacuum false
             else
               cargo run --release -- load-heap \
-                --url "$POSTGRES_URL" --dataset cohere --size "1m_chunk${k}" --append
+                --url "$POSTGRES_URL" --dataset cohere --size "1m_chunk${k}" --append --single-file
               # Query the incrementally-maintained index; do not rebuild it.
               cargo run --release -- benchmark \
                 --url "$POSTGRES_URL" --dataset cohere --index "${{ env.COHERE_INDEX }}" \

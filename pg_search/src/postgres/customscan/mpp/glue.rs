@@ -219,11 +219,15 @@ pub unsafe fn leader_setup(
     mesh.set_cancel_senders(Arc::clone(&control_senders));
     // Forget these senders instead of dropping them: `AbortTransaction` unmaps the DSM before the
     // xact callbacks run, so a sender's drop would write its detach signal into a freed ring
-    // header. Nothing arms the ring's detach-liveness flag on the leader, so the drop can't tell
-    // the mapping is gone and skip that write. The signal has no audience anyway, since the abort
-    // already terminated the workers. `PreCommit` covers a subtransaction rollback where no abort
-    // fires; a populated vec at either event means the mapping is already gone (the success path
-    // clears it in `shutdown_custom_scan`).
+    // header. This DF-D rev has no ring liveness flag, so the drop can't tell the mapping is gone
+    // and guard itself. The signal has no audience anyway, since the abort already terminated the
+    // workers. `PreCommit` covers a subtransaction rollback where no abort fires; a populated vec
+    // at either event means the mapping is already gone (the success path clears it in
+    // `shutdown_custom_scan`).
+    //
+    // TODO: once the DF-D pin has `MppMesh::mark_detached` / `detached_flag`, flip that
+    // process-local flag here and drop the senders normally, so their own `Drop` skips the
+    // freed-ring write and frees their heap instead of leaking it.
     let forget_senders = |senders: &Arc<std::sync::Mutex<Vec<Option<MppSender>>>>| {
         let senders = Arc::clone(senders);
         move || {

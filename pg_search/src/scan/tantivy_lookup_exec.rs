@@ -168,7 +168,7 @@ impl TantivyLookupExec {
             &deferred_fields,
             &input.schema(),
             &mut ffhelpers,
-            Some(non_partitioning_segment_ids),
+            LookupRebuildContext::Worker(non_partitioning_segment_ids),
         )?;
         Ok(Arc::new(TantivyLookupExec::new(
             input,
@@ -176,6 +176,17 @@ impl TantivyLookupExec {
             ffhelpers,
         )?))
     }
+}
+
+/// Which snapshot a rebuilt fast-field reader reads. Both decode paths reach the same segments
+/// in the same order the addresses were packed against, they just resolve the set differently.
+#[derive(Clone, Copy)]
+enum LookupRebuildContext<'a> {
+    /// Planner path (serial plan): a snapshot reader sees the scan's segments directly.
+    Snapshot,
+    /// MPP worker path: each source's replicated canonical segment set, indexed by the source's
+    /// non-partitioning position.
+    Worker(&'a [crate::api::HashSet<tantivy::index::SegmentId>]),
 }
 
 /// Planner-side helper rebuild for address-mode lookups: a snapshot reader sees the same
@@ -188,21 +199,24 @@ pub(crate) fn rebuild_ffhelpers_snapshot(
     input_schema: &SchemaRef,
 ) -> Result<HashMap<u32, Arc<FFHelper>>> {
     let mut ffhelpers = HashMap::default();
-    rebuild_missing_ffhelpers(deferred_fields, input_schema, &mut ffhelpers, None)?;
+    rebuild_missing_ffhelpers(
+        deferred_fields,
+        input_schema,
+        &mut ffhelpers,
+        LookupRebuildContext::Snapshot,
+    )?;
     Ok(ffhelpers)
 }
 
 /// Rebuild the fast-field readers for deferred columns whose scan lives in a different plan
-/// fragment (a lookup above a network shuffle finds no scan in its decoded subtree). With
-/// segment ids (the MPP worker decode path) the canonical set is resolved the same way the
-/// scan's own decode resolves it; without (the planner path) a snapshot reader serves the
-/// serial plan. Either way the reader's segment ordering matches the ordering the addresses
-/// were packed against.
+/// fragment (a lookup above a network shuffle finds no scan in its decoded subtree). The
+/// `context` picks how the segment set is resolved; either way the reader's segment ordering
+/// matches the ordering the addresses were packed against.
 fn rebuild_missing_ffhelpers(
     deferred_fields: &[PhysicalDeferredField],
     input_schema: &SchemaRef,
     ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
-    non_partitioning_segment_ids: Option<&[crate::api::HashSet<tantivy::index::SegmentId>]>,
+    context: LookupRebuildContext,
 ) -> Result<()> {
     use crate::index::fast_fields_helper::WhichFastField;
     use crate::index::mvcc::MvccSatisfies;
@@ -227,8 +241,8 @@ fn rebuild_missing_ffhelpers(
     }
 
     for (indexrelid, fields) in per_index {
-        let mvcc = match non_partitioning_segment_ids {
-            Some(np_ids) => {
+        let mvcc = match context {
+            LookupRebuildContext::Worker(np_ids) => {
                 let np_source_idx = fields[0].rebuild.as_ref().unwrap().np_source_idx;
                 let ids = np_ids.get(np_source_idx).cloned().ok_or_else(|| {
                     DataFusionError::Internal(format!(
@@ -238,7 +252,7 @@ fn rebuild_missing_ffhelpers(
                 })?;
                 MvccSatisfies::ParallelWorker(ids)
             }
-            None => MvccSatisfies::Snapshot,
+            LookupRebuildContext::Snapshot => MvccSatisfies::Snapshot,
         };
         let index_rel = PgSearchRelation::open(pgrx::pg_sys::Oid::from(indexrelid));
         let reader = SearchIndexReader::open_with_context(

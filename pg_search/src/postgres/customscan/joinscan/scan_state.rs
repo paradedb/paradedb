@@ -836,6 +836,96 @@ fn distinct_deferrable_columns(
     out
 }
 
+/// Builds the three pieces that defer one wide DISTINCT column past the aggregate: the
+/// doc-address copy projected below it, the `min()` that carries one representative through it,
+/// and the `(alias, decode)` entry the lookup node above it re-derives the value from.
+///
+/// `col_alias` is the group-output name the sort and projection stages resolve against.
+/// `plan_pos` is the source's position in the join plan; `partitioning_idx` is the partitioning
+/// source. The non-partitioning index is recomputed the same way the source build does, so a
+/// worker-side rebuild lands on the same canonical segment set the addresses were packed against.
+fn build_distinct_address_deferral(
+    proj_idx: usize,
+    plan_pos: usize,
+    source: &JoinSource,
+    deferrable: &DistinctDeferrable,
+    partitioning_idx: usize,
+    col_alias: &str,
+) -> (Expr, Expr, (String, crate::scan::late_materialization::DeferredField)) {
+    use crate::scan::late_materialization::{DeferredField, DeferredLookupRebuild};
+
+    let addr_name = format!("__distinct_addr_{}", proj_idx + 1);
+    let addr_copy = col(CtidColumn::new(plan_pos).to_string()).alias(&addr_name);
+    let addr_agg = min(col(&addr_name)).alias(col_alias);
+
+    let np_source_idx = (0..plan_pos).filter(|i| *i != partitioning_idx).count();
+    let lookup = (
+        col_alias.to_string(),
+        DeferredField {
+            name: deferrable.name.clone(),
+            is_bytes: deferrable.is_bytes,
+            canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                indexrelid: source.scan_info.indexrelid.to_u32(),
+                ff_index: deferrable.ff_index,
+            },
+            rebuild: Some(DeferredLookupRebuild {
+                field_name: deferrable.name.clone(),
+                field_type: deferrable.field_type,
+                np_source_idx,
+            }),
+        },
+    );
+    (addr_copy, addr_agg, lookup)
+}
+
+/// Projects `addr_copies` alongside `df`'s existing columns. The address copies must bind here,
+/// below the aggregate: the visibility rule anchors its filter under the `Aggregate` barrier and
+/// rewrites the ctid columns to real ctids there, so a copy taken above would no longer hold a
+/// doc address. A no-op when nothing was deferred.
+fn project_addr_copies_below_aggregate(
+    df: DataFrame,
+    addr_copies: Vec<Expr>,
+) -> Result<DataFrame> {
+    if addr_copies.is_empty() {
+        return Ok(df);
+    }
+    let mut exprs: Vec<Expr> = df
+        .schema()
+        .columns()
+        .into_iter()
+        .map(Expr::Column)
+        .collect();
+    exprs.extend(addr_copies);
+    df.select(exprs)
+}
+
+/// Wraps `df` in a [`DocAddressLookupNode`] that re-derives the deferred string/bytes columns
+/// from their representative doc addresses. A no-op when nothing was deferred.
+fn wrap_in_doc_address_lookup(
+    df: DataFrame,
+    lookups: Vec<(String, crate::scan::late_materialization::DeferredField)>,
+) -> Result<DataFrame> {
+    use crate::scan::late_materialization::{doc_address_lookup_schema, DocAddressLookupNode};
+    use datafusion::logical_expr::{Extension, LogicalPlan};
+
+    if lookups.is_empty() {
+        return Ok(df);
+    }
+    let (state, plan) = df.into_parts();
+    let output_schema = doc_address_lookup_schema(&plan, &lookups)?;
+    let node = DocAddressLookupNode {
+        input: plan,
+        output_schema,
+        lookups,
+    };
+    Ok(DataFrame::new(
+        state,
+        LogicalPlan::Extension(Extension {
+            node: std::sync::Arc::new(node),
+        }),
+    ))
+}
+
 /// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the
 /// MIN of each ctid column as a stable representative. Returns the rewritten
 /// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
@@ -894,29 +984,17 @@ fn apply_distinct_group_by(
                         .map(|d| (pos, s, d))
                 });
             if let Some((pos, source, d)) = deferrable {
-                let addr_name = format!("__distinct_addr_{}", i + 1);
-                addr_copies.push(col(CtidColumn::new(pos).to_string()).alias(&addr_name));
-                addr_aggs.push(min(col(&addr_name)).alias(&col_alias));
-                // Same non-partitioning index computation the source build uses, so the
-                // worker-side rebuild resolves the same canonical segment set the scan's
-                // reader packed the addresses against.
-                let np_source_idx = (0..pos).filter(|i| *i != partitioning_idx).count();
-                lookups.push((
-                    col_alias.clone(),
-                    crate::scan::late_materialization::DeferredField {
-                        name: d.name.clone(),
-                        is_bytes: d.is_bytes,
-                        canonical: crate::index::fast_fields_helper::CanonicalColumn {
-                            indexrelid: source.scan_info.indexrelid.to_u32(),
-                            ff_index: d.ff_index,
-                        },
-                        rebuild: Some(crate::scan::late_materialization::DeferredLookupRebuild {
-                            field_name: d.name.clone(),
-                            field_type: d.field_type,
-                            np_source_idx,
-                        }),
-                    },
-                ));
+                let (addr_copy, addr_agg, lookup) = build_distinct_address_deferral(
+                    i,
+                    pos,
+                    source,
+                    d,
+                    partitioning_idx,
+                    &col_alias,
+                );
+                addr_copies.push(addr_copy);
+                addr_aggs.push(addr_agg);
+                lookups.push(lookup);
                 distinct_col_map.insert((*rti, *attno), col_alias);
                 continue;
             }
@@ -961,42 +1039,9 @@ fn apply_distinct_group_by(
             .collect();
     agg_exprs.extend(addr_aggs);
 
-    // Project the address copies below the aggregate: the visibility rule anchors its filter
-    // under the `Aggregate` barrier and rewrites the ctid columns to real ctids there, so a
-    // copy taken at the aggregate's input would no longer hold a doc address.
-    let df = if addr_copies.is_empty() {
-        df
-    } else {
-        let mut exprs: Vec<Expr> = df
-            .schema()
-            .columns()
-            .into_iter()
-            .map(Expr::Column)
-            .collect();
-        exprs.extend(addr_copies);
-        df.select(exprs)?
-    };
-
+    let df = project_addr_copies_below_aggregate(df, addr_copies)?;
     let df = df.aggregate(group_exprs, agg_exprs)?;
-
-    let df = if lookups.is_empty() {
-        df
-    } else {
-        let (state, plan) = df.into_parts();
-        let output_schema =
-            crate::scan::late_materialization::doc_address_lookup_schema(&plan, &lookups)?;
-        let node = crate::scan::late_materialization::DocAddressLookupNode {
-            input: plan,
-            output_schema,
-            lookups,
-        };
-        DataFrame::new(
-            state,
-            datafusion::logical_expr::LogicalPlan::Extension(datafusion::logical_expr::Extension {
-                node: std::sync::Arc::new(node),
-            }),
-        )
-    };
+    let df = wrap_in_doc_address_lookup(df, lookups)?;
     Ok((df, distinct_col_map))
 }
 

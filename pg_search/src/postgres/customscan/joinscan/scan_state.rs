@@ -63,7 +63,7 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{col, Expr};
+use datafusion::logical_expr::{col, Expr, Extension, LogicalPlan};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -94,6 +94,9 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
+use crate::scan::late_materialization::{
+    doc_address_lookup_schema, DeferredField, DeferredLookupRebuild, DocAddressLookupNode,
+};
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use async_trait::async_trait;
 use datafusion::execution::context::{QueryPlanner, SessionState};
@@ -851,9 +854,7 @@ fn build_distinct_address_deferral(
     deferrable: &DistinctDeferrable,
     partitioning_idx: usize,
     col_alias: &str,
-) -> (Expr, Expr, (String, crate::scan::late_materialization::DeferredField)) {
-    use crate::scan::late_materialization::{DeferredField, DeferredLookupRebuild};
-
+) -> (Expr, Expr, (String, DeferredField)) {
     let addr_name = format!("__distinct_addr_{}", proj_idx + 1);
     let addr_copy = col(CtidColumn::new(plan_pos).to_string()).alias(&addr_name);
     let addr_agg = min(col(&addr_name)).alias(col_alias);
@@ -903,11 +904,8 @@ fn project_addr_copies_below_aggregate(
 /// from their representative doc addresses. A no-op when nothing was deferred.
 fn wrap_in_doc_address_lookup(
     df: DataFrame,
-    lookups: Vec<(String, crate::scan::late_materialization::DeferredField)>,
+    lookups: Vec<(String, DeferredField)>,
 ) -> Result<DataFrame> {
-    use crate::scan::late_materialization::{doc_address_lookup_schema, DocAddressLookupNode};
-    use datafusion::logical_expr::{Extension, LogicalPlan};
-
     if lookups.is_empty() {
         return Ok(df);
     }
@@ -967,7 +965,7 @@ fn apply_distinct_group_by(
     // through it, and the decode descriptions for the lookup node above it.
     let mut addr_copies: Vec<Expr> = Vec::new();
     let mut addr_aggs: Vec<Expr> = Vec::new();
-    let mut lookups: Vec<(String, crate::scan::late_materialization::DeferredField)> = Vec::new();
+    let mut lookups: Vec<(String, DeferredField)> = Vec::new();
 
     for (i, proj) in projection.iter().enumerate() {
         let col_alias = format!("col_{}", i + 1);

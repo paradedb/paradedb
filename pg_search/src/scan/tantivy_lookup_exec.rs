@@ -2,7 +2,12 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{
     for_each_segment, ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
+    WhichFastField,
 };
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
+use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::UnsafeSendStream;
 
 use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
@@ -218,12 +223,6 @@ fn rebuild_missing_ffhelpers(
     ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
     context: LookupRebuildContext,
 ) -> Result<()> {
-    use crate::index::fast_fields_helper::WhichFastField;
-    use crate::index::mvcc::MvccSatisfies;
-    use crate::index::reader::index::SearchIndexReader;
-    use crate::postgres::rel::PgSearchRelation;
-    use crate::query::SearchQueryInput;
-
     // Group by index so two columns of the same index share one reader, laid out at their
     // original `ff_index` positions (`Junk` fills the gaps). Only address-typed columns (plain
     // `UInt64`, the DISTINCT rewrite) rebuild; they OVERRIDE any helper collected from a scan,

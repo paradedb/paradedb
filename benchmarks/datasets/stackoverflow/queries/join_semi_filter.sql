@@ -7,7 +7,7 @@
 -- - 'David John Alex' selectivity on users.display_name: ~2%
 -- - combined selectivity on users (about_me ||| 'java' AND display_name ||| 'David John Alex'): <1%
 
-SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -24,7 +24,7 @@ ORDER BY
 LIMIT 25;
 
 -- Sortedness disabled, with join scan.
-SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -41,7 +41,7 @@ ORDER BY
 LIMIT 25;
 
 -- Sortedness enabled, no join scan.
-SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -58,7 +58,7 @@ ORDER BY
 LIMIT 25;
 
 -- term_set workaround, no join
-SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -72,7 +72,7 @@ ORDER BY
 LIMIT 25;
 
 -- Sortedness enabled, with join scan.
-SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
     p.id,
     p.title,
     p.creation_date

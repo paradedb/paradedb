@@ -527,7 +527,6 @@ ORDER BY score DESC, id LIMIT 1;
 ------------------------------------------------------------
 \echo '=== TEST: ColumnarExecState with Composite Fields ==='
 
-SET paradedb.enable_columnar_sort = on;
 
 DROP TYPE IF EXISTS columnar_comp CASCADE;
 CREATE TYPE columnar_comp AS (priority INTEGER, created_at DATE);

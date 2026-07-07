@@ -164,7 +164,6 @@ RESET paradedb.enable_aggregate_custom_scan;
 
 \echo '=== SECTION 3: Sorted Index Scan (sort_by) ==='
 
-SET paradedb.enable_columnar_sort = true;
 
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
 
@@ -450,7 +449,6 @@ LIMIT 5;
 -- CLEANUP
 -- =============================================================================
 
-RESET paradedb.enable_columnar_sort;
 
 DROP TABLE IF EXISTS collation_test CASCADE;
 

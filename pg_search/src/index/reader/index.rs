@@ -575,17 +575,6 @@ impl SearchIndexReader {
         self.total_segment_count
     }
 
-    pub fn estimated_docs_in_segments(&self, segment_ids: impl Iterator<Item = SegmentId>) -> u64 {
-        segment_ids
-            .map(|id| {
-                let ord = self
-                    .segment_ordinal_by_id(&id)
-                    .unwrap_or_else(|| panic!("segment {id} should exist"));
-                self.searcher.segment_reader(ord).num_docs() as u64
-            })
-            .sum()
-    }
-
     /// Returns the total number of docs in the index, according to the MVCC directory.
     pub fn total_docs(&self) -> u64 {
         self.total_docs

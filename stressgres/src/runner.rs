@@ -368,10 +368,15 @@ impl SuiteRunner {
             sys: Arc::new(RwLock::new(System::new_all())),
         };
 
-        runner.pgver = Conn::open(&suite, &Job::default())?
-            .first_client()
-            .query_one("SELECT version()", &[])?
-            .get(0);
+        // Probe the server version, riding out any transient connectivity fault
+        // (e.g. Antithesis stopping/killing/partitioning the container) at startup.
+        let default_job = Job::default();
+        runner.pgver = tolerate_transient(&runner.alive, || {
+            let mut conn = Conn::open(&suite, &default_job)?;
+            let version: String = conn.first_client().query_one("SELECT version()", &[])?.get(0);
+            Ok(version)
+        })?
+        .unwrap_or_else(|| String::from("<unknown>"));
 
         runner.init()?;
         let suite_runner = Arc::new(runner);
@@ -420,7 +425,12 @@ impl SuiteRunner {
                 self.alive.clone(),
                 self.sys.clone(),
             )?;
-            setup_runner.run(&mut Conn::open(&self.suite, &setup_runner.job)?)?;
+            // Run setup on a fresh connection, replaying it in full if a transient
+            // fault interrupts it (safe because setup re-runs from scratch).
+            tolerate_transient(&self.alive, || {
+                let mut conn = Conn::open(&self.suite, &setup_runner.job)?;
+                setup_runner.run(&mut conn)
+            })?;
         }
 
         // setup and start the monitors
@@ -527,13 +537,13 @@ impl SuiteRunner {
             .map(|info| (info, RuntimeStats::default()))
             .collect();
 
-        let mut conn = if job_runner.job.atomic_connection {
-            None
-        } else {
-            Some(Conn::open(&job_runner.suite, &job_runner.job)?)
-        };
-
         let alive = job_runner.alive.clone();
+
+        // A normal job keeps a persistent connection; an `atomic_connection` job
+        // opens a fresh one each iteration. Either way it is (re)opened lazily inside
+        // the `tolerate_transient` closure, so a dropped socket just reconnects.
+        let mut conn: Option<Conn> = None;
+
         while alive.load(Ordering::Relaxed) {
             // If paused, sleep until unpaused
             while paused.load(Ordering::Relaxed) && alive.load(Ordering::Relaxed) {
@@ -543,11 +553,26 @@ impl SuiteRunner {
                 break;
             }
 
-            let conn = match &mut conn {
-                Some(conn) => conn,
-                None => &mut Conn::open(&job_runner.suite, &job_runner.job)?,
-            };
-            job_runner.run(conn)?;
+            if job_runner.job.atomic_connection {
+                conn = None;
+            }
+
+            // Run one iteration, riding out transient faults. On any error we drop the
+            // (possibly poisoned) connection so the next attempt reconnects; replaying
+            // the whole iteration keeps transactional jobs correct.
+            let outcome = tolerate_transient(&alive, || {
+                if conn.is_none() {
+                    conn = Some(Conn::open(&job_runner.suite, &job_runner.job)?);
+                }
+                let result = job_runner.run(conn.as_mut().unwrap());
+                if result.is_err() {
+                    conn = None;
+                }
+                result
+            })?;
+            if outcome.is_none() {
+                break; // `alive` went false while waiting out a fault
+            }
 
             if refresh_ms.as_millis() <= 1000 {
                 // if the refresh interval is less than a second, just sleep for that amount of time
@@ -701,6 +726,135 @@ pub const HARDCODED_IGNORE_ERRORS: &[&str] = &[
     "canceling statement due to conflict with recovery",
     "(SQLState: 57014)", // query_canceled
 ];
+
+/// How long a database operation may keep failing with transient connectivity
+/// errors before we give up and treat the connection as genuinely dropped.
+///
+/// Antithesis can stop, kill, or partition the `paradedb` container mid-run. Rather
+/// than failing the whole test the instant a socket dies, we keep retrying (with
+/// backoff) for this long; a killed container plus CloudNativePG failover normally
+/// recovers well within the window. Only if connectivity stays broken for the full
+/// window do we surface the error as real.
+const RECONNECT_GRACE: Duration = Duration::from_secs(30);
+/// Backoff bounds for retries within the grace window.
+const INITIAL_RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
+const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
+
+/// Substrings that identify a transient connectivity failure when all we have is a
+/// stringified error (e.g. one already flattened by `format_postgres_error`).
+const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
+    "network is unreachable",
+    "no route to host",
+    "connection refused",
+    "connection reset",
+    "connection closed",
+    "broken pipe",
+    "server closed the connection",
+    "terminating connection",
+    "error connecting to server",
+    "error communicating with the server",
+    "unexpected eof",
+    "os error 101",     // ENETUNREACH
+    "(sqlstate: 08",    // connection exception class
+    "(sqlstate: 57p01", // admin_shutdown
+    "(sqlstate: 57p02", // crash_shutdown
+    "(sqlstate: 57p03", // cannot_connect_now
+];
+
+/// Classifies a `postgres::Error` as a transient connectivity failure (as opposed
+/// to a logical/SQL error, which represents a real bug we want to surface).
+fn is_transient_connection_error(e: &postgres::Error) -> bool {
+    if let Some(db) = e.as_db_error() {
+        let code = db.code().code();
+        // Class 08 = connection exception; 57P0x = operator/crash shutdown and
+        // "cannot connect now" (server starting up / shutting down).
+        return code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05");
+    }
+
+    // No SQLSTATE => a client-side/transport failure. If the driver reports the
+    // connection as closed, or the message looks like a connectivity problem,
+    // treat it as transient.
+    if e.is_closed() {
+        return true;
+    }
+    let msg = e.to_string().to_ascii_lowercase();
+    TRANSIENT_ERROR_NEEDLES
+        .iter()
+        .any(|needle| msg.contains(needle))
+}
+
+/// Classifies an `anyhow::Error` as a transient connectivity failure by walking its
+/// cause chain for a `postgres::Error`/IO error, falling back to string matching for
+/// errors that have already been flattened to a message.
+fn is_transient_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(pg) = cause.downcast_ref::<postgres::Error>() {
+            return is_transient_connection_error(pg);
+        }
+        if let Some(pg) = cause.downcast_ref::<Arc<postgres::Error>>() {
+            return is_transient_connection_error(pg);
+        }
+        if cause.downcast_ref::<std::io::Error>().is_some() {
+            return true;
+        }
+    }
+    let msg = err.to_string().to_ascii_lowercase();
+    TRANSIENT_ERROR_NEEDLES
+        .iter()
+        .any(|needle| msg.contains(needle))
+}
+
+/// Sleep for `dur`, returning early if `alive` becomes false.
+fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < dur {
+        if !alive.load(Ordering::Relaxed) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Runs `op`, tolerating transient connectivity faults: while `op` keeps failing
+/// with a transient error (a dropped/refused socket, server restarting, etc.) it is
+/// retried with capped backoff. A real (non-transient) error is returned
+/// immediately. The connection is only declared dropped — and the error surfaced —
+/// once it has stayed broken for `RECONNECT_GRACE` continuously.
+///
+/// This is the single place reconnection lives. Callers express *what* to do (probe
+/// the version, run setup, run one job iteration); reopening a dead connection is
+/// the caller's job inside `op`, and re-running the whole `op` is what makes this
+/// safe for transactional work — a lost transaction is simply replayed from scratch.
+///
+/// Returns `Ok(None)` if `alive` went false while we were waiting out a fault.
+fn tolerate_transient<T>(
+    alive: &AtomicBool,
+    mut op: impl FnMut() -> Result<T>,
+) -> Result<Option<T>> {
+    let mut backoff = INITIAL_RECONNECT_BACKOFF;
+    let mut down_since: Option<Instant> = None;
+    loop {
+        match op() {
+            Ok(value) => return Ok(Some(value)),
+            Err(e) if !is_transient_error(&e) => return Err(e),
+            Err(e) => {
+                if !alive.load(Ordering::Relaxed) {
+                    return Ok(None);
+                }
+                let down_since = *down_since.get_or_insert_with(Instant::now);
+                if down_since.elapsed() >= RECONNECT_GRACE {
+                    return Err(e.context(format!(
+                        "database unreachable for {:?}, past the {RECONNECT_GRACE:?} grace window",
+                        down_since.elapsed()
+                    )));
+                }
+                eprintln!("stressgres: transient database fault, retrying: {e:#}");
+                interruptible_sleep(alive, backoff);
+                backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);
+            }
+        }
+    }
+}
 
 type Index = usize;
 

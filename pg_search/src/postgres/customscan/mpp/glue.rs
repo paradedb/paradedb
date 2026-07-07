@@ -219,9 +219,11 @@ pub unsafe fn leader_setup(
     mesh.set_cancel_senders(Arc::clone(&control_senders));
     // Forget these senders instead of dropping them: `AbortTransaction` unmaps the DSM before the
     // xact callbacks run, so a sender's drop would write its detach signal into a freed ring
-    // header. The signal has no audience anyway, since the abort already terminated the workers.
-    // `PreCommit` covers a subtransaction rollback where no abort fires; a populated vec at either
-    // event means the mapping is already gone (the success path clears it in `shutdown_custom_scan`).
+    // header. Nothing arms the ring's detach-liveness flag on the leader, so the drop can't tell
+    // the mapping is gone and skip that write. The signal has no audience anyway, since the abort
+    // already terminated the workers. `PreCommit` covers a subtransaction rollback where no abort
+    // fires; a populated vec at either event means the mapping is already gone (the success path
+    // clears it in `shutdown_custom_scan`).
     let forget_senders = |senders: &Arc<std::sync::Mutex<Vec<Option<MppSender>>>>| {
         let senders = Arc::clone(senders);
         move || {

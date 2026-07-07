@@ -44,7 +44,7 @@ use datafusion::physical_expr::{
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::expressions::{
-    BinaryExpr, Column, DynamicFilterPhysicalExpr, Literal,
+    BinaryExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal,
 };
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
@@ -914,10 +914,24 @@ fn build_filters(
     (filters, score_threshold)
 }
 
+fn always_false(expr: &Arc<dyn PhysicalExpr>, score_idx: usize) -> bool {
+    // FALSE literals are obviously always false
+    if let Some(lit) = expr.downcast_ref::<Literal>() {
+        return matches!(lit.value(), ScalarValue::Boolean(Some(false)));
+    }
+    // score is never null, so 'score IS NULL' is always false
+    if let Some(is_null_expr) = expr.downcast_ref::<IsNullExpr>() {
+        if let Some(col) = is_null_expr.arg().downcast_ref::<Column>() {
+            return col.index() == score_idx;
+        }
+    }
+    false
+}
+
 /// Attempt to extract a score threshold from the expr. This will return a score for any binary
-/// expression or OR-child sub-expression that looks like: score > f32, where the f32 is the threshold.
-/// Applies `.next_down()` to the f32 result so that equality filters can still be applied by datafusion
-/// for score tie-breakers.
+/// expression or OR required child (so part of an AND) sub-expression that looks like: score > f32,
+/// or: score = f32. The returned threshold value assumes the threshold check uses > (greater-than)
+/// semantics.
 ///
 /// This is necessary for using the blockmax-wand optimization in joins
 fn try_extract_score_threshold(
@@ -927,10 +941,8 @@ fn try_extract_score_threshold(
     let score_idx = score_idx?;
     let binary_expr = expr.downcast_ref::<BinaryExpr>()?;
     match binary_expr.op() {
-        Operator::Or | Operator::And => {
-            try_extract_score_threshold(binary_expr.left(), Some(score_idx))
-                .or_else(|| try_extract_score_threshold(binary_expr.right(), Some(score_idx)))
-        }
+        Operator::And => try_extract_score_threshold(binary_expr.left(), Some(score_idx))
+            .or_else(|| try_extract_score_threshold(binary_expr.right(), Some(score_idx))),
         Operator::Gt => {
             // We check for a binary expr that looks like: score > f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
@@ -938,8 +950,40 @@ fn try_extract_score_threshold(
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
+                ScalarValue::Float32(Some(t)) => Some(*t),
+                _ => None,
+            }
+        }
+        Operator::Eq => {
+            let col = binary_expr.left().downcast_ref::<Column>()?;
+            if col.index() != score_idx {
+                return None;
+            }
+            match binary_expr.right().downcast_ref::<Literal>()?.value() {
+                // PruningScorer's assume the threshold has greater-than semantics, so
+                // take the next representable value below the eq check to keep the threshold valid
                 ScalarValue::Float32(Some(t)) => Some(t.next_down()),
                 _ => None,
+            }
+        }
+        Operator::Or => {
+            // Members of an OR expression that are always false can be ignored and we can pull out
+            // the score threshold from the other side
+            if always_false(binary_expr.left(), score_idx) {
+                try_extract_score_threshold(binary_expr.right(), Some(score_idx))
+            } else if always_false(binary_expr.right(), score_idx) {
+                try_extract_score_threshold(binary_expr.left(), Some(score_idx))
+            }
+            // if both sides contain a threshold, then we take the lower one (to allow for
+            // composite >= checks). Passing this threshold is a required part of making both sides
+            // of the OR true, so pruning by it is safe
+            else if let (Some(left), Some(right)) = (
+                try_extract_score_threshold(binary_expr.left(), Some(score_idx)),
+                try_extract_score_threshold(binary_expr.right(), Some(score_idx)),
+            ) {
+                Some(left.min(right))
+            } else {
+                None
             }
         }
         _ => None,
@@ -1053,14 +1097,145 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::{Schema, SchemaRef};
+    use datafusion::logical_expr::Operator;
+    use datafusion::physical_expr::expressions::{is_not_null, is_null, lit, BinaryExpr, Column};
+    use datafusion::physical_expr::PhysicalExpr;
+    use datafusion::scalar::ScalarValue;
     use pgrx::prelude::*;
 
     use crate::query::SearchQueryInput;
 
-    use super::PgSearchScanPlan;
+    use super::{try_extract_score_threshold, PgSearchScanPlan};
 
     fn empty_schema() -> SchemaRef {
         Arc::new(Schema::empty())
+    }
+
+    const SCORE_IDX: usize = 0;
+    const ID_IDX: usize = 1;
+
+    fn score() -> Arc<dyn PhysicalExpr> {
+        Arc::new(Column::new("pdb.score()", SCORE_IDX))
+    }
+
+    fn id() -> Arc<dyn PhysicalExpr> {
+        Arc::new(Column::new("id", ID_IDX))
+    }
+
+    fn f32_lit(v: f32) -> Arc<dyn PhysicalExpr> {
+        lit(ScalarValue::Float32(Some(v)))
+    }
+
+    fn int_lit(v: i64) -> Arc<dyn PhysicalExpr> {
+        lit(ScalarValue::Int64(Some(v)))
+    }
+
+    fn bin(
+        left: Arc<dyn PhysicalExpr>,
+        op: Operator,
+        right: Arc<dyn PhysicalExpr>,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(BinaryExpr::new(left, op, right))
+    }
+
+    #[test]
+    fn score_threshold_bare_gt_keeps_ties() {
+        // Single-key `ORDER BY score DESC` publish. The extracted threshold must be
+        // relaxed by one ulp: the pruning scorer keeps only `score > threshold`, and
+        // rows tied with the cutoff may still win on tiebreakers.
+        let expr = bin(score(), Operator::Gt, f32_lit(1.5));
+        assert_eq!(
+            try_extract_score_threshold(&expr, Some(SCORE_IDX)),
+            Some(1.5f32)
+        );
+    }
+
+    #[test]
+    fn score_threshold_lexicographic_chain_with_score_leading() {
+        // `ORDER BY score DESC, id ASC` publish: score > t OR (score = t AND id < v).
+        // Both arms imply score >= t, so extracting t is sound.
+        let chain = bin(
+            bin(score(), Operator::Gt, f32_lit(1.5)),
+            Operator::Or,
+            bin(
+                bin(score(), Operator::Eq, f32_lit(1.5)),
+                Operator::And,
+                bin(id(), Operator::Lt, int_lit(10)),
+            ),
+        );
+        assert_eq!(
+            try_extract_score_threshold(&chain, Some(SCORE_IDX)),
+            Some(1.5f32.next_down())
+        );
+    }
+
+    #[test]
+    fn score_threshold_nulls_first_wrapper() {
+        // DESC NULLS FIRST publish: score IS NULL OR score > t. The IS NULL arm can
+        // never match (every scored doc has a score), so the bound still holds.
+        let expr = bin(
+            is_null(score()).unwrap(),
+            Operator::Or,
+            bin(score(), Operator::Gt, f32_lit(1.5)),
+        );
+        assert_eq!(
+            try_extract_score_threshold(&expr, Some(SCORE_IDX)),
+            Some(1.5f32)
+        );
+    }
+
+    #[test]
+    fn score_threshold_conjunctive_null_guard() {
+        // DESC NULLS LAST publish: score IS NOT NULL AND score > t. A conjunct's
+        // bound holds for the whole conjunction, so extraction is sound.
+        let expr = bin(
+            is_not_null(score()).unwrap(),
+            Operator::And,
+            bin(score(), Operator::Gt, f32_lit(1.5)),
+        );
+        assert_eq!(
+            try_extract_score_threshold(&expr, Some(SCORE_IDX)),
+            Some(1.5f32)
+        );
+    }
+
+    #[test]
+    fn score_threshold_rejected_when_score_is_tiebreaker() {
+        // `ORDER BY id ASC, score DESC` publish: id < v OR (id = v AND score > t).
+        // The left arm admits rows of ANY score, so the expression implies no score
+        // bound; extracting t here would block-prune rows that match via `id < v`.
+        let chain = bin(
+            bin(id(), Operator::Lt, int_lit(10)),
+            Operator::Or,
+            bin(
+                bin(id(), Operator::Eq, int_lit(10)),
+                Operator::And,
+                bin(score(), Operator::Gt, f32_lit(1.5)),
+            ),
+        );
+        assert_eq!(try_extract_score_threshold(&chain, Some(SCORE_IDX)), None);
+    }
+
+    #[test]
+    fn score_threshold_rejects_foreign_shapes() {
+        // Gt on a non-score column.
+        let other_col = bin(id(), Operator::Gt, f32_lit(1.5));
+        assert_eq!(
+            try_extract_score_threshold(&other_col, Some(SCORE_IDX)),
+            None
+        );
+
+        // Non-Float32 literal: the score column is always Float32, so a Float64
+        // comparison (e.g. cast-normalized by an optimizer pass) must not parse.
+        let f64_cmp = bin(score(), Operator::Gt, lit(ScalarValue::Float64(Some(1.5))));
+        assert_eq!(try_extract_score_threshold(&f64_cmp, Some(SCORE_IDX)), None);
+
+        // The lit(true) placeholder every dynamic filter holds before the first
+        // TopK publish.
+        assert_eq!(
+            try_extract_score_threshold(&lit(true), Some(SCORE_IDX)),
+            None
+        );
     }
 
     #[pg_test]

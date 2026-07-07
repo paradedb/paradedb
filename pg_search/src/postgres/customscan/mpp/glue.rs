@@ -208,33 +208,22 @@ pub unsafe fn leader_setup(
     // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
     // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
     mesh.set_cancel_senders(Arc::clone(&control_senders));
-    // Forget these senders instead of dropping them: `AbortTransaction` unmaps the DSM before the
-    // xact callbacks run, so a sender's drop would write its detach signal into a freed ring
-    // header. This DF-D rev has no ring liveness flag, so the drop can't tell the mapping is gone
-    // and guard itself. The signal has no audience anyway, since the abort already terminated the
-    // workers. `PreCommit` covers a subtransaction rollback where no abort fires; a populated vec
-    // at either event means the mapping is already gone (the success path clears it in
-    // `shutdown_custom_scan`).
-    //
-    // TODO: once the DF-D pin has `MppMesh::mark_detached` / `detached_flag`, flip that
-    // process-local flag here and drop the senders normally, so their own `Drop` skips the
-    // freed-ring write and frees their heap instead of leaking it.
-    let forget_senders = |senders: &Arc<std::sync::Mutex<Vec<Option<MppSender>>>>| {
-        let senders = Arc::clone(senders);
+    // On abort, `AbortTransaction` unmaps the DSM before these callbacks run, so the senders must
+    // not touch their ring headers as they drop. The mesh's liveness flag is process-local, so
+    // flip it here (every ring handle reads it) and the senders' drop skips the freed-ring write
+    // while their heap is still freed. `PreCommit` covers a subtransaction rollback where no abort
+    // fires; the success path releases the senders in `shutdown_custom_scan` while the segment is
+    // still mapped, so the vec is empty by then.
+    let make_detacher = || {
+        let alive = mesh.detached_flag();
+        let senders = Arc::clone(&control_senders);
         move || {
-            for sender in senders.lock().unwrap().drain(..).flatten() {
-                std::mem::forget(sender);
-            }
+            alive.store(false, std::sync::atomic::Ordering::Release);
+            senders.lock().unwrap().clear();
         }
     };
-    pgrx::register_xact_callback(
-        pgrx::PgXactCallbackEvent::Abort,
-        forget_senders(&control_senders),
-    );
-    pgrx::register_xact_callback(
-        pgrx::PgXactCallbackEvent::PreCommit,
-        forget_senders(&control_senders),
-    );
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, make_detacher());
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::PreCommit, make_detacher());
     Ok(MppLeaderState {
         mesh,
         control_senders,

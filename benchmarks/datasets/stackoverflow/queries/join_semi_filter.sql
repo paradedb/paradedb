@@ -7,6 +7,10 @@
 -- - 'David John Alex' selectivity on users.display_name: ~2%
 -- - combined selectivity on users (about_me ||| 'java' AND display_name ||| 'David John Alex'): <1%
 
+-- TODO: the two "Sortedness enabled" blocks now run the same SQL as their "Sortedness disabled"
+-- twins, since the sort toggle that separated them is gone. Drop them on the next pass that can
+-- reset the benchmark baseline (removing alternatives renumbers the stored history).
+
 SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,

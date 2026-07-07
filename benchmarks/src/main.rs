@@ -90,7 +90,7 @@ struct BenchmarkArgs {
 
     /// Skip index creation (and the after-create-index hook). Assumes the index already exists;
     /// useful for iterating on queries against an already-indexed database.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, num_args = 1)]
     skip_index: bool,
 
     /// Number of runs to execute for each query.

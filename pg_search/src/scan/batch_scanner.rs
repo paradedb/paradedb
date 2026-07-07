@@ -260,9 +260,6 @@ impl Scanner {
     /// materialization, allowing string-column filters (including dynamically
     /// generated lexicographical thresholds) to operate natively on cheap
     /// term ordinals rather than requiring expensive dictionary lookups.
-    ///
-    /// `threshold` is a dynamic filter from datafusion that should be applied to a pruning scorer
-    /// when getting batch_ids
     pub fn next(
         &mut self,
         ffhelper: &FFHelper,
@@ -270,7 +267,6 @@ impl Scanner {
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
-
         let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
 
         // Memoize fetched columns to avoid redundant fetches.

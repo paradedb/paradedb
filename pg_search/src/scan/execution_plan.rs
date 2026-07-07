@@ -835,8 +835,8 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
 ///
 /// While doing that, we also attempt to extract a top-k score threshold if one exists.
-/// We process the threshold-containing expr as a we do the rest of the expressions. There's no
-/// guarantee the threshold-containing expression is top-level, so we need to allow for
+/// We process the threshold-containing expr as a we do the rest of the expressions.
+/// The threshold-containing expression may be top-level, so we need to allow for
 /// the rest of the expression to be applied.
 ///
 /// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
@@ -849,14 +849,16 @@ impl ExecutionPlan for PgSearchScanPlan {
 fn build_filters(
     dynamic_filters: &[Arc<dyn PhysicalExpr>],
     schema: &SchemaRef,
-    score_idx: Option<usize>,
+    score_col_schema_idx: Option<usize>,
 ) -> (Vec<PreFilter>, Option<Score>) {
     let mut filters = Vec::new();
     let mut score_threshold = None;
     for df in dynamic_filters {
         if let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {
-                if let Some(threshold) = try_extract_score_threshold(&current_expr, score_idx) {
+                if let Some(threshold) =
+                    try_extract_score_threshold(&current_expr, score_col_schema_idx)
+                {
                     assert!(
                         score_threshold.is_none(),
                         "Multiple score thresholds found where we only expect one."
@@ -873,7 +875,10 @@ fn build_filters(
 }
 
 /// Check for expressions that we know always evaluate to false when applied to score
-fn expr_always_false_when_applied_to_score(expr: &Arc<dyn PhysicalExpr>, score_idx: usize) -> bool {
+fn expr_always_false_when_applied_to_score(
+    expr: &Arc<dyn PhysicalExpr>,
+    score_col_schema_idx: usize,
+) -> bool {
     // FALSE literals are obviously always false
     if let Some(lit) = expr.downcast_ref::<Literal>() {
         return matches!(lit.value(), ScalarValue::Boolean(Some(false)));
@@ -881,7 +886,7 @@ fn expr_always_false_when_applied_to_score(expr: &Arc<dyn PhysicalExpr>, score_i
     // score is never null, so 'score IS NULL' is always false
     if let Some(is_null_expr) = expr.downcast_ref::<IsNullExpr>() {
         if let Some(col) = is_null_expr.arg().downcast_ref::<Column>() {
-            return col.index() == score_idx;
+            return col.index() == score_col_schema_idx;
         }
     }
     false
@@ -890,10 +895,10 @@ fn expr_always_false_when_applied_to_score(expr: &Arc<dyn PhysicalExpr>, score_i
 /// Attempt to extract a minimum score threshold from the expression. Bounds propagate as:
 /// - `score > t`  => `t`
 /// - `score = t`  => `t.next_down()` (rows at exactly `t` must survive)
-/// - `AND`        => the minimum of the bound(s) from either side (so it holds for the whole conjunction)
-/// - `OR`         => the min of both arms' bounds — a matching row satisfies some arm, so it
-///   exceeds the smaller bound; arms that can never match (`FALSE`, `score IS NULL`) are ignored.
-///   If an arm implies no bound, neither does the `OR`.
+/// - `AND`        => the minimum of the bounds from either side (so it holds for the whole conjunction)
+/// - `OR`  
+///     - If both sides contain a bound, keep the minimum. If one side has a bound, use
+///       it only in the case the other side always evaluates to false.
 ///
 /// The returned threshold value assumes the threshold check uses > (greater-than) semantics.
 /// ASSUMPTION: We intentionally don't check the Operator::Lt variant as DataFusion always puts the column
@@ -902,18 +907,19 @@ fn expr_always_false_when_applied_to_score(expr: &Arc<dyn PhysicalExpr>, score_i
 /// This is necessary for using the blockmax-wand optimization in joins
 fn try_extract_score_threshold(
     expr: &Arc<dyn PhysicalExpr>,
-    score_idx: Option<usize>,
+    score_col_schema_idx: Option<usize>,
 ) -> Option<Score> {
-    let score_idx = score_idx?;
+    let score_col_schema_idx = score_col_schema_idx?;
     let binary_expr = expr.downcast_ref::<BinaryExpr>()?;
     match binary_expr.op() {
         Operator::And => match (
-            try_extract_score_threshold(binary_expr.left(), Some(score_idx)),
-            try_extract_score_threshold(binary_expr.right(), Some(score_idx)),
+            try_extract_score_threshold(binary_expr.left(), Some(score_col_schema_idx)),
+            try_extract_score_threshold(binary_expr.right(), Some(score_col_schema_idx)),
         ) {
             // We should never see a score threshold on both sides of an AND, but
             // if we do, this will at least return a value that is safe to prune.
-            // We can't take the higher value
+            // We can't take the higher value, as the lower value may come from an
+            // Eq check
             (Some(left), Some(right)) => Some(left.min(right)),
             (Some(left), None) => Some(left),
             (None, Some(right)) => Some(right),
@@ -922,7 +928,7 @@ fn try_extract_score_threshold(
         Operator::Gt => {
             // Look for a binary expr that looks like: score > f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
-            if col.index() != score_idx {
+            if col.index() != score_col_schema_idx {
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
@@ -933,7 +939,7 @@ fn try_extract_score_threshold(
         Operator::Eq => {
             // Look for a binary expr that looks like: score = f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
-            if col.index() != score_idx {
+            if col.index() != score_col_schema_idx {
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
@@ -946,16 +952,19 @@ fn try_extract_score_threshold(
         Operator::Or => {
             // Members of an OR expression that are always false can be safely ignored, so we can
             // try to pull the score threshold from the other side
-            if expr_always_false_when_applied_to_score(binary_expr.left(), score_idx) {
-                try_extract_score_threshold(binary_expr.right(), Some(score_idx))
-            } else if expr_always_false_when_applied_to_score(binary_expr.right(), score_idx) {
-                try_extract_score_threshold(binary_expr.left(), Some(score_idx))
+            if expr_always_false_when_applied_to_score(binary_expr.left(), score_col_schema_idx) {
+                try_extract_score_threshold(binary_expr.right(), Some(score_col_schema_idx))
+            } else if expr_always_false_when_applied_to_score(
+                binary_expr.right(),
+                score_col_schema_idx,
+            ) {
+                try_extract_score_threshold(binary_expr.left(), Some(score_col_schema_idx))
             }
             // If both sides have a threshold-containing part, take the lower treshold: then any matching
             // row satisfies one of the arms and therefore exceeds the smaller bound, so pruning by it is safe
             else if let (Some(left), Some(right)) = (
-                try_extract_score_threshold(binary_expr.left(), Some(score_idx)),
-                try_extract_score_threshold(binary_expr.right(), Some(score_idx)),
+                try_extract_score_threshold(binary_expr.left(), Some(score_col_schema_idx)),
+                try_extract_score_threshold(binary_expr.right(), Some(score_col_schema_idx)),
             ) {
                 Some(left.min(right))
             } else {

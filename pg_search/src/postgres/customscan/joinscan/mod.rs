@@ -1522,9 +1522,9 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().datafusion_stream = None;
         // Release the DSM-backed control senders before `recv`. A producer's `work_mem` overflow
         // (or any worker error) is re-raised in the leader from inside `recv`, which `longjmp`s
-        // out of this hook; a release placed after it would never run, leaving the senders to drop
-        // at xact commit, past the DSM's lifetime, where their `fetch_sub` faults. The query is
-        // done producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
+        // out of this hook; a release placed after it would never run, leaving the senders for the
+        // detach callback, which clears them while the mapping is still live. The query is done
+        // producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
         if let Some(leader) = state.custom_state().mpp.leader() {
             leader.release_control_senders();
         }

@@ -928,10 +928,16 @@ fn always_false(expr: &Arc<dyn PhysicalExpr>, score_idx: usize) -> bool {
     false
 }
 
-/// Attempt to extract a score threshold from the expr. This will return a score for any binary
-/// expression or OR required child (so part of an AND) sub-expression that looks like: score > f32,
-/// or: score = f32. The returned threshold value assumes the threshold check uses > (greater-than)
-/// semantics.
+/// Attempt to extract a score threshold from the expr: the largest lower bound on the score
+/// column that the expression as a whole implies. Bounds propagate as:
+/// - `score > t`  => `t`
+/// - `score = t`  => `t.next_down()` (rows at exactly `t` must survive)
+/// - `AND`        => either conjunct's bound (it holds for the whole conjunction)
+/// - `OR`         => the min of both arms' bounds — a matching row satisfies some arm, so it
+///   exceeds the smaller bound; arms that can never match (`FALSE`, `score IS NULL`) are ignored.
+///   If an arm implies no bound, neither does the `OR`.
+///
+/// The returned threshold value assumes the threshold check uses > (greater-than) semantics.
 ///
 /// This is necessary for using the blockmax-wand optimization in joins
 fn try_extract_score_threshold(
@@ -974,9 +980,8 @@ fn try_extract_score_threshold(
             } else if always_false(binary_expr.right(), score_idx) {
                 try_extract_score_threshold(binary_expr.left(), Some(score_idx))
             }
-            // if both sides contain a threshold, then we take the lower one (to allow for
-            // composite >= checks). Passing this threshold is a required part of making both sides
-            // of the OR true, so pruning by it is safe
+            // if both sides imply a threshold, take the lower one: any matching row satisfies
+            // one of the arms and therefore exceeds the smaller bound, so pruning by it is safe
             else if let (Some(left), Some(right)) = (
                 try_extract_score_threshold(binary_expr.left(), Some(score_idx)),
                 try_extract_score_threshold(binary_expr.right(), Some(score_idx)),
@@ -1139,10 +1144,10 @@ mod tests {
     }
 
     #[test]
-    fn score_threshold_bare_gt_keeps_ties() {
-        // Single-key `ORDER BY score DESC` publish. The extracted threshold must be
-        // relaxed by one ulp: the pruning scorer keeps only `score > threshold`, and
-        // rows tied with the cutoff may still win on tiebreakers.
+    fn score_threshold_bare_gt_is_exact() {
+        // Single-key `ORDER BY score DESC` publish. The extracted threshold is the
+        // unrelaxed t: with no tiebreakers, a row tied with the cutoff can never
+        // displace it, so the scorer's strict `score > t` mirrors the filter exactly.
         let expr = bin(score(), Operator::Gt, f32_lit(1.5));
         assert_eq!(
             try_extract_score_threshold(&expr, Some(SCORE_IDX)),
@@ -1153,7 +1158,8 @@ mod tests {
     #[test]
     fn score_threshold_lexicographic_chain_with_score_leading() {
         // `ORDER BY score DESC, id ASC` publish: score > t OR (score = t AND id < v).
-        // Both arms imply score >= t, so extracting t is sound.
+        // Rows tied at t may still win on the tiebreaker, so the extracted bound is
+        // next_down(t): under the scorer's strict `>` semantics that keeps score >= t.
         let chain = bin(
             bin(score(), Operator::Gt, f32_lit(1.5)),
             Operator::Or,

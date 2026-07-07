@@ -29,10 +29,9 @@ use tests::fixtures::*;
 use tokio::time::sleep;
 
 // Three 20k-row tables. `age` is in [0,50), so `users.age = products.age` fans out to millions of
-// intermediate rows — that scan-dominated join is what keeps the leader inside its MPP `block_on`
-// for ~2s, a window wide enough for the killer to land a signal mid-flight. (A small/cheap join
-// finishes in milliseconds and the signal misses the window — it then can't catch the teardown
-// bug at all.)
+// intermediate rows. That scan-dominated join keeps the leader inside its MPP `block_on` long
+// enough for the killer to land a signal mid-flight. A small join can finish before the signal and
+// miss the teardown bug entirely.
 const SETUP_SQL: &str = r#"
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -92,13 +91,30 @@ WHERE NOT ((mpp_users.name @@@ 'bob') AND (mpp_users.name @@@ 'bob'))
 ORDER BY mpp_users.id LIMIT 31
 "#;
 
-// The crash needs the leader caught mid-`block_on` with its DSM senders live — not during planning
-// or worker launch. So after the backend first shows up `active`, wait this long before signalling,
-// to let execution get well inside the join (the query runs ~2s). Signalling immediately lands too
-// early and misses the window entirely. A few attempts then make it robust against host timing; on
+// The crash needs the leader caught mid-`block_on` with its DSM senders live, not during planning
+// or worker launch. After the backend first shows up `active`, wait briefly so execution gets well
+// inside the join before signalling. A few attempts make the test robust against host timing; on
 // the fixed build every attempt is a clean teardown.
 const SIGNAL_DELAY: Duration = Duration::from_millis(800);
 const ATTEMPTS: usize = 3;
+const VICTIM_LOOP_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn assert_query_plans_as_mpp(conn: &mut PgConnection) -> Result<()> {
+    conn.execute(MPP_GUCS).await?;
+    let rows: Vec<(String,)> = sqlx::query_as(&format!("EXPLAIN (COSTS OFF, VERBOSE) {MPP_QUERY}"))
+        .fetch_all(&mut *conn)
+        .await?;
+    let explain = rows
+        .into_iter()
+        .map(|(line,)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        explain.contains("DistributedExec"),
+        "MPP cancel test query must plan as DistributedExec:\n{explain}"
+    );
+    Ok(())
+}
 
 /// Spin until `victim_app`'s backend is running the MPP query, then run `signal_fn(pid)`
 /// (`pg_cancel_backend` or `pg_terminate_backend`) on it. Returns the pid that was signalled.
@@ -138,20 +154,29 @@ async fn signal_running_mpp_backend(
 
 /// Run the MPP query in a loop on `victim` until its connection or query is cut off. The loop keeps
 /// the backend busy so the killer has a wide window to land the signal mid-query.
-async fn run_until_signalled(mut victim: PgConnection, app_name: String) {
+async fn run_until_signalled(mut victim: PgConnection, app_name: String) -> Result<()> {
     if victim
         .execute(format!("SET application_name = '{app_name}';").as_str())
         .await
         .is_err()
     {
-        return;
+        return Ok(());
     }
     if victim.execute(MPP_GUCS).await.is_err() {
-        return;
+        return Ok(());
     }
-    // A terminate drops the connection and a cancel errors the in-flight query; either way the next
-    // iteration's error ends the loop.
-    while victim.execute(MPP_QUERY).await.is_ok() {}
+    // A terminate drops the connection and a cancel errors the in-flight query; if the signal
+    // misses, the deadline turns the would-be hang into a test failure.
+    let deadline = Instant::now() + VICTIM_LOOP_TIMEOUT;
+    while victim.execute(MPP_QUERY).await.is_ok() {
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "victim query loop was not interrupted within {:?}; the signal likely missed",
+                VICTIM_LOOP_TIMEOUT
+            );
+        }
+    }
+    Ok(())
 }
 
 async fn assert_cluster_alive(witness: &mut PgConnection) -> Result<()> {
@@ -177,6 +202,7 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
         .execute("CREATE EXTENSION IF NOT EXISTS pg_search;")
         .await?;
     assert_cluster_alive(&mut witness).await?;
+    assert_query_plans_as_mpp(&mut setup).await?;
 
     for (app, signal_fn) in [
         ("mpp_sig_cancel", "pg_cancel_backend"),
@@ -190,7 +216,7 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
             let mut killer = database.connection().await;
             signal_running_mpp_backend(&mut killer, &app_name, signal_fn).await?;
 
-            let _ = loop_handle.await;
+            loop_handle.await??;
             assert_cluster_alive(&mut witness).await?;
         }
     }

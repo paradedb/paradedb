@@ -142,8 +142,9 @@ pub struct MppLeaderState {
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
     /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
-    /// frames. Held for the query's lifetime so no ring observes a sender count of zero before
-    /// every worker attaches (the rings latch `detached` permanently at zero).
+    /// frames and stream cancel messages. Held for the query's lifetime so no ring observes a
+    /// sender count of zero before every worker attaches (the rings latch `detached` permanently at
+    /// zero).
     ///
     /// Dropping one of these decrements a counter inside the DSM ring, so they must never
     /// outlive the mapping: [`MppLeaderState::release_control_senders`] clears them from
@@ -261,10 +262,30 @@ pub(crate) unsafe extern "C-unwind" fn release_control_senders_on_detach(
     let mut guard = senders
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.clear();
+    // Today this drop path is panic-free (Arc drops, atomics, receiver wakeup), but keep panics
+    // from any future sender field from unwinding through PostgreSQL's C teardown.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        guard.clear();
+    }));
 }
 
 impl MppLeaderState {
+    /// Register the DSM detach cleanup for the leader senders. PostgreSQL stores the raw pointer;
+    /// [`release_control_senders_on_detach`] turns it back into the same `Arc` and drops it.
+    ///
+    /// # Safety
+    /// `seg` must be the live DSM segment that owns the ring memory targeted by
+    /// `self.control_senders`.
+    pub unsafe fn register_control_senders_on_detach(&self, seg: *mut pg_sys::dsm_segment) {
+        unsafe {
+            pg_sys::on_dsm_detach(
+                seg,
+                Some(release_control_senders_on_detach),
+                pg_sys::Datum::from(Arc::into_raw(Arc::clone(&self.control_senders)) as *mut c_void),
+            );
+        }
+    }
+
     /// Drop the DSM-backed control senders while the mapping is still attached. Called from
     /// `shutdown_custom_scan` on the success path; [`release_control_senders_on_detach`] (registered
     /// via `on_dsm_detach`) covers every other teardown path. Idempotent.

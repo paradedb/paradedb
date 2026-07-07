@@ -960,7 +960,7 @@ fn try_extract_score_threshold(
             ) {
                 try_extract_score_threshold(binary_expr.left(), Some(score_col_schema_idx))
             }
-            // If both sides have a threshold-containing part, take the lower treshold: then any matching
+            // If both sides have a threshold-containing part, take the lower threshold: then any matching
             // row satisfies one of the arms and therefore exceeds the smaller bound, so pruning by it is safe
             else if let (Some(left), Some(right)) = (
                 try_extract_score_threshold(binary_expr.left(), Some(score_col_schema_idx)),

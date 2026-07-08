@@ -31,7 +31,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "0056e2d8ed624211ccc37742e8b28ecb32bdf6b6", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", branch = "stuhood.compound-score-bmw", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -44,7 +44,7 @@ pgrx-tests = "=0.19.0"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "0056e2d8ed624211ccc37742e8b28ecb32bdf6b6" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "stuhood.compound-score-bmw" }
 
 # datafusion 54.0.0 + the null-aware anti-join dynamic-filter fix (paradedb/datafusion PR #2, backported
 # to a 54.0.0 branch so it stays on arrow 58). Patch every datafusion crate, or two `datafusion-common`

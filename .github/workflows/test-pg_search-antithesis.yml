@@ -383,6 +383,10 @@ jobs:
       # antithesis.duration is in minutes, 360 minutes = 6 hours
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
       # antithesis.source ensures Community and Enteprise have separate histories
+      # custom.container_faults_{stop,kill}_exclusion_patterns spares infra ParadeDB doesn't develop from
+      #   stop/kill faults: the cloudnative-pg operator and logical-replication-publisher (a vanilla Postgres
+      #   container), plus the paradedb container(s) on proptests — a differential-correctness oracle with no
+      #   reconnect resilience, where a killed paradedb is spurious query-failure noise instead of exercised recovery
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@v0.12
         with:
@@ -400,8 +404,8 @@ jobs:
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
             custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}
-            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},cloudnative-pg,logical-replication-publisher
-            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},cloudnative-pg,logical-replication-publisher
+            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
+            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
 
   # Ping Slack if any of the nightly (scheduled) jobs failed. Scheduled runs only execute on
   # paradedb-enterprise (see the `if` on `setup`), so this notification only fires there.

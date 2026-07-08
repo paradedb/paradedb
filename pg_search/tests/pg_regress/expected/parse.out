@@ -9,7 +9,7 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX on mock_items
-USING bm25 (id, description, rating, category, metadata)
+USING bm25 (id, description, rating, category, metadata, created_at, last_updated_date, latest_available_time)
 WITH (key_field='id');
 SELECT id, description, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(running shoes) AND category:footwear');
@@ -35,5 +35,28 @@ WHERE description @@@ pdb.parse_with_field('(running shoes)', lenient => true);
   4 | White jogging shoes | Footwear
   5 | Generic shoes       | Footwear
 (3 rows)
+
+SELECT id, description, created_at FROM mock_items
+WHERE id @@@ pdb.parse('created_at:"2023-05-01 09:12:34"') ORDER BY id;
+ id |       description        |        created_at        
+----+--------------------------+--------------------------
+  1 | Ergonomic metal keyboard | Mon May 01 09:12:34 2023
+(1 row)
+
+SELECT id, description, last_updated_date FROM mock_items
+WHERE id @@@ pdb.parse('last_updated_date:"2023-05-03"') ORDER BY id;
+ id |       description        | last_updated_date 
+----+--------------------------+-------------------
+  1 | Ergonomic metal keyboard | 05-03-2023
+  5 | Generic shoes            | 05-03-2023
+ 28 | Organic breakfast cereal | 05-03-2023
+(3 rows)
+
+SELECT id, description, latest_available_time FROM mock_items
+WHERE id @@@ pdb.parse('latest_available_time:"09:12:34"') ORDER BY id;
+ id |       description        | latest_available_time 
+----+--------------------------+-----------------------
+  1 | Ergonomic metal keyboard | 09:12:34
+(1 row)
 
 DROP TABLE mock_items;

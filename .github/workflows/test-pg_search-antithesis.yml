@@ -383,8 +383,7 @@ jobs:
       # antithesis.duration is in minutes, 360 minutes = 6 hours
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
       # antithesis.source ensures Community and Enteprise have separate histories
-      # custom.container_faults_{stop,kill}_exclusion_patterns spares from stop/kill faults the infra
-      # ParadeDB doesn't develop:
+      # custom.container_faults_{stop,kill}_exclusion_patterns spares from stop/kill faults the infra ParadeDB doesn't develop:
       #   - the cloudnative-pg operator
       #   - logical-replication-publisher (a vanilla Postgres container)
       #   - the paradedb container(s) on proptests — a differential-correctness oracle with no reconnect

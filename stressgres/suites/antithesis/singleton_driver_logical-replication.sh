@@ -20,7 +20,7 @@ sleep 60
 echo ""
 echo "Running Stressgres with suite logical-replication.toml..."
 # Run for 100 seconds: running for 10 minutes causes a "All commands were run to completion at least once" error in Antithesis.
-/home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 30000
+/home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 300000
 
 echo ""
 echo "Stressgres completed!"

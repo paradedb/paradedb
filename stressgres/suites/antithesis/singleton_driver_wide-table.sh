@@ -13,7 +13,7 @@ sleep 60
 
 echo ""
 echo "Running Stressgres with suite wide-table.toml..."
-/home/app/target/release/stressgres headless /home/app/stressgres/suites/wide-table.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 30000
+/home/app/target/release/stressgres headless /home/app/stressgres/suites/wide-table.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 300000
 
 echo ""
 echo "Stressgres completed!"

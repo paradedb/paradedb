@@ -22,8 +22,8 @@ SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_worker_count;
 SHOW paradedb.mpp_queue_size;
 
--- Defaults: MPP is off until explicitly enabled.
-SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_off;
+-- Defaults: MPP is on; the debug knob stays off.
+SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_on;
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default;
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;

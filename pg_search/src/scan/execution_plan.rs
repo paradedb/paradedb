@@ -21,12 +21,9 @@
 //! how `PgSearchScanPlan` integrates with the JoinScan physical plan and
 //! dynamic filters.
 //!
-//! This module provides the `PgSearchScanPlan`, which handles scanning of `pg_search`
-//! index segments. It supports both single-partition (serial) and multi-partition
-//! (parallel or sorted) scans.
-//!
-//! For sorted scans, `create_sorted_scan` can be used to wrap the plan in a
-//! `SortPreservingMergeExec` to merge sorted outputs from multiple segments.
+//! This module provides the `PgSearchScanPlan`, which scans `pg_search` index segments as a
+//! single lazily-claimed partition: segments are claimed dynamically from `ParallelScanState`
+//! in parallel execution, or chained end-to-end when serial.
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -39,9 +36,7 @@ use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
-use datafusion::physical_expr::{
-    EquivalenceProperties, LexOrdering, PhysicalExpr, PhysicalSortExpr,
-};
+use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
@@ -49,7 +44,6 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet, RecordOutput,
 };
-use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
@@ -95,11 +89,6 @@ pub struct ScannerConfig {
 
 /// Recipe for a scan partition.
 pub enum ScanRecipe {
-    /// Eager scan: already have a specific set of segments to scan.
-    Eager {
-        segment_ids: Vec<SegmentId>,
-        scanner_config: ScannerConfig,
-    },
     /// Lazy claim from `ParallelScanState`. `source_idx = Some(i)` claims from source
     /// `i`'s pool for MPP non-partitioning sources; `None` uses the single-counter
     /// `checkout_segment` for the basescan IAM, the MPP partitioning source, and
@@ -117,8 +106,6 @@ pub enum ScanRecipe {
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
-    /// Prefetched scan: scanner is already created and has prefetched data.
-    Prefetched { scanner: Scanner },
 }
 
 /// State for a scan partition.
@@ -134,19 +121,10 @@ pub type ScanState = ScanPartition;
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// This plan represents a scan over one or more index segments. It exposes these
-/// segments to DataFusion in two distinct ways:
-///
-/// 1.  **Lazy Execution (Single Partition)**: For standard queries that do not require
-///     globally sorted outputs. The plan is initialized with exactly one partition containing
-///     a lazily-evaluated `MultiSegmentSearchResults` stream. The underlying segments are
-///     claimed dynamically (if running in parallel) or chained sequentially (if serial),
-///     allowing segments to be dynamically load balanced across parallel workers as they process data.
-/// 2.  **Eager/Throttled Execution (Multiple Partitions)**: For queries that require
-///     globally sorted output (e.g. `ORDER BY` or sort-merge joins). The plan is initialized
-///     with multiple pre-opened segments, each exposed as a distinct DataFusion partition.
-///     DataFusion will automatically apply a `SortPreservingMergeExec` across these streams
-///     to produce a single, globally sorted result.
+/// The plan exposes exactly one partition containing a lazily-evaluated
+/// `MultiSegmentSearchResults` stream. Segments are claimed dynamically from
+/// `ParallelScanState` when running in parallel (load-balancing across workers as they
+/// process data) or chained sequentially when serial.
 pub struct PgSearchScanPlan {
     /// Segments to scan, indexed by partition.
     ///
@@ -246,15 +224,12 @@ impl PgSearchScanPlan {
         } else {
             states
                 .iter()
-                .map(|s| match &s.recipe {
-                    ScanRecipe::Eager { segment_ids, .. } => s
-                        .reader
-                        .estimated_docs_in_segments(segment_ids.iter().cloned()),
-                    ScanRecipe::Lazy {
+                .map(|s| {
+                    let ScanRecipe::Lazy {
                         planner_estimated_rows,
                         ..
-                    } => *planner_estimated_rows,
-                    ScanRecipe::Prefetched { scanner } => scanner.estimated_rows(),
+                    } = &s.recipe;
+                    *planner_estimated_rows
                 })
                 .collect()
         };
@@ -315,28 +290,19 @@ impl PgSearchScanPlan {
         let state = states[0].as_ref().ok_or_else(|| {
             DataFusionError::Internal("PgSearchScan dispatch: partition already consumed".into())
         })?;
-        let (source_idx, non_partitioning_index, planner_estimated_rows, scanner_config) =
-            match &state.0.recipe {
-                ScanRecipe::Lazy {
-                    source_idx,
-                    non_partitioning_index,
-                    planner_estimated_rows,
-                    scanner_config,
-                    ..
-                } => (
-                    *source_idx,
-                    *non_partitioning_index,
-                    *planner_estimated_rows,
-                    scanner_config.clone(),
-                ),
-                _ => {
-                    return Err(DataFusionError::NotImplemented(
-                        "PgSearchScan dispatch: only the lazy single-partition recipe is \
-                         supported"
-                            .into(),
-                    ))
-                }
-            };
+        let ScanRecipe::Lazy {
+            source_idx,
+            non_partitioning_index,
+            planner_estimated_rows,
+            scanner_config,
+            ..
+        } = &state.0.recipe;
+        let (source_idx, non_partitioning_index, planner_estimated_rows, scanner_config) = (
+            *source_idx,
+            *non_partitioning_index,
+            *planner_estimated_rows,
+            scanner_config.clone(),
+        );
 
         let schema = self.properties.eq_properties.schema().clone();
         let schema_proto: datafusion_proto::protobuf::Schema =
@@ -710,41 +676,26 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
             }
 
-            let mut scanner = match recipe {
-                ScanRecipe::Prefetched { scanner } => scanner,
-                other_recipe => {
-                    let (search_results, scanner_config) = match other_recipe {
-                        ScanRecipe::Eager { segment_ids, scanner_config } => {
-                            (reader.search_segments(segment_ids.into_iter()), scanner_config)
-                        }
-                        ScanRecipe::Lazy {
-                            parallel_state,
-                            source_idx,
-                            non_partitioning_index: _,
-                            planner_estimated_rows,
-                            scanner_config,
-                        } => {
-                            let res = match (parallel_state, source_idx) {
-                                (Some(ps), idx) => {
-                                    reader.search_lazy(ps, idx, planner_estimated_rows)
-                                }
-                                (None, Some(_)) => panic!(
-                                    "per-source claim needs `parallel_state` installed before recipe execution"
-                                ),
-                                (None, None) => reader.search(),
-                            };
-                            (res, scanner_config)
-                        }
-                        ScanRecipe::Prefetched { .. } => unreachable!(),
-                    };
-                    Scanner::new(
-                        search_results,
-                        scanner_config.batch_size_hint,
-                        scanner_config.which_fast_fields,
-                        scanner_config.heap_relid,
-                    )
-                }
+            let ScanRecipe::Lazy {
+                parallel_state,
+                source_idx,
+                non_partitioning_index: _,
+                planner_estimated_rows,
+                scanner_config,
+            } = recipe;
+            let search_results = match (parallel_state, source_idx) {
+                (Some(ps), idx) => reader.search_lazy(ps, idx, planner_estimated_rows),
+                (None, Some(_)) => panic!(
+                    "per-source claim needs `parallel_state` installed before recipe execution"
+                ),
+                (None, None) => reader.search(),
             };
+            let mut scanner = Scanner::new(
+                search_results,
+                scanner_config.batch_size_hint,
+                scanner_config.which_fast_fields,
+                scanner_config.heap_relid,
+            );
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
@@ -925,75 +876,6 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }
-}
-
-// ============================================================================
-// Builder for creating sorted scans with SortPreservingMergeExec
-// ============================================================================
-
-/// Creates a sorted scan plan with `SortPreservingMergeExec` to merge sorted segments.
-///
-/// When there is only one segment, returns the `PgSearchScanPlan` directly without
-/// the merge layer (no merging needed for a single partition).
-///
-/// Returns `None` if the sort field is not present in the schema (e.g., the sort column
-/// was not projected in the scan). In this case, the caller should fall back to an
-/// unsorted scan to avoid producing incorrectly ordered results.
-pub fn create_sorted_scan(
-    states: Vec<ScanState>,
-    schema: SchemaRef,
-    resolved_query: SearchQueryInput,
-    sort_order: &SortByField,
-    indexrelid: u32,
-) -> Result<Arc<dyn ExecutionPlan>> {
-    // Validate that the sort field exists in the schema
-    let field_name = sort_order.field_name.as_ref();
-    let col_idx = match schema.column_with_name(field_name) {
-        Some((idx, _)) => idx,
-        None => {
-            // Sort field is not in the schema - cannot create sorted merge.
-            return Err(DataFusionError::Internal(format!(
-                "Sort field '{}' not found in scan schema",
-                field_name
-            )));
-        }
-    };
-
-    let segment_count = states.len();
-    let segment_scan = Arc::new(PgSearchScanPlan::new(
-        states,
-        schema.clone(),
-        resolved_query,
-        Some(sort_order),
-        Vec::new(),
-        None,
-        indexrelid,
-        None,
-    ));
-
-    // For a single segment, no merging is needed
-    if segment_count == 1 {
-        return Ok(segment_scan);
-    }
-
-    let sort_options = SortOptions {
-        descending: matches!(sort_order.direction, SortByDirection::Desc),
-        nulls_first: matches!(sort_order.direction, SortByDirection::Asc),
-    };
-
-    let sort_expr = PhysicalSortExpr {
-        expr: Arc::new(Column::new(field_name, col_idx)),
-        options: sort_options,
-    };
-
-    let ordering =
-        LexOrdering::new(vec![sort_expr]).expect("sort expression should create valid ordering");
-
-    // Wrap with SortPreservingMergeExec to merge sorted partitions
-    Ok(Arc::new(SortPreservingMergeExec::new(
-        ordering,
-        segment_scan,
-    )))
 }
 
 #[cfg(any(test, feature = "pg_test"))]

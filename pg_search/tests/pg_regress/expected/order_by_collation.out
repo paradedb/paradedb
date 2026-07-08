@@ -258,7 +258,6 @@ RESET paradedb.enable_aggregate_custom_scan;
 -- =============================================================================
 \echo '=== SECTION 3: Sorted Index Scan (sort_by) ==='
 === SECTION 3: Sorted Index Scan (sort_by) ===
-SET paradedb.enable_columnar_sort = true;
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
 CREATE TABLE collation_sortby_test (
     id SERIAL PRIMARY KEY,
@@ -286,18 +285,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, city FROM collation_sortby_test
 WHERE id @@@ paradedb.all()
 ORDER BY city ASC NULLS FIRST;
-                        QUERY PLAN                         
------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on collation_sortby_test
-   Table: collation_sortby_test
-   Index: collation_sortby_test_idx
-   Exec Method: ColumnarExecState
-   Fast Fields: city, id
-   Order By: city ASC
-   Scores: false
-   Full Index Scan: true
-   Tantivy Query: {"with_index":{"query":"all"}}
-(9 rows)
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Sort
+   Sort Key: city COLLATE "C" NULLS FIRST
+   ->  Custom Scan (ParadeDB Base Scan) on collation_sortby_test
+         Table: collation_sortby_test
+         Index: collation_sortby_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: city, id
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
 
 \echo 'Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected'
 Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected
@@ -454,11 +454,11 @@ LIMIT 5;
            :   TantivyLookupExec: decode=[name_c]
            :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5
            :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, name_c@4]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (16 rows)
 
 \echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
@@ -511,11 +511,11 @@ LIMIT 5;
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(product_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, ctid_1@0, id@1]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (16 rows)
 
 RESET paradedb.enable_join_custom_scan;
@@ -748,7 +748,6 @@ LIMIT 5;
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================
-RESET paradedb.enable_columnar_sort;
 DROP TABLE IF EXISTS collation_test CASCADE;
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
 DROP TABLE IF EXISTS collation_join_products CASCADE;

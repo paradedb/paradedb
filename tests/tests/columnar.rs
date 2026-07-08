@@ -365,12 +365,14 @@ fn is_sorted_asc<T: Ord>(values: &[T]) -> bool {
     values.windows(2).all(|w| w[0] <= w[1])
 }
 
-/// Test ColumnarExecState with sorted scans across various configurations.
+/// Test that `ORDER BY` over a `ColumnarExecState` scan returns correctly sorted results.
+///
+/// The scan produces rows via `ColumnarExecState`; PostgreSQL applies the sort on top.
 #[rstest]
 #[case::desc_serial("DESC", "DESC", false)]
 #[case::asc_serial("ASC", "ASC", false)]
 #[case::parallel_desc("DESC", "DESC", true)]
-fn columnar_sorted_scan(
+fn columnar_exec_order_by(
     mut conn: PgConnection,
     #[case] sort_by_dir: &str,
     #[case] order_by_dir: &str,
@@ -389,7 +391,6 @@ fn columnar_sorted_scan(
     }
 
     "SET paradedb.enable_columnar_exec TO true;".execute(&mut conn);
-    "SET paradedb.enable_columnar_sort TO true;".execute(&mut conn);
     "SET paradedb.columnar_exec_column_threshold = 10;".execute(&mut conn);
 
     let sort_by = format!(
@@ -443,7 +444,7 @@ fn columnar_sorted_scan(
         sql.execute(&mut conn);
     }
 
-    // Query selecting multiple fast fields with ORDER BY (triggers sorted path)
+    // Query selecting multiple fast fields with ORDER BY (ColumnarExecState + PostgreSQL sort).
     let query = format!(
         r#"
         SELECT name, category, score FROM test_mff_sorted
@@ -467,14 +468,6 @@ fn columnar_sorted_scan(
         methods.contains(&"ColumnarExecState".to_string()),
         "Expected ColumnarExecState, got: {:?}",
         methods
-    );
-
-    // Verify that the plan indicates sorted execution
-    let plan_str = plan.to_string();
-    assert!(
-        plan_str.contains("Order By"),
-        "Plan should contain 'Order By' to indicate sorted execution: {}",
-        plan_str
     );
 
     // Query with ORDER BY and verify results are sorted

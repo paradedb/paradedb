@@ -18,7 +18,6 @@
 use std::sync::Arc;
 
 use arrow_array::{Array, RecordBatch};
-use arrow_schema::SchemaRef;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_plan::ExecutionPlan;
 use futures::StreamExt;
@@ -30,13 +29,10 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
-use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::execution_plan::{create_sorted_scan, PgSearchScanPlan, ScanState};
-use crate::scan::Scanner;
+use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
 
@@ -46,8 +42,7 @@ use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
 
 /// Polls a stream for the next item synchronously using a tokio runtime.
 /// This properly handles `Poll::Pending` by driving the stream to completion,
-/// which is necessary for DataFusion operators like `SortPreservingMergeExec`
-/// that may buffer data across partitions.
+/// which is necessary for DataFusion operators that may buffer data across polls.
 ///
 /// Uses the same tokio runtime pattern as JoinScan for consistency.
 fn poll_next_sync<S: futures::Stream + Unpin>(
@@ -111,33 +106,6 @@ impl Inner {
     }
 }
 
-/// Scan execution strategy for ColumnarExecState.
-///
-/// This enum replaces the previous `sorted: bool` + `sort_order: Option<SortByField>`
-/// pattern to prevent invalid states (e.g., sorted=true with sort_order=None).
-///
-/// The `Sorted` variant contains all sorted-specific state (sort order and schema),
-/// avoiding the need for Option wrappers on the main struct.
-pub enum ColumnarExecStrategy {
-    /// Unsorted execution: segments are processed lazily via PostgreSQL's parallel
-    /// query infrastructure, with each segment producing its own DataFusion stream.
-    Unsorted,
-    /// Sorted execution: all segments are merged via `SortPreservingMergeExec`
-    /// to produce globally sorted output according to the specified sort order.
-    Sorted {
-        sort_order: SortByField,
-        /// Arrow schema for the sorted scan, pre-computed from which_fast_fields.
-        schema: SchemaRef,
-    },
-}
-
-impl ColumnarExecStrategy {
-    /// Returns true if this is the sorted strategy.
-    pub fn is_sorted(&self) -> bool {
-        matches!(self, ColumnarExecStrategy::Sorted { .. })
-    }
-}
-
 /// Execution state for columnar retrieval using DataFusion execution.
 ///
 /// This execution state is designed to handle two scenarios:
@@ -145,15 +113,9 @@ impl ColumnarExecStrategy {
 /// 2. A mix of string and numeric fast fields in a single query
 ///
 /// The execution method produces data through DataFusion's execution engine,
-/// consuming results as Arrow RecordBatches from a DataFusion stream.
-///
-/// # Scan Strategy
-///
-/// When using `ColumnarExecStrategy::Sorted`, this execution method uses `SortPreservingMergeExec`
-/// to merge sorted segment outputs into a globally sorted result.
-///
-/// When using `ColumnarExecStrategy::Unsorted`, segments are processed lazily via PostgreSQL's
-/// parallel query infrastructure with DataFusion producing batches for each segment.
+/// consuming results as Arrow RecordBatches from a DataFusion stream. Segments are processed
+/// lazily via PostgreSQL's parallel query infrastructure, with DataFusion producing batches
+/// for each segment.
 ///
 /// # Usage Context
 /// This execution method is selected when a query uses multiple fast fields with at least one
@@ -175,9 +137,6 @@ pub struct ColumnarExecState {
 
     /// The batch size hint to use for this execution.
     batch_size_hint: Option<usize>,
-
-    /// Scan execution strategy (sorted or unsorted).
-    strategy: ColumnarExecStrategy,
 
     /// Tokio runtime for driving async DataFusion streams synchronously.
     /// Created once and reused (same pattern as JoinScan).
@@ -310,28 +269,13 @@ impl ColumnarExecState {
     /// # Arguments
     ///
     /// * `which_fast_fields` - Vector of fast fields that will be processed (projected fields)
-    /// * `extra_fast_fields` - Additional fast fields needed for execution (e.g. sort columns) but not projected
-    /// * `limit` - Optional limit for batch size optimization
-    /// * `sort_order` - Optional sort order; if provided, creates a sorted strategy
     ///
     /// # Returns
     ///
     /// A new ColumnarExecState instance
-    pub fn new(
-        which_fast_fields: Vec<WhichFastField>,
-        extra_fast_fields: Vec<WhichFastField>,
-        sort_order: Option<SortByField>,
-    ) -> Self {
-        // Build scanner fields: projected + extra + [Ctid]
-        // We clone which_fast_fields as the base
+    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
+        // Build scanner fields: projected + [Ctid]
         let mut scanner_fast_fields = which_fast_fields.clone();
-
-        // Add extra fields if not already present
-        for field in extra_fast_fields {
-            if !scanner_fast_fields.contains(&field) {
-                scanner_fast_fields.push(field);
-            }
-        }
 
         // Ensure Ctid is present (always needed for execution)
         let ctid_column_idx = if let Some(idx) = scanner_fast_fields
@@ -344,23 +288,12 @@ impl ColumnarExecState {
             Some(scanner_fast_fields.len() - 1)
         };
 
-        // Build strategy with schema if sorted
-        let strategy = match sort_order {
-            Some(sort_order) => {
-                // Use scanner_fast_fields to build schema, ensuring sort column is included
-                let schema = build_arrow_schema(&scanner_fast_fields);
-                ColumnarExecStrategy::Sorted { sort_order, schema }
-            }
-            None => ColumnarExecStrategy::Unsorted,
-        };
-
         // batch_size_hint is computed in `init` from the resolved LIMIT/OFFSET,
         // when EState is available.
         Self {
             inner: Inner::new(which_fast_fields),
             scanner_fast_fields,
             batch_size_hint: None,
-            strategy,
             runtime: None,
             stream: None,
             current_record_batch: None,
@@ -447,153 +380,6 @@ impl ColumnarExecState {
             }
         }
     }
-
-    /// Creates a DataFusion stream for the sorted path.
-    ///
-    /// For parallel execution: Uses `ParallelScanState`'s `checkout_segment()` to claim segments
-    /// one at a time, doing actual work (opening the segment) between checkouts. This is
-    /// critical for parallelism - without intermediate work, one worker could claim ALL
-    /// segments before other workers start up. See `ParallelScanState` documentation.
-    ///
-    /// Each worker ends up with a subset of segments, and PostgreSQL's Gather Merge
-    /// automatically combines the sorted outputs from all workers.
-    ///
-    /// For non-parallel execution: Processes all segments in a single merged stream.
-    fn create_sorted_stream(
-        &mut self,
-        state: &mut BaseScanState,
-    ) -> Option<SendableRecordBatchStream> {
-        if self.inner.did_query {
-            return None;
-        }
-        self.inner.did_query = true;
-
-        // Extract sort_order and schema from the strategy
-        let (sort_order, schema) = match &self.strategy {
-            ColumnarExecStrategy::Sorted { sort_order, schema } => (sort_order, Arc::clone(schema)),
-            ColumnarExecStrategy::Unsorted => return None,
-        };
-
-        let heaprel = self
-            .inner
-            .heaprel
-            .as_ref()
-            .expect("ColumnarExecState: heaprel should be initialized");
-        let ffhelper = self
-            .inner
-            .ffhelper
-            .as_ref()
-            .expect("ColumnarExecState: ffhelper should be initialized");
-        let search_reader = state.search_reader.as_ref().unwrap();
-        let visibility_checker = state
-            .visibility_checker
-            .clone()
-            .expect("ColumnarExecState: visibility_checker should be initialized");
-        let ffhelper = Arc::clone(ffhelper);
-
-        // Pre-open segments as we check them out.
-        let pre_opened: Vec<ScanState> = if let Some(parallel_state) = state.parallel_state {
-            // Parallel execution: check out and open segments one at a time.
-            let mut segments = Vec::new();
-            loop {
-                // Check for query cancellation
-                pgrx::check_for_interrupts!();
-
-                // Try to check out a segment
-                let segment_id = unsafe { checkout_segment(parallel_state) };
-                let Some(segment_id) = segment_id else {
-                    // No more segments available
-                    break;
-                };
-
-                let search_results = search_reader.search_segments([segment_id].into_iter());
-                let mut scanner = Scanner::new(
-                    search_results,
-                    self.batch_size_hint,
-                    self.scanner_fast_fields.clone(),
-                    heaprel.oid().to_u32(),
-                );
-                let mut visibility = visibility_checker.clone();
-                // Do real work between checkouts to avoid one worker claiming all segments.
-                scanner.prefetch_next(&ffhelper, &mut visibility, None);
-
-                segments.push(ScanState {
-                    recipe: crate::scan::execution_plan::ScanRecipe::Prefetched { scanner },
-                    ffhelper: Arc::clone(&ffhelper),
-                    visibility: Box::new(visibility) as Box<VisibilityChecker>,
-                    reader: search_reader.clone(),
-                });
-            }
-
-            if segments.is_empty() {
-                return None;
-            }
-
-            segments
-        } else {
-            // Non-parallel: Open all segments immediately
-            let segment_readers = search_reader.segment_readers();
-            if segment_readers.is_empty() {
-                return None;
-            }
-            segment_readers
-                .iter()
-                .map(|r| {
-                    let visibility = visibility_checker.clone();
-                    let scanner_config = crate::scan::execution_plan::ScannerConfig {
-                        which_fast_fields: self.scanner_fast_fields.clone(),
-                        heap_relid: heaprel.oid().to_u32(),
-                        batch_size_hint: self.batch_size_hint,
-                        // Basescan is never leader-dispatched.
-                        score_needed: self.scanner_fast_fields.iter().any(|f| {
-                            matches!(f, crate::index::fast_fields_helper::WhichFastField::Score)
-                        }),
-                    };
-                    ScanState {
-                        recipe: crate::scan::execution_plan::ScanRecipe::Eager {
-                            segment_ids: vec![r.segment_id()],
-                            scanner_config,
-                        },
-                        ffhelper: Arc::clone(&ffhelper),
-                        visibility: Box::new(visibility) as Box<VisibilityChecker>,
-                        reader: search_reader.clone(),
-                    }
-                })
-                .collect()
-        };
-
-        let index_rel = state.indexrel.as_ref().unwrap();
-
-        // Create sorted scan plan with SortPreservingMergeExec
-        // Returns Error if the sort field is not in the schema
-        let plan = create_sorted_scan(
-            pre_opened,
-            schema.clone(),
-            // TODO: Switch to an Arc in the scan state.
-            state.search_query_input().clone(),
-            sort_order,
-            index_rel.oid().to_u32(),
-        )
-        .unwrap_or_else(|e| {
-            // Sort field not in schema - this is a fatal error.
-            // If we claimed the sorted path at planning time, the sort field MUST be
-            // in the schema. If it's not, this indicates a bug in the planning logic.
-            panic!(
-                "Sorted path was claimed at planning time but sort field '{}' \
-                    is not in scan schema. This indicates a planner/executor mismatch. Error: {e}",
-                sort_order.field_name.as_ref()
-            );
-        });
-
-        // Execute the plan (partition 0 for merged output)
-        let task_ctx = Arc::new(TaskContext::default());
-        match plan.execute(0, task_ctx) {
-            Ok(stream) => Some(stream),
-            Err(e) => {
-                pgrx::error!("Failed to execute sorted plan: {e}");
-            }
-        }
-    }
 }
 
 impl ExecMethod for ColumnarExecState {
@@ -649,14 +435,8 @@ impl ExecMethod for ColumnarExecState {
 
     /// Executes the search query and prepares result processing.
     ///
-    /// This method handles both parallel and non-parallel execution paths using
-    /// DataFusion's execution engine to produce RecordBatch streams.
-    ///
-    /// For sorted mode (`sorted = true`), all segments are checked out upfront
-    /// and merged via `SortPreservingMergeExec` for globally sorted output.
-    ///
-    /// For unsorted mode, segments are processed lazily via PostgreSQL's parallel
-    /// query infrastructure, with each segment producing its own DataFusion stream.
+    /// Segments are processed lazily via PostgreSQL's parallel query infrastructure, with each
+    /// segment producing its own DataFusion stream.
     ///
     /// # Arguments
     ///
@@ -692,24 +472,15 @@ impl ExecMethod for ColumnarExecState {
                         pgrx::error!("Error polling DataFusion stream: {e}");
                     }
                     None => {
-                        // Stream exhausted
+                        // Stream exhausted; try to get another stream (next segment).
                         self.stream = None;
-                        // For unsorted mode, try to get another stream (next segment)
-                        if !self.strategy.is_sorted() {
-                            continue;
-                        }
-                        // For sorted mode, we're done (all segments processed in one stream)
-                        return false;
+                        continue;
                     }
                 }
             }
 
             // Create a new DataFusion stream
-            let new_stream = if self.strategy.is_sorted() {
-                self.create_sorted_stream(state)
-            } else {
-                self.create_unsorted_stream(state)
-            };
+            let new_stream = self.create_unsorted_stream(state);
 
             match new_stream {
                 Some(stream) => {

@@ -50,6 +50,26 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+BEGIN
+    -- Loop through each line of the EXPLAIN output
+    FOR plan_line IN EXECUTE 'EXPLAIN ' || p_query LOOP
+        -- Check if the current line contains the expected text
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: Expected text "%" not found in plan for query: %', p_expected_text, p_query;
+END;
+$$ LANGUAGE plpgsql;
+
+
 ALTER SYSTEM SET autovacuum_naptime = '1s';
 SELECT pg_reload_conf();
 """
@@ -81,6 +101,10 @@ log_tps = true
 on_connect = """
 SET paradedb.enable_custom_scan = off;
 SET paradedb.enable_aggregate_custom_scan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test where message ||| 'cheese' $q$,
+    'Index Only Scan'
+);
 """
 sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'cheese';
@@ -92,6 +116,10 @@ title = "Normal Scan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_aggregate_custom_scan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test where message ||| 'wine' $q$,
+    'NormalScanExecState'
+);
 """
 sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'wine';
@@ -103,6 +131,10 @@ title = "Columnar Scan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_columnar_exec = on;
+SELECT assert_plan_contains(
+    $q$ SELECT id, category FROM test WHERE message ||| 'beer' $q$,
+    'ColumnarExecState'
+);
 """
 sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM (SELECT id, category FROM test WHERE message ||| 'beer') sub;
@@ -114,6 +146,10 @@ title = "Aggregate Custom Scan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_aggregate_custom_scan = on;
+SELECT assert_plan_contains(
+    $q$ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM test WHERE message ||| 'beer' $q$,
+    'ParadeDB Aggregate Scan'
+);
 """
 sql = """
 SELECT assert((pdb.agg('{"value_count": {"field": "id"}}'::jsonb)->>'value')::numeric::bigint, 8::bigint) FROM test WHERE message ||| 'beer';

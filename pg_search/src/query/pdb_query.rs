@@ -1841,24 +1841,13 @@ fn parse<QueryParserCtor: Fn() -> QueryParser>(
     }
 
     let lenient = lenient.unwrap_or(false);
-    if lenient {
-        let (mut ast, _) = query_grammar::parse_query_lenient(&query_string);
-        if index_created_by_version.stores_datetimes_in_i64() {
-            rewrite_timestamp_literals(&mut ast, schema);
-        }
-        let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
-        Ok(parsed_query)
-    } else {
-        let mut ast = query_grammar::parse_query(&query_string)
-            .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
-        if index_created_by_version.stores_datetimes_in_i64() {
-            rewrite_timestamp_literals(&mut ast, schema);
-        }
-        let parsed_query = parser
-            .build_query_from_user_input_ast(ast)
-            .map_err(|err| QueryError::ParseError(err, query_string))?;
-        Ok(parsed_query)
-    }
+    parse_tantivy_query(
+        &mut parser,
+        &query_string,
+        lenient,
+        schema,
+        index_created_by_version,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1927,24 +1916,13 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
 
     let query_string = format!("{field}:({query_string})");
     let lenient = lenient.unwrap_or(false);
-    if lenient {
-        let (mut ast, _) = query_grammar::parse_query_lenient(&query_string);
-        if index_created_by_version.stores_datetimes_in_i64() {
-            rewrite_timestamp_literals(&mut ast, schema);
-        }
-        let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
-        Ok(parsed_query)
-    } else {
-        let mut ast = query_grammar::parse_query(&query_string)
-            .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
-        if index_created_by_version.stores_datetimes_in_i64() {
-            rewrite_timestamp_literals(&mut ast, schema);
-        }
-        let parsed_query = parser
-            .build_query_from_user_input_ast(ast)
-            .map_err(|err| QueryError::ParseError(err, query_string))?;
-        Ok(parsed_query)
-    }
+    parse_tantivy_query(
+        &mut parser,
+        &query_string,
+        lenient,
+        schema,
+        index_created_by_version,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2137,6 +2115,33 @@ fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
         .field_type()
         .is_json();
     Box::new(ExistsQuery::new(field.into_inner(), is_json))
+}
+
+pub(super) fn parse_tantivy_query(
+    parser: &mut QueryParser,
+    query_string: &str,
+    lenient: bool,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+) -> anyhow::Result<Box<dyn Query>> {
+    if lenient {
+        let (mut ast, _) = query_grammar::parse_query_lenient(query_string);
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
+        }
+        let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
+        Ok(parsed_query)
+    } else {
+        let mut ast = query_grammar::parse_query(query_string)
+            .map_err(|_| QueryError::GrammarParseError(query_string.to_string()))?;
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
+        }
+        let parsed_query = parser
+            .build_query_from_user_input_ast(ast)
+            .map_err(|err| QueryError::ParseError(err, query_string.to_string()))?;
+        Ok(parsed_query)
+    }
 }
 
 /// Walks the parsed user query AST and rewrites date/timestamp-string phrases as i64s.

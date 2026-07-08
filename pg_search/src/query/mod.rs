@@ -1384,29 +1384,13 @@ impl SearchQueryInput {
                     query_parser.set_conjunction_by_default();
                 }
 
-                let query = match lenient {
-                    Some(true) => {
-                        let (mut ast, _) =
-                            tantivy::query_grammar::parse_query_lenient(&query_string);
-                        if index_created_by_version.stores_datetimes_in_i64() {
-                            pdb_query::rewrite_timestamp_literals(&mut ast, schema);
-                        }
-                        let (parsed_query, _) =
-                            query_parser.build_query_from_user_input_ast_lenient(ast);
-                        parsed_query
-                    }
-                    _ => {
-                        let mut ast = tantivy::query_grammar::parse_query(&query_string)
-                            .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
-                        if index_created_by_version.stores_datetimes_in_i64() {
-                            pdb_query::rewrite_timestamp_literals(&mut ast, schema);
-                        }
-                        query_parser
-                            .build_query_from_user_input_ast(ast)
-                            .map_err(|err| QueryError::ParseError(err, query_string.clone()))?
-                    }
-                };
-
+                let query = pdb_query::parse_tantivy_query(
+                    &mut query_parser,
+                    &query_string,
+                    lenient.unwrap_or(false),
+                    schema,
+                    index_created_by_version,
+                )?;
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {

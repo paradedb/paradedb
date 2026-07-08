@@ -383,10 +383,12 @@ jobs:
       # antithesis.duration is in minutes, 360 minutes = 6 hours
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
       # antithesis.source ensures Community and Enteprise have separate histories
-      # custom.container_faults_{stop,kill}_exclusion_patterns spares infra ParadeDB doesn't develop from
-      #   stop/kill faults: the cloudnative-pg operator and logical-replication-publisher (a vanilla Postgres
-      #   container), plus the paradedb container(s) on proptests — a differential-correctness oracle with no
-      #   reconnect resilience, where a killed paradedb is spurious query-failure noise instead of exercised recovery
+      # custom.container_faults_{stop,kill}_exclusion_patterns spares from stop/kill faults the infra
+      # ParadeDB doesn't develop:
+      #   - the cloudnative-pg operator
+      #   - logical-replication-publisher (a vanilla Postgres container)
+      #   - the paradedb container(s) on proptests — a differential-correctness oracle with no reconnect
+      #     resilience, where a killed paradedb is spurious query-failure noise instead of exercised recovery
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@v0.12
         with:

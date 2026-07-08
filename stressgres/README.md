@@ -16,6 +16,12 @@ cargo run -- ui suites/vanilla-postgres.toml
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
+- Run headless mode tolerating transient database faults (e.g. under Antithesis, which stops/kills/partitions the database container). `--reconnect-grace-ms` is how long to keep reconnecting through a fault before failing; it defaults to `0` (any error fails the run immediately):
+
+```bash
+cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace-ms=30000
+```
+
 - Run a suite against a throwaway Postgres cluster built from a given `pg_config`:
 
 ```bash
@@ -23,17 +29,6 @@ cargo run -- auto /path/to/pg_config suites/vanilla-postgres.toml /tmp/stressgre
 ```
 
 Suites are TOML files in `suites/`. The `vanilla-postgres.toml` suite exercises baseline Postgres features and works with any PostgreSQL-compatible server.
-
-### Tolerating transient database faults
-
-By default any error (including a dropped connection) fails the run immediately. Under
-fault injection (e.g. Antithesis stopping/killing/partitioning the database container)
-that isn't desired — the workload should ride out the fault and keep exercising recovery
-code, leaving bug detection to Antithesis properties / postgres-side checks. Pass
-`--reconnect-grace-ms <MS>` (on `headless` or `ui`) to keep reconnecting through transient
-connectivity faults for that long before declaring the connection dropped; real
-logical/SQL errors and assertion failures still fail immediately regardless. The
-Antithesis singleton drivers pass `--reconnect-grace-ms 30000`.
 
 ## Docker
 

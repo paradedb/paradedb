@@ -20,10 +20,10 @@
 mod auto;
 mod cli;
 mod csv;
+mod fault_tolerance;
 mod graph;
 mod headless;
 mod metrics;
-mod resilience;
 mod runner;
 mod sqlscanner;
 mod suite;
@@ -73,11 +73,8 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(
-                suite,
-                false,
-                Duration::from_millis(args.reconnect_grace_ms),
-            )?;
+            let suite_runner =
+                SuiteRunner::new(suite, false, Duration::from_millis(args.reconnect_grace_ms))?;
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {

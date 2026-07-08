@@ -23,8 +23,8 @@
 //! *real* logical/SQL error (which must surface), and provides [`tolerate_transient`]
 //! to retry an operation through transient faults for a bounded grace window.
 //!
-//! Bug detection is expected to come from Antithesis properties / postgres-side
-//! checks, not from stressgres exit codes — so tolerating these faults is by design.
+//! When this is enabled, bug detection is expected to come from Antithesis properties / postgres-side
+//! checks, not from stressgres exit codes.
 
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -56,7 +56,6 @@ const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
     "(sqlstate: 57p03", // cannot_connect_now
 ];
 
-/// Does this error message look like a transient connectivity failure?
 fn message_looks_transient(msg: &str) -> bool {
     let msg = msg.to_ascii_lowercase();
     TRANSIENT_ERROR_NEEDLES
@@ -98,7 +97,6 @@ fn is_transient_error(err: &anyhow::Error) -> bool {
     message_looks_transient(&err.to_string())
 }
 
-/// Sleep for `dur`, returning early if `alive` becomes false.
 fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
     let start = Instant::now();
     while start.elapsed() < dur {
@@ -142,7 +140,7 @@ pub(crate) fn tolerate_transient<T>(
                 let down_since = *down_since.get_or_insert_with(Instant::now);
                 if down_since.elapsed() >= grace {
                     // Grace window exhausted (immediate when grace == 0): the fault is
-                    // no longer "transient" as far as the run is concerned — fail.
+                    // no longer "transient" as far as the run is concerned and we should fail.
                     return Err(if grace.is_zero() {
                         e
                     } else {

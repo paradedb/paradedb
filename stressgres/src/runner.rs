@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::resilience::tolerate_transient;
+use crate::fault_tolerance::tolerate_transient;
 use crate::sqlscanner::StatementDestination;
 use crate::suite::{Job, Server, ServerStyle, Suite};
 use anyhow::{anyhow, Result};
@@ -375,7 +375,10 @@ impl SuiteRunner {
         let default_job = Job::default();
         runner.pgver = tolerate_transient(&runner.alive, runner.reconnect_grace, || {
             let mut conn = Conn::open(&suite, &default_job)?;
-            let version: String = conn.first_client().query_one("SELECT version()", &[])?.get(0);
+            let version: String = conn
+                .first_client()
+                .query_one("SELECT version()", &[])?
+                .get(0);
             Ok(version)
         })?
         .unwrap_or_else(|| String::from("<unknown>"));

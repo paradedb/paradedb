@@ -20,6 +20,9 @@ sleep 60
 echo ""
 echo "Running Stressgres with suite logical-replication-merge.toml..."
 # Run for 100 seconds: running for 10 minutes causes a "All commands were run to completion at least once" error in Antithesis.
+# --reconnect-grace-ms is deliberately larger than --runtime so a transient DB fault
+# (Antithesis stop/kill/partition) is tolerated for the whole run instead of failing it;
+# the run ends on its own runtime. Keep grace > runtime if you change either.
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication-merge.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 300000
 
 echo ""

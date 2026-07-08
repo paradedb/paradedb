@@ -13,6 +13,9 @@ sleep 60
 
 echo ""
 echo "Running Stressgres with suite wide-table.toml..."
+# --reconnect-grace-ms is deliberately larger than --runtime so a transient DB fault
+# (Antithesis stop/kill/partition) is tolerated for the whole run instead of failing it;
+# the run ends on its own runtime. Keep grace > runtime if you change either.
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/wide-table.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 300000
 
 echo ""

@@ -345,6 +345,9 @@ pub struct SuiteRunner {
     runners: Vec<Arc<JobRunner>>,
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
+    /// How long to tolerate transient connectivity faults before failing (0 = fail
+    /// immediately on the first error, the default outside Antithesis).
+    reconnect_grace: Duration,
 
     monitors: Vec<Arc<JobRunner>>,
     sys: Arc<RwLock<System>>,
@@ -352,7 +355,7 @@ pub struct SuiteRunner {
 
 impl SuiteRunner {
     /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
-    pub fn new(suite: Suite, paused: bool) -> Result<Arc<Self>> {
+    pub fn new(suite: Suite, paused: bool, reconnect_grace: Duration) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
         let mut runner = Self {
             suite: suite.clone(),
@@ -363,6 +366,7 @@ impl SuiteRunner {
             runners: Default::default(),
             have_error: Arc::new(AtomicBool::new(false)),
             first_error_duration_bits: Default::default(),
+            reconnect_grace,
 
             monitors: Default::default(),
             sys: Arc::new(RwLock::new(System::new_all())),
@@ -371,7 +375,7 @@ impl SuiteRunner {
         // Probe the server version, riding out any transient connectivity fault
         // (e.g. Antithesis stopping/killing/partitioning the container) at startup.
         let default_job = Job::default();
-        runner.pgver = tolerate_transient(&runner.alive, || {
+        runner.pgver = tolerate_transient(&runner.alive, runner.reconnect_grace, || {
             let mut conn = Conn::open(&suite, &default_job)?;
             let version: String = conn.first_client().query_one("SELECT version()", &[])?.get(0);
             Ok(version)
@@ -427,7 +431,7 @@ impl SuiteRunner {
             )?;
             // Run setup on a fresh connection, replaying it in full if a transient
             // fault interrupts it (safe because setup re-runs from scratch).
-            tolerate_transient(&self.alive, || {
+            tolerate_transient(&self.alive, self.reconnect_grace, || {
                 let mut conn = Conn::open(&self.suite, &setup_runner.job)?;
                 setup_runner.run(&mut conn)
             })?;
@@ -499,12 +503,13 @@ impl SuiteRunner {
 
         let job_runner = Arc::new(job_runner);
         let refresh_ms = Duration::from_millis(job_runner.job.refresh_ms as u64);
+        let reconnect_grace = self.reconnect_grace;
 
         // The actual thread loop
         let handle = {
             let job_runner = job_runner.clone();
             std::thread::spawn(move || {
-                match Self::job_runner_worker(paused, refresh_ms, &job_runner) {
+                match Self::job_runner_worker(paused, refresh_ms, reconnect_grace, &job_runner) {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         job_runner.running.store(false, Ordering::Relaxed);
@@ -530,6 +535,7 @@ impl SuiteRunner {
     fn job_runner_worker(
         paused: Arc<AtomicBool>,
         refresh_ms: Duration,
+        reconnect_grace: Duration,
         job_runner: &Arc<JobRunner>,
     ) -> Result<(), anyhow::Error> {
         *job_runner.runtime_stats.write() = Conn::make_infos(&job_runner.suite, &job_runner.job)
@@ -560,7 +566,7 @@ impl SuiteRunner {
             // Run one iteration, riding out transient faults. On any error we drop the
             // (possibly poisoned) connection so the next attempt reconnects; replaying
             // the whole iteration keeps transactional jobs correct.
-            let outcome = tolerate_transient(&alive, || {
+            let outcome = tolerate_transient(&alive, reconnect_grace, || {
                 if conn.is_none() {
                     conn = Some(Conn::open(&job_runner.suite, &job_runner.job)?);
                 }
@@ -693,7 +699,13 @@ impl SuiteRunner {
                 self.alive.clone(),
                 self.sys.clone(),
             )?;
-            teardown_runner.run(&mut Conn::open(&self.suite, &teardown_runner.job)?)?;
+            // Best-effort teardown: ride out a transient fault, and if connectivity
+            // is gone during shutdown (`alive` is already false here) skip it rather
+            // than panicking the shutdown thread.
+            tolerate_transient(&self.alive, self.reconnect_grace, || {
+                let mut conn = Conn::open(&self.suite, &teardown_runner.job)?;
+                teardown_runner.run(&mut conn)
+            })?;
         }
 
         for job in &self.runners {
@@ -727,16 +739,7 @@ pub const HARDCODED_IGNORE_ERRORS: &[&str] = &[
     "(SQLState: 57014)", // query_canceled
 ];
 
-/// How long a database operation may keep failing with transient connectivity
-/// errors before we give up and treat the connection as genuinely dropped.
-///
-/// Antithesis can stop, kill, or partition the `paradedb` container mid-run. Rather
-/// than failing the whole test the instant a socket dies, we keep retrying (with
-/// backoff) for this long; a killed container plus CloudNativePG failover normally
-/// recovers well within the window. Only if connectivity stays broken for the full
-/// window do we surface the error as real.
-const RECONNECT_GRACE: Duration = Duration::from_secs(30);
-/// Backoff bounds for retries within the grace window.
+/// Backoff bounds for retries within the reconnect grace window.
 const INITIAL_RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
 
@@ -815,11 +818,14 @@ fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
     }
 }
 
-/// Runs `op`, tolerating transient connectivity faults: while `op` keeps failing
-/// with a transient error (a dropped/refused socket, server restarting, etc.) it is
-/// retried with capped backoff. A real (non-transient) error is returned
+/// Runs `op`, tolerating transient connectivity faults for up to `grace`: while `op`
+/// keeps failing with a transient error (a dropped/refused socket, server restarting,
+/// etc.) it is retried with capped backoff. A real (non-transient) error is returned
 /// immediately. The connection is only declared dropped — and the error surfaced —
-/// once it has stayed broken for `RECONNECT_GRACE` continuously.
+/// once it has stayed broken for `grace` continuously.
+///
+/// With `grace == 0` (the default outside Antithesis) any error fails immediately,
+/// preserving the historical "an error fails the run" behaviour.
 ///
 /// This is the single place reconnection lives. Callers express *what* to do (probe
 /// the version, run setup, run one job iteration); reopening a dead connection is
@@ -829,6 +835,7 @@ fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
 /// Returns `Ok(None)` if `alive` went false while we were waiting out a fault.
 fn tolerate_transient<T>(
     alive: &AtomicBool,
+    grace: Duration,
     mut op: impl FnMut() -> Result<T>,
 ) -> Result<Option<T>> {
     let mut backoff = INITIAL_RECONNECT_BACKOFF;
@@ -842,11 +849,17 @@ fn tolerate_transient<T>(
                     return Ok(None);
                 }
                 let down_since = *down_since.get_or_insert_with(Instant::now);
-                if down_since.elapsed() >= RECONNECT_GRACE {
-                    return Err(e.context(format!(
-                        "database unreachable for {:?}, past the {RECONNECT_GRACE:?} grace window",
-                        down_since.elapsed()
-                    )));
+                if down_since.elapsed() >= grace {
+                    // Grace window exhausted (immediate when grace == 0): the fault is
+                    // no longer "transient" as far as the run is concerned — fail.
+                    return Err(if grace.is_zero() {
+                        e
+                    } else {
+                        e.context(format!(
+                            "database unreachable for {:?}, past the {grace:?} grace window",
+                            down_since.elapsed()
+                        ))
+                    });
                 }
                 eprintln!("stressgres: transient database fault, retrying: {e:#}");
                 interruptible_sleep(alive, backoff);

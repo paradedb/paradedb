@@ -13,7 +13,7 @@ sleep 60
 
 echo ""
 echo "Running Stressgres with suite bulk-updates.toml..."
-/home/app/target/release/stressgres headless /home/app/stressgres/suites/bulk-updates.toml --runtime 100000 --log-interval-ms 10000
+/home/app/target/release/stressgres headless /home/app/stressgres/suites/bulk-updates.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 30000
 
 echo ""
 echo "Stressgres completed!"

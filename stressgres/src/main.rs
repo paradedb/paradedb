@@ -96,7 +96,9 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, None, Some(&args)).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(suite, false)?;
+            // `auto` is a local-dev command with no fault injection, so fail fast
+            // (grace 0) rather than tolerating transient connectivity faults.
+            let suite_runner = SuiteRunner::new(suite, false, Duration::ZERO)?;
             headless::run(
                 suite_runner,
                 args.log_path.clone(),

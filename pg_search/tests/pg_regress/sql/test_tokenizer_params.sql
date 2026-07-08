@@ -5,7 +5,9 @@ CREATE TABLE test_tokenizer_params (
   content TEXT
 );
 
-INSERT INTO test_tokenizer_params (content) VALUES ('hello world');
+INSERT INTO test_tokenizer_params (content) VALUES
+  ('hello world'),
+  ('ＡＢＣ日本語');
 
 -------------------------------------------------------------
 -- Shared filter params accepted by all tokenizers
@@ -40,6 +42,14 @@ DROP INDEX idx_ngram;
 CREATE INDEX idx_lindera ON test_tokenizer_params
 USING bm25 (id, (content::pdb.lindera('japanese', 'nfkc=true', 'reading_form=true')))
 WITH (key_field = 'id');
+SELECT id
+FROM test_tokenizer_params
+WHERE content @@@ pdb.match(
+  'ＡＢＣ日本語',
+  tokenizer => paradedb.tokenizer('lindera', language => 'japanese', nfkc => true, reading_form => true),
+  conjunction_mode => true
+)
+ORDER BY id;
 DROP INDEX idx_lindera;
 
 -- regex: pattern

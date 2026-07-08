@@ -345,8 +345,6 @@ pub struct SuiteRunner {
     runners: Vec<Arc<JobRunner>>,
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
-    /// How long to tolerate transient connectivity faults before failing (0 = fail
-    /// immediately on the first error, the default outside Antithesis).
     reconnect_grace: Duration,
 
     monitors: Vec<Arc<JobRunner>>,
@@ -373,7 +371,6 @@ impl SuiteRunner {
         };
 
         // Probe the server version, riding out any transient connectivity fault
-        // (e.g. Antithesis stopping/killing/partitioning the container) at startup.
         let default_job = Job::default();
         runner.pgver = tolerate_transient(&runner.alive, runner.reconnect_grace, || {
             let mut conn = Conn::open(&suite, &default_job)?;

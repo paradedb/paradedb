@@ -13,9 +13,6 @@ sleep 60
 
 echo ""
 echo "Running Stressgres with suite vanilla-postgres.toml..."
-# reconnect-grace resets after each successful reconnect, so it only needs to exceed the
-# longest single outage: a paradedb node kill + CloudNativePG pod recovery can take ~75s,
-# so 180s (also > --runtime) leaves margin. Keep it above --runtime if that ever changes.
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/vanilla-postgres.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace-ms 180000
 
 echo ""

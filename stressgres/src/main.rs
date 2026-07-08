@@ -23,6 +23,7 @@ mod csv;
 mod graph;
 mod headless;
 mod metrics;
+mod resilience;
 mod runner;
 mod sqlscanner;
 mod suite;

@@ -1,0 +1,209 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+//! Tolerance for transient database connectivity faults.
+//!
+//! Under Antithesis the `paradedb` container is stopped, killed, and network-
+//! partitioned mid-run. This module classifies an error as either a *transient*
+//! connectivity fault (which the workload should ride out by reconnecting) or a
+//! *real* logical/SQL error (which must surface), and provides [`tolerate_transient`]
+//! to retry an operation through transient faults for a bounded grace window.
+//!
+//! Bug detection is expected to come from Antithesis properties / postgres-side
+//! checks, not from stressgres exit codes — so tolerating these faults is by design.
+
+use anyhow::Result;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// Backoff bounds for retries within the reconnect grace window.
+const INITIAL_RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
+const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
+
+/// Substrings that identify a transient connectivity failure when all we have is a
+/// stringified error (e.g. one already flattened by `format_postgres_error`).
+const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
+    "network is unreachable",
+    "no route to host",
+    "connection refused",
+    "connection reset",
+    "connection closed",
+    "broken pipe",
+    "server closed the connection",
+    "terminating connection",
+    "error connecting to server",
+    "error communicating with the server",
+    "unexpected eof",
+    "os error 101",     // ENETUNREACH
+    "(sqlstate: 08",    // connection exception class
+    "(sqlstate: 57p01", // admin_shutdown
+    "(sqlstate: 57p02", // crash_shutdown
+    "(sqlstate: 57p03", // cannot_connect_now
+];
+
+/// Does this error message look like a transient connectivity failure?
+fn message_looks_transient(msg: &str) -> bool {
+    let msg = msg.to_ascii_lowercase();
+    TRANSIENT_ERROR_NEEDLES
+        .iter()
+        .any(|needle| msg.contains(needle))
+}
+
+/// Classifies a `postgres::Error` as a transient connectivity failure (as opposed
+/// to a logical/SQL error, which represents a real bug we want to surface).
+fn is_transient_connection_error(e: &postgres::Error) -> bool {
+    if let Some(db) = e.as_db_error() {
+        let code = db.code().code();
+        // Class 08 = connection exception; 57P0x = operator/crash shutdown and
+        // "cannot connect now" (server starting up / shutting down).
+        return code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05");
+    }
+
+    // No SQLSTATE => a client-side/transport failure. If the driver reports the
+    // connection as closed, or the message looks like a connectivity problem,
+    // treat it as transient.
+    e.is_closed() || message_looks_transient(&e.to_string())
+}
+
+/// Classifies an `anyhow::Error` as a transient connectivity failure by walking its
+/// cause chain for a `postgres::Error`/IO error, falling back to string matching for
+/// errors that have already been flattened to a message.
+fn is_transient_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(pg) = cause.downcast_ref::<postgres::Error>() {
+            return is_transient_connection_error(pg);
+        }
+        if let Some(pg) = cause.downcast_ref::<Arc<postgres::Error>>() {
+            return is_transient_connection_error(pg);
+        }
+        if cause.downcast_ref::<std::io::Error>().is_some() {
+            return true;
+        }
+    }
+    message_looks_transient(&err.to_string())
+}
+
+/// Sleep for `dur`, returning early if `alive` becomes false.
+fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < dur {
+        if !alive.load(Ordering::Relaxed) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Runs `op`, tolerating transient connectivity faults for up to `grace`: while `op`
+/// keeps failing with a transient error (a dropped/refused socket, server restarting,
+/// etc.) it is retried with capped backoff. A real (non-transient) error is returned
+/// immediately. The connection is only declared dropped — and the error surfaced —
+/// once it has stayed broken for `grace` continuously.
+///
+/// With `grace == 0` (the default outside Antithesis) any error fails immediately,
+/// preserving the historical "an error fails the run" behaviour.
+///
+/// This is the single place reconnection lives. Callers express *what* to do (probe
+/// the version, run setup, run one job iteration); reopening a dead connection is
+/// the caller's job inside `op`, and re-running the whole `op` is what makes this
+/// safe for transactional work — a lost transaction is simply replayed from scratch.
+///
+/// Returns `Ok(None)` if `alive` went false while we were waiting out a fault.
+pub(crate) fn tolerate_transient<T>(
+    alive: &AtomicBool,
+    grace: Duration,
+    mut op: impl FnMut() -> Result<T>,
+) -> Result<Option<T>> {
+    let mut backoff = INITIAL_RECONNECT_BACKOFF;
+    let mut down_since: Option<Instant> = None;
+    loop {
+        match op() {
+            Ok(value) => return Ok(Some(value)),
+            Err(e) if !is_transient_error(&e) => return Err(e),
+            Err(e) => {
+                if !alive.load(Ordering::Relaxed) {
+                    return Ok(None);
+                }
+                let down_since = *down_since.get_or_insert_with(Instant::now);
+                if down_since.elapsed() >= grace {
+                    // Grace window exhausted (immediate when grace == 0): the fault is
+                    // no longer "transient" as far as the run is concerned — fail.
+                    return Err(if grace.is_zero() {
+                        e
+                    } else {
+                        e.context(format!(
+                            "database unreachable for {:?}, past the {grace:?} grace window",
+                            down_since.elapsed()
+                        ))
+                    });
+                }
+                eprintln!("stressgres: transient database fault, retrying: {e:#}");
+                interruptible_sleep(alive, backoff);
+                backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+    use std::io;
+
+    #[test]
+    fn message_matching_flags_connectivity_faults() {
+        for msg in [
+            "error connecting to server: Network is unreachable (os error 101)",
+            "server closed the connection unexpectedly",
+            "connection reset by peer",
+            "db error: FATAL: terminating connection due to administrator command (SQLState: 57P01)",
+            "error: could not receive data from server (SQLState: 08006)",
+        ] {
+            assert!(message_looks_transient(msg), "should be transient: {msg}");
+        }
+    }
+
+    #[test]
+    fn message_matching_ignores_real_errors() {
+        for msg in [
+            "ERROR: division by zero (SQLState: 22012)",
+            "duplicate key value violates unique constraint (SQLState: 23505)",
+            "ERROR: relation \"foo\" does not exist (SQLState: 42P01)",
+            "Job assertion failed: expected 5 but got 3",
+        ] {
+            assert!(!message_looks_transient(msg), "should be real: {msg}");
+        }
+    }
+
+    #[test]
+    fn anyhow_string_errors_are_classified() {
+        assert!(is_transient_error(&anyhow!(
+            "error connecting to server: Network is unreachable (os error 101)"
+        )));
+        assert!(!is_transient_error(&anyhow!(
+            "Job assertion failed: expected 5 but got 3"
+        )));
+    }
+
+    #[test]
+    fn io_errors_are_transient() {
+        let err = anyhow::Error::new(io::Error::new(io::ErrorKind::ConnectionReset, "reset"));
+        assert!(is_transient_error(&err));
+    }
+}

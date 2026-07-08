@@ -52,7 +52,10 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
   AND c.dwf_doid @@@ paradedb.match('author', 'brian griffin')
   AND c.created_at::date >= $2::date
   AND c.created_at::date <= $3::date;
--- Execute multiple times to trigger generic plan
+-- The auto custom-to-generic switch is cost-based, so it lands differently across
+-- machines. Pin custom plans here and cover generic plans in the block below, so the
+-- per-plan planning warning is the same everywhere.
+SET plan_cache_mode = force_custom_plan;
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
@@ -89,7 +92,6 @@ WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE c
    122
 (1 row)
 
--- 6th execution should use generic plan and return same result
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
@@ -99,6 +101,7 @@ WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE c
 
 -- Try with different parameters
 EXECUTE test_parallel_join('ea', '2024-06-01', '2025-01-01');
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
  count 
 -------
     72

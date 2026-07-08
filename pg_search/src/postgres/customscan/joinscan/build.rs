@@ -323,7 +323,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
-use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::scan::info::{FieldInfo, RowEstimate};
@@ -343,7 +342,6 @@ pub struct JoinSourceCandidate {
     pub alias: Option<String>,
     pub score_needed: bool,
     pub fields: Vec<FieldInfo>,
-    pub sort_order: Option<SortByField>,
     pub estimate: Option<RowEstimate>,
     pub segment_count: Option<usize>,
     pub estimated_rows_per_worker: Option<u64>,
@@ -361,7 +359,6 @@ impl JoinSourceCandidate {
             alias: None,
             score_needed: false,
             fields: Vec::new(),
-            sort_order: None,
             estimate: None,
             segment_count: None,
             estimated_rows_per_worker: None,
@@ -390,11 +387,6 @@ impl JoinSourceCandidate {
 
     pub fn with_search_predicate(mut self) -> Self {
         self.has_search_predicate = true;
-        self
-    }
-
-    pub fn with_sort_order(mut self, sort_order: Option<SortByField>) -> Self {
-        self.sort_order = sort_order;
         self
     }
 
@@ -583,7 +575,6 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
                 fields: candidate.fields,
-                sort_order: candidate.sort_order,
                 estimate: candidate.estimate.ok_or_else(|| {
                     anyhow!(
                         "cannot build JoinSource for RTI {}: estimate is missing",

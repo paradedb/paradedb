@@ -52,10 +52,6 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
 static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// When enabled, columnar scans use the index sort order if the query's ORDER BY matches the index's sort_by configuration.
-/// Defaults to false due to stability issues (see https://github.com/paradedb/paradedb/issues/4293).
-static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(false);
-
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
@@ -135,8 +131,8 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Gate the MPP (Massively Parallel Processing) plan partitioning path for JoinScan
-/// and AggregateScan. When off, behavior is identical to `origin/main`.
-static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(false);
+/// and AggregateScan. When off, behavior is identical to the non-MPP path.
+static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
@@ -297,15 +293,6 @@ pub fn init() {
         c"Enable ColumnarExecState executor",
         c"Enable the ColumnarExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
         &ENABLE_COLUMNAR_EXEC,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_columnar_sort",
-        c"Enable sorted execution for columnar scans",
-        c"When enabled, columnar scans use the index sort order if the query's ORDER BY or join keys match the index's sort_by configuration. This also enables SortMergeJoin for joins on sorted index fields. Default is false.",
-        &ENABLE_COLUMNAR_SORT,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -568,7 +555,7 @@ pub fn init() {
         c"Enable ParadeDB's MPP (Massively Parallel Processing) plan partitioning",
         c"When enabled, JoinScan and AggregateScan may hash-partition every table by the \
           join key and shuffle intermediate rows between workers, so each row is scanned \
-          exactly once. Default is false; off path is identical to non-MPP behavior.",
+          exactly once. Default is true; turn it off to fall back to the non-MPP path.",
         &ENABLE_MPP,
         GucContext::Userset,
         GucFlags::default(),
@@ -672,10 +659,6 @@ pub fn is_fast_field_exec_enabled() -> bool {
 
 pub fn is_columnar_exec_enabled() -> bool {
     ENABLE_COLUMNAR_EXEC.get()
-}
-
-pub fn is_columnar_sort_enabled() -> bool {
-    ENABLE_COLUMNAR_SORT.get()
 }
 
 pub fn columnar_exec_column_threshold() -> usize {

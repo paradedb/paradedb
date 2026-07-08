@@ -117,9 +117,6 @@ pub struct AutoArgs {
     #[arg(value_name = "PG_DATA")]
     pub pg_data_base: PathBuf,
 
-    #[arg(long, default_value = "false")]
-    pub logical_replication: bool,
-
     /// Path to the log file produced by a headless run.
     #[arg(long)]
     pub log_path: Option<PathBuf>,

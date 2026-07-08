@@ -369,19 +369,25 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      # Reuses the index the benchmark step just built (same Postgres).
+      # Reuses the index the benchmark step just built (same Postgres). Measures recall for every
+      # query file (unfiltered + each filtered kNN) at the same probes/ef_search the latency
+      # benchmark used, so the reported recall is the operating point being benchmarked.
       - name: Measure "cohere" Recall (1M)
-        id: recall_1m
         if: ${{ env.RUN_COHERE == 'true' }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail
-          out=$(cargo run --release -- recall \
-            --dataset cohere \
-            --size 1m \
-            --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
-          echo "$out"
-          echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"
+          : > recall_1m.tsv
+          for f in datasets/cohere/queries/*.sql; do
+            q=$(basename "$f" .sql)
+            out=$(cargo run --release -- recall \
+              --dataset cohere \
+              --size 1m \
+              --query "$q" \
+              --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
+            echo "$out"
+            printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_1m.tsv
+          done
 
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -415,36 +421,51 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Measure "cohere" Recall (10M)
-        id: recall_10m
         if: ${{ env.RUN_COHERE == 'true' }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail
-          out=$(cargo run --release -- recall \
-            --dataset cohere \
-            --size 10m \
-            --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
-          echo "$out"
-          echo "recall=$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> "$GITHUB_OUTPUT"
+          : > recall_10m.tsv
+          for f in datasets/cohere/queries/*.sql; do
+            q=$(basename "$f" .sql)
+            out=$(cargo run --release -- recall \
+              --dataset cohere \
+              --size 10m \
+              --query "$q" \
+              --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
+            echo "$out"
+            printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_10m.tsv
+          done
 
       - name: Comment cohere recall
-        if: ${{ !cancelled() && env.RUN_COHERE == 'true' && (steps.recall_1m.outputs.recall != '' || steps.recall_10m.outputs.recall != '') }}
+        if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
+        working-directory: benchmarks/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          body="### Cohere recall — \`${{ env.COHERE_INDEX }}\` index
-
-          | size | recall |
-          |------|--------|
-          | 1m   | ${{ steps.recall_1m.outputs.recall || 'n/a' }} |
-          | 10m  | ${{ steps.recall_10m.outputs.recall || 'n/a' }} |
-
-          <sub>recall@k of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark.</sub>"
+          # A recall step that was skipped/failed leaves its .tsv missing; touch both so `cat` (and
+          # thus pipefail) doesn't abort when only one size ran.
+          touch recall_1m.tsv recall_10m.tsv
+          # Build one row per query (union of whatever was measured at either size), so query files
+          # added to datasets/cohere/queries/ appear automatically.
+          rows=$(cat recall_1m.tsv recall_10m.tsv | cut -f1 | sort -u | while read -r q; do
+            [ -n "$q" ] || continue
+            r1=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_1m.tsv 2>/dev/null || true)
+            r10=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_10m.tsv 2>/dev/null || true)
+            printf '| `%s` | %s | %s |\n' "$q" "${r1:-n/a}" "${r10:-n/a}"
+          done)
+          {
+            printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
+            printf '| query | 1m | 10m |\n|-------|----|----|\n'
+            printf '%s\n' "$rows"
+            printf '\n<sub>recall@10 of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark. Probes are tuned per query+size for ~95%% recall</sub>\n'
+          } > recall_body.md
+          cat recall_body.md
           if [ -n "${{ github.event.pull_request.number }}" ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "$body"
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file recall_body.md
           else
-            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$body"
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@recall_body.md
           fi
 
       - name: Notify Slack on Failure (push only)

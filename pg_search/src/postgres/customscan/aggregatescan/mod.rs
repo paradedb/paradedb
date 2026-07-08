@@ -641,20 +641,23 @@ impl CustomScan for AggregateScan {
             if let Some(leader) = df_state.mpp.as_ref() {
                 leader.release_control_senders();
             }
-            if let Some(leader) = df_state.mpp.as_mut() {
-                if let Some(finish) = leader.finish.as_mut() {
-                    let _ = finish.recv();
-                }
-            }
-            // PG destroys the parallel DSM right after this hook, so drain the workers' metrics
-            // frames off the mesh now (the EXPLAIN hook runs after teardown and only reads the
-            // store).
+            // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
+            // early-terminated query the rings still hold data the leader will never read; a
+            // worker's bounded metrics send spins on the full ring until the leader frees slots.
+            // Draining here is what frees them, so the `recv` below returns immediately instead
+            // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
+            // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
             if let Some(leader) = df_state.mpp.as_ref() {
                 if let Some(plan) = df_state.physical_plan.as_ref() {
                     crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                         plan,
                         &leader.mesh,
                     );
+                }
+            }
+            if let Some(leader) = df_state.mpp.as_mut() {
+                if let Some(finish) = leader.finish.as_mut() {
+                    let _ = finish.recv();
                 }
             }
         }

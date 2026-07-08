@@ -404,20 +404,10 @@ unsafe fn build_scan_node(
         )
     })?;
 
-    // Under MPP a pre-sorted scan lowers to a multi-partition scan the dispatch codec
-    // declines (it ships only the single-partition lazy leaf), so the query falls back to
-    // serial. Correct, just slower for sorted sources.
-    let sort_order = if crate::gucs::is_columnar_sort_enabled() {
-        bm25_index.options().sort_by().into_iter().next()
-    } else {
-        None
-    };
-
     // Build a JoinSourceCandidate progressively
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
         .with_heaprelid(source.relid)
-        .with_indexrelid(bm25_index.oid())
-        .with_sort_order(sort_order);
+        .with_indexrelid(bm25_index.oid());
 
     // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
     // (and everything built on it - AggregateIndexVarMapper, build_source_df)

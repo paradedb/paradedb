@@ -1,5 +1,6 @@
--- Test for the JoinScan Custom Scan planning
--- SortMergeJoin mechanics, sorting by join keys, Top K dynamic filters.
+-- Tests for JoinScan planning on joins with ORDER BY and Top K dynamic filters.
+-- Joins run as hash joins with an explicit sort / Top K; the columnar-sort
+-- SortMergeJoin path has been removed.
 
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
@@ -10,7 +11,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
-SET paradedb.enable_columnar_sort = on;
 
 -- =============================================================================
 -- TEST 1: Join on sorted keys (Both sides sorted on join key)

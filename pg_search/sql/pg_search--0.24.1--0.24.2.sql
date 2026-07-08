@@ -3,6 +3,13 @@
 -- Update tokenizer function to include keep_whitespace, nfkc, and reading_form
 DROP FUNCTION IF EXISTS tokenizer(name text, remove_long pg_catalog.int4, lowercase bool, min_gram pg_catalog.int4, max_gram pg_catalog.int4, prefix_only bool, language text, pattern text, stemmer text, stopwords_language text, stopwords_languages text[], stopwords text[], ascii_folding bool);
 CREATE OR REPLACE FUNCTION tokenizer(name text, remove_long pg_catalog.int4 DEFAULT '255', lowercase bool DEFAULT 'true', min_gram pg_catalog.int4 DEFAULT NULL, max_gram pg_catalog.int4 DEFAULT NULL, prefix_only bool DEFAULT NULL, language text DEFAULT NULL, pattern text DEFAULT NULL, stemmer text DEFAULT NULL, stopwords_language text DEFAULT NULL, stopwords_languages text[] DEFAULT NULL, stopwords text[] DEFAULT NULL, ascii_folding bool DEFAULT NULL, keep_whitespace bool DEFAULT NULL, nfkc bool DEFAULT NULL, reading_form bool DEFAULT NULL) RETURNS jsonb AS 'MODULE_PATHNAME', 'tokenizer_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+-- Expose the build-time creation timestamp stamped into an index's metadata page.
+CREATE FUNCTION "index_created_at"(
+	"index" regclass /* pgrx::rel::PgRelation */
+) RETURNS timestamp with time zone /* core::option::Option<pgrx::datum::time_stamp_with_timezone::TimestampWithTimeZone> */
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_created_at_wrapper';
 
 -- Update boolean() overloads to add minimum_should_match parameter
 DROP FUNCTION IF EXISTS "boolean"(must searchqueryinput, should searchqueryinput, must_not searchqueryinput);

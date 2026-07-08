@@ -459,7 +459,7 @@ jobs:
             printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
             printf '| query | 1m | 10m |\n|-------|----|----|\n'
             printf '%s\n' "$rows"
-            printf '\n<sub>recall@10 of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark. Probes are tuned per query+size for ~95%% recall (ivfflat); hnsw ef_search is not yet tuned.</sub>\n'
+            printf '\n<sub>recall@10 of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark. Probes are tuned per query+size for ~95%% recall</sub>\n'
           } > recall_body.md
           cat recall_body.md
           if [ -n "${{ github.event.pull_request.number }}" ]; then

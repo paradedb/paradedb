@@ -1,10 +1,17 @@
 <h1 align="center">
-  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB"></a>
-<br>
+  <a href="https://paradedb.com">
+    <picture align=center>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/logo/paradedb-logo-dark-large.svg">
+      <source media="(prefers-color-scheme: light)" srcset="docs/logo/paradedb-logo-light-large.svg">
+      <img alt="The ParadeDB logo." src="docs/logo/paradedb-logo-light-large.svg">
+    </picture>
+  </a>
+  <br>
 </h1>
 
 <p align="center">
-  <b>Simple, Elastic-quality search for Postgres</b><br/>
+  <b>Search without a second system.</b><br/>
+  One Postgres for your application data, full-text search, vector retrieval, and aggregations.
 </p>
 
 <h3 align="center">
@@ -26,6 +33,8 @@
 
 ## Installation
 
+To install ParadeDB locally in a fresh Docker container and drop straight into a `psql` session:
+
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh
 ```
@@ -34,7 +43,9 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 ## What is ParadeDB?
 
-[ParadeDB](https://paradedb.com) is a PostgreSQL extension that brings Elastic-quality full-text search and analytics directly inside Postgres.
+[ParadeDB](https://paradedb.com) adds Elastic-quality full-text search, vector retrieval, and aggregations to Postgres with the `pg_search` extension. Your application data and your search engine live in one database, with no second system to deploy and nothing to sync.
+
+Vectors are currently indexed using the [pgvector](https://github.com/pgvector/pgvector) extension, but native vector support is coming to our search index soon.
 
 - [x] [Full-Text Search](https://docs.paradedb.com/documentation/full-text/overview)
   - [x] [BM25 Scoring](https://docs.paradedb.com/documentation/sorting/score)
@@ -47,8 +58,8 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
   - [x] [Bucket & Metrics](https://docs.paradedb.com/documentation/aggregates/overview)
   - [x] [Facets](https://docs.paradedb.com/documentation/aggregates/facets)
 - [x] [JOINs](https://docs.paradedb.com/documentation/joins/overview)
-- [ ] Vector Search (coming soon)
-- [ ] Hybrid Search (coming soon)
+- [ ] Native Vector Search (coming soon)
+- [ ] Native Hybrid Search (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 

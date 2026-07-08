@@ -63,8 +63,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
-    UnusableReason,
+    extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
 };
 use crate::postgres::customscan::parallel::{
     compute_nworkers, list_segment_ids, max_useful_workers, RowEstimate,
@@ -868,18 +867,6 @@ impl CustomScan for BaseScan {
             // Choose the exec method type, and make claims about whether it is sorted.
             let limit_is_explicit = has_any_limit && !is_minmax_implicit_limit(builder.args().root);
 
-            // Check if the index has a sort_by configuration and the query has a matching pathkey.
-            // If so, create an additional sorted path that declares the pathkey.
-            // This allows Postgres to use merge joins when joining with other sorted inputs.
-            let sort_by_pathkey = if gucs::is_columnar_sort_enabled() {
-                let sort_by_fields = bm25_index.options().sort_by();
-                sort_by_fields
-                    .first()
-                    .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table))
-            } else {
-                None
-            };
-
             // calculate the total number of rows that might match the query, and the number of
             // rows that we expect that scan to return: these may be different in the case of a
             // `limit`.
@@ -905,7 +892,6 @@ impl CustomScan for BaseScan {
                 &topk_pathkey_info,
                 limit_is_explicit,
                 table.name(),
-                sort_by_pathkey.is_some(),
             );
 
             //
@@ -985,7 +971,6 @@ impl CustomScan for BaseScan {
                     _ => None,
                 };
                 let cost_basis = estimate_path_cost(
-                    &method,
                     is_sorted,
                     per_tuple_cost,
                     base_result_rows,
@@ -1018,8 +1003,7 @@ impl CustomScan for BaseScan {
                         let divisor = nworkers
                             .map_or(1.0, |n| parallel_divisor(n, parallel_leader_participates));
                         let rows = base_result_rows / divisor;
-                        let total_cost = (startup_cost + cost_basis.parallelizable_cost / divisor)
-                            * cost_basis.total_cost_multiplier;
+                        let total_cost = startup_cost + cost_basis.parallelizable_cost / divisor;
 
                         let mut path_builder = CustomPathBuilder::<Self>::new(
                             builder.args().root,
@@ -1047,10 +1031,6 @@ impl CustomScan for BaseScan {
 
                         if let Some(pathkeys) = topk_pathkeys {
                             path_builder = path_builder.set_pathkeys(pathkeys);
-                        } else if is_sorted {
-                            if let Some(ref pathkey_style) = sort_by_pathkey {
-                                path_builder = path_builder.add_path_key(pathkey_style);
-                            }
                         }
 
                         let mut method_private = custom_private.clone();
@@ -1945,7 +1925,6 @@ fn choose_exec_method(
     topk_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     table_name: &str,
-    has_sort_by_pathkey: bool,
 ) -> Vec<ExecMethodType> {
     // See if we can use Top K.
     // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
@@ -1991,32 +1970,10 @@ fn choose_exec_method(
 
         let lo = privdata.limit_offset().clone();
 
-        // Always create the Unsorted variant
         methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit_offset: lo.clone(),
-            sort_order: None,
+            limit_offset: lo,
         });
-
-        // Check if the index has a sort_by configuration (and sorting is enabled)
-        // and we have a matching pathkey from the query
-        if gucs::is_columnar_sort_enabled() && has_sort_by_pathkey {
-            let sort_order = privdata.indexrelid().and_then(|indexrelid| {
-                let indexrel =
-                    PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-                let sort_by_fields = indexrel.options().sort_by();
-                // Currently only single-field sorting is supported
-                sort_by_fields.into_iter().next()
-            });
-
-            if let Some(sort_order) = sort_order {
-                methods.push(ExecMethodType::Columnar {
-                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                    limit_offset: lo,
-                    sort_order: Some(sort_order),
-                });
-            }
-        }
 
         // Validate expectations for the first method (Unsorted)
         validate_topk_expectation(
@@ -2067,64 +2024,12 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::Columnar {
             which_fast_fields,
             limit_offset: _,
-            sort_order,
         } => {
-            // Compute effective sort_order at execution time from PrivateData's use_sorted_path().
-            // sort_order is only populated for sorted paths, but we still guard against
-            // planner/executor mismatches using use_sorted_path().
-            let runtime_sorted = sort_order.is_some() && builder.custom_private().use_sorted_path();
-
-            // Safety check: ensure we don't drop sorted output when we claimed it at planning time.
-            // This catches bugs where the planner was told output would be sorted but execution
-            // cannot provide it.
-            if sort_order.is_some() && !runtime_sorted {
-                panic!(
-                    "Claimed sorted output at planning time, but unable to provide it at \
-                    execution time. This indicates a planner/executor mismatch."
-                );
-            }
-
-            // Pass sort_order only if we're actually using sorted execution
-            let effective_sort_order = if runtime_sorted { sort_order } else { None };
-
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
-                // Calculate extra fields needed for execution (e.g. sort column)
-                // that are not in the projected fields (which_fast_fields).
-                let mut extra_fast_fields = Vec::new();
-
-                if let Some(sort) = &effective_sort_order {
-                    // Check if sort field is already projected
-                    // Note: This naive name check works because we only support single-column sort by name
-                    let is_projected = which_fast_fields
-                        .iter()
-                        .any(|f| f.name() == sort.field_name.as_ref());
-
-                    if !is_projected {
-                        // Retrieve the sort field from the planned fast fields
-                        let planned_fields = match &builder.custom_state_ref().exec_method_type {
-                            ExecMethodType::Columnar {
-                                which_fast_fields, ..
-                            } => which_fast_fields,
-                            _ => unreachable!(),
-                        };
-
-                        if let Some(ff) = planned_fields
-                            .iter()
-                            .find(|f| f.name() == sort.field_name.as_ref())
-                        {
-                            extra_fast_fields.push(ff.clone());
-                        }
-                    }
-                }
-
                 builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::columnar::ColumnarExecState::new(
-                        which_fast_fields,
-                        extra_fast_fields,
-                        effective_sort_order,
-                    ),
+                    exec_methods::fast_fields::columnar::ColumnarExecState::new(which_fast_fields),
                     None,
                 )
             } else {

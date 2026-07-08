@@ -78,7 +78,6 @@ use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -299,7 +298,6 @@ pub enum SessionContextProfile {
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
-/// - SortMergeJoinEnforcer (when columnar sort enabled)
 /// - `PgSearchQueryPlanner`
 ///
 /// Callers append their own TopK rule and FilterPushdown passes.
@@ -319,10 +317,6 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
             crate::scan::late_materialization::LateMaterializationRule,
         ));
 
-    if crate::gucs::is_columnar_sort_enabled() {
-        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
-    }
-
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
     builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
@@ -330,14 +324,12 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
 /// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
 ///
-/// The base session (visibility filtering, late materialization, SortMergeJoin
-/// enforcement, the `PgSearchQueryPlanner`, and the visibility-ctid resolver)
-/// is shared via [`build_base_session`]. The supplied [`SessionContextProfile`]
-/// then layers on the physical optimizer rules each consumer needs:
+/// The base session (visibility filtering, late materialization, the
+/// `PgSearchQueryPlanner`, and the visibility-ctid resolver) is shared via
+/// [`build_base_session`]. The supplied [`SessionContextProfile`] then layers on
+/// the physical optimizer rules each consumer needs:
 ///
 /// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
-///   conditionally injects an early `FilterPushdown` post-pass when columnar
-///   sort is on (so dynamic filters reconnect after SortMergeJoin rewrites),
 ///   then appends `SegmentedTopKRule` followed by a trailing `FilterPushdown`
 ///   pass to pick up any filters `SegmentedTopKRule` injects.
 /// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
@@ -374,11 +366,6 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
 
     match profile {
         SessionContextProfile::Join => {
-            if crate::gucs::is_columnar_sort_enabled() {
-                builder = builder.with_physical_optimizer_rule(Arc::new(
-                    FilterPushdown::new_post_optimization(),
-                ));
-            }
             builder = builder
                 .with_physical_optimizer_rule(Arc::new(
                     crate::scan::segmented_topk_rule::SegmentedTopKRule,
@@ -1066,10 +1053,6 @@ fn build_source_df<'a>(
             if crate::postgres::customscan::mpp::glue::mpp_is_active() {
                 provider.set_mpp_source_idx(plan_position);
             }
-        }
-
-        if let Some(ref sort_order) = scan_info.sort_order {
-            required_early.insert(sort_order.field_name.as_ref().to_string());
         }
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys

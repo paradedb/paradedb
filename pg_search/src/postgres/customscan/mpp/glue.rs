@@ -217,12 +217,33 @@ pub unsafe fn leader_setup(
     // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
     // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
     mesh.set_cancel_senders(Arc::clone(&control_senders));
-    // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
-    // are cleaned up; release the DSM-backed senders while the mapping is still alive.
-    let on_abort = Arc::clone(&control_senders);
-    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, move || {
-        on_abort.lock().unwrap().clear();
-    });
+    // Forget these senders instead of dropping them: `AbortTransaction` unmaps the DSM before the
+    // xact callbacks run, so a sender's drop would write its detach signal into a freed ring
+    // header. This DF-D rev has no ring liveness flag, so the drop can't tell the mapping is gone
+    // and guard itself. The signal has no audience anyway, since the abort already terminated the
+    // workers. `PreCommit` covers a subtransaction rollback where no abort fires; a populated vec
+    // at either event means the mapping is already gone (the success path clears it in
+    // `shutdown_custom_scan`).
+    //
+    // TODO: once the DF-D pin has `MppMesh::mark_detached` / `detached_flag`, flip that
+    // process-local flag here and drop the senders normally, so their own `Drop` skips the
+    // freed-ring write and frees their heap instead of leaking it.
+    let forget_senders = |senders: &Arc<std::sync::Mutex<Vec<Option<MppSender>>>>| {
+        let senders = Arc::clone(senders);
+        move || {
+            for sender in senders.lock().unwrap().drain(..).flatten() {
+                std::mem::forget(sender);
+            }
+        }
+    };
+    pgrx::register_xact_callback(
+        pgrx::PgXactCallbackEvent::Abort,
+        forget_senders(&control_senders),
+    );
+    pgrx::register_xact_callback(
+        pgrx::PgXactCallbackEvent::PreCommit,
+        forget_senders(&control_senders),
+    );
     Ok(MppLeaderState {
         mesh,
         control_senders,

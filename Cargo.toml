@@ -82,3 +82,6 @@ datafusion-proto-common = { git = "https://github.com/paradedb/datafusion", rev 
 datafusion-pruning = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
 datafusion-session = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
 datafusion-sql = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
+
+[workspace.lints.clippy]
+large_futures = "warn"

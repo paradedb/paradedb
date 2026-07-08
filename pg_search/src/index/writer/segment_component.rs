@@ -261,10 +261,18 @@ mod tests {
     #[pg_test]
     fn writer_noops_during_unwind() {
         use std::panic::{catch_unwind, AssertUnwindSafe};
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
         static WRITE_OK: AtomicBool = AtomicBool::new(false);
         static FLUSH_OK: AtomicBool = AtomicBool::new(false);
+        // Sentinel so the final assert fails if the Drop hook never records.
+        static BYTES_AFTER: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+        // Reset in case this process ever runs the test more than once;
+        // stale values would weaken the asserts below.
+        WRITE_OK.store(false, Ordering::SeqCst);
+        FLUSH_OK.store(false, Ordering::SeqCst);
+        BYTES_AFTER.store(usize::MAX, Ordering::SeqCst);
 
         Spi::run("DROP TABLE IF EXISTS scw_unwind_guard;").unwrap();
         Spi::run("CREATE TABLE scw_unwind_guard (id SERIAL PRIMARY KEY, body TEXT);").unwrap();
@@ -298,14 +306,15 @@ mod tests {
         // the write/flush guards on the pre-created writer.
         struct CallDuringDrop {
             writer: SegmentComponentWriter,
-            bytes_before: usize,
         }
         impl Drop for CallDuringDrop {
             fn drop(&mut self) {
                 if !std::thread::panicking() {
                     return;
                 }
-                // These must no-op during unwind, not re-enter PG.
+                // Record observations only -- a failed assert here would be a
+                // panic during unwind, aborting the test harness.  The asserts
+                // happen after catch_unwind returns.
                 if let Ok(n) = self.writer.write(b"should be skipped") {
                     if n == 17 {
                         WRITE_OK.store(true, Ordering::SeqCst);
@@ -314,21 +323,15 @@ mod tests {
                 if self.writer.flush().is_ok() {
                     FLUSH_OK.store(true, Ordering::SeqCst);
                 }
-                // Verify total_bytes didn't change — the write was discarded,
-                // not forwarded to the inner writer.
-                let bytes_after = self.writer.total_bytes().load(Ordering::SeqCst);
-                assert_eq!(
-                    self.bytes_before, bytes_after,
-                    "total_bytes must not change during unwind write"
+                BYTES_AFTER.store(
+                    self.writer.total_bytes().load(Ordering::SeqCst),
+                    Ordering::SeqCst,
                 );
             }
         }
 
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _guard = CallDuringDrop {
-                writer,
-                bytes_before,
-            };
+            let _guard = CallDuringDrop { writer };
             panic!("trigger unwind to exercise write/flush guards");
         }));
 
@@ -340,6 +343,13 @@ mod tests {
         assert!(
             FLUSH_OK.load(Ordering::SeqCst),
             "flush during unwind should return Ok(())"
+        );
+        // Verify total_bytes didn't change -- the write was discarded,
+        // not forwarded to the inner writer.
+        assert_eq!(
+            bytes_before,
+            BYTES_AFTER.load(Ordering::SeqCst),
+            "total_bytes must not change during unwind write"
         );
     }
 }

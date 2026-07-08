@@ -48,6 +48,7 @@ const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
     "terminating connection",
     "error connecting to server",
     "error communicating with the server",
+    "error performing tls handshake",
     "unexpected eof",
     "os error 101",     // ENETUNREACH
     "(sqlstate: 08",    // connection exception class
@@ -65,18 +66,29 @@ fn message_looks_transient(msg: &str) -> bool {
 
 /// Classifies a `postgres::Error` as a transient connectivity failure (as opposed
 /// to a logical/SQL error, which represents a real bug we want to surface).
+///
+/// The discriminator is whether the error carries a SQLSTATE, not what its message
+/// says. A SQLSTATE means the statement actually reached the server and it answered,
+/// so only the connection-class codes are transient and everything else is a real
+/// logical/SQL error. No SQLSTATE means the failure happened in the client/transport
+/// before the server answered — connect refused/reset, socket dropped, a TLS
+/// handshake against a server that is down or restarting, protocol desync on a dying
+/// connection — which under fault injection are exactly the faults we ride out. This
+/// keys off the transport-vs-server distinction rather than string-matching each new
+/// libpq/driver phrasing (e.g. "error performing TLS handshake", which has no
+/// SQLSTATE and no `is_closed()` signal, so needle matching alone would miss it).
 fn is_transient_connection_error(e: &postgres::Error) -> bool {
-    if let Some(db) = e.as_db_error() {
-        let code = db.code().code();
-        // Class 08 = connection exception; 57P0x = operator/crash shutdown and
-        // "cannot connect now" (server starting up / shutting down).
-        return code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05");
+    match e.as_db_error() {
+        Some(db) => {
+            let code = db.code().code();
+            // Class 08 = connection exception; 57P0x = operator/crash shutdown and
+            // "cannot connect now" (server starting up / shutting down).
+            code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05")
+        }
+        // Client-side/transport failure: no answer from the server, so it never got
+        // far enough to be a logical bug. Treat it as transient.
+        None => true,
     }
-
-    // No SQLSTATE => a client-side/transport failure. If the driver reports the
-    // connection as closed, or the message looks like a connectivity problem,
-    // treat it as transient.
-    e.is_closed() || message_looks_transient(&e.to_string())
 }
 
 /// Classifies an `anyhow::Error` as a transient connectivity failure by walking its
@@ -192,6 +204,9 @@ mod tests {
             "connection reset by peer",
             "db error: FATAL: terminating connection due to administrator command (SQLState: 57P01)",
             "error: could not receive data from server (SQLState: 08006)",
+            // No SQLSTATE, no `is_closed()` signal: only the transport-level phrasing
+            // marks this as connectivity noise (server down/restarting mid-handshake).
+            "error performing TLS handshake: unexpected EOF",
         ] {
             assert!(message_looks_transient(msg), "should be transient: {msg}");
         }

@@ -78,6 +78,8 @@ impl Write for SegmentComponentWriter {
         // Skip re-entering the PG buffer manager while unwinding: the outer
         // BufWriter (Tantivy's WritePtr) flushes us on drop, which would
         // cause a double-panic and SIGABRT.  See #5218.
+        // Returns Ok(data.len()) so the caller thinks the bytes were consumed,
+        // but nothing is actually persisted — the data is silently discarded.
         if std::thread::panicking() {
             return Ok(data.len());
         }
@@ -287,11 +289,16 @@ mod tests {
             )
         };
 
+        // Snapshot total_bytes before the panic to prove write() was truly
+        // skipped during unwind, not just silently accepted by the inner writer.
+        let bytes_before = writer.total_bytes().load(Ordering::SeqCst);
+
         // Use catch_unwind (not thread::spawn) because PgSearchRelation is !Send.
         // The Drop impl runs while std::thread::panicking() == true, exercising
         // the write/flush guards on the pre-created writer.
         struct CallDuringDrop {
             writer: SegmentComponentWriter,
+            bytes_before: usize,
         }
         impl Drop for CallDuringDrop {
             fn drop(&mut self) {
@@ -307,11 +314,18 @@ mod tests {
                 if self.writer.flush().is_ok() {
                     FLUSH_OK.store(true, Ordering::SeqCst);
                 }
+                // Verify total_bytes didn't change — the write was discarded,
+                // not forwarded to the inner writer.
+                let bytes_after = self.writer.total_bytes().load(Ordering::SeqCst);
+                assert_eq!(
+                    self.bytes_before, bytes_after,
+                    "total_bytes must not change during unwind write"
+                );
             }
         }
 
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _guard = CallDuringDrop { writer };
+            let _guard = CallDuringDrop { writer, bytes_before };
             panic!("trigger unwind to exercise write/flush guards");
         }));
 

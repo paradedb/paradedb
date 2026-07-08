@@ -1386,14 +1386,25 @@ impl SearchQueryInput {
 
                 let query = match lenient {
                     Some(true) => {
-                        let (parsed_query, _) = query_parser.parse_query_lenient(&query_string);
-                        Box::new(parsed_query) as Box<dyn TantivyQuery>
+                        let (mut ast, _) =
+                            tantivy::query_grammar::parse_query_lenient(&query_string);
+                        if index_created_by_version.stores_datetimes_in_i64() {
+                            pdb_query::rewrite_timestamp_literals(&mut ast, schema);
+                        }
+                        let (parsed_query, _) =
+                            query_parser.build_query_from_user_input_ast_lenient(ast);
+                        parsed_query
                     }
-                    _ => Box::new(
+                    _ => {
+                        let mut ast = tantivy::query_grammar::parse_query(&query_string)
+                            .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
+                        if index_created_by_version.stores_datetimes_in_i64() {
+                            pdb_query::rewrite_timestamp_literals(&mut ast, schema);
+                        }
                         query_parser
-                            .parse_query(&query_string)
-                            .map_err(|err| QueryError::ParseError(err, query_string.clone()))?,
-                    ) as Box<dyn TantivyQuery>,
+                            .build_query_from_user_input_ast(ast)
+                            .map_err(|err| QueryError::ParseError(err, query_string.clone()))?
+                    }
                 };
 
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))

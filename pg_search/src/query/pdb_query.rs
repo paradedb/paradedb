@@ -548,7 +548,14 @@ impl pdb::Query {
                 query_string,
                 lenient,
                 conjunction_mode,
-            } => parse(parser, query_string, lenient, conjunction_mode)?,
+            } => parse(
+                parser,
+                schema,
+                index_created_by_version,
+                query_string,
+                lenient,
+                conjunction_mode,
+            )?,
             pdb::Query::ParseWithField {
                 query_string,
                 lenient,
@@ -1822,6 +1829,8 @@ fn phrase_array(
 
 fn parse<QueryParserCtor: Fn() -> QueryParser>(
     parser: &QueryParserCtor,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     query_string: String,
     lenient: Option<bool>,
     conjunction_mode: Option<bool>,
@@ -1832,16 +1841,24 @@ fn parse<QueryParserCtor: Fn() -> QueryParser>(
     }
 
     let lenient = lenient.unwrap_or(false);
-    Ok(if lenient {
-        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
-        Box::new(parsed_query)
+    if lenient {
+        let (mut ast, _) = query_grammar::parse_query_lenient(&query_string);
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
+        }
+        let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
+        Ok(parsed_query)
     } else {
-        Box::new(
-            parser
-                .parse_query(&query_string)
-                .map_err(|err| QueryError::ParseError(err, query_string))?,
-        )
-    })
+        let mut ast = query_grammar::parse_query(&query_string)
+            .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
+        }
+        let parsed_query = parser
+            .build_query_from_user_input_ast(ast)
+            .map_err(|err| QueryError::ParseError(err, query_string))?;
+        Ok(parsed_query)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1916,7 +1933,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
             rewrite_timestamp_literals(&mut ast, schema);
         }
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
-        Ok(Box::new(parsed_query))
+        Ok(parsed_query)
     } else {
         let mut ast = query_grammar::parse_query(&query_string)
             .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
@@ -1926,7 +1943,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         let parsed_query = parser
             .build_query_from_user_input_ast(ast)
             .map_err(|err| QueryError::ParseError(err, query_string))?;
-        Ok(Box::new(parsed_query))
+        Ok(parsed_query)
     }
 }
 
@@ -2125,7 +2142,7 @@ fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
 /// Walks the parsed user query AST and rewrites date/timestamp-string phrases as i64s.
 /// Best-effort: phrases that fail to parse as datetimes are left untouched, which
 /// preserves the original tantivy error path for genuinely malformed input.
-fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &SearchIndexSchema) {
+pub(super) fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &SearchIndexSchema) {
     match ast {
         UserInputAst::Clause(children) => {
             for (_, child) in children {

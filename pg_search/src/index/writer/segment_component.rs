@@ -325,7 +325,10 @@ mod tests {
         }
 
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _guard = CallDuringDrop { writer, bytes_before };
+            let _guard = CallDuringDrop {
+                writer,
+                bytes_before,
+            };
             panic!("trigger unwind to exercise write/flush guards");
         }));
 

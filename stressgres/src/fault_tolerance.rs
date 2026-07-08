@@ -107,11 +107,26 @@ fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct TransientProgress {
+    recovered: bool,
+}
+
+impl TransientProgress {
+    /// Mark that this retry attempt reached the database. If the attempt later
+    /// fails with another transient error, it starts a fresh grace window.
+    pub(crate) fn mark_recovered(&mut self) {
+        self.recovered = true;
+    }
+}
+
 /// Runs `op`, tolerating transient connectivity faults for up to `grace`: while `op`
 /// keeps failing with a transient error (a dropped/refused socket, server restarting,
 /// etc.) it is retried with capped backoff. A real (non-transient) error is returned
 /// immediately. The connection is only declared dropped — and the error surfaced —
-/// once it has stayed broken for `grace` continuously.
+/// once it has stayed broken for `grace` continuously. If `op` calls
+/// [`TransientProgress::mark_recovered`] before returning a later transient error,
+/// the grace window is restarted because the database recovered between faults.
 ///
 /// With `grace == 0` (the default outside Antithesis) any error fails immediately,
 /// preserving the historical "an error fails the run" behaviour.
@@ -125,17 +140,22 @@ fn interruptible_sleep(alive: &AtomicBool, dur: Duration) {
 pub(crate) fn tolerate_transient<T>(
     alive: &AtomicBool,
     grace: Duration,
-    mut op: impl FnMut() -> Result<T>,
+    mut op: impl FnMut(&mut TransientProgress) -> Result<T>,
 ) -> Result<Option<T>> {
     let mut backoff = INITIAL_RECONNECT_BACKOFF;
     let mut down_since: Option<Instant> = None;
     loop {
-        match op() {
+        let mut progress = TransientProgress::default();
+        match op(&mut progress) {
             Ok(value) => return Ok(Some(value)),
             Err(e) if !is_transient_error(&e) => return Err(e),
             Err(e) => {
                 if !alive.load(Ordering::Relaxed) {
                     return Ok(None);
+                }
+                if progress.recovered {
+                    down_since = None;
+                    backoff = INITIAL_RECONNECT_BACKOFF;
                 }
                 let down_since = *down_since.get_or_insert_with(Instant::now);
                 if down_since.elapsed() >= grace {
@@ -203,5 +223,27 @@ mod tests {
     fn io_errors_are_transient() {
         let err = anyhow::Error::new(io::Error::new(io::ErrorKind::ConnectionReset, "reset"));
         assert!(is_transient_error(&err));
+    }
+
+    #[test]
+    fn recovery_marker_restarts_grace_window() {
+        let alive = AtomicBool::new(true);
+        let mut attempts = 0;
+
+        let result = tolerate_transient(&alive, Duration::from_millis(250), |progress| {
+            attempts += 1;
+            match attempts {
+                1 => Err(anyhow!("connection closed")),
+                2 => {
+                    progress.mark_recovered();
+                    Err(anyhow!("connection closed"))
+                }
+                _ => Ok("ok"),
+            }
+        })
+        .unwrap();
+
+        assert_eq!(result, Some("ok"));
+        assert_eq!(attempts, 3);
     }
 }

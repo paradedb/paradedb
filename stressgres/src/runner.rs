@@ -373,8 +373,9 @@ impl SuiteRunner {
 
         // Probe the server version, riding out any transient connectivity fault
         let default_job = Job::default();
-        runner.pgver = tolerate_transient(&runner.alive, runner.reconnect_grace, || {
+        runner.pgver = tolerate_transient(&runner.alive, runner.reconnect_grace, |progress| {
             let mut conn = Conn::open(&suite, &default_job)?;
+            progress.mark_recovered();
             let version: String = conn
                 .first_client()
                 .query_one("SELECT version()", &[])?
@@ -432,8 +433,9 @@ impl SuiteRunner {
             )?;
             // Run setup on a fresh connection, replaying it in full if a transient
             // fault interrupts it (safe because setup re-runs from scratch).
-            tolerate_transient(&self.alive, self.reconnect_grace, || {
+            tolerate_transient(&self.alive, self.reconnect_grace, |progress| {
                 let mut conn = Conn::open(&self.suite, &setup_runner.job)?;
+                progress.mark_recovered();
                 setup_runner.run(&mut conn)
             })?;
         }
@@ -567,9 +569,10 @@ impl SuiteRunner {
             // Run one iteration, riding out transient faults. On any error we drop the
             // (possibly poisoned) connection so the next attempt reconnects; replaying
             // the whole iteration keeps transactional jobs correct.
-            let outcome = tolerate_transient(&alive, reconnect_grace, || {
+            let outcome = tolerate_transient(&alive, reconnect_grace, |progress| {
                 if conn.is_none() {
                     conn = Some(Conn::open(&job_runner.suite, &job_runner.job)?);
+                    progress.mark_recovered();
                 }
                 let result = job_runner.run(conn.as_mut().unwrap());
                 if result.is_err() {
@@ -703,8 +706,9 @@ impl SuiteRunner {
             // Best-effort teardown: ride out a transient fault, and if connectivity
             // is gone during shutdown (`alive` is already false here) skip it rather
             // than panicking the shutdown thread.
-            tolerate_transient(&self.alive, self.reconnect_grace, || {
+            tolerate_transient(&self.alive, self.reconnect_grace, |progress| {
                 let mut conn = Conn::open(&self.suite, &teardown_runner.job)?;
+                progress.mark_recovered();
                 teardown_runner.run(&mut conn)
             })?;
         }

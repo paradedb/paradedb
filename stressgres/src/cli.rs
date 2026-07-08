@@ -61,11 +61,12 @@ pub struct UiArgs {
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 
-    /// How long (in milliseconds) to tolerate transient database connectivity
-    /// faults (dropped/refused sockets, server restarting) by reconnecting before
-    /// failing the run. Defaults to 0, i.e. any error fails the run immediately.
-    /// Set this (e.g. under Antithesis, which stops/kills/partitions the database
-    /// container) so the workload rides out the fault instead of failing.
+    /// How long (in milliseconds) to tolerate one continuous transient database
+    /// fault (dropped/refused sockets, server restarting) by reconnecting before
+    /// failing the run. The grace window resets after a successful reconnect.
+    /// Defaults to 0, i.e. any error fails the run immediately. Set this (e.g.
+    /// under Antithesis, which stops/kills/partitions the database container) so
+    /// the workload rides out the fault instead of failing.
     #[arg(long, default_value = "0")]
     pub reconnect_grace_ms: u64,
 }
@@ -88,11 +89,12 @@ pub struct HeadlessArgs {
     /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
-    /// How long (in milliseconds) to tolerate transient database connectivity
-    /// faults (dropped/refused sockets, server restarting) by reconnecting before
-    /// failing the run. Defaults to 0, i.e. any error fails the run immediately.
-    /// Set this (e.g. under Antithesis, which stops/kills/partitions the database
-    /// container) so the workload rides out the fault instead of failing.
+    /// How long (in milliseconds) to tolerate one continuous transient database
+    /// fault (dropped/refused sockets, server restarting) by reconnecting before
+    /// failing the run. The grace window resets after a successful reconnect.
+    /// Defaults to 0, i.e. any error fails the run immediately. Set this (e.g.
+    /// under Antithesis, which stops/kills/partitions the database container) so
+    /// the workload rides out the fault instead of failing.
     #[arg(long, default_value = "0")]
     pub reconnect_grace_ms: u64,
 }

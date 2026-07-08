@@ -1772,8 +1772,6 @@ impl SegmentedTopKState {
             .collect();
 
         let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
-
-        
         // Batch-convert all ordinal survivors' rows in a single convert_rows call.
         let ord_entries: Vec<(usize, SegmentOrdinal, OwnedRow)> = candidates
             .iter()

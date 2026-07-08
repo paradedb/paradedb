@@ -8,9 +8,6 @@ name: Test pg_search (Schema)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-pg_search-schema.yml"
       - ".github/scripts/check_migration_diff.py"
@@ -44,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Fetch the entire history
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
@@ -67,7 +64,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v2-rust-cache"
+          prefix-key: "v3-rust-cache"
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true

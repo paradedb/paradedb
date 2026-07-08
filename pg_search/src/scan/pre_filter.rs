@@ -67,20 +67,6 @@
 //!   prunes doc IDs in-place            before materializing Arrow columns.
 //! ```
 //!
-//! # SortMergeJoin Propagation
-//!
-//! DataFusion's `SortMergeJoinExec` blocks filter pushdown by default (its
-//! `gather_filters_for_pushdown` marks all parent filters as unsupported).
-//! `FilterPassthroughExec` (in `joinscan::planner`) wraps it and overrides the
-//! two filter-pushdown methods to route filters through.
-//!
-//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after* the
-//! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
-//! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
-//! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
-//! pass (registered in `joinscan::scan_state::create_datafusion_session_context`) wires the
-//! new filter to the scan.
-//!
 //! # Native DataFusion Evaluation
 //!
 //! `PreFilter`s do not execute custom matching logic. Instead, they leverage native DataFusion
@@ -163,8 +149,7 @@ impl PreFilter {
             .expr
             .clone()
             .transform_down(|node| {
-                if let Some(dyn_filter) = node.as_any().downcast_ref::<DynamicFilterPhysicalExpr>()
-                {
+                if let Some(dyn_filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
                     let current_expr = dyn_filter.current().map_err(|e| {
                         datafusion::error::DataFusionError::Execution(format!(
                             "DynamicFilter error: {}",
@@ -172,18 +157,18 @@ impl PreFilter {
                         ))
                     })?;
                     return Ok(Transformed::yes(current_expr));
-                } else if let Some(cast) = node.as_any().downcast_ref::<CastExpr>() {
+                } else if let Some(cast) = node.downcast_ref::<CastExpr>() {
                     if cast.cast_type() == &cast.expr().data_type(schema)? {
                         return Ok(Transformed::yes(Arc::clone(cast.expr())));
                     }
                     return Ok(Transformed::no(node));
-                } else if let Some(binary) = node.as_any().downcast_ref::<BinaryExpr>() {
+                } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
                     if let Some(rewritten) =
                         try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
                     {
                         return Ok(Transformed::yes(rewritten));
                     }
-                } else if let Some(in_list) = node.as_any().downcast_ref::<InListExpr>() {
+                } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
                     if let Some(rewritten) =
                         try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
                     {
@@ -197,7 +182,7 @@ impl PreFilter {
 
         let rewritten_expr = rewritten_string_expr
             .transform(|node| {
-                if let Some(col) = node.as_any().downcast_ref::<Column>() {
+                if let Some(col) = node.downcast_ref::<Column>() {
                     let orig_idx = col.index();
                     if orig_idx < schema.fields().len() {
                         if let Some(new_idx) = self
@@ -278,7 +263,7 @@ impl PreFilter {
 /// (e.g. non-comparison operators, functions) are safely skipped.
 pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &mut Vec<PreFilter>) {
     // Split top-level ANDs to maximize early pruning
-    if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
+    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
         if matches!(binary.op(), Operator::And) {
             collect_filters(binary.left(), schema, out);
             collect_filters(binary.right(), schema, out);
@@ -324,9 +309,7 @@ fn is_supported(
 ) -> bool {
     let mut supported = true;
     let _ = expr.apply(|node| {
-        let node_any = node.as_any();
-
-        if let Some(col) = node_any.downcast_ref::<Column>() {
+        if let Some(col) = node.downcast_ref::<Column>() {
             // Must map to a valid column index
             let idx = col.index();
             if idx < schema.fields().len() {
@@ -342,9 +325,9 @@ fn is_supported(
                 supported = false;
                 return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
             }
-        } else if node_any.downcast_ref::<Literal>().is_some() {
+        } else if node.is::<Literal>() {
             // Allowed
-        } else if let Some(binary) = node_any.downcast_ref::<BinaryExpr>() {
+        } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
             // Only logical and simple comparison operators are allowed
             match binary.op() {
                 Operator::Eq
@@ -360,19 +343,16 @@ fn is_supported(
                     return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
                 }
             }
-        } else if node_any.downcast_ref::<IsNullExpr>().is_some()
-            || node_any.downcast_ref::<NotExpr>().is_some()
-            || node_any.downcast_ref::<InListExpr>().is_some()
-        {
+        } else if node.is::<IsNullExpr>() || node.is::<NotExpr>() || node.is::<InListExpr>() {
             // Allowed
-        } else if node_any.downcast_ref::<HashTableLookupExpr>().is_some() {
+        } else if node.is::<HashTableLookupExpr>() {
             // We only support HashTableLookupExpr for non-string columns.
             let mut is_numeric = true;
             let mut lookup_columns = Vec::new();
 
             // We manually inspect the subtree to check the data types of the columns it uses
             let _ = node.apply(|sub_node| {
-                if let Some(col) = sub_node.as_any().downcast_ref::<Column>() {
+                if let Some(col) = sub_node.downcast_ref::<Column>() {
                     let idx = col.index();
                     if idx < schema.fields().len() {
                         let data_type = schema.field(idx).data_type();
@@ -420,15 +400,15 @@ fn try_rewrite_binary(
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
-    let left_col = binary.left().as_any().downcast_ref::<Column>();
-    let right_lit = binary.right().as_any().downcast_ref::<Literal>();
+    let left_col = binary.left().downcast_ref::<Column>();
+    let right_lit = binary.right().downcast_ref::<Literal>();
 
     if let (Some(col), Some(lit)) = (left_col, right_lit) {
         return rewrite_col_op_lit(col, binary.op(), lit, ffhelper, segment_ord, schema);
     }
 
-    let left_lit = binary.left().as_any().downcast_ref::<Literal>();
-    let right_col = binary.right().as_any().downcast_ref::<Column>();
+    let left_lit = binary.left().downcast_ref::<Literal>();
+    let right_col = binary.right().downcast_ref::<Column>();
 
     if let (Some(lit), Some(col)) = (left_lit, right_col) {
         if let Some(flipped_op) = flip_operator(binary.op()) {
@@ -468,7 +448,7 @@ fn try_rewrite_in_list(
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
-    let col = match in_list.expr().as_any().downcast_ref::<Column>() {
+    let col = match in_list.expr().downcast_ref::<Column>() {
         Some(col) => col,
         None => return Ok(None),
     };
@@ -487,7 +467,7 @@ fn try_rewrite_in_list(
     let mut ordinals = Vec::with_capacity(in_list.list().len());
 
     for lit_expr in in_list.list() {
-        let lit = match lit_expr.as_any().downcast_ref::<Literal>() {
+        let lit = match lit_expr.downcast_ref::<Literal>() {
             Some(lit) => lit,
             None => return Ok(None),
         };
@@ -514,14 +494,23 @@ fn try_rewrite_in_list(
     let array = Arc::new(UInt64Array::from(ordinals)) as Arc<dyn Array>;
     let new_col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
 
-    // Bypass schema validation entirely
-    let new_in_list = InListExpr::try_new_from_array(new_col_expr, array, in_list.negated())
-        .map_err(|e| {
-            datafusion::error::DataFusionError::Execution(format!(
-                "try_new_from_array failed: {}",
-                e
-            ))
-        })?;
+    // The rewritten column carries term ordinals, so the validation schema must
+    // declare it as `UInt64` to match the ordinal array we just built.
+    let mut ord_fields: Vec<Field> = schema.fields().iter().map(|f| f.as_ref().clone()).collect();
+    ord_fields[ff_index] = Field::new(
+        schema.field(ff_index).name(),
+        DataType::UInt64,
+        schema.field(ff_index).is_nullable(),
+    );
+    let ord_schema = Schema::new(ord_fields);
+    let new_in_list =
+        InListExpr::try_new_from_array(new_col_expr, array, in_list.negated(), &ord_schema)
+            .map_err(|e| {
+                datafusion::error::DataFusionError::Execution(format!(
+                    "try_new_from_array failed: {}",
+                    e
+                ))
+            })?;
 
     Ok(Some(Arc::new(new_in_list)))
 }
@@ -659,7 +648,7 @@ fn flip_operator(op: &Operator) -> Option<Operator> {
 }
 
 fn extract_physical_scalar_value(expr: &Arc<dyn PhysicalExpr>) -> Option<ScalarValue> {
-    if let Some(lit) = expr.as_any().downcast_ref::<Literal>() {
+    if let Some(lit) = expr.downcast_ref::<Literal>() {
         return Some(lit.value().clone());
     }
     None
@@ -669,9 +658,9 @@ fn extract_in_list_exprs<'a>(
     expr: &'a Arc<dyn PhysicalExpr>,
     in_lists: &mut Vec<&'a Arc<dyn PhysicalExpr>>,
 ) {
-    if expr.as_any().downcast_ref::<InListExpr>().is_some() {
+    if expr.is::<InListExpr>() {
         in_lists.push(expr);
-    } else if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
+    } else if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
         if matches!(binary.op(), Operator::And) {
             extract_in_list_exprs(binary.left(), in_lists);
             extract_in_list_exprs(binary.right(), in_lists);
@@ -689,7 +678,7 @@ fn try_convert_in_list_to_query(
         return None;
     }
 
-    let col = in_list.expr().as_any().downcast_ref::<Column>()?;
+    let col = in_list.expr().downcast_ref::<Column>()?;
     let field = schema.search_field(col.name())?;
 
     if field.is_text() && !field.is_keyword() {
@@ -790,7 +779,7 @@ pub fn try_dynamic_filter_pushdown(
     let index_created_by_version = reader.index_created_by_version();
 
     for df in dynamic_filters {
-        let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() else {
+        let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() else {
             continue;
         };
         let Ok(current_expr) = dynamic.current() else {
@@ -801,7 +790,7 @@ pub fn try_dynamic_filter_pushdown(
         extract_in_list_exprs(&current_expr, &mut extracted_in_lists);
 
         for in_list_arc in extracted_in_lists {
-            let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
+            let in_list = in_list_arc.downcast_ref::<InListExpr>().unwrap();
 
             if let Some(query) = try_convert_in_list_to_query(
                 in_list,

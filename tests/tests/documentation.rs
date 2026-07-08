@@ -15,16 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use approx::assert_relative_eq;
-use fixtures::*;
 use num_traits::ToPrimitive;
 use pgvector::Vector;
 use rstest::*;
 use sqlx::types::BigDecimal;
 use sqlx::PgConnection;
 use std::str::FromStr;
+use tests::fixtures::*;
 
 #[rstest]
 fn quickstart(mut conn: PgConnection) {

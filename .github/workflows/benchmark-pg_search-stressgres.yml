@@ -6,7 +6,7 @@
 
 name: Benchmark pg_search (Stressgres)
 
-# We run benchmarks on `main`, and on `benchmark`-labeled PRs.
+# We run benchmarks on `main`, and on `benchmarks`-labeled PRs.
 on:
   push:
     branches:
@@ -23,6 +23,11 @@ on:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
         default: ""
+      use_benchmarks_from_ref:
+        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -43,21 +48,21 @@ jobs:
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmarks') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
     env:
       pg_version: 18
 
     steps:
-      # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
+      # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark' || github.event.label.name == 'benchmark-stressgres')
+        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-stressgres')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --remove-label benchmark \
+            --remove-label benchmarks \
             --remove-label benchmark-stressgres || true
 
       - name: Determine Ref to Benchmark
@@ -79,7 +84,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
@@ -92,8 +97,8 @@ jobs:
           echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
-        uses: actions/checkout@v6
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
           path: actions-temp
@@ -102,16 +107,16 @@ jobs:
           ref: main
 
       - name: Copy latest actions into place
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
+        if: ${{ !inputs.use_benchmarks_from_ref && github.event.label.name != 'benchmarks' && github.event.label.name != 'benchmark-stressgres' }}
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -172,7 +177,7 @@ jobs:
               ? `PR #${pr.number}: ${pr.title}`
               : ref;
 
-      - name: Running for ${{ steps.pr_label.outputs.result }}"
+      - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
       - name: Install Rust
@@ -314,17 +319,16 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
 
-      # Disabled pending https://github.com/paradedb/paradedb/issues/5076
-      # - name: Benchmark logical-replication-merge.toml
-      #   uses: ./.github/actions/benchmark-stressgres
-      #   with:
-      #     test_file: logical-replication-merge.toml
-      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-      #     github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-      #     github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-      #     pr_label: ${{ steps.pr_label.outputs.result }}
+      - name: Benchmark logical-replication-merge.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: logical-replication-merge.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

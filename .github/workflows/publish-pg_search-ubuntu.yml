@@ -29,9 +29,9 @@ permissions:
   attestations: write
 
 jobs:
-  publish-pg_search:
+  publish-pg_search-ubuntu:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    # Compute-optimized c-family — Rust release build is CPU-bound.
+    # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -39,131 +39,165 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+    container:
+      image: ${{ matrix.image }}
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:
-          # Ubuntu 22.04
-          - name: Ubuntu 22.04 (Jammy)
+          # Ubuntu 26.04
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 15
             arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 15
             arch: arm64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 16
             arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 16
             arch: arm64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 17
             arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 17
             arch: arm64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:26.04
             pg_version: 18
             arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
+          - name: Ubuntu 26.04 (Resolute)
+            os_codename: resolute
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:26.04
             pg_version: 18
             arch: arm64
           # Ubuntu 24.04
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 16
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
+            image: ubuntu:24.04
             pg_version: 18
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
+            os_codename: noble
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
+            image: ubuntu:24.04
             pg_version: 18
             arch: arm64
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -198,6 +232,10 @@ jobs:
 
           OS_VERSION="$(lsb_release -cs)"
           echo "OS Version: $OS_VERSION"
+          if [[ "$OS_VERSION" != "${{ matrix.os_codename }}" ]]; then
+            echo "Expected Ubuntu codename '${{ matrix.os_codename }}' for ${{ matrix.name }}, but runner reports '$OS_VERSION'"
+            exit 1
+          fi
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
@@ -222,10 +260,10 @@ jobs:
 
       - name: Cache pgrx binary
         id: cache-pgrx
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-ubuntu
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.os_codename }}-ubuntu
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'

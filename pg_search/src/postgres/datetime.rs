@@ -28,18 +28,18 @@ pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
 /// The Unix epoch is midnight 1970-01-01. The postgres epoch is midnight 2000-01-01.
 /// This is the difference between them in microseconds.
-pub static PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS: i64 = 946_684_800 * MICROSECONDS_IN_SECOND as i64;
+pub static PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS: i64 = 946_684_800 * MICROSECONDS_IN_SECOND as i64;
 
 #[cfg(any(test, feature = "pg_test"))]
 pub fn pg_micros_to_unix_micros(pg_micros: i64) -> i64 {
     pg_micros
-        .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
+        .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
         .unwrap()
 }
 
 pub fn unix_micros_to_pg_micros(unix_micros: i64) -> i64 {
     unix_micros
-        .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
+        .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
         .unwrap()
 }
 
@@ -193,7 +193,7 @@ impl TryFrom<String> for PostgresDateTime {
 impl TryFrom<&str> for PostgresDateTime {
     type Error = DateTimeConversionError;
 
-    /// Tantivy uses rfc3999 as it's supported date parsing method, so we'll replicate that here,
+    /// Tantivy uses rfc3339 as it's supported date parsing method, so we'll replicate that here,
     /// as this is largely used for user-supplied datetime strings
     /// If you need something more lenient, use one of:
     /// - `PostgresDateTime::try_from_date_str`
@@ -212,7 +212,7 @@ impl TryFrom<&str> for PostgresDateTime {
         Err(DateTimeConversionError::InvalidFormat)
     }
 }
-/// Cheap way to skip full parsing of things that can't be valid rfc3999 dates
+/// Cheap way to skip full parsing of things that can't be valid rfc3339 dates
 fn can_be_rfc3339_date_time(text: &str) -> bool {
     if let Some(&first_byte) = text.as_bytes().first() {
         if first_byte.is_ascii_digit() {
@@ -225,7 +225,7 @@ fn can_be_rfc3339_date_time(text: &str) -> bool {
 
 impl From<PostgresDateTime> for String {
     fn from(value: PostgresDateTime) -> Self {
-        // append Z to make the output rfc3999-compliant
+        // append Z to make the output rfc3339-compliant
         format!("{}Z", value.0.to_iso_string())
     }
 }
@@ -301,7 +301,7 @@ impl TryFrom<tantivy::DateTime> for PostgresDateTime {
     fn try_from(val: tantivy::DateTime) -> Result<Self, DateTimeConversionError> {
         let unix_micros = val.into_timestamp_micros();
         let pg_micros = unix_micros
-            .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
+            .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
             .ok_or(DateTimeConversionError::OutOfRange)?;
         Self::try_from_raw(pg_micros)
     }
@@ -312,7 +312,7 @@ impl TryFrom<PostgresDateTime> for tantivy::DateTime {
     fn try_from(val: PostgresDateTime) -> Result<Self, DateTimeConversionError> {
         let unix_micros = val
             .into_inner()
-            .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
+            .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
             .ok_or(DateTimeConversionError::OutOfRange)?;
         if !(MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS).contains(&unix_micros) {
             return Err(DateTimeConversionError::OutOfRange);

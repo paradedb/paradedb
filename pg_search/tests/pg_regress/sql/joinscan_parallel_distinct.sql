@@ -115,7 +115,6 @@ SET enable_indexscan = false;
 SET max_parallel_workers = 8;
 SET max_parallel_workers_per_gather = 2;
 SET parallel_leader_participation = false;
-SET paradedb.enable_columnar_sort = true;
 SET debug_parallel_query = on;
 
 -- The plan must be a Parallel Custom Scan (ParadeDB Join Scan); without the fix

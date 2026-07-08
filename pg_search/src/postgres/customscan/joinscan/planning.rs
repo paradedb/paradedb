@@ -36,6 +36,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
+use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -45,7 +46,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator, strip_wrappers};
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 
@@ -220,20 +221,6 @@ pub(super) unsafe fn collect_join_sources_base_rel(
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
-
-        // Read the sort order from the index's relation options so DataFusion can use the
-        // physical sort order (SortPreservingMergeExec, sort-merge joins).
-        //
-        // Under MPP a pre-sorted scan lowers to a multi-partition scan the dispatch codec
-        // declines (it ships only the single-partition lazy leaf), so the query falls back to
-        // serial. Correct, just slower for sorted sources.
-        let sort_order = if crate::gucs::is_columnar_sort_enabled() {
-            let sort_by = bm25_index.options().sort_by();
-            sort_by.into_iter().next()
-        } else {
-            None
-        };
-        side_info = side_info.with_sort_order(sort_order);
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
@@ -1461,8 +1448,9 @@ unsafe fn pathkey_is_outer_only(
 /// Returns true if:
 /// - No ORDER BY clause exists
 /// - All relevant ORDER BY columns are fast fields or score functions
+/// - All relevant ORDER BY columns have a byte-ordered (C-like) collation
 ///
-/// Returns false if any relevant ORDER BY column is not a fast field.
+/// Returns false if any relevant ORDER BY column is not a fast field or uses a non C-like collation.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -1483,6 +1471,11 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         }
 
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        // If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let collation = (*equivclass).ec_collation;
+        if !is_collation_pushdown_safe(collation) {
+            return false;
+        }
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
@@ -1694,7 +1687,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
 
         let te = te?;
 
-        let expr = (*te).expr as *mut pg_sys::Node;
+        let expr = strip_wrappers((*te).expr as *mut pg_sys::Node);
 
         // Case 1: Plain column reference (Var node)
         if let Some(var) = nodecast!(Var, T_Var, expr) {
@@ -1887,25 +1880,6 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
     }
 
     false
-}
-
-/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
-unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    loop {
-        if node.is_null() {
-            return node;
-        }
-        match (*node).type_ {
-            pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
-            }
-            pg_sys::NodeTag::T_PlaceHolderVar => {
-                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
-            }
-            _ => break,
-        }
-    }
-    node
 }
 
 /// Extracts the RTI of the variable passed to a `paradedb.score(var)` function call.
@@ -2143,24 +2117,29 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
 /// and orders by `b.id`, the planner considers sorting by `a.id` equally valid. Both variables
 /// will be present in the `ec_members` list for that `PathKey`.
 ///
-/// # Interaction with Pruned Relations (e.g., `SEMI JOIN`)
-/// Certain join types, such as `LeftSemi` or `LeftAnti` joins, discard columns from one side
-/// of the join. Continuing the above example, if the relation `b` is on the right side of a
-/// Semi-Join, `b.id` will *not* be available in the output schema of the join operation.
-/// If DataFusion attempts to sort on `b.id`, it will panic with a `SchemaError(FieldNotFound)`.
+/// # Schema Pruning (e.g., `SEMI JOIN` and `DISTINCT`)
+/// When DataFusion executes operations like `SEMI JOIN`, `ANTI JOIN`, or `DISTINCT` (`Aggregate`),
+/// columns that are not part of the output requirements are discarded to save memory and compute.
+/// For example:
+/// 1. If relation `b` is on the right side of a Semi-Join, `b.id` will *not* be available in the output.
+/// 2. If `DISTINCT` groups by `a.id`, then an equivalent column `b.id` (from an equi-join `a.id = b.id`)
+///    will *not* be preserved by the `Aggregate` node.
 ///
-/// To prevent this, this function accepts `output_rtis`, a list of the Range Table Identifiers
-/// (RTIs) that actually survive the entire relational tree defined in `JoinCSClause`.
-/// When inspecting an Equivalence Class, the function searches for *any* member that belongs
-/// to an RTI in `output_rtis`.
+/// If DataFusion subsequently attempts to sort on a discarded column like `b.id`, it will panic with a
+/// `SchemaError(FieldNotFound)`.
+///
+/// To prevent this, this function applies two filters when inspecting Equivalence Class members:
+/// - **RTI Filtering:** It accepts `output_rtis` (the Range Table Identifiers that survive the join tree)
+///   and ignores members from pruned relations.
+/// - **DISTINCT Target List Filtering:** If `has_distinct` is true, it further restricts members to only
+///   those explicitly present in the query's `SELECT` target list, as these are the only expressions
+///   preserved by the `Aggregate` node.
 ///
 /// # Returns
 /// - `Some(Vec<OrderByInfo>)`: The translated sort instructions containing valid, available columns.
 /// - `None`: If the function encounters an `ORDER BY` pathkey where *none* of its Equivalence
-///   Class members belong to the `output_rtis` list. This can happen in edge cases or complex
-///   projections where Postgres asks for a sort on a variable not present in the local execution
-///   context. Returning `None` signals the planner to abandon `JoinScan` and fall back to native
-///   PostgreSQL execution.
+///   Class members survived the schema pruning. This signals the planner to abandon `JoinScan` and
+///   fall back to native PostgreSQL execution.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -2175,6 +2154,13 @@ pub(super) unsafe fn extract_orderby(
     }
 
     let source_rtis = collect_source_rtis(sources);
+
+    let distinct_target_list = if has_distinct {
+        let parse = (*root).parse;
+        Some(PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList))
+    } else {
+        None
+    };
 
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
@@ -2212,6 +2198,22 @@ pub(super) unsafe fn extract_orderby(
             let expr = (*member).em_expr;
 
             let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
+
+            // For DISTINCT queries, the sort expression must match what was actually selected
+            // and grouped. Since DataFusion drops non-grouping columns after aggregation,
+            // we cannot sort by EquivalenceClass members that were not in the target list.
+            if let Some(ref target_list) = distinct_target_list {
+                let found_in_tlist = target_list.iter_ptr().any(|te| {
+                    let te_expr = strip_wrappers((*te).expr.cast()).cast::<pg_sys::Expr>();
+                    crate::postgres::customscan::opexpr::expr_equal_ignoring_context(
+                        check_expr as *mut _,
+                        te_expr as *mut _,
+                    )
+                });
+                if !found_in_tlist {
+                    continue;
+                }
+            }
 
             match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
                 JoinSortExprKind::Resolved(info) => {

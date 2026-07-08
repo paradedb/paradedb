@@ -63,12 +63,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -105,12 +106,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop powerful","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -144,12 +146,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop"}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -186,12 +189,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"laptop for","slop":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -226,12 +230,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"any_order":10},"right":{"term":"powerful"}}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -265,12 +270,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"in_order":10},"right":{"term":"professionals"}}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -308,12 +314,13 @@ LIMIT 3;
          Output: id, name, category, rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -350,12 +357,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -395,12 +403,13 @@ LIMIT 3;
          Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -450,10 +459,11 @@ LIMIT 3;
                            Output: category, id, name, rating
                            Table: products
                            Index: products_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT 
     id,
@@ -498,10 +508,11 @@ LIMIT 3;
                      Output: rating, id, name, price
                      Table: products
                      Index: products_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(16 rows)
 
 SELECT 
     id,
@@ -545,10 +556,11 @@ LIMIT 3;
                      Output: rating, id, name
                      Table: products
                      Index: products_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(16 rows)
 
 SELECT 
     id,
@@ -587,12 +599,13 @@ LIMIT 3;
          Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -638,10 +651,11 @@ LIMIT 3;
                      Output: id, name, rating, in_stock
                      Table: products
                      Index: products_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(16 rows)
 
 SELECT 
     id,
@@ -679,12 +693,13 @@ LIMIT 3;
          Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -732,10 +747,11 @@ LIMIT 3;
                            Output: category, rating, id, name, brand
                            Table: products
                            Index: products_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT 
     id,
@@ -773,10 +789,11 @@ WHERE description @@@ 'laptop';
          Output: id, name, rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(11 rows)
 
 SELECT 
     id,
@@ -822,10 +839,11 @@ LIMIT 3;
                            Output: rating, id, name, price
                            Table: products
                            Index: products_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT 
     id,
@@ -885,10 +903,11 @@ LIMIT 3;
                                              Output: category, brand, id, name, rating
                                              Table: products
                                              Index: products_idx
+                                             Worker Selection: Cost model
                                              Exec Method: NormalScanExecState
                                              Scores: false
                                              Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(28 rows)
 
 SELECT 
     id,
@@ -938,10 +957,11 @@ LIMIT 3;
                            Output: rating, id, name
                            Table: products
                            Index: products_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+(19 rows)
 
 SELECT 
     id,
@@ -1025,12 +1045,13 @@ LIMIT 2;
          Output: id, name, category, brand, price, rating, sales, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -1081,12 +1102,13 @@ LIMIT 2;
                      Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
                      Table: products
                      Index: products_idx
+                     Worker Selection: Cost model
                      Exec Method: TopKScanExecState
                      Scores: false
                         TopK Order By: rating desc
                         TopK Limit: 5
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+(17 rows)
 
 SELECT * FROM (
     SELECT 
@@ -1141,10 +1163,11 @@ LIMIT 3;
                                  Output: category, id, name, rating
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     id,
@@ -1205,10 +1228,11 @@ LIMIT 5;
                                  Output: CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END, id, name, price, rating
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     id,
@@ -1271,10 +1295,11 @@ LIMIT 3;
                                  Output: brand, id, name, price, rating
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     id,
@@ -1329,10 +1354,11 @@ LIMIT 3;
                                  Output: category, id, name, price, rating
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     id,
@@ -1385,10 +1411,11 @@ LIMIT 3;
                                  Output: in_stock, id, name, rating
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     id,
@@ -1432,12 +1459,13 @@ LIMIT 3;
          Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -1504,10 +1532,11 @@ LIMIT 5;
                                  Output: CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END, id, name, rating
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     id,
@@ -1596,10 +1625,11 @@ LIMIT 3;
                                                          Output: brand, in_stock, CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END, id, name, price, rating
                                                          Table: products
                                                          Index: products_idx
+                                                         Worker Selection: Cost model
                                                          Exec Method: NormalScanExecState
                                                          Scores: false
                                                          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(33 rows)
+(34 rows)
 
 SELECT 
     id,
@@ -1670,10 +1700,11 @@ WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for
                                  Output: category, price
                                  Table: products
                                  Index: products_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT 
     category,
@@ -1735,10 +1766,11 @@ WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
                            Output: p.id, p.name, p.rating, p.category
                            Table: products
                            Index: products_idx
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(21 rows)
 
 SELECT 
     p.id,
@@ -1793,12 +1825,13 @@ LIMIT 3;
                            Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
                            Table: products
                            Index: products_idx
+                           Worker Selection: Cost model
                            Exec Method: TopKScanExecState
                            Scores: false
                               TopK Order By: rating desc
                               TopK Limit: 5
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 SELECT *
 FROM (
@@ -1866,10 +1899,11 @@ WHERE rank <= 2;
                                        Output: products.id, products.name, products.rating
                                        Table: products
                                        Index: products_idx
+                                       Worker Selection: Cost model
                                        Exec Method: NormalScanExecState
                                        Scores: false
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+(25 rows)
 
 SELECT outer_query.*
 FROM (
@@ -1936,10 +1970,11 @@ WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for
                                        Output: p.category, p.price
                                        Table: products
                                        Index: products_idx
+                                       Worker Selection: Cost model
                                        Exec Method: NormalScanExecState
                                        Scores: false
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(28 rows)
 
 SELECT 
     p.category,
@@ -1986,10 +2021,11 @@ LIMIT 3;
                      Output: id, name, rating, in_stock
                      Table: products
                      Index: products_idx
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(16 rows)
 
 SELECT 
     id,
@@ -2054,12 +2090,13 @@ LIMIT 3;
          Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -2101,12 +2138,13 @@ LIMIT 3;
          Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -2144,10 +2182,11 @@ WHERE description @@@ 'laptop';
          Output: id, name, rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(11 rows)
 
 SELECT 
     id,
@@ -2186,10 +2225,11 @@ ORDER BY rating DESC;
                Output: id, name, rating
                Table: products
                Index: products_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(14 rows)
 
 SELECT 
     id,
@@ -2228,10 +2268,11 @@ LIMIT 3;
                Output: id, name, rating
                Table: products
                Index: products_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(13 rows)
 
 SELECT 
     id,
@@ -2270,12 +2311,13 @@ LIMIT 3;
          Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -2312,12 +2354,13 @@ LIMIT 10;
          Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
@@ -2348,12 +2391,13 @@ LIMIT 10;
          Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
@@ -2384,12 +2428,13 @@ LIMIT 10;
          Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
@@ -2421,12 +2466,13 @@ LIMIT 5;
          Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
+         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating

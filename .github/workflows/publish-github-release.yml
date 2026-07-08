@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # We confirm that if the release type is beta, the version in Cargo.toml matches with "-rc.X", and that the
       # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
@@ -127,6 +127,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Beta releases should never be the latest release
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
           echo "Current latest release is $latest_tag_version"

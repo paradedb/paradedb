@@ -388,6 +388,14 @@ impl ExecMethod for TopKScanExecState {
                     vischeck,
                 }
             });
+            // We are passing parallel_state because it contains the shared threshold. We only want
+            // to use the shared threshold on the first query, as additional queries will
+            // necessarily be below it.
+            let maybe_parallel_state = if state.query_count() == 1 {
+                state.parallel_state
+            } else {
+                None
+            };
             self.search_reader
                 .as_ref()
                 .unwrap()
@@ -400,7 +408,7 @@ impl ExecMethod for TopKScanExecState {
                     local_limit,
                     self.offset,
                     maybe_aux_collector,
-                    state.parallel_state,
+                    maybe_parallel_state,
                 )
         } else {
             self.search_reader

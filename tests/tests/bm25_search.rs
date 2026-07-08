@@ -15,17 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
-use fixtures::*;
 use pgvector::Vector;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
+use tests::fixtures::*;
 
 #[rstest]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {

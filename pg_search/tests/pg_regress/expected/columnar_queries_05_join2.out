@@ -209,8 +209,8 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 vacuum;
 SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-                                                                                                                                                               QUERY PLAN                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: orders INNER users
@@ -220,13 +220,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   GlobalLimitExec: skip=0, fetch=10
            :     VisibilityFilterExec: tables=[orders, users]
-           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, id@3 as id, ctid_1@0 as ctid_1, id@1 as id]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(15 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0, id@1]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(14 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
  color 
@@ -236,8 +235,8 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 
 SET paradedb.enable_columnar_exec = true;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-                                                                                                                                                               QUERY PLAN                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: orders INNER users
@@ -247,13 +246,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   GlobalLimitExec: skip=0, fetch=10
            :     VisibilityFilterExec: tables=[orders, users]
-           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, id@3 as id, ctid_1@0 as ctid_1, id@1 as id]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(15 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0, id@1]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(14 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
  color 

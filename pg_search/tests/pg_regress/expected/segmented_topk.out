@@ -309,11 +309,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d,
                      Output: d.id
                      Table: stk_documents
                      Index: stk_documents_bm25_idx
+                     Worker Selection: Cost model
                      Exec Method: ColumnarExecState
                      Fast Fields: id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 -- =============================================================================
 -- TEST 8: GUC toggle — disabling segmented_topk removes the node
@@ -655,8 +656,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 5;
-                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=5.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
          Relation Tree: d INNER f
@@ -666,13 +667,13 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
            :   TantivyLookupExec: decode=[title], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
-           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, metrics=[rows_input=14.26 K, rows_output=5, segments_seen=2]
-           :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=14.26 K, output_bytes=793.9 KB, output_batches=2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=14.26 K, output_bytes=827.1 KB, output_batches=2, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.26 K, build_mem_used=228, avg_fanout=100% (14.26 K/14.26 K), probe_hit_rate=56% (14.26 K/25.52 K)]
+           :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, metrics=[rows_input=14.42 K, rows_output=5, segments_seen=2]
+           :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=14.42 K, output_bytes=802.8 KB, output_batches=2]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=14.42 K, output_bytes=833.6 KB, output_batches=2, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.42 K, build_mem_used=228, avg_fanout=100% (14.42 K/14.42 K), probe_hit_rate=55.81% (14.42 K/25.83 K)]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=14.26 K, output_bytes=515.3 KB, output_batches=4, rows_pruned=15.74 K, rows_scanned=30.00 K]
+           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=14.42 K, output_bytes=521.0 KB, output_batches=4, rows_pruned=15.58 K, rows_scanned=30.00 K]
 (16 rows)
 
 SELECT f.id, f.title

@@ -24,6 +24,8 @@
 use datafusion::common::{DataFusionError, Result};
 use datafusion_distributed::shm::{Interrupt, Wakeup};
 
+use crate::postgres::customscan::mpp::interrupt::{cancel_pending, interrupted};
+
 /// A receiver backend as `(pgprocno, pid)`. The `pid` rules out a recycled `PGPROC` slot.
 type ReceiverProc = (i32, i32);
 
@@ -100,16 +102,17 @@ unsafe fn wake_receiver_via_pg_sys(pgprocno: i32, expected_pid: i32) {
     unsafe { pg_sys::SetLatch(&raw mut (*proc).procLatch) };
 }
 
-/// Cancellation seam: runs `check_for_interrupts!`, which longjmps out of the backend on a user
-/// CANCEL or query timeout. Checked at the transport's block points (the send spin and the consumer
-/// pull loop).
+/// Cancellation seam, checked at the transport's block points (the send spin and the consumer pull
+/// loop). Those run under `Runtime::block_on`, so it bails cooperatively with an error rather than
+/// servicing the interrupt here: a die taken inside `block_on` would `proc_exit` out of the live
+/// runtime. The caller services the deferred interrupt once `block_on` returns. See `mpp::interrupt`.
 pub struct PgInterrupt;
 
 impl Interrupt for PgInterrupt {
     fn check(&self) -> Result<(), DataFusionError> {
-        // Cfg'd out of the lib-test binary, which doesn't link PG's interrupt machinery.
-        #[cfg(not(test))]
-        pgrx::check_for_interrupts!();
+        if cancel_pending() {
+            return Err(interrupted());
+        }
         Ok(())
     }
 }

@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use fixtures::*;
 use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 /// Helper function to verify that a query plan uses ParadeDB's custom scan operator.
 /// It recursively searches the plan and asserts that exactly one "Custom Scan" node is found.

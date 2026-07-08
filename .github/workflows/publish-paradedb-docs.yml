@@ -21,11 +21,20 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Publish Docs to Mintlify
         run: |
-          curl -X POST \
+          # -f makes curl exit non-zero on an HTTP 4xx/5xx so a failed deploy fails the step
+          # instead of silently reporting success.
+          curl -fsS -X POST \
             https://api.mintlify.com/v1/project/update/${{ secrets.MINTLIFY_PROJECT_ID }} \
             -H "Authorization: Bearer ${{ secrets.MINTLIFY_API_KEY }}" \
             -H "Content-Type: application/json"
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-paradedb-docs\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

@@ -30,6 +30,14 @@ INSERT INTO large_agg_test (data) SELECT md5(g::text) FROM generate_series(1, 50
 
 ANALYZE large_agg_test;
 
+-- The `max_window_aggregate_response_bytes` size guard tested below is parallel-only
+-- by design (it bounds the DSM transport buffer during a parallel scan); a serial
+-- window agg has no such limit and would return the oversized result instead of
+-- erroring. Force parallel by making Gather free, since the cost model would
+-- otherwise serialize this small (50K-row) scan.
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+
 -- Test as window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
@@ -43,6 +51,9 @@ FROM large_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
+
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
 
 DROP TABLE large_agg_test;
 

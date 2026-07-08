@@ -2270,4 +2270,118 @@ mod tests {
             assert_eq!(original, from_typmod);
         })
     }
+
+    use super::pdb::Query;
+    use std::collections::Bound;
+
+    fn match_query(value: &str) -> Query {
+        Query::Match {
+            value: value.to_string(),
+            tokenizer: None,
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+            conjunction_mode: None,
+        }
+    }
+
+    // Wrap a bare pdb::Query into a SearchQueryInput so the single `is_topk_prunable`
+    // impl (on SearchQueryInput) can evaluate it. The field name is irrelevant to
+    // prunability.
+    fn fielded(query: Query) -> crate::query::SearchQueryInput {
+        crate::query::SearchQueryInput::FieldedQuery {
+            field: crate::api::FieldName::from("field"),
+            query,
+        }
+    }
+
+    #[pg_test]
+    fn topk_prunable_only_for_single_posting_list() {
+        // A 1-token match is a single posting list: Block-WAND prunes it. (Score-ASC /
+        // field-sort gating is the caller's responsibility, not this method's.)
+        assert!(fielded(match_query("help")).is_topk_prunable());
+
+        // Multi-term unions are not prunable (Tantivy's cost() weights them).
+        assert!(!fielded(match_query("a b c d e")).is_topk_prunable());
+
+        // Non-trivial docsets never prune.
+        let range = Query::Range {
+            lower_bound: Bound::Unbounded,
+            upper_bound: Bound::Unbounded,
+        };
+        let regex = Query::Regex {
+            pattern: "he.*".into(),
+        };
+        let phrase = Query::Phrase {
+            phrases: vec!["help".into(), "common".into()],
+            slop: None,
+        };
+        assert!(!fielded(range).is_topk_prunable());
+        assert!(!fielded(regex).is_topk_prunable());
+        assert!(!fielded(phrase).is_topk_prunable());
+
+        // A single-token Match with a modifier that expands it past one posting list is
+        // NOT prunable: fuzzy (`distance`), `prefix`, or a custom `tokenizer` whose split
+        // a whitespace count can't predict.
+        let with = |f: fn(&mut Query)| {
+            let mut q = match_query("help");
+            f(&mut q);
+            q
+        };
+        let fuzzy = with(|q| {
+            if let Query::Match { distance, .. } = q {
+                *distance = Some(1)
+            }
+        });
+        let prefix = with(|q| {
+            if let Query::Match { prefix, .. } = q {
+                *prefix = Some(true)
+            }
+        });
+        let custom_tok = with(|q| {
+            if let Query::Match { tokenizer, .. } = q {
+                *tokenizer = Some(serde_json::Value::Null)
+            }
+        });
+        assert!(!fielded(fuzzy).is_topk_prunable());
+        assert!(!fielded(prefix).is_topk_prunable());
+        assert!(!fielded(custom_tok).is_topk_prunable());
+
+        // All / Exists have no Block-WAND-pruning weight (AllWeight / ExistsWeight use
+        // Tantivy's default full scan), so they route to the cost model, never serial.
+        assert!(!fielded(Query::All).is_topk_prunable());
+        assert!(!fielded(Query::Exists).is_topk_prunable());
+
+        // Parse strings: a plain token prunes; a parser metacharacter (wildcard/regex)
+        // does not -- it can expand past a single posting list.
+        let parse = |s: &str| Query::Parse {
+            query_string: s.to_string(),
+            lenient: None,
+            conjunction_mode: None,
+        };
+        assert!(fielded(parse("alpha")).is_topk_prunable());
+        assert!(fielded(parse("alpha_2")).is_topk_prunable());
+        assert!(!fielded(parse("alpha*")).is_topk_prunable());
+        assert!(!fielded(parse("/al.*/")).is_topk_prunable());
+        assert!(!fielded(parse("-foo")).is_topk_prunable()); // negation, not a single posting list
+        assert!(!fielded(parse("foo:bar")).is_topk_prunable()); // field qualifier
+        assert!(!fielded(parse("(foo)")).is_topk_prunable()); // grouping
+    }
+
+    #[pg_test]
+    fn topk_prunable_searchqueryinput_top_level_variants() {
+        use crate::query::SearchQueryInput;
+        // Top-level (non-fielded) variants have no reliably-pruning weight.
+        assert!(!SearchQueryInput::All.is_topk_prunable());
+        assert!(!SearchQueryInput::TermSet { terms: vec![] }.is_topk_prunable());
+        // A top-level plain parser term prunes; a metacharacter / operator does not.
+        let parse = |s: &str| SearchQueryInput::Parse {
+            query_string: s.to_string(),
+            lenient: None,
+            conjunction_mode: None,
+        };
+        assert!(parse("alpha").is_topk_prunable());
+        assert!(!parse("alpha*").is_topk_prunable());
+        assert!(!parse("-foo").is_topk_prunable());
+    }
 }

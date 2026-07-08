@@ -104,10 +104,11 @@ WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from i
                Output: not_indexed
                Table: issue_3827_t
                Index: issue_3827_t_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(13 rows)
+(14 rows)
 
 SELECT not_indexed, COUNT(*)
 FROM issue_3827_t
@@ -142,10 +143,11 @@ WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast
                Output: txt, n
                Table: issue_3827_t
                Index: issue_3827_t_idx
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(13 rows)
+(14 rows)
 
 SELECT txt, n, COUNT(*)
 FROM issue_3827_t

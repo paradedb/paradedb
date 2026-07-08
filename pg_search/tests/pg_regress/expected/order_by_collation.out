@@ -1,0 +1,766 @@
+-- Test ORDER BY collation safety for pushdown
+-- Ensures that ParadeDB correctly refuses to push down ORDER BY when a non-C collation
+-- is in use, since Tantivy sorts by raw byte order (equivalent to C/POSIX/C.UTF-8 only).
+--
+-- ASSUMPTION: This test file assumes the database's default collation (datcollate) is
+-- byte-ordered (one of: C, POSIX, C.UTF-8, C.utf8, POSIX.UTF-8, POSIX.utf8). CI runs
+-- against C.UTF-8 so these tests pass there. On a local dev box whose `initdb` locale
+-- defaults to a non byte-ordered collation (e.g. en_US.UTF-8), Sections 7 and 8 will
+-- fail because the "default collation -> pushdown safe" expectations no longer hold.
+--
+-- Tests cover:
+-- 1. TopK (base scan ORDER BY ... LIMIT) with C vs non-C collation
+-- 2. Aggregate scan ORDER BY with C vs non-C collation
+-- 3. Sorted index scan (sort_by) with C vs non-C collation
+-- 4. Non-text columns (integers) are unaffected by collation checks
+-- 5. Result correctness
+-- 6. JoinScan ORDER BY collation check
+-- 7. Aggregate-on-Join TopK collation check
+-- 8. Default database collation (no explicit COLLATE) -> pushdown safe when default is C-like
+-- 9. Mixed ORDER BY with safe and unsafe columns
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- =============================================================================
+-- SETUP
+-- =============================================================================
+-- Create an ICU collation for testing non-C ordering (always available in PG15+)
+CREATE COLLATION IF NOT EXISTS test_icu (
+    provider = icu,
+    locale = 'en-US'
+);
+DROP TABLE IF EXISTS collation_test CASCADE;
+CREATE TABLE collation_test (
+    id SERIAL PRIMARY KEY,
+    name_c TEXT COLLATE "C",
+    name_icu TEXT COLLATE "test_icu",
+    name_default TEXT,
+    priority INTEGER
+);
+INSERT INTO
+    collation_test (
+        name_c,
+        name_icu,
+        name_default,
+        priority
+    )
+VALUES ('apple', 'apple', 'apple', 10),
+    (
+        'Banana',
+        'Banana',
+        'Banana',
+        20
+    ),
+    (
+        'cherry',
+        'cherry',
+        'cherry',
+        30
+    ),
+    ('Date', 'Date', 'Date', 40),
+    (
+        'elderberry',
+        'elderberry',
+        'elderberry',
+        50
+    );
+CREATE INDEX collation_test_idx ON collation_test USING bm25 (
+    id,
+    name_c,
+    name_icu,
+    name_default,
+    priority
+)
+WITH (
+        key_field = 'id',
+        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
+        numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
+    );
+ANALYZE collation_test;
+-- =============================================================================
+-- SECTION 1: TopK (Base Scan ORDER BY ... LIMIT)
+-- =============================================================================
+\echo '=== SECTION 1: TopK Base Scan ORDER BY ... LIMIT ==='
+=== SECTION 1: TopK Base Scan ORDER BY ... LIMIT ===
+\echo 'Test 1.1: ORDER BY C-collation text column -> TopK pushdown (no Sort node)'
+Test 1.1: ORDER BY C-collation text column -> TopK pushdown (no Sort node)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c
+LIMIT 5;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: name_c asc
+            TopK Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 1.2: ORDER BY ICU-collation text column -> Sort node expected'
+Test 1.2: ORDER BY ICU-collation text column -> Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_icu
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: name_icu COLLATE test_icu
+         ->  Custom Scan (ParadeDB Base Scan) on collation_test
+               Table: collation_test
+               Index: collation_test_idx
+               Exec Method: ColumnarExecState
+               Fast Fields: id, name_icu
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+\echo 'Test 1.3: ORDER BY integer column -> TopK pushdown (collation is InvalidOid for non-text)'
+Test 1.3: ORDER BY integer column -> TopK pushdown (collation is InvalidOid for non-text)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY priority
+LIMIT 5;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: priority asc
+            TopK Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 1.4: ORDER BY with explicit COLLATE "C" on ICU column -> TopK pushdown'
+Test 1.4: ORDER BY with explicit COLLATE "C" on ICU column -> TopK pushdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_icu COLLATE "C"
+LIMIT 5;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: name_icu asc
+            TopK Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 1.5: ORDER BY with explicit COLLATE "test_icu" on C column -> Sort node expected'
+Test 1.5: ORDER BY with explicit COLLATE "test_icu" on C column -> Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c COLLATE "test_icu"
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Specify COLLATE "C" in your query, or use a byte-ordered collation instead. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: name_c COLLATE test_icu
+         ->  Custom Scan (ParadeDB Base Scan) on collation_test
+               Table: collation_test
+               Index: collation_test_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+-- =============================================================================
+-- SECTION 2: Aggregate Scan ORDER BY
+-- =============================================================================
+SET paradedb.enable_aggregate_custom_scan TO on;
+\echo '=== SECTION 2: Aggregate Scan ORDER BY ==='
+=== SECTION 2: Aggregate Scan ORDER BY ===
+\echo 'Test 2.1: GROUP BY + ORDER BY C-collation text -> aggregate pushdown (no Sort node)'
+Test 2.1: GROUP BY + ORDER BY C-collation text -> aggregate pushdown (no Sort node)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c
+ORDER BY name_c;
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on collation_test
+   Index: collation_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: name_c
+     Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+\echo 'Test 2.2: GROUP BY + ORDER BY ICU-collation text -> Sort node expected'
+Test 2.2: GROUP BY + ORDER BY ICU-collation text -> Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_icu, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu;
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: name_icu COLLATE test_icu
+   ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+         Index: collation_test_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: name_icu
+           Aggregate Definition: {"grouped":{"terms":{"field":"name_icu","segment_size":65000,"size":65000}}}
+(8 rows)
+
+\echo 'Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)'
+Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT priority, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY priority
+ORDER BY priority;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on collation_test
+   Index: collation_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: priority
+     Aggregate Definition: {"grouped":{"terms":{"field":"priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+-- =============================================================================
+-- SECTION 3: Sorted Index Scan (sort_by pathkey matching)
+-- =============================================================================
+\echo '=== SECTION 3: Sorted Index Scan (sort_by) ==='
+=== SECTION 3: Sorted Index Scan (sort_by) ===
+DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+CREATE TABLE collation_sortby_test (
+    id SERIAL PRIMARY KEY,
+    city TEXT COLLATE "C",
+    population INTEGER
+);
+INSERT INTO
+    collation_sortby_test (city, population)
+VALUES ('berlin', 3600000),
+    ('Amsterdam', 900000),
+    ('chicago', 2700000),
+    ('Delhi', 32000000),
+    ('edmonton', 1000000);
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING bm25 (id, city, population)
+WITH (
+        key_field = 'id',
+        text_fields = '{"city": {"indexed": true, "fast": true}}',
+        numeric_fields = '{"population": {"indexed": true, "fast": true}}',
+        sort_by = 'city ASC NULLS FIRST'
+    );
+ANALYZE collation_sortby_test;
+\echo 'Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node'
+Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city ASC NULLS FIRST;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Sort
+   Sort Key: city COLLATE "C" NULLS FIRST
+   ->  Custom Scan (ParadeDB Base Scan) on collation_sortby_test
+         Table: collation_sortby_test
+         Index: collation_sortby_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: city, id
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected'
+Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Sort
+   Sort Key: city COLLATE test_icu NULLS FIRST
+   ->  Custom Scan (ParadeDB Base Scan) on collation_sortby_test
+         Table: collation_sortby_test
+         Index: collation_sortby_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(9 rows)
+
+-- =============================================================================
+-- SECTION 4: Result Correctness
+-- =============================================================================
+\echo '=== SECTION 4: Result Correctness ==='
+=== SECTION 4: Result Correctness ===
+\echo 'Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCII)'
+Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCII)
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city ASC NULLS FIRST;
+ id |   city    
+----+-----------
+  2 | Amsterdam
+  4 | Delhi
+  1 | berlin
+  3 | chicago
+  5 | edmonton
+(5 rows)
+
+\echo 'Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)'
+Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
+ id |   city    
+----+-----------
+  2 | Amsterdam
+  1 | berlin
+  3 | chicago
+  4 | Delhi
+  5 | edmonton
+(5 rows)
+
+-- =============================================================================
+-- SECTION 5: JoinScan ORDER BY collation check
+-- =============================================================================
+\echo '=== SECTION 5: JoinScan ORDER BY ==='
+=== SECTION 5: JoinScan ORDER BY ===
+SET paradedb.enable_join_custom_scan = on;
+DROP TABLE IF EXISTS collation_join_products CASCADE;
+DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
+CREATE TABLE collation_join_products (
+    id INTEGER PRIMARY KEY,
+    name_c TEXT COLLATE "C" NOT NULL,
+    name_icu TEXT COLLATE "test_icu" NOT NULL,
+    description TEXT COLLATE "C"
+);
+CREATE TABLE collation_join_suppliers (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER NOT NULL,
+    supplier_name TEXT COLLATE "C" NOT NULL
+);
+INSERT INTO
+    collation_join_products (
+        id,
+        name_c,
+        name_icu,
+        description
+    )
+VALUES (
+        1,
+        'Wireless Mouse',
+        'Wireless Mouse',
+        'ergonomic wireless mouse'
+    ),
+    (
+        2,
+        'USB Cable',
+        'USB Cable',
+        'high-speed cable'
+    ),
+    (
+        3,
+        'Keyboard',
+        'Keyboard',
+        'mechanical keyboard wireless'
+    ),
+    (
+        4,
+        'Monitor Stand',
+        'Monitor Stand',
+        'adjustable monitor stand'
+    ),
+    (
+        5,
+        'Webcam',
+        'Webcam',
+        'HD webcam wireless'
+    );
+INSERT INTO
+    collation_join_suppliers (id, product_id, supplier_name)
+VALUES (1, 1, 'TechCorp'),
+    (2, 2, 'CableCo'),
+    (3, 3, 'TechCorp'),
+    (4, 4, 'FurniPro'),
+    (5, 5, 'TechCorp');
+CREATE INDEX collation_join_products_idx ON collation_join_products USING bm25 (
+    id,
+    name_c,
+    name_icu,
+    description
+)
+WITH (
+        key_field = 'id',
+        text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
+    );
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING bm25 (id, product_id, supplier_name)
+WITH (
+        key_field = 'id',
+        text_fields = '{"supplier_name": {"fast": true}}',
+        numeric_fields = '{"product_id": {"fast": true}}'
+    );
+ANALYZE collation_join_products;
+ANALYZE collation_join_suppliers;
+\echo 'Test 5.1: JoinScan ORDER BY C-collation column -> JoinScan used'
+Test 5.1: JoinScan ORDER BY C-collation column -> JoinScan used
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name_c, s.supplier_name
+FROM collation_join_products p
+JOIN collation_join_suppliers s ON p.id = s.product_id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name_c
+LIMIT 5;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: s INNER p
+         Join Cond: p.id = s.product_id
+         Limit: 5
+         Order By: p.name_c asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[name_c@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   TantivyLookupExec: decode=[name_c]
+           :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5
+           :       VisibilityFilterExec: tables=[s, p]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(16 rows)
+
+\echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
+Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name_icu, s.supplier_name
+FROM collation_join_products p
+JOIN collation_join_suppliers s ON p.id = s.product_id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name_icu
+LIMIT 5;
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: p, s)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.name_icu COLLATE test_icu
+         ->  Hash Join
+               Hash Cond: (s.product_id = p.id)
+               ->  Seq Scan on collation_join_suppliers s
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on collation_join_products p
+                           Table: collation_join_products
+                           Index: collation_join_products_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id, name_icu
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+\echo 'Test 5.3: JoinScan ORDER BY integer -> JoinScan used (collation is InvalidOid)'
+Test 5.3: JoinScan ORDER BY integer -> JoinScan used (collation is InvalidOid)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name_c, s.supplier_name
+FROM collation_join_products p
+JOIN collation_join_suppliers s ON p.id = s.product_id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Result
+         ->  Custom Scan (ParadeDB Join Scan)
+               Relation Tree: s INNER p
+               Join Cond: p.id = s.product_id
+               Limit: 5
+               Order By: p.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[s, p]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, ctid_1@0, id@1]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(16 rows)
+
+RESET paradedb.enable_join_custom_scan;
+-- =============================================================================
+-- SECTION 6: Aggregate-on-Join TopK collation check
+-- =============================================================================
+\echo '=== SECTION 6: Aggregate-on-Join TopK ==='
+=== SECTION 6: Aggregate-on-Join TopK ===
+SET paradedb.enable_aggregate_custom_scan TO on;
+\echo 'Test 6.1: GROUP BY + ORDER BY C-collation text + LIMIT -> aggregate TopK pushdown'
+Test 6.1: GROUP BY + ORDER BY C-collation text + LIMIT -> aggregate TopK pushdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c
+ORDER BY name_c
+LIMIT 3;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+         Index: collation_test_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: name_c
+           Limit: 3
+           Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+\echo 'Test 6.2: GROUP BY + ORDER BY ICU-collation text + LIMIT -> no TopK (Sort node expected)'
+Test 6.2: GROUP BY + ORDER BY ICU-collation text + LIMIT -> no TopK (Sort node expected)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_icu, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu
+LIMIT 3;
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: name_icu COLLATE test_icu
+         ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+               Index: collation_test_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: name_icu
+                 Limit: 3
+                 Aggregate Definition: {"grouped":{"terms":{"field":"name_icu","segment_size":65000,"size":65000}}}
+(10 rows)
+
+\echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
+Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT priority, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY priority
+ORDER BY priority
+LIMIT 3;
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+         Index: collation_test_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: priority
+           Limit: 3
+           Aggregate Definition: {"grouped":{"terms":{"field":"priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+-- =============================================================================
+-- SECTION 7: Default database collation (no explicit COLLATE)
+-- The database default is C.UTF-8 (safe for byte-order pushdown)
+-- =============================================================================
+\echo '=== SECTION 7: Default Database Collation (C.UTF-8) ==='
+=== SECTION 7: Default Database Collation (C.UTF-8) ===
+\echo 'Test 7.1: ORDER BY default-collation text column -> TopK pushdown (default is C.UTF-8, safe)'
+Test 7.1: ORDER BY default-collation text column -> TopK pushdown (default is C.UTF-8, safe)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_default FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_default
+LIMIT 5;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: name_default asc
+            TopK Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+\echo 'Test 7.2: GROUP BY + ORDER BY default-collation text -> aggregate pushdown (no Sort node)'
+Test 7.2: GROUP BY + ORDER BY default-collation text -> aggregate pushdown (no Sort node)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_default, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_default
+ORDER BY name_default;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on collation_test
+   Index: collation_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: name_default
+     Aggregate Definition: {"grouped":{"terms":{"field":"name_default","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+\echo 'Test 7.3: GROUP BY + ORDER BY default-collation text + LIMIT -> aggregate TopK pushdown'
+Test 7.3: GROUP BY + ORDER BY default-collation text + LIMIT -> aggregate TopK pushdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_default, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_default
+ORDER BY name_default
+LIMIT 3;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+         Index: collation_test_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: name_default
+           Limit: 3
+           Aggregate Definition: {"grouped":{"terms":{"field":"name_default","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+-- =============================================================================
+-- SECTION 8: Mixed ORDER BY with safe and unsafe columns
+-- =============================================================================
+\echo '=== SECTION 8: Mixed ORDER BY (safe + unsafe) ==='
+=== SECTION 8: Mixed ORDER BY (safe + unsafe) ===
+\echo 'Test 8.1: ORDER BY safe_col (C), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
+Test 8.1: ORDER BY safe_col (C), unsafe_col (ICU) -> Sort node (mixed is unsafe)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c, name_icu
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: name_c COLLATE "C", name_icu COLLATE test_icu
+         ->  Custom Scan (ParadeDB Base Scan) on collation_test
+               Table: collation_test
+               Index: collation_test_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 8.2: ORDER BY safe_col (integer), unsafe_col (ICU) -> Sort node (mixed is unsafe)'
+Test 8.2: ORDER BY safe_col (integer), unsafe_col (ICU) -> Sort node (mixed is unsafe)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY priority, name_icu
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: collation_test)
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: priority, name_icu COLLATE test_icu
+         ->  Custom Scan (ParadeDB Base Scan) on collation_test
+               Table: collation_test
+               Index: collation_test_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 8.3: ORDER BY safe_col (C), safe_col (default) -> TopK pushdown (both safe)'
+Test 8.3: ORDER BY safe_col (C), safe_col (default) -> TopK pushdown (both safe)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c, name_default FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c, name_default
+LIMIT 5;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: name_c asc, name_default asc
+            TopK Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+\echo 'Test 8.4: ORDER BY safe_col (integer), safe_col (default) -> TopK pushdown (both safe)'
+Test 8.4: ORDER BY safe_col (integer), safe_col (default) -> TopK pushdown (both safe)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority, name_default FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY priority, name_default
+LIMIT 5;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: priority asc, name_default asc
+            TopK Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS collation_test CASCADE;
+DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+DROP TABLE IF EXISTS collation_join_products CASCADE;
+DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
+DROP COLLATION IF EXISTS test_icu;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

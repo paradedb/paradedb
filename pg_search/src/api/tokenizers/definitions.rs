@@ -18,7 +18,7 @@
 use crate::api::tokenizers::typmod::{save_typmod, ParsedTypmod};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{extension_sql, function_name, pg_extern, Array, PgLogLevel, PgSqlErrorCode};
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
@@ -312,12 +312,12 @@ pub(crate) mod pdb {
                 const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!($rust_name);
                 const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
                 const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
-                    Ok(SqlMappingRef::literal($sql_name));
+                    Ok(SqlMappingRef::literal(concat!("pdb.", $sql_name)));
                 const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
-                    Ok(ReturnsRef::One(SqlMappingRef::literal($sql_name)));
+                    Ok(ReturnsRef::One(SqlMappingRef::literal(concat!("pdb.", $sql_name))));
             }
 
-            #[pg_extern(immutable, parallel_safe)]
+            #[pg_extern(immutable, parallel_safe, requires = [$def_name])]
             fn $cast_name(s: $rust_name, fcinfo: pg_sys::FunctionCallInfo) -> Vec<String> {
                 let mut tokenizer = $rust_name::make_search_tokenizer();
 
@@ -490,7 +490,7 @@ pub(crate) mod pdb {
         varchar_array_to_alias,
         "alias",
         preferred = false,
-        custom_typmod = false
+        custom_typmod = true
     );
 
     define_tokenizer_type!(
@@ -575,6 +575,8 @@ pub(crate) mod pdb {
             language: LinderaLanguage::Chinese,
             filters: SearchTokenizerFilters::default(),
             keep_whitespace: false,
+            nfkc: false,
+            reading_form: false,
         },
         tokenize_lindera,
         json_to_lindera,
@@ -990,4 +992,41 @@ extension_sql!(
     "#,
     name = "literal_typmod",
     requires = [literal_typmod_in, generic_typmod_out, "literal_definition"]
+);
+
+#[pg_extern(immutable, parallel_safe)]
+fn alias_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
+    let parts: Vec<_> = typmod_parts.iter().collect();
+
+    if parts.len() != 1 {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+            "pdb.alias requires exactly one argument",
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+        unreachable!()
+    }
+
+    let raw = parts[0]
+        .expect("pdb.alias requires a name argument")
+        .to_str()
+        .expect("alias name must be valid utf-8");
+
+    let normalized = if raw.starts_with("alias=") {
+        CString::new(raw).unwrap()
+    } else {
+        CString::new(format!("alias={raw}")).unwrap()
+    };
+
+    save_typmod(std::iter::once(Some(normalized.as_c_str())))
+        .expect("should not fail to save typmod")
+}
+
+extension_sql!(
+    r#"
+        ALTER TYPE pdb.alias SET (TYPMOD_IN = alias_typmod_in, TYPMOD_OUT = generic_typmod_out);
+    "#,
+    name = "alias_typmod",
+    requires = [alias_typmod_in, generic_typmod_out, "alias_definition"]
 );

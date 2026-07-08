@@ -1,0 +1,81 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Reproduces the query-side half of https://github.com/paradedb/paradedb/issues/5365
+--
+-- Query-visible mutable-segment materialization used to fetch heap tuples with SnapshotAny,
+-- which can select DEAD / RECENTLY_DEAD versions whose external TOAST chunks have already
+-- been reclaimed, raising "missing/unexpected chunk number ... in pg_toast_*" under
+-- concurrent VACUUM. It now fetches each ctid with the scan's active MVCC snapshot, so a
+-- SELECT only detoasts versions whose TOAST is protected by that snapshot.
+--
+-- This test pins down the *visibility* behavior of that change: a mutable segment holding a
+-- mix of live, updated, and deleted large-toasted rows must return exactly the rows visible
+-- to the querying statement.
+DROP TABLE IF EXISTS data_docstore_query;
+CREATE TABLE data_docstore_query (
+    id SERIAL PRIMARY KEY,
+    doc_text VARCHAR
+);
+CREATE INDEX data_docstore_query_idx ON data_docstore_query
+USING bm25 (id, doc_text)
+WITH (key_field=id, mutable_segment_rows=2, background_layer_sizes='0', layer_sizes='1kb, 100kb, 1mb, 10mb', target_segment_count = 4);
+-- Large toasted rows that land in mutable segments.
+INSERT INTO data_docstore_query (doc_text)
+SELECT repeat('BigData_ ', 200000) FROM generate_series(1, 6);
+SELECT mutable FROM paradedb.index_info('data_docstore_query_idx') ORDER BY mutable;
+ mutable 
+---------
+ f
+ t
+(2 rows)
+
+-- All six rows are visible and searchable.
+SELECT id FROM data_docstore_query WHERE doc_text ||| 'BigData_' ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+(6 rows)
+
+-- Update one row (new toasted version) and delete two others, all within mutable segments.
+UPDATE data_docstore_query SET doc_text = repeat('BigData_ ', 200000) WHERE id = 3;
+DELETE FROM data_docstore_query WHERE id IN (2, 5);
+-- The search must reflect current visibility: ids 2 and 5 gone, 3 still present once.
+SELECT id FROM data_docstore_query WHERE doc_text ||| 'BigData_' ORDER BY id;
+ id 
+----
+  1
+  3
+  4
+  6
+(4 rows)
+
+SELECT count(*) FROM data_docstore_query WHERE doc_text ||| 'BigData_';
+ count 
+-------
+     4
+(1 row)
+
+-- Reading a deleted toasted tuple's content from a mutable segment must still work
+-- (snippet forces detoasting of the matched, visible rows).
+SELECT id, substring(doc_text, 1, 8) AS prefix
+FROM data_docstore_query
+WHERE doc_text ||| 'BigData_'
+ORDER BY id;
+ id |  prefix  
+----+----------
+  1 | BigData_
+  3 | BigData_
+  4 | BigData_
+  6 | BigData_
+(4 rows)
+
+DROP TABLE data_docstore_query;

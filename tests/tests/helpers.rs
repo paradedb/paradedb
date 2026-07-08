@@ -17,15 +17,13 @@
 
 //! Tests for the paradedb.tokenize function
 
-mod fixtures;
-
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
-fn defult_tokenizer(mut conn: PgConnection) {
+fn default_tokenizer(mut conn: PgConnection) {
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(paradedb.tokenizer('default'), 'hello world');
     "#

@@ -55,6 +55,19 @@ const REGEX_SELECTIVITY: f64 = 0.01;
 /// Heuristic selectivity for more-like-this queries
 const MORE_LIKE_THIS_SELECTIVITY: f64 = 0.01;
 
+/// Scales the heuristic match estimate into a `DocSet::cost()` for fuzzy/regex/MLT, whose
+/// real scorer is too expensive to build at plan time (#4172).
+///
+/// Tantivy costs a fuzzy/regex union as the sum of its DFA-matched terms' doc_freqs
+/// (`automaton_weight` -> `BufferedUnion`), dominated by the target term, so
+/// `cost ~= target_frequency * N`. We can't read `target_frequency` without the DFA scan we
+/// are avoiding, so this factor stands in for it: `factor = assumed_target_frequency / 0.01`
+/// (the fuzzy `selectivity_heuristic` floor). 25 => a ~25%-frequency target -- a *calibrated*
+/// default, not a derived constant: the factor-sweep showed [~18, 35] all parallelize the
+/// L<=10k cases while serializing L500k, and 25 is the center. Tunable via
+/// `paradedb.expensive_query_cost_factor`.
+const EXPENSIVE_QUERY_COST_FACTOR: f64 = 25.0;
+
 /// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
 /// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
 /// meaningless but we should be honest that do _something_.

@@ -15,12 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use dotenvy::dotenv;
-use fixtures::db::Query;
 use rstest::*;
 use sqlx::{Connection, PgConnection};
 use std::io::Write;
@@ -31,6 +28,7 @@ use std::sync::Once;
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
+use tests::fixtures::db::Query;
 
 // Static variables for initializing port assignment and ensuring one-time setup
 static INIT: Once = Once::new();
@@ -551,9 +549,12 @@ async fn test_physical_streaming_replication() -> Result<()> {
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     // Verify that the initial data replicated
-    let standby_data: Vec<(String,)> =
-        "SELECT info FROM test_data"
-            .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+    let standby_data: Vec<(String,)> = "SELECT info FROM test_data".fetch_retry(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| !result.is_empty(),
+    );
 
     assert_eq!(standby_data.len(), 1);
     assert_eq!(standby_data[0].0, "initial");
@@ -562,7 +563,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
     "INSERT INTO test_data (info) VALUES ('from_primary');".execute(&mut primary_conn);
 
     let standby_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='from_primary'"
-        .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+        .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+            !result.is_empty()
+        });
 
     assert_eq!(standby_data.len(), 1);
 
@@ -571,7 +574,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     // Now, check for 'from_primary_2'
     let standby_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='from_primary_2'"
-        .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+        .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+            !result.is_empty()
+        });
 
     assert_eq!(standby_data.len(), 1);
 
@@ -592,8 +597,8 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     let sync_row: Vec<(String,)> = "SELECT info FROM test_data WHERE info='sync_test'".fetch_retry(
         &mut standby_conn,
-        60,
-        1000,
+        RETRIES,
+        RETRY_DELAY,
         |result| !result.is_empty(),
     );
     assert_eq!(sync_row.len(), 1);
@@ -615,7 +620,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     // Ensure we can read back the inserted row from the now promoted standby
     let promoted_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='promoted_standby'"
-        .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+        .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+            !result.is_empty()
+        });
     assert_eq!(promoted_data.len(), 1);
 
     Ok(())
@@ -629,6 +636,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         wal_level = replica
         max_wal_senders = 4
         shared_preload_libraries = 'pg_search'
+        # It's often helpful to have a short wal_keep_size or max_wal_senders for testing
     ";
     let pg_hba_conf = "
         host replication all 127.0.0.1/32 md5
@@ -654,6 +662,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     )"
     .execute(&mut source_conn);
 
+    // Insert initial data
     "INSERT INTO items (description, category, created_at) VALUES
         ('Red running shoes', 'Footwear', NOW()),
         ('Blue sports shoes', 'Footwear', NOW()),
@@ -665,6 +674,8 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
     let target_tempdir_path = target_tempdir.keep();
 
+    // Permissions for the --pgdata directory passed to pg_basebackup
+    // should be u=rwx (0700) or u=rwx,g=rx (0750)
     std::fs::set_permissions(
         target_tempdir_path.as_path(),
         std::fs::Permissions::from_mode(0o700),
@@ -682,6 +693,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     )
     .expect("Failed to run pg_basebackup for standby setup");
 
+    // Start the standby also with pg_search preloaded
     let standby_config = "
         shared_preload_libraries = 'pg_search'
         hot_standby = on
@@ -698,8 +710,8 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // Confirm baseline streaming: the standby sees the four pre-bm25 rows.
     let standby_rows: Vec<(String,)> = "SELECT description FROM items ORDER BY id".fetch_retry(
         &mut standby_conn,
-        60,
-        1000,
+        RETRIES,
+        RETRY_DELAY,
         |result| result.len() == 4,
     );
     assert_eq!(standby_rows.len(), 4);

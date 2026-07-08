@@ -16,11 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(dead_code)]
-mod fixtures;
 
-use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[fixture]
 fn setup_test_table(mut conn: PgConnection) -> PgConnection {

@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Find Dockerfiles
         id: dockerfiles

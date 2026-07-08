@@ -43,7 +43,6 @@
 //!    to real ctids via FFHelper, opens heap relations, creates `VisibilityChecker`
 //!    per relation, and filters batches on the resolved ctids.
 
-use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -209,13 +208,12 @@ fn pg_search_provider_from_scan(
     scan: &datafusion::logical_expr::TableScan,
 ) -> Option<&PgSearchTableProvider> {
     let source = scan.source.as_ref();
-    if let Some(default_source) = source.as_any().downcast_ref::<DefaultTableSource>() {
+    if let Some(default_source) = source.downcast_ref::<DefaultTableSource>() {
         default_source
             .table_provider
-            .as_any()
             .downcast_ref::<PgSearchTableProvider>()
     } else {
-        source.as_any().downcast_ref::<PgSearchTableProvider>()
+        (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
     }
 }
 
@@ -630,11 +628,7 @@ fn wrap_visibility_below_lookup_chain(
     let mut lookups = Vec::new();
     let mut current = input;
 
-    while current
-        .as_any()
-        .downcast_ref::<TantivyLookupExec>()
-        .is_some()
-    {
+    while current.is::<TantivyLookupExec>() {
         let child = Arc::clone(current.children()[0]);
         lookups.push(current);
         current = child;
@@ -816,10 +810,6 @@ impl DisplayAs for VisibilityFilterExec {
 impl ExecutionPlan for VisibilityFilterExec {
     fn name(&self) -> &str {
         "VisibilityFilterExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     fn metrics(&self) -> Option<MetricsSet> {

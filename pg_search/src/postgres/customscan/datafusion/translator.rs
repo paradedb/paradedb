@@ -704,7 +704,7 @@ mod tests {
 
     /// First `HashJoinExec`'s `(null_equality, join_type)`, or `None`.
     fn find_hash_join_attrs(plan: &dyn ExecutionPlan) -> Option<(NullEquality, JoinType)> {
-        if let Some(hj) = plan.as_any().downcast_ref::<HashJoinExec>() {
+        if let Some(hj) = plan.downcast_ref::<HashJoinExec>() {
             return Some((hj.null_equality(), *hj.join_type()));
         }
         plan.children()

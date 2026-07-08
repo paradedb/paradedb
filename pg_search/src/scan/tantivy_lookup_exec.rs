@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{
@@ -95,7 +94,7 @@ impl TantivyLookupExec {
             let rewritten: Vec<_> = input_ordering
                 .iter()
                 .filter_map(|sort_expr| {
-                    if let Some(col) = sort_expr.expr.as_any().downcast_ref::<Column>() {
+                    if let Some(col) = sort_expr.expr.downcast_ref::<Column>() {
                         let new_idx = col.index();
                         if new_idx < output_schema.fields().len() {
                             let new_col =
@@ -228,10 +227,6 @@ impl DisplayAs for TantivyLookupExec {
 impl ExecutionPlan for TantivyLookupExec {
     fn name(&self) -> &str {
         "TantivyLookupExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     fn metrics(&self) -> Option<MetricsSet> {

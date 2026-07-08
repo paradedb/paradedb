@@ -221,6 +221,7 @@ impl MVCCDirectory {
                             &meta,
                             heap_fetch_state,
                             expression_state,
+                            &self.mvcc_style,
                         )
                         .expect("Failed to index mutable segment.")
                     })
@@ -273,6 +274,20 @@ impl MVCCDirectory {
                 LoadedSegmentMetaEntry::Memory { meta, .. } => (*id, *meta),
             })
             .collect()
+    }
+
+    /// Return the [`SegmentMetaEntry`] for a single loaded segment.
+    ///
+    /// Unlike [`Self::all_entries`], this avoids cloning the entire metadata map when only one
+    /// entry is needed.
+    pub(crate) fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
+        self.all_entries
+            .lock()
+            .get(segment_id)
+            .map(|entry| match entry {
+                LoadedSegmentMetaEntry::Persisted { meta, .. }
+                | LoadedSegmentMetaEntry::Memory { meta, .. } => *meta,
+            })
     }
 
     /// Returns the [`AtomicUsize`] where the number of segments that survive [`load_metas()`]'
@@ -607,6 +622,7 @@ pub fn index_memory_segment(
     segment: &SegmentMetaEntry,
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
+    mvcc_style: &MvccSatisfies,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
@@ -681,6 +697,27 @@ pub fn index_memory_segment(
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
     let mut isnull = vec![false; heaptupdesc.len()];
 
+    // Query-visible materialization (Snapshot / ParallelWorker / LargestSegment) fetches each ctid
+    // with the active MVCC snapshot so that detoasting is safe: that registered snapshot holds back
+    // the global xmin horizon, preventing a concurrent VACUUM from reclaiming the external TOAST
+    // chunks we read. Fetching such rows with SnapshotAny could instead select DEAD /
+    // RECENTLY_DEAD versions whose TOAST has already been (or is being) freed, raising spurious
+    // "missing/unexpected chunk number ... in pg_toast_*" errors. Because materialization happens
+    // lazily inside query planning or execution, the active snapshot here is the snapshot that
+    // defines query-visible heap rows, so indexing an invisible ctid as empty cannot change a
+    // query result or estimate.
+    //
+    // Maintenance materialization (e.g. Mergeable) must index every live ctid regardless of any
+    // single snapshot, since the resulting segment may serve future snapshots, so it keeps using
+    // SnapshotAny and filters dead tuples with HeapTupleSatisfiesVacuum.
+    // See: https://github.com/paradedb/paradedb/issues/5365
+    let query_visible = match mvcc_style {
+        MvccSatisfies::Snapshot
+        | MvccSatisfies::ParallelWorker(_)
+        | MvccSatisfies::LargestSegment => true,
+        MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
+    };
+
     'next_ctid: for ctid in ctids {
         // Guard against stale ctids referencing heap blocks truncated by VACUUM.
         if !unsafe {
@@ -700,20 +737,18 @@ pub fn index_memory_segment(
         u64_to_item_pointer(ctid, &mut ipd);
 
         unsafe {
-            // NOTE: We fetch using SnapshotAny, and then filter out tuples that are not visible
-            // to any transaction using `HeapTupleSatisfiesVacuum`. This allows us to load and
-            // merge mutable segments even before all of their data is necessarily visible in the
-            // current transaction, but excludes tuples that are fully "dead".
-            //
-            // TODO: We could potentially actually apply the MvccSatisfies setting here, which
-            // would avoid a small amount of indexing for MvccSatisfies::Snapshot (any future
-            // txns, essentially).
+            // See `query_visible` above for why these two styles fetch with different snapshots.
+            let fetch_snapshot = if query_visible {
+                pg_sys::GetActiveSnapshot()
+            } else {
+                &raw mut pg_sys::SnapshotAnyData
+            };
             let mut call_again = false;
             'next_hot_chain: loop {
                 let fetched = pg_sys::table_index_fetch_tuple(
                     heap_fetch_state.scan,
                     &mut ipd,
-                    &raw mut pg_sys::SnapshotAnyData,
+                    fetch_snapshot,
                     heap_fetch_state.slot(),
                     // call_again: This parameter will be set to true if this `ctid` points to multiple
                     // tuples as part of a HOT chain. We must attempt to find one live version of the
@@ -726,12 +761,19 @@ pub fn index_memory_segment(
                 );
 
                 if !fetched {
-                    // Due to heap page pruning, some tuples might no longer exist (regardless of our
-                    // SnapshotAny setting), so we can skip indexing their content.
+                    // Either the tuple is not visible to `fetch_snapshot` (query-visible mode) or
+                    // heap page pruning removed it (SnapshotAny mode). In both cases there is no
+                    // content to index for this ctid, so insert an empty document.
                     writer.insert(tantivy::TantivyDocument::new(), ctid, || {
                         unreachable!("No limits configured: should not finalize.")
                     })?;
                     continue 'next_ctid;
+                }
+
+                if query_visible {
+                    // Visible to the snapshot: skip the SnapshotAny dead-tuple filtering below and
+                    // index it.
+                    break;
                 }
 
                 let mut htsv_result = {
@@ -769,6 +811,11 @@ pub fn index_memory_segment(
                 }
 
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
+                    // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
+                    // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
+                    // skip so the slot releases its buffer pin.
+                    pg_sys::ExecClearTuple(heap_fetch_state.slot());
+
                     // This copy of the tuple is no longer visible to any transaction. Are there
                     // more in the HOT chain?
                     if call_again {

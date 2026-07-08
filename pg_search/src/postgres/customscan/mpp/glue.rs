@@ -36,11 +36,12 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
+use datafusion_distributed::proto::SetPlanRequest;
 use datafusion_distributed::shm::{
     self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
     SendBatchStats, SetPlanFrame, Wakeup,
 };
-use datafusion_distributed::{SetPlanRequest, TaskKey};
+use datafusion_distributed::TaskKey;
 
 use crate::postgres::customscan::mpp::dispatch::StagePlan;
 
@@ -48,6 +49,7 @@ use crate::gucs::{
     enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
+use crate::postgres::ParallelScanState;
 
 /// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
 /// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
@@ -85,75 +87,10 @@ pub fn mpp_worker_count() -> u32 {
     gucs_mpp_worker_count() as u32
 }
 
-/// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
-/// `leader_setup` / workers see in `initialize_worker_custom_scan`. Tells workers where the
-/// MPP region begins (past the customscan's `ParallelScanState` block) and which entry in
-/// `plan.sources()` is the partitioning source.
-///
-/// DSM layout used by every customscan opting into MPP:
-///
-/// ```text
-/// [0 .. 8)                       u64 mpp_offset            (offset to MPP region)
-/// [8 .. 16)                      u64 partitioning_source_idx
-/// [pscan_offset .. mpp_offset)   ParallelScanState (variable size)
-/// [mpp_offset .. total)          MPP region (MppDsmHeader + queues + plan_bytes)
-/// ```
-///
-/// Workers don't carry the source manifests the leader saw, so these two `u64`s let them skip
-/// past the `ParallelScanState` block and key `index_segment_ids` the same way as the leader.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CustomScanMppHeader {
-    /// Byte offset of the MPP region within the coordinate. Always a real, initialized region:
-    /// the leader errors out of `initialize_dsm_custom_scan` on any setup failure, before
-    /// `LaunchParallelWorkers`, so no worker ever reads a half-written header.
-    pub mpp_offset: u64,
-    pub partitioning_source_idx: u64,
-}
-
-const CUSTOM_SCAN_MPP_HEADER_SIZE: usize = std::mem::size_of::<CustomScanMppHeader>();
-
-/// Round `n` up to the nearest `MAXIMUM_ALIGNOF` boundary. Used to align section boundaries
-/// inside the customscan's DSM coordinate so the `ParallelScanState` block and the MPP region
-/// each start on aligned bytes.
-pub fn mpp_align(n: usize) -> usize {
-    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
-    n.next_multiple_of(a)
-}
-
-// The shared-memory transport's layout pins 8-byte alignment (its ring headers hold `u64` atomics).
-// `mpp_align` hands it MAXALIGN-aligned bases, so the two must agree or the rings would be
-// misaligned, which is UB-class.
+// The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
+// builder's `shm_toc_allocate` hands out MAXALIGN-aligned blobs for the mesh region, so the two
+// must agree or the rings would be misaligned, which is UB-class.
 const _: () = assert!(pg_sys::MAXIMUM_ALIGNOF == 8);
-
-/// Byte offset of the `ParallelScanState` block within the customscan's DSM coordinate. Lives
-/// right after the [`CustomScanMppHeader`], MAXALIGN-padded.
-pub fn pscan_offset() -> usize {
-    mpp_align(CUSTOM_SCAN_MPP_HEADER_SIZE)
-}
-
-/// Read the [`CustomScanMppHeader`] stamped by the leader at offset 0 of the DSM coordinate.
-///
-/// # Safety
-/// `coordinate` must point at a DSM coordinate that the leader populated via
-/// [`write_custom_scan_header`]. Callers in `initialize_worker_custom_scan` get this pointer
-/// from PG and are responsible for confirming it's the expected layout.
-pub unsafe fn read_custom_scan_header(coordinate: *const c_void) -> CustomScanMppHeader {
-    unsafe { *(coordinate as *const CustomScanMppHeader) }
-}
-
-/// Stamp the [`CustomScanMppHeader`] at offset 0 of the DSM coordinate so workers can read
-/// `mpp_offset` and `partitioning_source_idx` without re-deriving them from manifests.
-///
-/// # Safety
-/// `coordinate` must point at the leader's DSM coordinate from `initialize_dsm_custom_scan`,
-/// with at least `size_of::<CustomScanMppHeader>()` bytes writable. The customscan's
-/// `estimate_dsm_custom_scan` is responsible for reserving the space.
-pub unsafe fn write_custom_scan_header(coordinate: *mut c_void, header: CustomScanMppHeader) {
-    unsafe {
-        *(coordinate as *mut CustomScanMppHeader) = header;
-    }
-}
 
 /// Per-edge queue size from the GUC.
 pub(super) fn mpp_queue_size() -> usize {
@@ -205,14 +142,17 @@ pub struct MppLeaderState {
     /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
     /// path before workers relaunch.
     pub plans_delivered: std::sync::atomic::AtomicBool,
-    /// Borrowed pointer to the parallel context PG passed to
-    /// `initialize_dsm_custom_scan`. Lifetime: valid for the duration of
-    /// the parallel exec; PG destroys it after `ExecParallelFinish`. The
-    /// leader reads `(*pcxt).nworkers_launched` at exec time to detect
-    /// short worker launches (see #5061 for the long-term plan); the
-    /// raw pointer is the only way to get at that field since the
-    /// CustomScan exec callback doesn't get `ParallelContext` directly.
-    pub pcxt: *mut pg_sys::ParallelContext,
+    /// The builder handle owning the launched producer workers. The leader controls the launch, so
+    /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
+    /// the workers and destroy the parallel context. `None` until `launch` installs it on the
+    /// success path.
+    pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
+    /// The shared `ParallelScanState` the leader populated in DSM. The leader runs the top fragment
+    /// itself, and a non-partitioning source can land there (e.g. the SEMI/ANTI broadcast strategy),
+    /// where the scan claims per-source segments against this state just like a worker. The leader
+    /// stashes it on its custom state so the codec installs it into those providers. Null until
+    /// `launch` sets it.
+    pub parallel_state: *mut ParallelScanState,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
@@ -229,17 +169,15 @@ unsafe fn self_receiver_token() -> u64 {
     pack_receiver(my_pgprocno, my_pid)
 }
 
-/// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
-/// the [`MppMesh`] handle, and serializes the worker plan into DSM.
+/// Initialize the leader's ring mesh in a DSM region and build its [`MppLeaderState`]. Called by
+/// the leader-driven [`crate::postgres::customscan::mpp::launch`] on a builder-allocated region.
 ///
 /// # Safety
-/// - `coordinate` must be the DSM region pointer PG supplied to
-///   `initialize_dsm_custom_scan`.
+/// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
-///   so the leader doesn't overrun the DSM region PG allocated.
+///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
-    pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
     stage_plans: Vec<StagePlan>,
 ) -> Result<MppLeaderState, String> {
@@ -276,18 +214,43 @@ pub unsafe fn leader_setup(
         );
     }
     let control_senders = Arc::new(std::sync::Mutex::new(attach.outbound_senders));
-    // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
-    // are cleaned up; release the DSM-backed senders while the mapping is still alive.
-    let on_abort = Arc::clone(&control_senders);
-    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, move || {
-        on_abort.lock().unwrap().clear();
-    });
+    // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
+    // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
+    mesh.set_cancel_senders(Arc::clone(&control_senders));
+    // Forget these senders instead of dropping them: `AbortTransaction` unmaps the DSM before the
+    // xact callbacks run, so a sender's drop would write its detach signal into a freed ring
+    // header. This DF-D rev has no ring liveness flag, so the drop can't tell the mapping is gone
+    // and guard itself. The signal has no audience anyway, since the abort already terminated the
+    // workers. `PreCommit` covers a subtransaction rollback where no abort fires; a populated vec
+    // at either event means the mapping is already gone (the success path clears it in
+    // `shutdown_custom_scan`).
+    //
+    // TODO: once the DF-D pin has `MppMesh::mark_detached` / `detached_flag`, flip that
+    // process-local flag here and drop the senders normally, so their own `Drop` skips the
+    // freed-ring write and frees their heap instead of leaking it.
+    let forget_senders = |senders: &Arc<std::sync::Mutex<Vec<Option<MppSender>>>>| {
+        let senders = Arc::clone(senders);
+        move || {
+            for sender in senders.lock().unwrap().drain(..).flatten() {
+                std::mem::forget(sender);
+            }
+        }
+    };
+    pgrx::register_xact_callback(
+        pgrx::PgXactCallbackEvent::Abort,
+        forget_senders(&control_senders),
+    );
+    pgrx::register_xact_callback(
+        pgrx::PgXactCallbackEvent::PreCommit,
+        forget_senders(&control_senders),
+    );
     Ok(MppLeaderState {
         mesh,
         control_senders,
         stage_plans: std::sync::Mutex::new(stage_plans),
         plans_delivered: std::sync::atomic::AtomicBool::new(false),
-        pcxt,
+        finish: None,
+        parallel_state: std::ptr::null_mut(),
     })
 }
 
@@ -426,4 +389,96 @@ pub unsafe fn worker_setup(
         plan_bytes: attach.plan_bytes,
         mesh: attach.mesh,
     })
+}
+
+/// Merge the worker fragments' `TaskMetrics` frames into an executed `DistributedExec` plan for
+/// EXPLAIN ANALYZE. The workers send their frames as they exit, after the leader's gather
+/// already finished, so nothing has drained the leader inbox since; sweep it, file the frames
+/// into the plan's metrics store, and rewrite. Returns the rewritten plan, or `None` when there
+/// is nothing to merge (serial plan, metrics disabled) or a frame never arrived (the rewrite is
+/// bounded rather than trusting `wait_for_metrics`, which would block on a dead worker).
+/// Drain the workers' `TaskMetrics` frames off the mesh into the plan's metrics store.
+///
+/// Must run while the parallel DSM is still mapped: the mesh receivers read ring memory inside
+/// it. `shutdown_custom_scan` is the spot; the EXPLAIN hook runs after `ExecShutdownNode` tore
+/// the DSM down, so draining there reads unmapped memory.
+pub fn drain_worker_metrics(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    mesh: &Arc<MppMesh>,
+) -> Option<()> {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    use datafusion_distributed::shm::CooperativeDrainSet;
+    use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
+
+    let dist = plan.downcast_ref::<DistributedExec>()?;
+    let store = dist.metrics_store()?;
+
+    // The wire frames carry (stage, task); the query uuid lives on the plan's own stages. Count
+    // the expected reports while walking: one per task of every producer stage.
+    let mut query_id = None;
+    let mut expected = 0usize;
+    let _ = plan.apply(|node| {
+        if let Some(nb) = node.as_network_boundary() {
+            let stage = nb.input_stage();
+            query_id.get_or_insert_with(|| stage.query_id().as_bytes().to_vec());
+            expected += stage.task_count();
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    let query_id = query_id?;
+
+    // The workers send their metrics frames right after their last EOF, which may still be in
+    // flight when shutdown reaches this node; wait briefly, bounded, and stop as soon as every
+    // expected (stage, task) reported. Draining keeps the DSM ring from backing up before detach.
+    let mut rx = mesh.take_task_metrics_receiver()?;
+    let mut got = crate::api::HashSet::default();
+    for _ in 0..100 {
+        let _ = mesh.try_drain_pass();
+        while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
+            store.insert(
+                datafusion_distributed::TaskKey {
+                    query_id: query_id.clone(),
+                    stage_id: stage_id as u64,
+                    task_number: task_number as u64,
+                },
+                metrics,
+            );
+            got.insert((stage_id, task_number));
+        }
+        if got.len() >= expected {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    Some(())
+}
+
+/// Rewrite the executed plan with the worker metrics collected by [`drain_worker_metrics`].
+/// Mesh-free, so it is safe at EXPLAIN-render time, after the DSM is gone.
+///
+/// Owns a small timer-enabled runtime: the rewrite waits on the metrics store, and the bound on
+/// that wait needs timers, which the scans' cached runtimes don't enable.
+pub fn merge_worker_metrics(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    use datafusion_distributed::DistributedExec;
+
+    plan.downcast_ref::<DistributedExec>()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    runtime
+        .block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                datafusion_distributed::rewrite_distributed_plan_with_metrics(
+                    Arc::clone(plan),
+                    datafusion_distributed::DistributedMetricsFormat::PerTask,
+                ),
+            )
+            .await
+        })
+        .ok()?
+        .ok()
 }

@@ -47,7 +47,7 @@ impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
         plan: &Arc<dyn ExecutionPlan>,
         _: &ConfigOptions,
     ) -> Option<TaskEstimation> {
-        if plan.as_any().downcast_ref::<BroadcastExec>().is_some() {
+        if plan.is::<BroadcastExec>() {
             Some(TaskEstimation::maximum(1))
         } else {
             None
@@ -59,8 +59,8 @@ impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
         _: &Arc<dyn ExecutionPlan>,
         _: usize,
         _: &ConfigOptions,
-    ) -> Option<Arc<dyn ExecutionPlan>> {
-        None
+    ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
+        Ok(None)
     }
 }
 
@@ -109,6 +109,9 @@ mod tests {
         let inner = empty_leaf();
         let broadcast: Arc<dyn ExecutionPlan> = Arc::new(BroadcastExec::new(inner, 1));
         let est = BroadcastBuildSideOneTaskEstimator;
-        assert!(est.scale_up_leaf_node(&broadcast, 7, &cfg()).is_none());
+        assert!(est
+            .scale_up_leaf_node(&broadcast, 7, &cfg())
+            .unwrap()
+            .is_none());
     }
 }

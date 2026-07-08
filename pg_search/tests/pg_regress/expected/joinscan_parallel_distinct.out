@@ -101,7 +101,6 @@ SET enable_indexscan = false;
 SET max_parallel_workers = 8;
 SET max_parallel_workers_per_gather = 2;
 SET parallel_leader_participation = false;
-SET paradedb.enable_columnar_sort = true;
 SET debug_parallel_query = on;
 -- The plan must be a Parallel Custom Scan (ParadeDB Join Scan); without the fix
 -- this is a native Hash/Nested Loop plan and a "JoinScan not used" warning.
@@ -114,8 +113,8 @@ WHERE u.name @@@ 'bob'
   AND p.name @@@ 'bob'
 ORDER BY u.id, p.id, o.id
 LIMIT 48;
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Gather Merge
@@ -127,19 +126,18 @@ LIMIT 48;
                      Distinct: true
                      Order By: u.id asc, o.id asc, u.name asc
                      DataFusion Physical Plan: 
-                       : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, col_4@3 as col_4, ctid_0@4 as ctid_0, ctid_1@6 as ctid_1, ctid_2@5 as ctid_2]
-                       :   SortExec: TopK(fetch=48), expr=[col_1@0 ASC NULLS LAST, col_4@3 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                       :     AggregateExec: mode=Single, gby=[id@1 as col_1, name@2 as col_2, id@4 as col_3, id@6 as col_4], aggr=[ctid_0, ctid_2, ctid_1]
-                       :       VisibilityFilterExec: tables=[u, p, o]
-                       :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@5, age@1)], projection=[ctid_0@0, id@1, name@2, ctid_1@3, id@4, ctid_2@6, id@8]
-                       :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
-                       :             CooperativeExec
-                       :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-                       :             CooperativeExec
-                       :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                       : SortExec: TopK(fetch=48), expr=[col_1@0 ASC NULLS LAST, col_4@3 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                       :   AggregateExec: mode=Single, gby=[id@1 as col_1, name@2 as col_2, id@4 as col_3, id@6 as col_4], aggr=[min(u_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(o_2.ctid_2) as ctid_2]
+                       :     VisibilityFilterExec: tables=[u, p, o]
+                       :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@5, age@1)], projection=[ctid_0@0, id@1, name@2, ctid_1@3, id@4, ctid_2@6, id@8]
+                       :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
                        :           CooperativeExec
-                       :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(23 rows)
+                       :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                       :           CooperativeExec
+                       :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                       :         CooperativeExec
+                       :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 -- And it must return the correct rows (DISTINCT + LIMIT).
 SELECT count(*) AS distinct_limited_rows

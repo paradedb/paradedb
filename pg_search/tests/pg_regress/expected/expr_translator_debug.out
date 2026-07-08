@@ -76,7 +76,7 @@ DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", t
            :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
            :         ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_927de030(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
 (14 rows)
 
 -- =====================================================================
@@ -111,7 +111,7 @@ DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, a
            :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
            :         ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
 (14 rows)
 
 -- =====================================================================
@@ -151,7 +151,7 @@ DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=i
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
 (14 rows)
 
 -- Cleanup

@@ -152,6 +152,7 @@ fn query_is_exists(query: &SearchQueryInput) -> bool {
             must,
             should,
             must_not,
+            ..
         } => {
             let clauses: Vec<_> = must
                 .iter()
@@ -302,6 +303,7 @@ pub fn search_with_query_input(
                         field: field.into(),
                         query: crate::query::pdb_query::pdb::Query::Exists,
                     }],
+                    minimum_should_match: None,
                 }),
             };
 

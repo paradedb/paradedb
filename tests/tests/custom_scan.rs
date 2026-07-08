@@ -16,13 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 // Tests for ParadeDB's Custom Scan implementation
-mod fixtures;
 
-use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::{Number, Value};
 use sqlx::PgConnection;
+use tests::fixtures::*;
 
 #[rstest]
 fn corrupt_targetlist(mut conn: PgConnection) {
@@ -785,19 +784,31 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
         INSERT INTO test (message, severity) VALUES ('wine a', 6);
         INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+        ANALYZE test;
     "#.execute(&mut conn);
 
     r#"
         SET enable_indexonlyscan to OFF;
         SET enable_indexscan to OFF;
         SET max_parallel_workers = 32;
+        SET max_parallel_workers_per_gather = 2;
+        -- Force the parallel path on this tiny fixture: with no worker-startup
+        -- cost the expense model parallelizes any non-zero scan work, which is
+        -- what exercises the issue #2432 parallel-custom-scan + jsonb code path.
+        SET parallel_setup_cost = 0;
+        SET parallel_tuple_cost = 0;
+        SET min_parallel_table_scan_size = 0;
     "#
     .execute(&mut conn);
 
+    // A multi-term union ("beer wine") has non-zero per-match scoring work so the
+    // cost model can parallelize it. (A single Block-WAND-prunable term under
+    // score-DESC has zero per-match work and is correctly run serial -- #4664 --
+    // so it would never produce a parallel plan to assert on here.)
     let (plan, ) = r#"
         explain (FORMAT json) select id
         from test
-        where message @@@ '{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}'::jsonb
+        where message @@@ '{"parse_with_field":{"field":"message","query_string":"beer wine","lenient":null,"conjunction_mode":null}}'::jsonb
         order by pdb.score(id) desc
         limit 10;
     "#.fetch_one::<(serde_json::Value, )>(&mut conn);

@@ -193,6 +193,16 @@ pub unsafe fn combined_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     sizes.into_iter().collect()
 }
 
+/// Returns the wall-clock time the given bm25 index was built, or NULL for indices created
+/// before build-time stamping was added.
+#[pg_extern]
+pub fn index_created_at(index: PgRelation) -> Option<pgrx::datum::TimestampWithTimeZone> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    MetaPage::open(&index)
+        .created_at()
+        .and_then(|ts| pgrx::datum::TimestampWithTimeZone::try_from(ts).ok())
+}
+
 #[pg_extern]
 unsafe fn merge_info(
     index: PgRelation,

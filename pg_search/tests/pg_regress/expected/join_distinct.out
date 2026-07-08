@@ -123,7 +123,7 @@ ORDER BY p.name
                Order By: p.name asc, s.name asc
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
+                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                  :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
@@ -264,7 +264,7 @@ ORDER BY paradedb.score(p.id) DESC, p.name
                Order By: pdb.score() desc, p.name asc
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, score@1 as col_2], aggr=[ctid_0, ctid_1]
+                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, score@1 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                  :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@0, score@2, ctid_1@3, name@5]
                  :         CooperativeExec
@@ -323,8 +323,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name
    ->  Unique
@@ -337,20 +337,18 @@ ORDER BY p.name
                Distinct: true
                Order By: p.name asc, s.name asc, c.name asc
                DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
-                 :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       VisibilityFilterExec: tables=[s, c, p]
-                 :         ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, query="all"
-                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, query="all"
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+                 : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(c_1.ctid_1) as ctid_1, min(p_2.ctid_2) as ctid_2]
+                 :     VisibilityFilterExec: tables=[s, c, p]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_0@3, name@4, ctid_1@0, name@2, ctid_2@5, name@7]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all"
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
@@ -442,7 +440,7 @@ ORDER BY s.name
                Order By: s.name asc, p.name asc
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
+                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                  :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
@@ -557,10 +555,11 @@ WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                  Output: p.name, p.description, p.supplier_id
                                  Table: dist_products
                                  Index: dist_products_bm25_idx
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 -- =============================================================================
 -- TEST 11: Fallback — COUNT(*) with LIMIT
@@ -584,7 +583,7 @@ WHERE p.description @@@ 'wireless'
          Indexes: dist_products_bm25_idx (p), dist_suppliers_bm25_idx (s)
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+           : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[]
            :     CooperativeExec
            :       PgSearchScan: segments=1, query="all"
@@ -640,11 +639,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
                            Output: p.name, p.supplier_id
                            Table: dist_products
                            Index: dist_products_bm25_idx
+                           Worker Selection: Cost model
                            Exec Method: ColumnarExecState
                            Fast Fields: name, supplier_id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(21 rows)
 
 -- =============================================================================
 -- TEST 14: DISTINCT with search predicates on both sides
@@ -736,7 +736,7 @@ LIMIT 10;
                Order By: pdb.score() desc, p.id asc, p.name asc
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_0, ctid_1]
+                 :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                  :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
                  :         CooperativeExec
@@ -876,7 +876,7 @@ ORDER BY p.name
                Order By: p.name asc, s.name asc
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
+                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                  :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
@@ -887,11 +887,283 @@ ORDER BY p.name
 
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
 -- =============================================================================
+-- TEST 18: DISTINCT with NOT IN (Anti Join)
+-- =============================================================================
+CREATE TABLE persons (id SERIAL PRIMARY KEY, name TEXT);
+CREATE TABLE jobs (id SERIAL PRIMARY KEY, person_id INT REFERENCES persons(id), title TEXT);
+INSERT INTO persons VALUES (1,'Alice'), (2,'Bob'), (3,'Charlie');
+INSERT INTO jobs VALUES
+  (1, 1, 'Senior Developer'),  -- Alice
+  (2, 1, 'Tech Lead'),         -- Alice
+  (3, 2, 'Developer'),         -- Bob  ← matches "developer"
+  (4, 2, 'Recruiter'),         -- Bob  ← should exclude Bob
+  (5, 3, 'Recruiter');         -- Charlie
+CREATE INDEX jobs_bm25 ON jobs USING bm25 (id, person_id, title) WITH (key_field='id');
+CREATE INDEX persons_bm25 ON persons USING bm25 (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Custom Scan (ParadeDB Join Scan)
+               Relation Tree: j INNER (p ANTI j2)
+               Join Cond: p.id = j.person_id, p.id = j2.person_id
+               Limit: 50
+               Distinct: true
+               Order By: p.id asc, p.name asc
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@2 as col_1, name@3 as col_2], aggr=[min(j_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                 :     VisibilityFilterExec: tables=[j, p]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, name@4]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+                 :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@1)]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(20 rows)
+
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id | name  
+----+-------
+  1 | Alice
+(1 row)
+
+SET paradedb.enable_join_custom_scan = off;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Incremental Sort
+               Sort Key: p.id, p.name
+               Presorted Key: p.id
+               ->  Merge Join
+                     Merge Cond: (p.id = j.person_id)
+                     ->  Sort
+                           Sort Key: p.id
+                           ->  Seq Scan on persons p
+                                 Filter: (NOT (ANY (id = (hashed SubPlan 1).col1)))
+                                 SubPlan 1
+                                   ->  Custom Scan (ParadeDB Base Scan) on jobs j2
+                                         Table: jobs
+                                         Index: jobs_bm25
+                                         Exec Method: ColumnarExecState
+                                         Fast Fields: person_id
+                                         Scores: false
+                                         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                     ->  Sort
+                           Sort Key: j.person_id
+                           ->  Custom Scan (ParadeDB Base Scan) on jobs j
+                                 Table: jobs
+                                 Index: jobs_bm25
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: person_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
+(28 rows)
+
+SELECT DISTINCT p.id, p.name
+FROM persons p
+JOIN jobs j ON j.person_id = p.id
+WHERE j.id @@@ paradedb.parse('title:developer')
+  AND p.id NOT IN (
+    SELECT j2.person_id
+    FROM jobs j2
+    WHERE j2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY p.id
+LIMIT 50;
+ id | name  
+----+-------
+  1 | Alice
+(1 row)
+
+-- =============================================================================
+-- TEST 19: DISTINCT with NOT EXISTS (Anti Join)
+-- =============================================================================
+CREATE TABLE profiles_positions (
+    id SERIAL PRIMARY KEY,
+    profile_id INT,
+    group_id TEXT,
+    deleted_at TIMESTAMP,
+    title TEXT
+);
+INSERT INTO profiles_positions (profile_id, group_id, deleted_at, title) VALUES
+  (1, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Senior Developer'),
+  (1, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Tech Lead'),
+  (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Developer'),
+  (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter'),
+  (3, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter');
+CREATE INDEX profiles_positions_bm25 ON profiles_positions USING bm25 (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Custom Scan (ParadeDB Join Scan)
+               Relation Tree: pp ANTI pp2
+               Join Cond: pp2.profile_id = pp.profile_id
+               Join Predicate: heap:{CONST :consttype 16 :consttypmod -1 :constcollid 0 :constlen 1 :constbyval true :constisnull false :location -1 :constvalue 1 [ 1 0 0 0 0 0 0 0 ]}
+               Limit: 50
+               Distinct: true
+               Order By: pp.profile_id asc
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[profile_id@1 as col_1], aggr=[min(pp_0.ctid_0) as ctid_0]
+                 :     VisibilityFilterExec: tables=[pp]
+                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@1, profile_id@0)]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(18 rows)
+
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ profile_id 
+------------
+          1
+(1 row)
+
+SET paradedb.enable_join_custom_scan = off;
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Merge Anti Join
+               Merge Cond: (pp.profile_id = pp2.profile_id)
+               ->  Sort
+                     Sort Key: pp.profile_id
+                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp
+                           Table: profiles_positions
+                           Index: profiles_positions_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+               ->  Sort
+                     Sort Key: pp2.profile_id
+                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp2
+                           Table: profiles_positions
+                           Index: profiles_positions_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(20 rows)
+
+SELECT DISTINCT profile_id
+FROM profiles_positions pp
+WHERE deleted_at IS NULL
+  AND group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'
+  AND id @@@ paradedb.parse('title:developer')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM profiles_positions pp2
+    WHERE pp2.deleted_at IS NULL
+      AND pp2.group_id = pp.group_id
+      AND pp2.profile_id = pp.profile_id
+      AND pp2.id @@@ paradedb.parse('title:recruiter')
+  )
+ORDER BY profile_id
+LIMIT 50;
+ profile_id 
+------------
+          1
+(1 row)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS dist_products CASCADE;
 DROP TABLE IF EXISTS dist_suppliers CASCADE;
 DROP TABLE IF EXISTS dist_categories CASCADE;
+DROP TABLE IF EXISTS persons CASCADE;
+DROP TABLE IF EXISTS jobs CASCADE;
+DROP TABLE IF EXISTS profiles_positions CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

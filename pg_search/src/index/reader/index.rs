@@ -57,6 +57,21 @@ use tantivy::{
 /// `SearchIndexReader::search_top_k_in_segments`.
 pub const MAX_TOPK_FEATURES: usize = 5;
 
+#[derive(Debug, Clone, Copy)]
+pub struct DocsEstimate {
+    pub matching_docs: usize,
+    pub total_docs: u64,
+    pub query_cost: u64,
+}
+
+fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
+    if segment_doc_proportion > 0.0 {
+        (value as f64 / segment_doc_proportion).ceil() as u64
+    } else {
+        value
+    }
+}
+
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -560,17 +575,6 @@ impl SearchIndexReader {
         self.total_segment_count
     }
 
-    pub fn estimated_docs_in_segments(&self, segment_ids: impl Iterator<Item = SegmentId>) -> u64 {
-        segment_ids
-            .map(|id| {
-                let ord = self
-                    .segment_ordinal_by_id(&id)
-                    .unwrap_or_else(|| panic!("segment {id} should exist"));
-                self.searcher.segment_reader(ord).num_docs() as u64
-            })
-            .sum()
-    }
-
     /// Returns the total number of docs in the index, according to the MVCC directory.
     pub fn total_docs(&self) -> u64 {
         self.total_docs
@@ -769,6 +773,17 @@ impl SearchIndexReader {
         )
     }
 
+    /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
+    pub(crate) fn orderby_uses_score_desc_topk_collector(orderby_info: &[OrderByInfo]) -> bool {
+        matches!(
+            orderby_info,
+            [OrderByInfo {
+                feature: OrderByFeature::Score { .. },
+                direction,
+            }] if !direction.is_asc()
+        )
+    }
+
     /// Search the Tantivy index for the Top K matching documents in specific segments.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
@@ -777,6 +792,8 @@ impl SearchIndexReader {
     /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
     /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
     /// results for MVCC visibility, and re-query if necessary.
+    ///
+    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -784,7 +801,7 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
-        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -804,7 +821,7 @@ impl SearchIndexReader {
                 macro_rules! sort_fast_value {
                     ($type:ty) => {{
                         let mut computer = SortByStaticFastValue::<$type>::for_field(sort_field);
-                        if let Some(state) = parallel_state {
+                        if let Some(state) = parallel_state_holding_shared_threshold {
                             computer = computer.with_shared_threshold(Some(std::sync::Arc::new(
                                 crate::postgres::shared_threshold::new_fast_value_threshold(
                                     state,
@@ -870,7 +887,7 @@ impl SearchIndexReader {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: ComparatorEnum = (*direction).into();
                 let mut computer = SortBySimilarityScore::new();
-                if let Some(state) = parallel_state {
+                if let Some(state) = parallel_state_holding_shared_threshold {
                     computer =
                         SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
                             crate::postgres::shared_threshold::new_score_threshold(state),
@@ -898,7 +915,7 @@ impl SearchIndexReader {
                 n,
                 offset,
                 aux_collector,
-                parallel_state,
+                parallel_state_holding_shared_threshold,
             ),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
@@ -922,7 +939,7 @@ impl SearchIndexReader {
     /// than the first sort field type: to do so, we'd likely need a macro which generated all
     /// possible permutations of `S: SortKeyComputer` types for three columns (which would be 7^3=343 copies
     /// of the method at time of writing).
-    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
     fn top_in_segments<S>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1074,6 +1091,8 @@ impl SearchIndexReader {
     /// special case it.
     ///
     /// NOTE: Scores cannot be NULL, so we do not need to differentiate the nulls-first/last cases.
+    ///
+    /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -1081,8 +1100,13 @@ impl SearchIndexReader {
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
-        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearchResults {
+        // NOTE: which `sortdir` arm uses the Block-WAND pruning collector below
+        // (only Desc, via `order_by::<Score>`) defines
+        // `orderby_uses_score_desc_topk_collector` -- the plan-time gate that costs
+        // ordered TopK as serial-vs-parallel (#4664). If you change which direction
+        // prunes here, update that predicate to match, or the planner will mis-cost.
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
@@ -1108,7 +1132,7 @@ impl SearchIndexReader {
             // can use tantivy's score directly, which allows for Block-WAND
             SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
                 let mut computer = SortBySimilarityScore::new();
-                if let Some(state) = parallel_state {
+                if let Some(state) = parallel_state_holding_shared_threshold {
                     computer =
                         SortBySimilarityScore::with_shared_threshold(Some(std::sync::Arc::new(
                             crate::postgres::shared_threshold::new_score_threshold(state),
@@ -1130,13 +1154,20 @@ impl SearchIndexReader {
     /// Given an estimate of the total number of rows in the relation, return estimates of:
     /// 1. The number of rows which will be matched by the configured query.
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
+    /// 3. Tantivy's relative cost to drive the configured query's docset.
     ///
     /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
     /// to contain exactly 0 or 1 Segment.
-    pub fn estimate_docs(&self, total_docs: RowEstimate) -> (usize, u64) {
+    pub fn estimate_docs(&self, total_docs: RowEstimate) -> DocsEstimate {
         match self.searcher.segment_readers().len() {
             1 => {}
-            0 => return (0, 0),
+            0 => {
+                return DocsEstimate {
+                    matching_docs: 0,
+                    total_docs: 0,
+                    query_cost: 0,
+                }
+            }
             x => {
                 panic!(
                     "estimate_docs(): expected an index with only one segment, \
@@ -1152,25 +1183,26 @@ impl SearchIndexReader {
 
         // investigate the size_hint.  it will often give us a good enough value
         let mut count = scorer.size_hint() as usize;
+        let mut cost = scorer.cost();
         if count == 0 {
             // but when it doesn't, we need to do a full count
             count = scorer.count_including_deleted() as usize;
+            cost = cost.max(count as u64);
         }
 
-        match total_docs {
-            RowEstimate::Known(total_docs) if total_docs > 0 => {
-                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
-                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
-                (matching, total_docs)
-            }
-            _ => {
-                // If total docs is unknown or 0, we can't use proportion of heap.
-                // Instead, we scale by the total number of docs in the index.
-                let total_docs = self.total_docs();
-                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
-                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
-                (matching, total_docs)
-            }
+        // When the caller's total is unknown or 0 we can't use the heap
+        // proportion, so fall back to the index's own doc count. Either way the
+        // largest segment is then scaled up to that total.
+        let total_docs = match total_docs {
+            RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
+            _ => self.total_docs(),
+        };
+        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+        DocsEstimate {
+            matching_docs: scale_largest_segment_estimate(count as u64, segment_doc_proportion)
+                as usize,
+            total_docs,
+            query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
         }
     }
 
@@ -1291,11 +1323,8 @@ impl SearchIndexReader {
             count = scorer.count_including_deleted() as usize;
         }
 
-        let estimated = if segment_doc_proportion > 0.0 {
-            (count as f64 / segment_doc_proportion).ceil() as usize
-        } else {
-            count
-        };
+        let estimated =
+            scale_largest_segment_estimate(count as u64, segment_doc_proportion) as usize;
 
         node.set_estimate(estimated);
     }
@@ -1446,6 +1475,8 @@ impl SearchIndexReader {
     }
 }
 
+/// Shape-only inspection — never reads segment contents. The planning-time
+/// gate relies on this to use a one-segment (`LargestSegment`) reader.
 impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {

@@ -86,7 +86,7 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: documents, files, pages)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: documents, files, pages)
                                                                                                                                                QUERY PLAN                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -106,6 +106,7 @@ WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: docum
                            Output: pages.id, pages."fileId", pages.content, pages.title, paradedb.score(pages.id), paradedb.score(pages.id)
                            Table: pages
                            Index: pages_bm25
+                           Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: true
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Single Number Reach","lenient":null,"conjunction_mode":null}}}}
@@ -115,6 +116,7 @@ WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: docum
                                  Output: files.id, files."documentId", files.content, files.title, paradedb.score(files.id), paradedb.score(files.id)
                                  Table: files
                                  Index: files_bm25
+                                 Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: true
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"collab12","lenient":null,"conjunction_mode":null}}}}
@@ -122,10 +124,11 @@ WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: docum
                      Output: documents.id, documents.parents, documents.content, documents.title, paradedb.score(documents.id), paradedb.score(documents.id)
                      Table: documents
                      Index: documents_bm25
+                     Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"project alpha","lenient":null,"conjunction_mode":null}}}}
-(36 rows)
+(39 rows)
 
 SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
 FROM documents
@@ -136,7 +139,7 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
-WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: documents, files, pages)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation (tables: documents, files, pages)
   id   |       parents       |           content            |   title   |   id   | documentId |        content         |        title        |   id   | fileId |              content              | title  |   score   
 -------+---------------------+------------------------------+-----------+--------+------------+------------------------+---------------------+--------+--------+-----------------------------------+--------+-----------
  doc-1 | project alpha notes | Document about project alpha | Alpha Doc | file-1 | doc-1      | File content for alpha | collab12 alpha file | page-1 | file-1 | Single Number Reach configuration | Page A | 3.2872329

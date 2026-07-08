@@ -74,12 +74,10 @@ use tantivy::index::SegmentId;
 use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -252,9 +250,9 @@ pub struct JoinScanState {
     pub source_manifests: Vec<SearchIndexManifest>,
 
     /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and the query qualifies.
-    /// On the leader this carries the runtime mesh; on workers it carries the worker's outbound
-    /// senders, mesh, and plan bytes copied out of DSM.
-    pub mpp: Option<MppExecState>,
+    /// Held only by the leader; builder-launched workers reconstruct their state from DSM and
+    /// never carry this.
+    pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
     /// Serialized logical-plan bytes that the leader writes into DSM and workers read back.
     /// Stashed in `begin_custom_scan` when MPP is active; consumed by `estimate_dsm` /
     /// `initialize_dsm`.
@@ -262,12 +260,6 @@ pub struct JoinScanState {
     /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
     /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
     pub mpp_partitioning_source_idx: Option<usize>,
-}
-
-/// Per-query MPP state for JoinScan. Same shape as `aggregatescan::scan_state::MppExecState`.
-pub enum MppExecState {
-    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
-    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 impl JoinScanState {
@@ -306,7 +298,6 @@ pub enum SessionContextProfile {
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
-/// - SortMergeJoinEnforcer (when columnar sort enabled)
 /// - `PgSearchQueryPlanner`
 ///
 /// Callers append their own TopK rule and FilterPushdown passes.
@@ -326,10 +317,6 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
             crate::scan::late_materialization::LateMaterializationRule,
         ));
 
-    if crate::gucs::is_columnar_sort_enabled() {
-        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
-    }
-
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
     builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
@@ -337,14 +324,12 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
 /// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
 ///
-/// The base session (visibility filtering, late materialization, SortMergeJoin
-/// enforcement, the `PgSearchQueryPlanner`, and the visibility-ctid resolver)
-/// is shared via [`build_base_session`]. The supplied [`SessionContextProfile`]
-/// then layers on the physical optimizer rules each consumer needs:
+/// The base session (visibility filtering, late materialization, the
+/// `PgSearchQueryPlanner`, and the visibility-ctid resolver) is shared via
+/// [`build_base_session`]. The supplied [`SessionContextProfile`] then layers on
+/// the physical optimizer rules each consumer needs:
 ///
 /// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
-///   conditionally injects an early `FilterPushdown` post-pass when columnar
-///   sort is on (so dynamic filters reconnect after SortMergeJoin rewrites),
 ///   then appends `SegmentedTopKRule` followed by a trailing `FilterPushdown`
 ///   pass to pick up any filters `SegmentedTopKRule` injects.
 /// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
@@ -381,11 +366,6 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
 
     match profile {
         SessionContextProfile::Join => {
-            if crate::gucs::is_columnar_sort_enabled() {
-                builder = builder.with_physical_optimizer_rule(Arc::new(
-                    FilterPushdown::new_post_optimization(),
-                ));
-            }
             builder = builder
                 .with_physical_optimizer_rule(Arc::new(
                     crate::scan::segmented_topk_rule::SegmentedTopKRule,
@@ -479,12 +459,7 @@ pub fn build_task_context(
     Arc::new(
         TaskContext::default()
             .with_session_config(ctx.state().config().clone())
-            .with_runtime(Arc::new(
-                RuntimeEnvBuilder::new()
-                    .with_memory_pool(memory_pool)
-                    .build()
-                    .expect("Failed to create RuntimeEnv"),
-            )),
+            .with_runtime(build_runtime_env(memory_pool)),
     )
 }
 
@@ -664,7 +639,7 @@ fn build_clause_df<'a>(
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
         // 4. Apply DISTINCT via GROUP BY
-        let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause, &ctid_map)?;
+        let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
 
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
@@ -709,6 +684,22 @@ unsafe fn translate_custom_exprs(
     Ok(translated)
 }
 
+/// Helper to yield the names of ctid columns that survived schema pruning
+/// (e.g., were not discarded by a Semi/Anti join).
+fn surviving_ctid_columns<'a>(
+    schema: &'a datafusion::common::DFSchema,
+    num_sources: usize,
+) -> impl Iterator<Item = String> + 'a {
+    (0..num_sources).filter_map(move |i| {
+        let ctid_name = CtidColumn::new(i).to_string();
+        if schema.field_with_unqualified_name(&ctid_name).is_ok() {
+            Some(ctid_name)
+        } else {
+            None
+        }
+    })
+}
+
 /// Apply a DISTINCT rewrite as `GROUP BY` over `output_projection`, taking the
 /// MIN of each ctid column as a stable representative. Returns the rewritten
 /// `DataFrame` plus the populated [`DistinctColMap`] used by the sort and
@@ -719,7 +710,6 @@ unsafe fn translate_custom_exprs(
 fn apply_distinct_group_by(
     df: DataFrame,
     join_clause: &JoinCSClause,
-    ctid_map: &crate::api::HashMap<pg_sys::Index, Expr>,
 ) -> Result<(DataFrame, DistinctColMap)> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
@@ -759,16 +749,19 @@ fn apply_distinct_group_by(
         }
     }
 
-    let agg_exprs: Vec<Expr> = ctid_map
-        .values()
-        .map(|expr| {
-            let ctid_name = match expr {
-                Expr::Column(col) => col.name.clone(),
-                _ => unreachable!("ctid_map always contains Column expressions"),
-            };
-            min(expr.clone()).alias(&ctid_name)
-        })
-        .collect();
+    // Postgres needs the ctids to fetch the actual tuples after DataFusion
+    // completes. Since GROUP BY collapses multiple rows into one, we use
+    // min(ctid) to arbitrarily select one representative tuple for the group.
+    //
+    // Note that we must filter out any ctids that no longer exist in the schema.
+    // In operations like SEMI JOIN or ANTI JOIN, the inner table's columns
+    // (including its ctid) are discarded from the output frame once the join
+    // condition is evaluated. Attempting to aggregate them would result in a
+    // DataFusion SchemaError.
+    let agg_exprs: Vec<Expr> =
+        surviving_ctid_columns(df.schema(), join_clause.plan.sources().len())
+            .map(|ctid_name| min(col(&ctid_name)).alias(&ctid_name))
+            .collect();
 
     let df = df.aggregate(group_exprs, agg_exprs)?;
     Ok((df, distinct_col_map))
@@ -920,11 +913,8 @@ fn apply_output_projection(
         }
 
         // ALWAYS carry forward all CTID columns from both sides
-        for (i, _) in plan_sources.iter().enumerate() {
-            let ctid_name = CtidColumn::new(i).to_string();
-            if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
-                final_cols.push(col(&ctid_name));
-            }
+        for ctid_name in surviving_ctid_columns(df.schema(), plan_sources.len()) {
+            final_cols.push(col(&ctid_name));
         }
     } else {
         for field in df.schema().fields() {
@@ -1063,10 +1053,6 @@ fn build_source_df<'a>(
             if crate::postgres::customscan::mpp::glue::mpp_is_active() {
                 provider.set_mpp_source_idx(plan_position);
             }
-        }
-
-        if let Some(ref sort_order) = scan_info.sort_order {
-            required_early.insert(sort_order.field_name.as_ref().to_string());
         }
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys

@@ -22,9 +22,9 @@ WITH (key_field = 'id');
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() ORDER BY id;
                                                               QUERY PLAN                                                              
 --------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.05..10.06 rows=3 width=68)
+ Sort  (cost=10.07..10.08 rows=3 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.03 rows=3 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.04 rows=3 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
@@ -45,9 +45,9 @@ SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() O
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'last_name' OR description ||| 'CEO' ORDER BY id;
                                                                                                                               QUERY PLAN                                                                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.02..10.03 rows=1 width=68)
+ Sort  (cost=10.04..10.04 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.03 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
@@ -69,9 +69,9 @@ SELECT * FROM jsonb_exists_test WHERE data ? 'last_name' OR description ||| 'CEO
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND data ? 'last_name'  AND id @@@ pdb.all() ORDER BY id;
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.03..10.04 rows=2 width=68)
+ Sort  (cost=10.04..10.04 rows=2 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.02 rows=2 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.03 rows=2 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
@@ -92,9 +92,9 @@ SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND data ? 'last_name'
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.all() ORDER BY id;
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.02..10.03 rows=1 width=68)
+ Sort  (cost=10.03..10.03 rows=1 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.02 rows=1 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1
@@ -113,9 +113,9 @@ SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.al
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.all() ORDER BY id;
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=10.14..10.15 rows=6 width=68)
+ Sort  (cost=10.17..10.18 rows=6 width=68)
    Sort Key: id
-   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.06 rows=6 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.09 rows=6 width=68)
          Table: jsonb_exists_test
          Index: idx_jsonb_exists_test
          Segment Count: 1

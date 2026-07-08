@@ -141,6 +141,13 @@ pub struct ParallelProcessLauncher {
 }
 
 impl ParallelProcessLauncher {
+    /// Read-only access to the mapped state between `build()` and `launch()`. The DSM is mapped in
+    /// the leader once `InitializeParallelDSM` runs (inside `build`), so the leader can initialize a
+    /// shared region in place here, before workers spawn and attach to it.
+    pub fn state_manager(&self) -> &ParallelStateManager {
+        &self.state_manager
+    }
+
     pub fn launch(self) -> Option<ParallelProcessAttach> {
         unsafe {
             let pcxt = self.pcxt.as_ptr();

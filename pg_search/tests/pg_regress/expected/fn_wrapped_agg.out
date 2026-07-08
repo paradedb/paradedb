@@ -44,13 +44,14 @@ ORDER BY log_id DESC LIMIT 3;
          Output: log_id, description, category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: fn_wrapped_agg_logs
          Index: fn_wrapped_agg_logs_idx
+         Worker Selection: Row-capped
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: log_id desc
             TopK Limit: 3
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(12 rows)
+(13 rows)
 
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
@@ -77,13 +78,14 @@ ORDER BY log_id DESC LIMIT 3;
          Output: log_id, description, category, jsonb_pretty(pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
          Table: fn_wrapped_agg_logs
          Index: fn_wrapped_agg_logs_idx
+         Worker Selection: Row-capped
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: log_id desc
             TopK Limit: 3
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(12 rows)
+(13 rows)
 
 SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()) 
 FROM fn_wrapped_agg_logs
@@ -167,13 +169,14 @@ SELECT * FROM agg;
                  Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
                  Table: fn_wrapped_agg_logs
                  Index: fn_wrapped_agg_logs_idx
+                 Worker Selection: Row-capped
                  Exec Method: TopKScanExecState
                  Scores: false
                     TopK Order By: log_id desc
                     TopK Limit: 3
                  Full Index Scan: true
                  Tantivy Query: {"with_index":{"query":"all"}}
-(15 rows)
+(16 rows)
 
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
@@ -209,13 +212,14 @@ SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
                  Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
                  Table: fn_wrapped_agg_logs
                  Index: fn_wrapped_agg_logs_idx
+                 Worker Selection: Row-capped
                  Exec Method: TopKScanExecState
                  Scores: false
                     TopK Order By: log_id desc
                     TopK Limit: 3
                  Full Index Scan: true
                  Tantivy Query: {"with_index":{"query":"all"}}
-(15 rows)
+(16 rows)
 
 WITH agg AS (
     SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as agg_result
@@ -425,7 +429,7 @@ WHERE description @@@ 'error';
    Index: fn_wrapped_agg_logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(score)
-     Aggregate Definition: {"0":{"sum":{"field":"score","missing":null}}}
+     Aggregate Definition: {"0":{"sum":{"field":"score","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT COALESCE(SUM(score), 0)
@@ -510,7 +514,7 @@ WHERE description @@@ 'error';
    Index: fn_wrapped_agg_logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(score)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"score","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"score","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT

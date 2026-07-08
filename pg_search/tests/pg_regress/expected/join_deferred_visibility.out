@@ -81,8 +81,8 @@ JOIN tags t ON i.tag_id = t.id
 WHERE i.description @@@ 'wireless'
 ORDER BY i.id
 LIMIT 5;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, t.label
    ->  Custom Scan (ParadeDB Join Scan)
@@ -95,13 +95,12 @@ LIMIT 5;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[t, i]
-           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_0@3]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(18 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(17 rows)
 
 -- Verify results are correct
 SELECT i.id, i.name, t.label
@@ -158,7 +157,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"great","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT i.id, i.name

@@ -17,42 +17,49 @@
 
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::DataFusionError;
-use datafusion::execution::memory_pool::{MemoryPool, MemoryReservation};
+use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
+use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryPool, MemoryReservation};
+use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use std::sync::Arc;
 
-// TODO: Instead of panicking, implement a `MemoryPool` that integrates with PostgreSQL's
-// temporary file management (BufFile/VFD) to allow DataFusion to spill to disk when
-// `work_mem` is exceeded.
+/// Caps DataFusion allocations at PostgreSQL's `work_mem` and reports an overflow as a
+/// query error. A panic here used to abort the backend: on the MPP path the pool runs in
+/// a parallel worker, so the panic took down the whole server instead of failing the one
+/// query. The caller pairs this with a disabled disk manager, so a `try_grow` past the
+/// limit aborts the query rather than spilling to untracked temp files.
+///
+// TODO: spill through PostgreSQL's temp-file management (BufFile/VFD) so large
+// aggregates and sorts complete instead of erroring once `work_mem` is exceeded.
 #[derive(Debug)]
-struct PanicOnOOMMemoryPool {
-    pool: datafusion::execution::memory_pool::GreedyMemoryPool,
+struct WorkMemMemoryPool {
+    pool: GreedyMemoryPool,
     limit: usize,
 }
 
-impl PanicOnOOMMemoryPool {
+impl WorkMemMemoryPool {
     fn new(limit: usize) -> Self {
         Self {
-            pool: datafusion::execution::memory_pool::GreedyMemoryPool::new(limit),
+            pool: GreedyMemoryPool::new(limit),
             limit,
-        }
-    }
-
-    fn check_limit(&self, additional: usize) {
-        if self.pool.reserved() + additional > self.limit {
-            panic!(
-                "JoinScan: Out of memory! Query exceeded work_mem limit of {} bytes.",
-                self.limit
-            );
         }
     }
 }
 
-impl MemoryPool for PanicOnOOMMemoryPool {
+impl std::fmt::Display for WorkMemMemoryPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WorkMemMemoryPool")
+    }
+}
+
+impl MemoryPool for WorkMemMemoryPool {
+    fn name(&self) -> &str {
+        "WorkMemMemoryPool"
+    }
+
     fn grow(&self, reservation: &MemoryReservation, additional: usize) {
-        self.check_limit(additional);
         self.pool.grow(reservation, additional);
     }
 
@@ -65,12 +72,12 @@ impl MemoryPool for PanicOnOOMMemoryPool {
         reservation: &MemoryReservation,
         additional: usize,
     ) -> Result<(), DataFusionError> {
-        self.check_limit(additional);
-        // Delegate to inner pool, though we've already done our own check.
-        // The inner pool also enforces the limit but returns Error.
-        // We want to panic if WE detect it, so we did check_limit above.
-        // But for correctness of inner state, we call it.
-        self.pool.try_grow(reservation, additional)
+        self.pool.try_grow(reservation, additional).map_err(|_| {
+            DataFusionError::ResourcesExhausted(format!(
+                "query exceeded the work_mem limit of {} bytes; raise work_mem to run it",
+                self.limit
+            ))
+        })
     }
 
     fn reserved(&self) -> usize {
@@ -78,10 +85,12 @@ impl MemoryPool for PanicOnOOMMemoryPool {
     }
 }
 
-/// Returns a memory pool that panics when the memory limit is exceeded.
+/// Returns a memory pool that fails the query with a `ResourcesExhausted` error when the
+/// `work_mem` budget is exceeded, rather than crashing the backend.
 ///
-/// This is used to enforce `work_mem` limits in `JoinScan` and prevent
-/// DataFusion from attempting to spill to disk (which is not yet implemented safely).
+/// Sized for `JoinScan` and `AggregateScan`. The estimate is per-operator: `HashJoinExec`
+/// reserves `work_mem * hash_mem_multiplier`, sorts reserve `work_mem`, each times their
+/// partition count.
 pub fn create_memory_pool(
     plan: &Arc<dyn ExecutionPlan>,
     work_mem: usize,
@@ -91,17 +100,56 @@ pub fn create_memory_pool(
     let mut total_memory = 0usize;
     plan.apply(|node| {
         let partitions = node.output_partitioning().partition_count();
-        let any_node = node.as_any();
-        if any_node.downcast_ref::<HashJoinExec>().is_some() {
+        if node.is::<HashJoinExec>() {
             total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
-        } else if any_node.downcast_ref::<SortExec>().is_some()
-            || any_node.downcast_ref::<SortMergeJoinExec>().is_some()
-        {
+        } else if node.is::<SortExec>() || node.is::<SortMergeJoinExec>() {
             total_memory += work_mem * partitions;
         }
         Ok(TreeNodeRecursion::Continue)
     })
     .expect("Failed to traverse plan for estimating memory");
 
-    Arc::new(PanicOnOOMMemoryPool::new(total_memory.max(work_mem)))
+    Arc::new(WorkMemMemoryPool::new(total_memory.max(work_mem)))
+}
+
+/// Build the DataFusion `RuntimeEnv` for JoinScan and AggregateScan: the `work_mem` pool plus a
+/// disabled disk manager, so a `try_grow` past the budget errors instead of writing untracked
+/// temp files. Spilling isn't wired to PG's temp-file management yet.
+pub fn build_runtime_env(memory_pool: Arc<dyn MemoryPool>) -> Arc<RuntimeEnv> {
+    Arc::new(
+        RuntimeEnvBuilder::new()
+            .with_memory_pool(memory_pool)
+            .with_disk_manager_builder(
+                DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled),
+            )
+            .build()
+            .expect("Failed to create RuntimeEnv"),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::execution::memory_pool::MemoryConsumer;
+
+    #[test]
+    fn try_grow_past_work_mem_errors_instead_of_panicking() {
+        let pool: Arc<dyn MemoryPool> = Arc::new(WorkMemMemoryPool::new(1024));
+        let res = MemoryConsumer::new("test").register(&pool);
+        res.try_grow(512).expect("within budget should succeed");
+        let err = res
+            .try_grow(4096)
+            .expect_err("over budget must return an error, not panic");
+        assert!(matches!(err, DataFusionError::ResourcesExhausted(_)));
+        assert!(err.to_string().contains("work_mem"));
+    }
+
+    #[test]
+    fn grow_is_infallible_past_work_mem() {
+        // The infallible path must not panic even past the limit; only `try_grow` enforces.
+        let pool: Arc<dyn MemoryPool> = Arc::new(WorkMemMemoryPool::new(1024));
+        let res = MemoryConsumer::new("test").register(&pool);
+        res.grow(8192);
+        assert_eq!(pool.reserved(), 8192);
+    }
 }

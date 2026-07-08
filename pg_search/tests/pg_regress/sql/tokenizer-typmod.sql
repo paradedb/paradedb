@@ -33,6 +33,22 @@ SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false', 'stemmer=e
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=true', 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=false', 'lowercase=false')::text[];
 
+-- nfkc: a character filter applied before segmentation. With nfkc=true the
+-- full-width characters ＡＢＣ１２３ are normalized to half-width ABC / 123.
+-- The off vs on pair proves the option changes the token stream.
+SELECT 'ＡＢＣ１２３'::pdb.lindera(japanese, 'lowercase=false')::text[];
+SELECT 'ＡＢＣ１２３'::pdb.lindera(japanese, 'nfkc=true', 'lowercase=false')::text[];
+-- reading_form: a token filter applied after segmentation. For Japanese the
+-- surface form 日本語 is replaced with its IPADIC katakana reading ニホンゴ.
+SELECT '日本語'::pdb.lindera(japanese, 'lowercase=false')::text[];
+SELECT '日本語'::pdb.lindera(japanese, 'reading_form=true', 'lowercase=false')::text[];
+-- reading_form for Korean replaces the Hanja 韓國 with its ko-dic Hangul
+-- reading 한국.
+SELECT '韓國'::pdb.lindera(korean, 'lowercase=false')::text[];
+SELECT '韓國'::pdb.lindera(korean, 'reading_form=true', 'lowercase=false')::text[];
+-- reading_form is rejected for Chinese, which has no reading field.
+SELECT '韓國'::pdb.lindera(chinese, 'reading_form=true', 'lowercase=false')::text[]; -- error
+
 SELECT 'Running Shoes.  olé'::pdb.jieba::text[];
 SELECT 'Running Shoes.  olé'::pdb.jieba('lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.jieba('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];

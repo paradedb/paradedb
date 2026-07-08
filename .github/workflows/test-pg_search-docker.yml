@@ -11,9 +11,6 @@ name: Test pg_search (Docker)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
@@ -71,7 +68,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -99,14 +96,13 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          repo="$(sed -E 's#https://(api\.)?github\.com/(repos/)?([^/]+/[^/]+)/releases/.*#\3#' <<< "$url")"
           tag="$(grep -oE 'v[0-9][^"/]*' <<< "$url" | head -1)"
-          echo "Dockerfile ${dockerfile} installs pg_search from ${repo}@${tag}"
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release ${repo}@${tag} is published — running the smoke test."
+          echo "Dockerfile ${dockerfile} pins pg_search ${tag}; gating on ${GITHUB_REPOSITORY}@${tag}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REPOSITORY}@${tag} is published — running the smoke test."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::Release ${repo}@${tag} is not published yet — skipping the Docker smoke test. It will run once the release exists."
+            echo "::notice::Release ${GITHUB_REPOSITORY}@${tag} is not published yet — skipping the Docker smoke test. It will run once the release exists."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -407,8 +403,8 @@ jobs:
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb-ci -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb
 
-  # Smoke-test that docker/Dockerfile.extension (the non-runnable, FROM scratch
-  # paradedb/paradedb-extension payload) builds for PostgreSQL 18 on each arch.
+  # Smoke-test that the non-runnable, FROM-scratch extension-image payload builds
+  # for PostgreSQL 18 on each arch.
   # This image is only built at release time in publish-paradedb-docker.yml, so
   # without this job a break in the .deb layout or the COPY paths would not surface
   # until a publish fails. Building per arch natively keeps it consistent with the
@@ -444,7 +440,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -467,15 +463,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          repo="$(sed -E 's#https://(api\.)?github\.com/(repos/)?([^/]+/[^/]+)/releases/.*#\3#' <<< "$url")"
           tag="$(grep -oE 'v[0-9][^"/]*' <<< "$url" | head -1)"
-          echo "Dockerfile ${dockerfile} installs pg_search from ${repo}@${tag}"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release ${repo}@${tag} is published — building the extension image."
+          echo "Dockerfile ${dockerfile} pins pg_search ${tag}; gating on ${GITHUB_REPOSITORY}@${tag}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REPOSITORY}@${tag} is published — building the extension image."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::Release ${repo}@${tag} is not published yet — skipping the extension image build. It will run once the release exists."
+            echo "::notice::Release ${GITHUB_REPOSITORY}@${tag} is not published yet — skipping the extension image build. It will run once the release exists."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 

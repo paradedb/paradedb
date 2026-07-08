@@ -524,9 +524,11 @@ impl From<AggregateType> for AggregationVariants {
             AggregateType::Count { field, missing, .. } => {
                 AggregationVariants::Count(CountAggregation { field, missing })
             }
-            AggregateType::Sum { field, missing, .. } => {
-                AggregationVariants::Sum(SumAggregation { field, missing })
-            }
+            AggregateType::Sum { field, missing, .. } => AggregationVariants::Sum(SumAggregation {
+                field,
+                missing,
+                none_if_no_match: Some(true),
+            }),
             AggregateType::Avg { field, missing, .. } => {
                 AggregationVariants::Average(AverageAggregation { field, missing })
             }

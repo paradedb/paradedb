@@ -195,10 +195,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: (metadata ->> 'category'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT metadata->>'category' AS category, 
@@ -235,10 +236,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: (metadata ->> 'brand'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT metadata->>'brand' AS brand, 
@@ -279,10 +281,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: (metadata ->> 'category'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT metadata->>'category' AS category, 
@@ -324,10 +327,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: (metadata ->> 'brand'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT metadata->>'brand' AS brand, 
@@ -819,10 +823,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: ((document -> 'source'::text) ->> 'system'::text), ((document -> 'metrics'::text) ->> 'category'::text), document
                Table: json_test_complex
                Index: idx_json_complex
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"document.source.system"}}}},{"with_index":{"query":{"exists":{"field":"document.metrics.category"}}}}]}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT document->'source'->>'system' AS source_system,
@@ -868,10 +873,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: ((document -> 'metrics'::text) ->> 'category'::text), document
                Table: json_test_complex
                Index: idx_json_complex
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"exists":{"field":"document.metrics.score"}}}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT document->'metrics'->>'category' AS metric_category,
@@ -1169,10 +1175,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: (user_profile ->> 'department'::text), (order_details ->> 'category'::text), order_details
                Table: json_test_multi_subfields
                Index: idx_json_multi_subfields
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"order_details.category"}}}}]}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT 
@@ -1224,10 +1231,11 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                Output: (user_profile ->> 'department'::text), (user_profile ->> 'location'::text), (order_details ->> 'product'::text), (order_details ->> 'category'::text), order_details
                Table: json_test_multi_subfields
                Index: idx_json_multi_subfields
+               Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"order_details.category"}}}}]}}
-(13 rows)
+(14 rows)
 
 -- Execute the query
 SELECT 

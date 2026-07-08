@@ -52,10 +52,6 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
 static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// When enabled, columnar scans use the index sort order if the query's ORDER BY matches the index's sort_by configuration.
-/// Defaults to false due to stability issues (see https://github.com/paradedb/paradedb/issues/4293).
-static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(false);
-
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
@@ -110,6 +106,11 @@ static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
 static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Factor that scales the heuristic match estimate into a `DocSet::cost()` for the TopK
+/// worker decision on expensive-to-estimate shapes (see `EXPENSIVE_QUERY_COST_FACTOR`).
+static EXPENSIVE_QUERY_COST_FACTOR: GucSetting<f64> =
+    GucSetting::<f64>::new(crate::EXPENSIVE_QUERY_COST_FACTOR);
 
 /// Minimum number of rows per parallel worker.
 /// Controls how many workers are spawned based on estimated row count.
@@ -296,15 +297,6 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_columnar_sort",
-        c"Enable sorted execution for columnar scans",
-        c"When enabled, columnar scans use the index sort order if the query's ORDER BY or join keys match the index's sort_by configuration. This also enables SortMergeJoin for joins on sorted index fields. Default is false.",
-        &ENABLE_COLUMNAR_SORT,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     GucRegistry::define_int_guc(
                 COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
         c"The number of fast-field columns below-which the ColumnarExecState will be used, rather \
@@ -335,6 +327,17 @@ pub fn init() {
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.expensive_query_cost_factor",
+        c"Cost factor for expensive-to-estimate queries in the TopK worker decision",
+        c"For fuzzy/regex/MLT queries (whose scorer is too expensive to build at plan time), the heuristic match estimate is multiplied by this factor to approximate the query's DocSet::cost(). Higher values make these shapes parallelize more readily.",
+        &EXPENSIVE_QUERY_COST_FACTOR,
+        0.0,
+        100000.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -658,10 +661,6 @@ pub fn is_columnar_exec_enabled() -> bool {
     ENABLE_COLUMNAR_EXEC.get()
 }
 
-pub fn is_columnar_sort_enabled() -> bool {
-    ENABLE_COLUMNAR_SORT.get()
-}
-
 pub fn columnar_exec_column_threshold() -> usize {
     COLUMNAR_EXEC_COLUMN_THRESHOLD
         .get()
@@ -743,6 +742,10 @@ pub fn adjust_work_mem() -> NonZeroUsize {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn expensive_query_cost_factor() -> f64 {
+    EXPENSIVE_QUERY_COST_FACTOR.get()
 }
 
 pub fn max_term_agg_buckets() -> i32 {

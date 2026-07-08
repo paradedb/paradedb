@@ -31,7 +31,7 @@ permissions:
   attestations: write
 
 jobs:
-  publish-pg_search:
+  publish-pg_search-postgresapp:
     name: Publish pg_search for Postgres.app (PostgreSQL ${{ matrix.pg_version }}, arm64)
     runs-on: macos-15
     if: ${{ !contains(github.ref, '-rc.') }}
@@ -48,7 +48,7 @@ jobs:
         run: brew reinstall git
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Used to query/update the GitHub Release and open the PostgresApp/PostgresApp PR.
       - name: Install GitHub CLI
@@ -110,7 +110,7 @@ jobs:
 
       - name: Cache pgrx binary
         id: cache-pgrx
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-pgrx
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}

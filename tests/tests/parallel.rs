@@ -15,18 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use fixtures::*;
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
 use rand::Rng;
 use rstest::*;
 use sqlx::Row;
+use tests::fixtures::*;
 use tokio::join;
 use tokio::sync::Barrier;
 

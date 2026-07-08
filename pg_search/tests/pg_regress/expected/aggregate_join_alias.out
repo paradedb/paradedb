@@ -57,7 +57,7 @@ ORDER BY company_name;
          Group By: company_name_words
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[company_name_words@0 as company_name_words], aggr=[agg_0]
+           : AggregateExec: mode=Single, gby=[company_name_words@0 as company_name_words], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
            :     CooperativeExec
            :       PgSearchScan: segments=1, query="all"
@@ -106,7 +106,7 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
    Indexes: repro_cccf_idx (cccf), repro_ti_idx (ti)
    Aggregates: COUNT(DISTINCT)(company_name_words)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+     : AggregateExec: mode=Single, gby=[], aggr=[count(DISTINCT cccf_0.company_name_words) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
      :     CooperativeExec
      :       PgSearchScan: segments=1, query="all"
@@ -141,14 +141,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT string_agg(company_name, ',' ORDER BY company_name)
 FROM repro_cccf cccf
 JOIN repro_ti ti ON cccf.company_id = ti.company_id;
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_cccf_idx (cccf), repro_ti_idx (ti)
    Aggregates: STRING_AGG(company_name_words)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+     : AggregateExec: mode=Single, gby=[], aggr=[string_agg(cccf_0.company_name_words, ,) ORDER BY [cccf_0.company_name_words ASC NULLS LAST] as agg_0]
      :   SortExec: expr=[company_name_words@0 ASC NULLS LAST], preserve_partitioning=[false]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
      :       CooperativeExec

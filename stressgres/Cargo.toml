@@ -18,7 +18,7 @@ humantime = "2.3.0"
 image = "0.25.9"
 libc = "0.2.186"
 parking_lot = "0.12.5"
-pgrx-pg-config = "0.13.1"
+pgrx-pg-config = "=0.19.0"
 plotters = "0.3.7"
 postgres = "0.19.13"
 rust_decimal = { version = "1.41.0", features = ["db-postgres"] }

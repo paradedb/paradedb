@@ -70,7 +70,7 @@
 //! tied across the *entire* sort key are conservatively retained, per the
 //! `survivors_s` bound above.
 
-use crate::api::{HashMap, HashSet};
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
@@ -106,16 +106,15 @@ use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-/// Minimum number of buffered candidate rows that must accumulate before a visibility
-/// prune cycle runs in [`SegmentedTopKState::maybe_compact`]. Visibility checking has a
+/// Minimum per-segment buffer capacity on visibility plans. Visibility checking has a
 /// per-batch setup cost (snapshot acquisition, packed-DocAddress → ctid resolution, HOT
 /// chain search), so running it on tiny batches is wasteful.
 ///
-/// Each segment's buffer must reach
-/// `max(2 * K, MINIMUM_VISIBILITY_CHECK_SIZE)` before its visibility pass runs, so every
-/// check is a reasonably sized batch and no segment is checked on a tiny batch. Only
-/// affects visibility plans; non-visibility plans keep the original `4 * K * segments`
-/// compaction trigger.
+/// On visibility plans a segment's buffer capacity is
+/// `max(2 * K, MINIMUM_VISIBILITY_CHECK_SIZE)`: [`SegmentedTopKState::truncate_top_k`]
+/// runs only once the buffer fills, so every visibility pass covers a reasonably sized
+/// batch and no segment is checked on a tiny batch. Non-visibility plans use a plain
+/// `2 * K` capacity (no visibility pass, so no reason to delay the QuickSelect).
 ///
 /// Aligned with `DEFERRED_BATCH_SIZE` (the deferred-field scan batch size), since this
 /// path batches deferred rows. Tunable via benchmarking.
@@ -638,10 +637,8 @@ impl ExecutionPlan for SegmentedTopKExec {
             row_converter,
             segment_bufs: Vec::new(),
             segment_cutoffs: Vec::new(),
-            distinct_segments: HashSet::default(),
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
-            row_ordinals: Vec::new(),
             pass_through_rows: Vec::new(),
             last_segment_cutoffs: Vec::new(),
             mat_row_converter,
@@ -659,9 +656,14 @@ impl ExecutionPlan for SegmentedTopKExec {
                 let batch = batch_res?;
                 state.rows_input.add(batch.num_rows());
 
+                // Store the batch BEFORE collecting: collect_batch can fire
+                // truncate_top_k, whose visibility pass reads the current batch's
+                // rows out of state.batches. Cloning a RecordBatch only bumps the
+                // column Arcs.
                 let batch_idx = state.batches.len();
-                state.collect_batch(&batch, batch_idx)?;
                 state.batches.push(batch);
+                let batch = state.batches[batch_idx].clone();
+                state.collect_batch(&batch, batch_idx)?;
                 state.maybe_compact()?;
             }
 
@@ -734,6 +736,22 @@ struct StkVisibilityEntry {
     deferred_ctid_state: DeferredCtidMaterializationState,
 }
 
+/// One segment's rolling buffer of top-K candidates.
+///
+/// `rows` holds `(batch_idx, row_idx, sort row)` entries whose locations refer to
+/// [`SegmentedTopKState::batches`]. The buffer fills up to its capacity (`2 * K`, or
+/// `max(2 * K, MINIMUM_VISIBILITY_CHECK_SIZE)` on visibility plans) and is then pruned
+/// back to its K best rows by [`SegmentedTopKState::truncate_top_k`].
+#[derive(Default)]
+struct SegmentBuf {
+    rows: Vec<(usize, usize, OwnedRow)>,
+    /// Visibility watermark: `rows[..checked]` have been visibility checked and are
+    /// alive. Rows at or past `checked` have not been checked yet. Visibility against
+    /// a fixed query snapshot never changes mid-query, so checked rows are checked at
+    /// most once. Meaningless (always trailing) on non-visibility plans.
+    checked: usize,
+}
+
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
@@ -741,36 +759,21 @@ struct SegmentedTopKState {
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
-    /// Per-segment rolling buffers of comparable Rows, indexed by `SegmentOrdinal`
-    /// (dense, 0..N). Each buffer grows up to 2 * K rows; when it reaches 2 * K,
-    /// `select_nth_unstable(k - 1)` partitions it so the K best rows occupy the front,
-    /// the K-th best is recorded in `segment_cutoffs`, and the buffer is truncated to K.
-    ///
-    /// **Non-visibility plans:** updated in `collect_batch` on every accepted row; the
-    /// inline QuickSelect fires when a buffer hits 2 * K.
-    ///
-    /// **Visibility plans:** NOT updated in `collect_batch`. Rebuilt from visible
-    /// survivors inside `maybe_compact()` after each prune cycle, so every published
-    /// cutoff is based exclusively on live rows.
-    segment_bufs: Vec<Option<Vec<OwnedRow>>>,
+    /// Per-segment rolling buffers, indexed by `SegmentOrdinal` (dense, 0..N).
+    /// Filled in `collect_batch` identically for visibility and non-visibility plans;
+    /// pruned to the K best rows by `truncate_top_k` whenever a buffer reaches its
+    /// capacity, and eagerly before batch compaction.
+    segment_bufs: Vec<Option<SegmentBuf>>,
     /// Per-segment K-th best row (the cutoff threshold) after the most recent
-    /// QuickSelect, indexed by `SegmentOrdinal`. `None` for segments that have not yet
-    /// had a QuickSelect run. Updated by inline QuickSelect in `collect_batch` (non-vis)
-    /// and by the prune-cycle rebuild in `maybe_compact` (vis).
+    /// `truncate_top_k`, indexed by `SegmentOrdinal`. `None` for segments that have not
+    /// yet accumulated K rows. On visibility plans, dead rows are removed before the
+    /// QuickSelect, so a cutoff is always derived from live rows only.
     segment_cutoffs: Vec<Option<OwnedRow>>,
-    /// Set of all segment ordinals encountered during collection. Used to compute the
-    /// prune-cycle trigger for visibility plans. Updated in `collect_batch` for EVERY
-    /// ingested row, including visibility plans where `segment_bufs` is not rebuilt
-    /// until the first prune cycle, and is never cleared.
-    distinct_segments: HashSet<SegmentOrdinal>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// Keeps track of the buffered rows for compaction.
-    /// (batch_idx, row_idx, seg_ord, row_data)
-    row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
     /// Buffered pass-through rows (NULL ordinals) that bypass
     /// ordinal comparison. These are included in the final sort + limit.
     pass_through_rows: Vec<(usize, usize)>,
@@ -794,7 +797,7 @@ struct SegmentedTopKState {
     /// Segments with only NULLs are not counted.
     segments_seen: Count,
     /// Counts rows removed because they were dead (invisible) under the current snapshot.
-    /// Incremented during prune cycles (maybe_compact) and at final emission (emit_final_topk).
+    /// Incremented by `truncate_top_k` and at final emission (emit_final_topk).
     rows_filtered_invisible: Count,
     /// Runtime visibility checker entries, one per absorbed `(plan_pos, heap_oid)` pair.
     /// Empty when no `VisibilityFilterExec` was absorbed.
@@ -810,6 +813,96 @@ impl SegmentedTopKState {
             vec.resize_with(idx + 1, || None);
         }
         &mut vec[idx]
+    }
+
+    /// Per-segment buffer capacity: `2 * K`, raised to
+    /// `MINIMUM_VISIBILITY_CHECK_SIZE` on visibility plans so that each visibility
+    /// pass in [`Self::truncate_top_k`] covers a reasonably sized batch.
+    fn buffer_capacity(&self) -> usize {
+        if self.visibility_entries.is_empty() {
+            2 * self.k
+        } else {
+            (2 * self.k).max(MINIMUM_VISIBILITY_CHECK_SIZE)
+        }
+    }
+
+    /// Prune one segment's buffer down to its K best rows:
+    ///
+    /// 1. visibility check the unchecked suffix of the buffer (everything past the
+    ///    `checked` watermark; the whole buffer on its first fill) and drop dead rows,
+    /// 2. QuickSelect the K best of the remaining (all live) rows,
+    /// 3. record the K-th best as the segment cutoff and truncate the buffer to K,
+    /// 4. publish the (possibly improved) global threshold.
+    ///
+    /// On non-visibility plans step 1 is a no-op, which is what lets one code path
+    /// serve both cases. On visibility plans, every row behind the watermark was
+    /// checked alive against the query snapshot, and visibility against a fixed
+    /// snapshot never changes mid-query, so each row is checked at most once and the
+    /// cutoff (and therefore the published threshold) is always derived from live
+    /// rows only. That also means a previously published threshold can never become
+    /// too aggressive after dead rows are removed: dead rows only ever exist past the
+    /// watermark and never define a cutoff.
+    fn truncate_top_k(&mut self, seg_idx: usize) -> Result<()> {
+        if self.k == 0 {
+            return Ok(());
+        }
+
+        // Step 1: visibility check the unchecked suffix and drop dead rows.
+        if !self.visibility_entries.is_empty() {
+            let (watermark, row_keys) = {
+                let Some(buf) = self.segment_bufs.get(seg_idx).and_then(|b| b.as_ref()) else {
+                    return Ok(());
+                };
+                let keys: Vec<(usize, usize)> = buf.rows[buf.checked..]
+                    .iter()
+                    .map(|(bi, ri, _)| (*bi, *ri))
+                    .collect();
+                (buf.checked, keys)
+            };
+            if !row_keys.is_empty() {
+                // Corrected ctids are discarded here: the stored batches keep packed
+                // DocAddresses (real ctid write-back happens at emit_final_topk).
+                let (visible_mask, _) = self.check_rows_visible(&row_keys)?;
+                let dead = visible_mask.iter().filter(|&&v| !v).count();
+                if dead > 0 {
+                    self.rows_filtered_invisible.add(dead);
+                    if let Some(buf) = self.segment_bufs.get_mut(seg_idx).and_then(|b| b.as_mut()) {
+                        let mut idx = 0usize;
+                        buf.rows.retain(|_| {
+                            let keep = idx < watermark || visible_mask[idx - watermark];
+                            idx += 1;
+                            keep
+                        });
+                    }
+                }
+            }
+            if let Some(buf) = self.segment_bufs.get_mut(seg_idx).and_then(|b| b.as_mut()) {
+                buf.checked = buf.rows.len();
+            }
+        }
+
+        // Steps 2 + 3: QuickSelect around the K-th element, record the cutoff,
+        // truncate the buffer to its K best rows.
+        let cutoff = {
+            let Some(buf) = self.segment_bufs.get_mut(seg_idx).and_then(|b| b.as_mut()) else {
+                return Ok(());
+            };
+            if buf.rows.len() < self.k {
+                // Fewer than K live rows so far (only possible before this segment's
+                // first cutoff): no cutoff yet, keep filling.
+                return Ok(());
+            }
+            buf.rows
+                .select_nth_unstable_by(self.k - 1, |a, b| a.2.cmp(&b.2));
+            let cutoff = buf.rows[self.k - 1].2.clone();
+            buf.rows.truncate(self.k);
+            buf.checked = buf.checked.min(buf.rows.len());
+            cutoff
+        };
+        *Self::ensure_slot(&mut self.segment_cutoffs, seg_idx) = Some(cutoff);
+
+        // Step 4: publish the improved threshold so the scan can prune earlier.
+        self.publish_global_threshold()
     }
 
     /// Ingest a single batch: extract ordinals, update per-segment buffers,
@@ -853,6 +946,11 @@ impl SegmentedTopKState {
 
         let converted_rows = self.row_converter.convert_columns(&sort_arrays)?;
 
+        // Buffer capacity: plain 2 * K, but on visibility plans at least
+        // MINIMUM_VISIBILITY_CHECK_SIZE so each visibility pass in truncate_top_k
+        // covers a reasonably sized batch.
+        let capacity = self.buffer_capacity();
+
         for row_idx in 0..num_rows {
             if pass_through[row_idx] {
                 continue;
@@ -861,67 +959,36 @@ impl SegmentedTopKState {
                 let seg_idx = seg_ord as usize;
                 let row_val = converted_rows.row(row_idx).owned();
 
-                // Track distinct segments for the compaction trigger. Always updated
-                // here so the trigger denominator is accurate even for visibility plans
-                // where `segment_bufs` is not rebuilt until `maybe_compact()`.
-                if self.distinct_segments.insert(seg_ord) {
+                // Pre-filter: rows already worse than this segment's cutoff cannot
+                // enter the top K, so drop them before they reach the buffer. On
+                // visibility plans the cutoff is always derived from live rows (see
+                // truncate_top_k), so this never prunes a row that a dead row would
+                // otherwise have displaced.
+                let is_worse = self
+                    .segment_cutoffs
+                    .get(seg_idx)
+                    .and_then(|c| c.as_ref())
+                    .is_some_and(|cutoff| &row_val > cutoff);
+                if is_worse {
+                    continue;
+                }
+
+                let slot = Self::ensure_slot(&mut self.segment_bufs, seg_idx);
+                if slot.is_none() {
                     self.segments_seen.add(1);
                 }
-                if self.visibility_entries.is_empty() {
-                    // Non-visibility plan: pre-filter rows already worse than the current
-                    // segment cutoff, then push to the buffer. When the buffer reaches
-                    // 2 * K, QuickSelect partitions it and the K-th element becomes the
-                    // new cutoff.
-                    let is_worse = self
-                        .segment_cutoffs
-                        .get(seg_idx)
-                        .and_then(|c| c.as_ref())
-                        .is_some_and(|cutoff| &row_val > cutoff);
-                    if is_worse {
-                        continue;
-                    }
-                    let buf = Self::ensure_slot(&mut self.segment_bufs, seg_idx)
-                        .get_or_insert_with(Vec::new);
-                    buf.push(row_val.clone());
-                    self.row_ordinals
-                        .push((batch_idx, row_idx, seg_ord, row_val));
-                    if self.k > 0 && buf.len() >= 2 * self.k {
-                        buf.select_nth_unstable(self.k - 1);
-                        let cutoff = buf[self.k - 1].clone();
-                        buf.truncate(self.k);
-                        *Self::ensure_slot(&mut self.segment_cutoffs, seg_idx) = Some(cutoff);
-                    }
-                } else {
-                    // Visibility plan: `segment_bufs` is NEVER updated here. Buffers are
-                    // rebuilt inside `maybe_compact()` only after visibility checking, so
-                    // every published cutoff reflects exclusively live rows.
-                    //
-                    // Pre-filter using the last prune cycle's alive cutoff (read-only):
-                    // rows provably worse than the alive K-th are rejected early to bound
-                    // buffer growth between prune cycles.
-                    let is_candidate = self
-                        .segment_cutoffs
-                        .get(seg_idx)
-                        .and_then(|c| c.as_ref())
-                        .is_none_or(|cutoff| &row_val <= cutoff);
-                    if is_candidate {
-                        self.row_ordinals
-                            .push((batch_idx, row_idx, seg_ord, row_val));
-                    }
+                let buf = slot.get_or_insert_with(SegmentBuf::default);
+                buf.rows.push((batch_idx, row_idx, row_val));
+
+                if self.k > 0 && buf.rows.len() >= capacity {
+                    self.truncate_top_k(seg_idx)?;
                 }
             }
         }
 
-        // Non-visibility plans: publish threshold after each batch so PgSearchScan can
-        // prune as early as possible. Safe: no dead rows can inflate the threshold.
-        //
-        // Visibility plans: threshold is published ONLY inside maybe_compact() after
-        // visibility checking. Publishing here would base the threshold on rows that have
-        // not yet been checked for MVCC visibility; dead rows in the buffer would inflate
-        // the threshold, causing PgSearchScan to prune live rows it shouldn't.
-        if self.visibility_entries.is_empty() {
-            self.publish_global_threshold()?;
-        }
+        // The global threshold is published inside truncate_top_k, right after a
+        // segment's cutoff changes; between truncations the cutoffs are unchanged,
+        // so publishing here would be a no-op.
 
         // Buffer pass-through rows (NULL ordinals) for the final sort.
         for (row_idx, &is_pt) in pass_through.iter().enumerate() {
@@ -1157,25 +1224,6 @@ impl SegmentedTopKState {
             .reduce(|a, b| Arc::new(BinaryExpr::new(a, Operator::Or, b)) as Arc<dyn PhysicalExpr>)
     }
 
-    /// Build the set of all survivors across all segments. A row survives if
-    /// its `OwnedRow` is <= the cutoff (K-th best row) for its segment, or
-    /// if the segment never reached 2×k rows and therefore has no cutoff yet
-    /// (in which case every row from that segment is a candidate).
-    fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
-        let mut survivors = crate::api::HashSet::default();
-        for (batch_idx, row_idx, seg_ord, row_val) in &self.row_ordinals {
-            let dominated = self
-                .segment_cutoffs
-                .get(*seg_ord as usize)
-                .and_then(|c| c.as_ref())
-                .is_none_or(|cutoff| row_val <= cutoff);
-            if dominated {
-                survivors.insert((*batch_idx, *row_idx));
-            }
-        }
-        survivors
-    }
-
     /// Evaluates the current local thresholds across all segments to determine
     /// if a new global threshold can be published.
     ///
@@ -1356,170 +1404,55 @@ impl SegmentedTopKState {
         Ok(values)
     }
 
-    /// Compact buffered batches by discarding rows that cannot survive the
-    /// current per-segment cutoffs. This bounds memory at O(K * segments)
+    /// Compact the stored batches by discarding rows no longer referenced by any
+    /// per-segment buffer (or pass-through). This bounds memory at O(K * segments)
     /// instead of O(N) for large inputs — analogous to the batch compaction
     /// step in upstream DataFusion Top K.
-    ///
-    /// When visibility data was absorbed, dead rows are also removed here so that the
-    /// global threshold is never inflated by rows that are invisible to the current
-    /// snapshot. `segment_bufs` is rebuilt from the visible survivors.
     fn maybe_compact(&mut self) -> Result<()> {
-        // Use `distinct_segments` (not `segment_bufs`) to count segments: for visibility
-        // plans, `segment_bufs` is empty before the first prune cycle, which would cause
-        // an under-count and fire prune cycles too early.
-        let num_segments = self.distinct_segments.len().max(1);
+        // Fire only when the stored batches hold at least twice as many rows as are
+        // still referenced, so each compaction at least halves the stored rows
+        // (amortized O(1) work per input row). The floor keeps small inputs from
+        // ever compacting, mirroring the previous 4 * K * segments trigger.
+        let referenced: usize = self
+            .segment_bufs
+            .iter()
+            .flatten()
+            .map(|b| b.rows.len())
+            .sum::<usize>()
+            + self.pass_through_rows.len();
+        let stored: usize = self.batches.iter().map(|b| b.num_rows()).sum();
+        let num_segments = self.segment_bufs.iter().flatten().count().max(1);
+        let floor = 4 * self.k * num_segments;
+        if stored < (2 * referenced).max(floor) {
+            return Ok(());
+        }
 
-        if self.visibility_entries.is_empty() {
-            // Non-visibility plans use the original global 4 * K * segments trigger.
-            let trigger = self.k * num_segments * 4;
-            if self.row_ordinals.len() + self.pass_through_rows.len() < trigger {
-                return Ok(());
-            }
-        } else {
-            // Visibility plans use a PER-BUFFER trigger (per @stuhood on #4525): each
-            // segment's buffer must reach `max(2 * K, MINIMUM_VISIBILITY_CHECK_SIZE)`
-            // before its visibility pass runs, so every check is a reasonably sized batch
-            // and we never aggregate all segments into one buffer. Fire as soon as ANY
-            // segment's buffer reaches that size. Pass-through-only plans (all NULL/State-2
-            // sort columns) accumulate rows without a segment, so also fire when
-            // pass_through_rows alone reaches the threshold, otherwise the visibility check
-            // would be deferred entirely to emit_final_topk.
-            let per_buffer = (2 * self.k).max(MINIMUM_VISIBILITY_CHECK_SIZE);
-            let mut seg_counts: Vec<usize> = Vec::new();
-            for (_, _, seg_ord, _) in &self.row_ordinals {
-                let idx = *seg_ord as usize;
-                if idx >= seg_counts.len() {
-                    seg_counts.resize(idx + 1, 0);
-                }
-                seg_counts[idx] += 1;
-            }
-            let any_buffer_full = seg_counts.iter().any(|&c| c >= per_buffer);
-            if !any_buffer_full && self.pass_through_rows.len() < per_buffer {
-                return Ok(());
+        // Eagerly truncate every buffer first so compaction works with fresh, live
+        // top-K survivors: dead rows in an unchecked suffix are never compacted into
+        // the retained batch, and buffers holding more than K rows are pruned before
+        // their rows are copied.
+        for seg_idx in 0..self.segment_bufs.len() {
+            let has_rows = self.segment_bufs[seg_idx]
+                .as_ref()
+                .is_some_and(|b| !b.rows.is_empty());
+            if has_rows {
+                self.truncate_top_k(seg_idx)?;
             }
         }
 
-        // Step 1: Cutoff filter, retain only rows within per-segment bounds.
-        // Capture the pre-take length before std::mem::take empties row_ordinals: after
-        // take(), the Vec has capacity 0, which would make the half-rows-discarded ratio
-        // check always true and bypass the "don't compact if < half rows discarded" guard.
-        let old_row_ordinals_len = self.row_ordinals.len();
-        let mut new_row_ordinals = Vec::new();
-        // Use take() so we own row_ordinals and can move the OwnedRows. The survivor
-        // set is built later (Step 3) after the visibility pass has run.
-        for (batch_idx, row_idx, seg_ord, row_val) in std::mem::take(&mut self.row_ordinals) {
-            let keep = self
-                .segment_cutoffs
-                .get(seg_ord as usize)
-                .and_then(|c| c.as_ref())
-                .is_none_or(|cutoff| &row_val <= cutoff);
-            if keep {
-                new_row_ordinals.push((batch_idx, row_idx, seg_ord, row_val));
-            }
-        }
-
-        // Step 2: Visibility filter, remove dead rows, then rebuild segment_bufs and
-        // segment_cutoffs via QuickSelect from the surviving rows.
-        // pass_through_rows are NOT checked here; they are checked in emit_final_topk.
-        //
-        // The rebuild always runs (not only when rows are invisible) so that the global
-        // threshold is published on every prune cycle, including all-alive workloads.
-        if !self.visibility_entries.is_empty() && !new_row_ordinals.is_empty() {
-            // Per-buffer visibility (per @stuhood on #4525): check each segment's rows as
-            // its own batch, right before that segment's QuickSelect below, instead of
-            // aggregating every segment's rows into one buffer for a single check. The
-            // per-row MVCC result is independent of how rows are batched, so this yields
-            // the same survivors as a global check, just grouped per segment.
-            // Discard corrected ctids at compaction time: batches keep packed
-            // DocAddresses (real ctid write-back happens at emit_final_topk).
-            let mut by_seg: HashMap<SegmentOrdinal, Vec<usize>> = HashMap::default();
-            for (i, (_, _, seg_ord, _)) in new_row_ordinals.iter().enumerate() {
-                by_seg.entry(*seg_ord).or_default().push(i);
-            }
-            let mut keep = vec![true; new_row_ordinals.len()];
-            for indices in by_seg.values() {
-                let row_keys: Vec<(usize, usize)> = indices
-                    .iter()
-                    .map(|&i| (new_row_ordinals[i].0, new_row_ordinals[i].1))
-                    .collect();
-                let (visible_mask, _) = self.check_rows_visible(&row_keys)?;
-                let dead = visible_mask.iter().filter(|&&v| !v).count();
-                if dead > 0 {
-                    self.rows_filtered_invisible.add(dead);
-                }
-                for (j, &i) in indices.iter().enumerate() {
-                    if !visible_mask[j] {
-                        keep[i] = false;
-                    }
-                }
-            }
-            if keep.iter().any(|&k| !k) {
-                new_row_ordinals = new_row_ordinals
-                    .into_iter()
-                    .zip(keep)
-                    .filter(|(_, keep)| *keep)
-                    .map(|(row, _)| row)
-                    .collect();
-            }
-
-            // Rebuild segment_bufs and segment_cutoffs from survivors via QuickSelect.
-            // Clear stale cached cutoffs so publish_global_threshold recomputes from
-            // the freshly rebuilt state.
-            self.segment_bufs.clear();
-            self.segment_cutoffs.clear();
-            self.last_segment_cutoffs.clear();
-            for (_, _, seg_ord, row_val) in &new_row_ordinals {
-                Self::ensure_slot(&mut self.segment_bufs, *seg_ord as usize)
-                    .get_or_insert_with(Vec::new)
-                    .push(row_val.clone());
-            }
-            for seg_idx in 0..self.segment_bufs.len() {
-                if let Some(buf) = self.segment_bufs[seg_idx].as_mut() {
-                    if buf.len() >= self.k {
-                        buf.select_nth_unstable(self.k - 1);
-                        let cutoff = buf[self.k - 1].clone();
-                        buf.truncate(self.k);
-                        *Self::ensure_slot(&mut self.segment_cutoffs, seg_idx) = Some(cutoff);
-                    }
-                }
-            }
-
-            // If dead-row removal left any segment with fewer than K rows, the
-            // previously published threshold is now too aggressive; rows with
-            // ordinals below the dead row's that are needed to refill the slots
-            // would be pruned. Retract to lit(true) so those rows can flow in,
-            // then republish the correct threshold from the rebuilt state.
-            // publish_global_threshold() skips segments without a cutoff in
-            // segment_cutoffs, so we must reset dynamic_filter explicitly here.
-            let any_underfull = self
-                .segment_bufs
-                .iter()
-                .flatten()
-                .any(|buf| buf.len() < self.k);
-            if any_underfull {
-                use datafusion::physical_expr::expressions::lit;
-                let _ = self.dynamic_filter.update(lit(true));
-                self.last_published_global = None;
-            }
-            self.publish_global_threshold()?;
-        }
-
-        // Step 3: Populate survivors set for batch compaction.
+        // Survivors are exactly the rows still referenced by a buffer or pass-through.
         let mut survivors = crate::api::HashSet::default();
-        for (batch_idx, row_idx, _, _) in &new_row_ordinals {
-            survivors.insert((*batch_idx, *row_idx));
+        for buf in self.segment_bufs.iter().flatten() {
+            for (batch_idx, row_idx, _) in &buf.rows {
+                survivors.insert((*batch_idx, *row_idx));
+            }
         }
-        // Include pass-through rows in the survivor set so they aren't discarded.
         for &(batch_idx, row_idx) in &self.pass_through_rows {
             survivors.insert((batch_idx, row_idx));
         }
 
-        // Don't compact if we wouldn't discard at least half the rows.
-        // Use old_row_ordinals_len (captured before take()); after take() the Vec
-        // is empty with capacity 0, which would make this check always true.
-        if new_row_ordinals.len() * 2 > old_row_ordinals_len {
-            self.row_ordinals = new_row_ordinals;
+        if survivors.is_empty() {
+            self.batches.clear();
             return Ok(());
         }
 
@@ -1549,31 +1482,23 @@ impl SegmentedTopKState {
             filtered_batches.push(filtered);
         }
 
-        if filtered_batches.is_empty() {
-            self.batches.clear();
-            self.row_ordinals.clear();
-            self.pass_through_rows.clear();
-            return Ok(());
-        }
-
         let compacted = concat_batches(&self.schema, &filtered_batches)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
-        // Remap row_ordinals into the single compacted batch.
-        for entry in &mut new_row_ordinals {
-            let new_ri = mapping[&(entry.0, entry.1)];
-            entry.0 = 0;
-            entry.1 = new_ri;
+        // Remap buffer rows and pass_through_rows into the single compacted batch.
+        for buf in self.segment_bufs.iter_mut().flatten() {
+            for entry in &mut buf.rows {
+                let new_ri = mapping[&(entry.0, entry.1)];
+                entry.0 = 0;
+                entry.1 = new_ri;
+            }
         }
-
-        // Remap pass_through_rows into the single compacted batch.
         for entry in &mut self.pass_through_rows {
             let new_ri = mapping[&(entry.0, entry.1)];
             entry.0 = 0;
             entry.1 = new_ri;
         }
 
-        self.row_ordinals = new_row_ordinals;
         self.batches = vec![compacted];
         Ok(())
     }
@@ -1693,8 +1618,8 @@ impl SegmentedTopKState {
     ///
     ///
     /// Steps:
-    /// 1. Build ordinal survivors (rows within per-segment cutoffs).
-    /// 2. Merge ordinal survivors with pass-through rows into candidate set.
+    /// 1. Collect candidates from the per-segment buffers.
+    /// 2. Merge them with pass-through rows into the candidate set.
     ///    2a. (Visibility) Filter invisible rows from candidates, including pass-through rows.
     /// 3. Materialize sort column values for each candidate.
     /// 4. Sort candidates by materialized values, take top K.
@@ -1702,33 +1627,25 @@ impl SegmentedTopKState {
     fn emit_final_topk(&mut self) -> Result<Option<RecordBatch>> {
         use datafusion::common::ScalarValue;
 
-        // 1. Build ordinal survivors.
-        //
-        // When visibility data is present, dead rows in the top-K heap slots would
-        // cause build_survivors to exclude live rows with worse ordinals.  Example:
-        // k=5, rows 1-5 are in the heap (ordinals 0-4), rows 6-15 are pruned out,
-        // but rows 1-3 are dead → only 2 live rows survive.  To avoid this, we skip
-        // the ordinal-based pre-filter and include ALL row_ordinals as candidates;
-        // the visibility pass removes dead rows and the final sort+limit yields the
-        // correct k live rows.  The extra visibility checks (over all row_ordinals
-        // rather than just the top-k survivors) are acceptable for correctness.
+        // 1. Collect candidates: every row still held in a per-segment buffer. Each
+        //    buffer holds its segment's current top K plus any not-yet-truncated
+        //    recent rows, all within the segment cutoff (enforced on insert), so the
+        //    true per-segment top K is always a subset of the buffer. On visibility
+        //    plans, rows past a buffer's watermark may still be dead; the visibility
+        //    pass below removes them, and it can never leave a segment short: the K
+        //    rows kept by the last truncate_top_k were checked alive, and visibility
+        //    against a fixed snapshot never changes mid-query.
         type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
         let mut candidates: Vec<Candidate> = Vec::new();
 
-        if !self.visibility_entries.is_empty() {
-            // Include every row from row_ordinals so that after dead rows are removed
-            // we still have enough live rows to fill k slots.
-            for (batch_idx, row_idx, seg_ord, row_val) in &self.row_ordinals {
-                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, row_val.clone()))));
-            }
-        } else {
-            // 1. Build ordinal survivors (normal path, no visibility data).
-            let ordinal_survivors = self.build_survivors();
-            // 2. Collect all candidates: ordinal survivors only.
-            for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
-                if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
-                    candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
-                }
+        for (seg_idx, slot) in self.segment_bufs.iter().enumerate() {
+            let Some(buf) = slot else { continue };
+            for (batch_idx, row_idx, row_val) in &buf.rows {
+                candidates.push((
+                    *batch_idx,
+                    *row_idx,
+                    Some((seg_idx as SegmentOrdinal, row_val.clone())),
+                ));
             }
         }
 

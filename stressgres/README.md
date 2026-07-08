@@ -16,6 +16,13 @@ cargo run -- ui suites/vanilla-postgres.toml
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
+- Run a suite headless against an arbitrary Postgres build (spins up a throwaway
+  cluster from the given `pg_config`, or two for logical-replication suites):
+
+```bash
+cargo run -- auto /path/to/pg_config suites/vanilla-postgres.toml /tmp/stressgres-data --runtime 300000
+```
+
 Suites are TOML files in `suites/`. The `vanilla-postgres.toml` suite exercises baseline Postgres features and works with any PostgreSQL-compatible server.
 
 ## Docker

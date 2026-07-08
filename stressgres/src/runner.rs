@@ -352,6 +352,41 @@ pub struct SuiteRunner {
     sys: Arc<RwLock<System>>,
 }
 
+/// Run `op` against a live [`Conn`], tolerating transient connectivity faults.
+///
+/// The connection lives in `conn` and is (re)opened lazily: whenever it is `None`
+/// — the first call, or after a prior error dropped it — a fresh one is opened and
+/// the reconnect grace window is reset (the fault-tolerance layer's `mark_recovered`).
+/// On any error from `op` the connection is dropped so the next attempt reconnects;
+/// replaying the whole `op` is what keeps transactional work correct.
+///
+/// One-shot callers (version probe, setup, teardown) pass a throwaway `&mut None`;
+/// the job worker passes a long-lived slot so its connection persists across
+/// iterations. This is the single place the open / `mark_recovered` / drop-on-error
+/// dance lives, so callers only have to say what to do with the connection.
+///
+/// Returns `Ok(None)` if `alive` went false while waiting out a fault.
+fn with_reconnect<T>(
+    alive: &AtomicBool,
+    grace: Duration,
+    conn: &mut Option<Conn>,
+    suite: &Suite,
+    job: &Job,
+    mut op: impl FnMut(&mut Conn) -> Result<T>,
+) -> Result<Option<T>> {
+    tolerate_transient(alive, grace, |progress| {
+        if conn.is_none() {
+            *conn = Some(Conn::open(suite, job)?);
+            progress.mark_recovered();
+        }
+        let result = op(conn.as_mut().unwrap());
+        if result.is_err() {
+            *conn = None;
+        }
+        result
+    })
+}
+
 impl SuiteRunner {
     /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
     pub fn new(suite: Suite, paused: bool, reconnect_grace: Duration) -> Result<Arc<Self>> {
@@ -373,15 +408,21 @@ impl SuiteRunner {
 
         // Probe the server version, riding out any transient connectivity fault
         let default_job = Job::default();
-        runner.pgver = tolerate_transient(&runner.alive, runner.reconnect_grace, |progress| {
-            let mut conn = Conn::open(&suite, &default_job)?;
-            progress.mark_recovered();
-            let version: String = conn
-                .first_client()
-                .query_one("SELECT version()", &[])?
-                .get(0);
-            Ok(version)
-        })?
+        let mut conn = None;
+        runner.pgver = with_reconnect(
+            &runner.alive,
+            runner.reconnect_grace,
+            &mut conn,
+            &suite,
+            &default_job,
+            |conn| {
+                let version: String = conn
+                    .first_client()
+                    .query_one("SELECT version()", &[])?
+                    .get(0);
+                Ok(version)
+            },
+        )?
         .unwrap_or_else(|| String::from("<unknown>"));
 
         runner.init()?;
@@ -432,12 +473,20 @@ impl SuiteRunner {
                 self.sys.clone(),
             )?;
             // Run setup on a fresh connection, replaying it in full if a transient
-            // fault interrupts it (safe because setup re-runs from scratch).
-            tolerate_transient(&self.alive, self.reconnect_grace, |progress| {
-                let mut conn = Conn::open(&self.suite, &setup_runner.job)?;
-                progress.mark_recovered();
-                setup_runner.run(&mut conn)
-            })?;
+            // fault interrupts it. Replay is safe because setup is idempotent (every
+            // statement is DROP ... IF EXISTS / CREATE OR REPLACE), so re-running from
+            // the top rebuilds state no matter how far a partial attempt got — not
+            // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
+            // pg_reload_conf, which are disallowed inside a transaction block).
+            let mut conn = None;
+            with_reconnect(
+                &self.alive,
+                self.reconnect_grace,
+                &mut conn,
+                &self.suite,
+                &setup_runner.job,
+                |conn| setup_runner.run(conn),
+            )?;
         }
 
         // setup and start the monitors
@@ -549,8 +598,8 @@ impl SuiteRunner {
         let alive = job_runner.alive.clone();
 
         // A normal job keeps a persistent connection; an `atomic_connection` job
-        // opens a fresh one each iteration. Either way it is (re)opened lazily inside
-        // the `tolerate_transient` closure, so a dropped socket just reconnects.
+        // opens a fresh one each iteration. Either way it is (re)opened lazily by
+        // `with_reconnect`, so a dropped socket just reconnects.
         let mut conn: Option<Conn> = None;
 
         while alive.load(Ordering::Relaxed) {
@@ -566,20 +615,17 @@ impl SuiteRunner {
                 conn = None;
             }
 
-            // Run one iteration, riding out transient faults. On any error we drop the
-            // (possibly poisoned) connection so the next attempt reconnects; replaying
-            // the whole iteration keeps transactional jobs correct.
-            let outcome = tolerate_transient(&alive, reconnect_grace, |progress| {
-                if conn.is_none() {
-                    conn = Some(Conn::open(&job_runner.suite, &job_runner.job)?);
-                    progress.mark_recovered();
-                }
-                let result = job_runner.run(conn.as_mut().unwrap());
-                if result.is_err() {
-                    conn = None;
-                }
-                result
-            })?;
+            // Run one iteration, riding out transient faults. `with_reconnect` drops
+            // the (possibly poisoned) connection on error so the next attempt
+            // reconnects; replaying the whole iteration keeps transactional jobs correct.
+            let outcome = with_reconnect(
+                &alive,
+                reconnect_grace,
+                &mut conn,
+                &job_runner.suite,
+                &job_runner.job,
+                |conn| job_runner.run(conn),
+            )?;
             if outcome.is_none() {
                 break; // `alive` went false while waiting out a fault
             }
@@ -706,11 +752,15 @@ impl SuiteRunner {
             // Best-effort teardown: ride out a transient fault, and if connectivity
             // is gone during shutdown (`alive` is already false here) skip it rather
             // than panicking the shutdown thread.
-            tolerate_transient(&self.alive, self.reconnect_grace, |progress| {
-                let mut conn = Conn::open(&self.suite, &teardown_runner.job)?;
-                progress.mark_recovered();
-                teardown_runner.run(&mut conn)
-            })?;
+            let mut conn = None;
+            with_reconnect(
+                &self.alive,
+                self.reconnect_grace,
+                &mut conn,
+                &self.suite,
+                &teardown_runner.job,
+                |conn| teardown_runner.run(conn),
+            )?;
         }
 
         for job in &self.runners {

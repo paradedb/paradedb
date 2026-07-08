@@ -175,20 +175,6 @@ fn load_suite<P: AsRef<Path>>(
                 ),
             }
         }
-
-        // The suite itself decides the topology (a Subscriber server ⇒ logical
-        // replication); warn if `--logical-replication` disagrees rather than
-        // silently overriding the suite.
-        let has_subscriber = definition.servers.iter().any(|s| s.is_subscriber());
-        if auto.logical_replication != has_subscriber {
-            eprintln!(
-                "warning: --logical-replication={} but suite `{}` {} a Subscriber server; \
-                 using the suite's topology",
-                auto.logical_replication,
-                path.as_ref().display(),
-                if has_subscriber { "has" } else { "has no" },
-            );
-        }
     }
 
     eprintln!("{definition:#?}");

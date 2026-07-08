@@ -216,7 +216,7 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
-    /// Sets the score threshold to be applied batches extracted afterwards.
+    /// Sets the score threshold to be applied to batches extracted afterwards.
     /// We assume the threshold will monotonically increase, and uses
     /// greater-than (>) semantics.
     ///

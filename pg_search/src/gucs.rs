@@ -131,8 +131,8 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Gate the MPP (Massively Parallel Processing) plan partitioning path for JoinScan
-/// and AggregateScan. When off, behavior is identical to `origin/main`.
-static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(false);
+/// and AggregateScan. When off, behavior is identical to the non-MPP path.
+static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
@@ -555,7 +555,7 @@ pub fn init() {
         c"Enable ParadeDB's MPP (Massively Parallel Processing) plan partitioning",
         c"When enabled, JoinScan and AggregateScan may hash-partition every table by the \
           join key and shuffle intermediate rows between workers, so each row is scanned \
-          exactly once. Default is false; off path is identical to non-MPP behavior.",
+          exactly once. Default is true; turn it off to fall back to the non-MPP path.",
         &ENABLE_MPP,
         GucContext::Userset,
         GucFlags::default(),

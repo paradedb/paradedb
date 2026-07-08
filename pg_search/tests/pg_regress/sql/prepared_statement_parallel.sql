@@ -57,15 +57,17 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
   AND c.created_at::date >= $2::date
   AND c.created_at::date <= $3::date;
 
--- Execute multiple times to trigger generic plan
+-- The auto custom-to-generic switch is cost-based, so it lands differently across
+-- machines. Pin custom plans here and cover generic plans in the block below, so the
+-- per-plan planning warning is the same everywhere.
+SET plan_cache_mode = force_custom_plan;
+
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-
--- 6th execution should use generic plan and return same result
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 
 -- Try with different parameters

@@ -216,6 +216,13 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
+    /// Sets the score threshold to be applied batches extracted afterwards.
+    /// We assume the threshold will monotonically increase, and uses
+    /// greater-than (>) semantics.
+    ///
+    /// Passing a `None` will not cause the threshold on the current segment
+    /// to be updated, as threshold changes are only applied when
+    /// `self.threshold` is `Some(_)`.
     pub(crate) fn set_score_threshold(&mut self, threshold: Option<Score>) {
         self.score_threshold = threshold;
     }

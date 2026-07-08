@@ -68,7 +68,7 @@ impl DeferredScorer {
         })
     }
 
-    pub fn set_threshold(&mut self, threshold: Score) {
+    fn set_threshold(&mut self, threshold: Score) {
         let scorer = self.scorer_mut();
         scorer.set_threshold(threshold);
     }

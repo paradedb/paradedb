@@ -835,7 +835,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
 ///
 /// While doing that, we also attempt to extract a top-k score threshold if one exists.
-/// We process the threshold-containing expr as a we do the rest of the expressions.
+/// We process the threshold-containing expression as we do the rest of the expressions.
 /// The threshold-containing expression may be top-level, so we need to allow for
 /// the rest of the expression to be applied.
 ///
@@ -859,7 +859,7 @@ fn build_filters(
                 if let Some(threshold) =
                     try_extract_score_threshold(&current_expr, score_col_schema_idx)
                 {
-                    assert!(
+                    debug_assert!(
                         score_threshold.is_none(),
                         "Multiple score thresholds found where we only expect one."
                     );

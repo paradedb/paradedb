@@ -9,7 +9,6 @@ members = [
   "stressgres",
 ]
 
-
 [workspace.package]
 version = "0.24.2"
 edition = "2021"

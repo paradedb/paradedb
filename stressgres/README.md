@@ -16,7 +16,7 @@ cargo run -- ui suites/vanilla-postgres.toml
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
-- Run headless mode tolerating transient database faults (e.g. under Antithesis, which stops/kills/partitions the database container). `--reconnect-grace-ms` is how long to keep reconnecting through a fault before failing; it defaults to `0` (any error fails the run immediately):
+- Run headless mode tolerating transient database faults (e.g. under Antithesis) with `--reconnect-grace-ms`, how long to reconnect before a fault fails the run (default `0` = fail immediately):
 
 ```bash
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace-ms=30000

@@ -883,10 +883,7 @@ fn build_distinct_address_deferral(
 /// below the aggregate: the visibility rule anchors its filter under the `Aggregate` barrier and
 /// rewrites the ctid columns to real ctids there, so a copy taken above would no longer hold a
 /// doc address. A no-op when nothing was deferred.
-fn project_addr_copies_below_aggregate(
-    df: DataFrame,
-    addr_copies: Vec<Expr>,
-) -> Result<DataFrame> {
+fn project_addr_copies_below_aggregate(df: DataFrame, addr_copies: Vec<Expr>) -> Result<DataFrame> {
     if addr_copies.is_empty() {
         return Ok(df);
     }

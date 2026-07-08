@@ -16,7 +16,7 @@ cargo run -- ui suites/vanilla-postgres.toml
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
-- Run a suite headless against a throwaway cluster
+- Run a suite against a throwaway Postgres cluster built from a given `pg_config`:
 
 ```bash
 cargo run -- auto /path/to/pg_config suites/vanilla-postgres.toml /tmp/stressgres-data --runtime 300000

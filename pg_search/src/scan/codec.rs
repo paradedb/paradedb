@@ -59,6 +59,12 @@ struct PgSearchExtensionCodec {
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
 
+// Wire tags for this codec's logical extension nodes, independent of the physical codec's tag
+// space in `physical_codec.rs`.
+const TAG_LATE_MATERIALIZE: u8 = 1;
+const TAG_VISIBILITY_FILTER: u8 = 2;
+const TAG_DOC_ADDRESS_LOOKUP: u8 = 3;
+
 impl LogicalExtensionCodec for PgSearchExtensionCodec {
     fn try_decode(
         &self,
@@ -76,7 +82,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         // If we add more custom node types, we should switch this payload to a proper Serde
         // enum (e.g. `bincode` or `serde_json` of an enum wrapper) to cleanly handle variants.
         let tag = buf[0];
-        if tag == 1 {
+        if tag == TAG_LATE_MATERIALIZE {
             if inputs.len() != 1 {
                 return Err(DataFusionError::Internal(
                     "LateMaterializeNode requires exactly one input".into(),
@@ -135,7 +141,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(Extension { node });
         }
 
-        if tag == 2 {
+        if tag == TAG_VISIBILITY_FILTER {
             if inputs.len() != 1 {
                 return Err(DataFusionError::Internal(
                     "VisibilityFilterNode requires exactly one input".into(),
@@ -164,7 +170,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             });
         }
 
-        if tag == 3 {
+        if tag == TAG_DOC_ADDRESS_LOOKUP {
             if inputs.len() != 1 {
                 return Err(DataFusionError::Internal(
                     "DocAddressLookupNode requires exactly one input".into(),
@@ -213,7 +219,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                 DataFusionError::Internal(format!("Failed to serialize deferred fields: {}", e))
             })?;
 
-            buf.push(1);
+            buf.push(TAG_LATE_MATERIALIZE);
             let schema_bytes = prost::Message::encode_to_vec(&schema_proto);
 
             buf.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
@@ -231,7 +237,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                     "Failed to serialize visibility plan positions: {e}"
                 ))
             })?;
-            buf.push(2);
+            buf.push(TAG_VISIBILITY_FILTER);
             buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&bytes);
             return Ok(());
@@ -241,7 +247,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             let bytes = serde_json::to_vec(&lookup_node.lookups).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to serialize doc-address lookups: {e}"))
             })?;
-            buf.push(3);
+            buf.push(TAG_DOC_ADDRESS_LOOKUP);
             buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&bytes);
             return Ok(());

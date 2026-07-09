@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
--- Whether MPP engages depends on `max_parallel_workers_per_gather`, so pin it for the regress
--- cluster. Otherwise the plans differ between a stock cluster and a developer's MPP-tuned one.
--- Tests that exercise MPP raise it themselves.
+-- Pin parallelism so regress plans don't depend on the local cluster's worker config. The value
+-- drives how much a query parallelizes, MPP or not, so a stock cluster and a tuned one would
+-- otherwise produce different plans. Tests that want more workers raise it themselves.
 ALTER SYSTEM SET max_parallel_workers_per_gather = 2;
 SELECT pg_reload_conf();
  pg_reload_conf 

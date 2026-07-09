@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use super::keyset::{KeySet, KeySetBuilder};
 use super::{anyelement_query_input_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::api::{HashMap, HashSet};
@@ -61,32 +62,42 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
     }
 }
 
-enum CacheEntry {
-    All,
-    Set(HashSet<TantivyValue>),
-}
-
 struct QueryCacheEntry {
     element_oid: PgOid,
-    matches: CacheEntry,
+    matches: KeySet,
     /// Key-field values for rows where the indexed field is absent (SQL NULL semantics).
-    missing_values: Option<CacheEntry>,
+    missing_values: Option<KeySet>,
 }
 
-impl FromIterator<TantivyValue> for CacheEntry {
-    fn from_iter<T: IntoIterator<Item = TantivyValue>>(iter: T) -> Self {
-        let set = iter.into_iter().collect();
-        Self::Set(set)
-    }
-}
-
-impl CacheEntry {
-    fn contains(&self, value: &TantivyValue) -> bool {
-        match self {
-            CacheEntry::All => true,
-            CacheEntry::Set(set) => set.contains(value),
+/// Whether the query matches every document (`pdb.all()`, possibly wrapped/fielded), so we can
+/// answer every row `true` without materializing any keys.
+fn query_matches_all(query: &SearchQueryInput) -> bool {
+    match query {
+        SearchQueryInput::All => true,
+        SearchQueryInput::WithIndex { query, .. }
+        | SearchQueryInput::Boost { query, .. }
+        | SearchQueryInput::ConstScore { query, .. } => query_matches_all(query),
+        // `pdb::Query::All` is an AllQuery regardless of the field it is attached to.
+        SearchQueryInput::FieldedQuery { query, .. } => {
+            matches!(query, crate::query::pdb_query::pdb::Query::All)
         }
+        _ => false,
     }
+}
+
+/// Collect the key-field values of every document matching `reader`'s query into a memory-bounded
+/// [`KeySet`] (spills to a temp file past `work_mem`).
+fn collect_keyset(reader: &SearchIndexReader, key_ff_helper: &FFHelper) -> KeySet {
+    let mut builder = KeySetBuilder::default();
+    for (_, doc_address) in reader.search() {
+        check_for_interrupts!();
+        builder.push(
+            key_ff_helper
+                .value(0, doc_address)
+                .expect("key_field value should not be null"),
+        );
+    }
+    builder.finish()
 }
 
 #[derive(Default)]
@@ -223,18 +234,21 @@ pub fn search_with_query_input(
                 .expect("the query argument cannot be NULL")
         };
 
-        // optimize the case where the user asked for literally every matching document to avoid
-        // making a copy of every primary key in ram
-        {
-            let is_paradedb_all = matches!(&search_query_input, SearchQueryInput::WithIndex { query, .. } if matches!(query.as_ref(), &SearchQueryInput::All))
-                || matches!(&search_query_input, SearchQueryInput::All);
-            if is_paradedb_all {
-                return QueryCacheEntry {
-                    element_oid,
-                    matches: CacheEntry::All,
-                    missing_values: None,
-                };
-            }
+        // Short-circuit the degenerate queries so we never materialize a key per row: `all()`
+        // (in any wrapped/fielded form) matches everything, `empty()` matches nothing.
+        if query_matches_all(&search_query_input) {
+            return QueryCacheEntry {
+                element_oid,
+                matches: KeySet::All,
+                missing_values: None,
+            };
+        }
+        if matches!(&search_query_input, SearchQueryInput::Empty) {
+            return QueryCacheEntry {
+                element_oid,
+                matches: KeySet::None,
+                missing_values: None,
+            };
         }
 
         let index_oid = search_query_input
@@ -265,18 +279,9 @@ pub fn search_with_query_input(
         let key_ff_helper =
             FFHelper::with_fields(&search_reader, &[(key_field_name.clone(), key_field_type).into()]);
 
-        // now, query the SearchReader and collect up the docs that match our query.
-        // the matches are cached so that the same input query will return the same results
-        // throughout the duration of the scan
-        let matches = search_reader
-            .search()
-            .map(|(_, doc_address)| {
-                check_for_interrupts!();
-                key_ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null")
-            })
-            .collect();
+        // query the SearchReader and collect the matching key-field values into a memory-bounded
+        // set (spills to a temp file past `work_mem`), reused for every row of the scan.
+        let matches = collect_keyset(&search_reader, &key_ff_helper);
 
         let missing_values = if field_names.len() == 1 && !is_exists_query {
             let field = field_names
@@ -320,17 +325,7 @@ pub fn search_with_query_input(
                 &[(key_field_name, key_field_type).into()],
             );
 
-            Some(
-                complement_reader
-                    .search()
-                    .map(|(_, doc_address)| {
-                        check_for_interrupts!();
-                        complement_ff_helper
-                            .value(0, doc_address)
-                            .expect("key_field value should not be null")
-                    })
-                    .collect(),
-            )
+            Some(collect_keyset(&complement_reader, &complement_ff_helper))
         } else {
             None
         };

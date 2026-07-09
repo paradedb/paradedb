@@ -22,6 +22,7 @@ pub(crate) mod const_score;
 mod eqeqeq;
 pub(crate) mod fuzzy;
 mod hashhashhash;
+pub(crate) mod keyset;
 mod ororor;
 mod proximity;
 mod searchqueryinput;

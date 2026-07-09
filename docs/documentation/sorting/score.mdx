@@ -242,7 +242,7 @@ LIMIT 5;
 
 ## Deterministic Sorting
 
-Ordering by `pdb.score` alone is not sufficient to guarantee deterministic query results when there are multiple documents with the same score (due to Postgres' internal sorting behavior and segment compactions).
+Ordering by `pdb.score` alone is not sufficient to guarantee deterministic query results when there are multiple documents with the same score.
 
 To ensure stable output, we recommend adding a tiebreaker column (such as the primary key) after the score:
 

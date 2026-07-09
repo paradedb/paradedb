@@ -186,6 +186,64 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
+-- Pass 6: MPP with a parameterized search predicate (issue #5445)
+--
+-- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
+-- $1 unresolved in SearchQueryInput.
+-- =====================================================================
+
+SET paradedb.enable_mpp TO on;
+SET plan_cache_mode = force_generic_plan;
+PREPARE mpp_join_heapfilter_param(int) AS
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > $1
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE mpp_join_heapfilter_param(6);
+
+EXECUTE mpp_join_heapfilter_param(6);
+
+CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_heapfilter_param(6)$$
+) AS line
+WHERE line LIKE '%output_rows%';
+
+DEALLOCATE mpp_join_heapfilter_param;
+SET plan_cache_mode = auto;
+
+-- =====================================================================
+-- Pass 7: MPP with InitPlan/Subquery Parameter
+--
+-- Pulling from a table forces an InitPlan rather than a folded constant.
+-- The leader must evaluate and solve this before dispatching to workers.
+-- =====================================================================
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ (SELECT content FROM mpp_join_files LIMIT 1)
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%output_rows%';
+
+DROP FUNCTION mpp_explain_analyze_lines(text);
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

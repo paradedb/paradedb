@@ -386,9 +386,9 @@ jobs:
       # custom.container_faults_{stop,kill}_exclusion_patterns exempts containers from stop/kill faults for two reasons:
       #   - infra ParadeDB doesn't develop, always exempt: the cloudnative-pg operator and
       #     logical-replication-publisher (a vanilla Postgres container)
-      #   - the paradedb container, but only on proptests: proptests is a differential-correctness oracle with no
+      #   - the paradedb pod(s) under proptests: proptests is a differential-correctness oracle with no
       #     reconnect resilience, so a stopped/killed paradedb there is spurious query-failure noise rather than
-      #     exercised recovery. On stressgres, paradedb is left subject to the faults.
+      #     exercised recovery
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@v0.12
         with:

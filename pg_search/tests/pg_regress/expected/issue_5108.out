@@ -478,26 +478,23 @@ WITH matched AS (
 SELECT m.body, d.filename, m.s
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.s DESC, m.id;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
    Output: issue_5108_chunks.body, d.filename, (pdb.score(issue_5108_chunks.id)), issue_5108_chunks.id
    Inner Unique: true
    ->  Limit
          Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, (pdb.score(issue_5108_chunks.id))
-         ->  Gather Merge
-               Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, (pdb.score(issue_5108_chunks.id))
-               Workers Planned: 1
-               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks
-                     Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, pdb.score(issue_5108_chunks.id)
-                     Table: issue_5108_chunks
-                     Index: issue_5108_chunks_bm25
-                     Worker Selection: Cost model
-                     Exec Method: TopKScanExecState
-                     Scores: true
-                        TopK Order By: pdb.score() desc, id asc
-                        TopK Limit: 100
-                     Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         ->  Custom Scan (ParadeDB Base Scan) on public.issue_5108_chunks
+               Output: issue_5108_chunks.id, issue_5108_chunks.body, issue_5108_chunks.doc_id, pdb.score(issue_5108_chunks.id)
+               Table: issue_5108_chunks
+               Index: issue_5108_chunks_bm25
+               Worker Selection: Prunable top-K
+               Exec Method: TopKScanExecState
+               Scores: true
+                  TopK Order By: pdb.score() desc, id asc
+                  TopK Limit: 100
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"healthcare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
    ->  Memoize
          Output: d.filename, d.id
          Cache Key: issue_5108_chunks.doc_id
@@ -505,7 +502,7 @@ ORDER BY m.s DESC, m.id;
          ->  Index Scan using issue_5108_docs_pkey on public.issue_5108_docs d
                Output: d.filename, d.id
                Index Cond: (d.id = issue_5108_chunks.doc_id)
-(25 rows)
+(22 rows)
 
 WITH matched AS (
     SELECT id, body, doc_id, pdb.score(id) AS s

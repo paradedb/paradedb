@@ -61,7 +61,7 @@ fn parallel_tuple_cost() -> f64 {
 /// the branch, not the serial-vs-parallel outcome (the plan shape shows that).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) enum WorkerDecisionReason {
-    /// Prunable score-DESC single term: Block-WAND keeps serial scoring sublinear (#4664), so
+    /// Prunable primarily score-DESC ordering: Block-WAND keeps serial scoring sublinear (#4664), so
     /// workers would only add overhead.
     BlockWandPrunable,
     /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
@@ -251,8 +251,8 @@ pub(super) unsafe fn topk_can_prune_for_method(
         return TopKPrunability::NotPrunable;
     }
 
-    // A clean ordered TopK: a prunable candidate only when ordered by score DESC (the one direction
-    // Block-WAND prunes to sublinear). Score ASC / field sort are ordered but not prunable.
+    // A clean ordered TopK: a prunable candidate only when ordered primarily by score DESC (the one
+    // direction Block-WAND prunes to sublinear). Score ASC / field sort are ordered but not prunable.
     if SearchIndexReader::orderby_uses_score_desc_topk_collector(orderby_info) {
         TopKPrunability::PrunableCandidate
     } else {
@@ -364,7 +364,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         has_grouping,
     } = inputs;
 
-    // 1. Prunable short-circuit -> serial only. Block-WAND keeps a score-DESC single term sublinear
+    // 1. Prunable short-circuit -> serial only. Block-WAND keeps primarily score-DESC ordered top-k sublinear
     //    (#4664), so workers would only add overhead. A hard gate: the cost model can't see
     //    Block-WAND, and the predicate must actually prune, not just look like a term.
     if matches!(prunability, TopKPrunability::PrunableCandidate) && query.is_topk_prunable() {

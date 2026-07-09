@@ -114,11 +114,6 @@ sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'cheese';
 """
 
-# A grouped, unlimited scan is emitted as a serial custom path that PostgreSQL may
-# swap for its own scan of the BM25 index: the two cost within ~0.4% of each other,
-# inside PostgreSQL's fuzzy-cost factor, and the custom path is not forced (see
-# `hook::add_path`). Which one wins then turns on how much the concurrent writer jobs
-# have grown the index, so disable the native scans to pin the plan we mean to test.
 [[jobs]]
 refresh_ms = 5
 title = "Normal Scan"

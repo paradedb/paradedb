@@ -1278,18 +1278,13 @@ impl SearchQueryInput {
                     query_parser.set_conjunction_by_default();
                 }
 
-                let query = match lenient {
-                    Some(true) => {
-                        let (parsed_query, _) = query_parser.parse_query_lenient(&query_string);
-                        Box::new(parsed_query) as Box<dyn TantivyQuery>
-                    }
-                    _ => Box::new(
-                        query_parser
-                            .parse_query(&query_string)
-                            .map_err(|err| QueryError::ParseError(err, query_string.clone()))?,
-                    ) as Box<dyn TantivyQuery>,
-                };
-
+                let query = pdb_query::parse_tantivy_query(
+                    &mut query_parser,
+                    &query_string,
+                    lenient.unwrap_or(false),
+                    schema,
+                    index_created_by_version,
+                )?;
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {

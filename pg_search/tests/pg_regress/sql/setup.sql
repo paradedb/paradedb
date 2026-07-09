@@ -12,14 +12,13 @@ CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, desc
 -- a table named "regress"."mock_items" with all fields indexed, including one as an expression
 -- that all tests can use.
 --
--- we add a new column, "sku", to the table, and populate it with a unique UUID per row
+-- we repopulate the "sku" column with a unique UUID per row
 --
 CREATE SCHEMA IF NOT EXISTS regress;
 CALL paradedb.create_bm25_test_table(
         schema_name => 'regress',
         table_name => 'mock_items'
      );
-ALTER TABLE regress.mock_items ADD COLUMN sku UUID;
 UPDATE regress.mock_items SET sku = ('da2fea21-' || lpad(to_hex( id::int4), 4, '0') || '-411b-9e8c-2cb64e471293')::uuid;
 VACUUM FULL regress.mock_items;
 CREATE INDEX idxregress_mock_items

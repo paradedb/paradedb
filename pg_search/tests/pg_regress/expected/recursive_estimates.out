@@ -34,10 +34,10 @@ SET paradedb.explain_recursive_estimates = ON;
 -- ============================================================================
 -- Test 1.1: Simple parse query (single term)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -48,10 +48,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 1.2: Simple phrase query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ### 'running shoes';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -66,10 +66,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- ============================================================================
 -- Test 2.1: Simple AND (conjunction) - 2 children
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -80,10 +80,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 2.2: Simple OR (disjunction) - 2 children
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| 'running shoes';
-                                                                                                                   QUERY PLAN                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -94,10 +94,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 2.3: AND with array (multiple terms)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& ARRAY['running', 'shoes', 'athletic'];
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -108,10 +108,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 2.4: OR with array (multiple terms)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description ||| ARRAY['running', 'walking', 'hiking'];
-                                                                                                                      QUERY PLAN                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -133,10 +133,10 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'running')
     ]
 );
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -154,10 +154,10 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'walking')
     ]
 );
-                                                                                                                      QUERY PLAN                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -176,7 +176,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                              QUERY PLAN                                                                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -192,10 +192,10 @@ WHERE description @@@ paradedb.boolean(
     must := ARRAY[paradedb.term('description', 'shoes')],
     must_not := ARRAY[paradedb.term('description', 'athletic')]
 );
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -225,7 +225,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -251,7 +251,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -282,7 +282,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -297,10 +297,10 @@ WHERE description @@@ paradedb.boolean(
 -- ============================================================================
 -- Test 5.1: Term equality
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description === 'shoes';
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -311,10 +311,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 5.2: Term set (array of exact matches)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description === ARRAY['shoes', 'boots'];
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -330,10 +330,10 @@ WHERE id @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -349,10 +349,10 @@ WHERE description @@@ paradedb.regex(
     field => 'description',
     pattern => 'run.*'
 );
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -369,10 +369,10 @@ WHERE description @@@ paradedb.fuzzy_term(
     value => 'sheos',
     distance => 1::integer
 );
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -385,10 +385,10 @@ WHERE description @@@ paradedb.fuzzy_term(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ paradedb.empty();
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -404,10 +404,10 @@ WHERE description @@@ paradedb.boost(
     factor => 2.0,
     query => paradedb.term('description', 'shoes')
 );
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -423,10 +423,10 @@ WHERE description @@@ paradedb.const_score(
     score => 1.5,
     query => paradedb.term('description', 'shoes')
 );
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -447,7 +447,7 @@ WHERE description @@@ paradedb.disjunction_max(
                                                                                                                                    QUERY PLAN                                                                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -469,7 +469,7 @@ WHERE description @@@ paradedb.disjunction_max(
                                                                                                                                            QUERY PLAN                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -482,10 +482,10 @@ WHERE description @@@ paradedb.disjunction_max(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ paradedb.parse('description:shoes AND description:running');
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -502,10 +502,10 @@ WHERE description @@@ paradedb.phrase(
     phrases => ARRAY['running', 'shoes'],
     slop => 2
 );
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -521,10 +521,10 @@ WHERE description @@@ paradedb.phrase_prefix(
     field => 'description',
     phrases => ARRAY['run']
 );
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -540,10 +540,10 @@ WHERE description @@@ paradedb.regex_phrase(
     field => 'description',
     regexes => ARRAY['run.*', 'shoe.*']
 );
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -559,7 +559,7 @@ WHERE id @@@ pdb.more_like_this(1);
                                                                                                                                                                 QUERY PLAN                                                                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -575,10 +575,10 @@ WHERE description @@@ paradedb.match(
     field => 'description',
     value => 'running shoes'
 );
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -594,10 +594,10 @@ WHERE description @@@ paradedb.match_conjunction(
     field => 'description',
     terms_to_tokenize => 'running shoes'
 );
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -613,10 +613,10 @@ WHERE description @@@ paradedb.match_disjunction(
     field => 'description',
     terms_to_tokenize => 'running walking'
 );
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -629,10 +629,10 @@ WHERE description @@@ paradedb.match_disjunction(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ pdb.proximity('running', 2, 'shoes');
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -645,10 +645,10 @@ WHERE description @@@ pdb.proximity('running', 2, 'shoes');
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE description @@@ pdb.proximity_in_order('running', 3, 'shoes');
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -664,10 +664,10 @@ WHERE id @@@ paradedb.range(
     field => 'created_at',
     range => tsrange('2023-01-01', '2023-12-31')
 );
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -686,10 +686,10 @@ WHERE description @@@ paradedb.term_set(
         paradedb.term('description', 'sandals')
     ]
 );
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -717,7 +717,7 @@ WHERE description @@@ paradedb.boost(
                                                                                                                                               QUERY PLAN                                                                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -741,7 +741,7 @@ WHERE description @@@ paradedb.const_score(
                                                                                                                                                   QUERY PLAN                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -762,7 +762,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -788,7 +788,7 @@ WHERE description @@@ paradedb.disjunction_max(
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -817,7 +817,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -838,10 +838,10 @@ SHOW paradedb.explain_recursive_estimates;
 (1 row)
 
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -853,10 +853,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- Test 6.2: Turn GUC OFF and verify estimates NOT shown
 SET paradedb.explain_recursive_estimates = OFF;
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -868,10 +868,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- Test 6.3: Turn GUC back ON
 SET paradedb.explain_recursive_estimates = ON;
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -886,10 +886,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 -- ============================================================================
 -- Test 7.1: EXPLAIN VERBOSE (planning only)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -900,10 +900,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 7.2: EXPLAIN ANALYZE VERBOSE (planning + execution)
 EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items (actual rows=1.00 loops=1)
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -936,10 +936,10 @@ EXPLAIN (COSTS OFF) SELECT * FROM recursive_test.estimate_items WHERE descriptio
 -- ============================================================================
 -- Test 8.1: Empty result query
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'nonexistentterm123456';
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -950,10 +950,10 @@ EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_te
 
 -- Test 8.2: Match all query (very broad)
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF) SELECT * FROM recursive_test.estimate_items WHERE description @@@ paradedb.all();
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -973,7 +973,7 @@ WHERE description @@@ 'running'
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -992,7 +992,7 @@ WHERE description @@@ 'running'
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -1049,7 +1049,7 @@ WHERE description @@@ paradedb.boolean(
                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -1071,10 +1071,10 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'shoes')
     ]
 );
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: estimate_items
    Index: idx_recursive_estimates
    Worker Selection: Cost model
@@ -1092,28 +1092,28 @@ RESET statement_timeout;
 -- Test 10.1: Simple query in JSON format
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                       +
-   {                                                                                                                                                                                                                     +
-     "Plan": {                                                                                                                                                                                                           +
-       "Node Type": "Custom Scan",                                                                                                                                                                                       +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                     +
-       "Parallel Aware": false,                                                                                                                                                                                          +
-       "Async Capable": false,                                                                                                                                                                                           +
-       "Relation Name": "estimate_items",                                                                                                                                                                                +
-       "Schema": "recursive_test",                                                                                                                                                                                       +
-       "Alias": "estimate_items",                                                                                                                                                                                        +
-       "Disabled": false,                                                                                                                                                                                                +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
-       "Table": "estimate_items",                                                                                                                                                                                        +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                               +
-       "Worker Selection": "Cost model",                                                                                                                                                                                 +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
-       "Scores": false,                                                                                                                                                                                                  +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
-     }                                                                                                                                                                                                                   +
-   }                                                                                                                                                                                                                     +
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                     +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                            +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                     +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],+
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                    +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                  +
+       "Scores": false,                                                                                                                                                                                                                                                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"                                                                                                     +
+     }                                                                                                                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                                                                                                                          +
  ]
 (1 row)
 
@@ -1126,28 +1126,28 @@ WHERE description @@@ paradedb.boolean(
         paradedb.term('description', 'running')
     ]
 );
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                                                                                           +
-   {                                                                                                                                                                                                                                                                                         +
-     "Plan": {                                                                                                                                                                                                                                                                               +
-       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                           +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                         +
-       "Parallel Aware": false,                                                                                                                                                                                                                                                              +
-       "Async Capable": false,                                                                                                                                                                                                                                                               +
-       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                    +
-       "Schema": "recursive_test",                                                                                                                                                                                                                                                           +
-       "Alias": "estimate_items",                                                                                                                                                                                                                                                            +
-       "Disabled": false,                                                                                                                                                                                                                                                                    +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                            +
-       "Table": "estimate_items",                                                                                                                                                                                                                                                            +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                   +
-       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                     +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                 +
-       "Scores": false,                                                                                                                                                                                                                                                                      +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3},{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1}]},\"estimated_docs\":1}},\"estimated_docs\":1}"+
-     }                                                                                                                                                                                                                                                                                       +
-   }                                                                                                                                                                                                                                                                                         +
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                     +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                            +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                     +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],+
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                    +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                  +
+       "Scores": false,                                                                                                                                                                                                                                                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"shoes\"},\"estimated_docs\":3},{\"term\":{\"field\":\"description\",\"value\":\"running\"},\"estimated_docs\":1}]},\"estimated_docs\":1}},\"estimated_docs\":1}"                                 +
+     }                                                                                                                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                                                                                                                          +
  ]
 (1 row)
 
@@ -1178,7 +1178,7 @@ WHERE description @@@ paradedb.boolean(
        "Schema": "recursive_test",                                                                                                                                                                                                                                                                                                                                                                                              +
        "Alias": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                               +
        "Disabled": false,                                                                                                                                                                                                                                                                                                                                                                                                       +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                                                                                                               +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],                                                                                                  +
        "Table": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                               +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                                                                                                                      +
        "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                                                                                                                        +
@@ -1197,28 +1197,28 @@ WHERE rating @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                   +
-   {                                                                                                                                                                                                 +
-     "Plan": {                                                                                                                                                                                       +
-       "Node Type": "Custom Scan",                                                                                                                                                                   +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                 +
-       "Parallel Aware": false,                                                                                                                                                                      +
-       "Async Capable": false,                                                                                                                                                                       +
-       "Relation Name": "estimate_items",                                                                                                                                                            +
-       "Schema": "recursive_test",                                                                                                                                                                   +
-       "Alias": "estimate_items",                                                                                                                                                                    +
-       "Disabled": false,                                                                                                                                                                            +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                    +
-       "Table": "estimate_items",                                                                                                                                                                    +
-       "Index": "idx_recursive_estimates",                                                                                                                                                           +
-       "Worker Selection": "Cost model",                                                                                                                                                             +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                         +
-       "Scores": false,                                                                                                                                                                              +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
-     }                                                                                                                                                                                               +
-   }                                                                                                                                                                                                 +
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                     +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                            +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                     +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],+
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                    +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                  +
+       "Scores": false,                                                                                                                                                                                                                                                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"                                                                                                                         +
+     }                                                                                                                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                                                                                                                          +
  ]
 (1 row)
 
@@ -1230,28 +1230,28 @@ WHERE description @@@ paradedb.fuzzy_term(
     value => 'sheos',
     distance => 1::integer
 );
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                              +
-   {                                                                                                                                                                                                                            +
-     "Plan": {                                                                                                                                                                                                                  +
-       "Node Type": "Custom Scan",                                                                                                                                                                                              +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                            +
-       "Parallel Aware": false,                                                                                                                                                                                                 +
-       "Async Capable": false,                                                                                                                                                                                                  +
-       "Relation Name": "estimate_items",                                                                                                                                                                                       +
-       "Schema": "recursive_test",                                                                                                                                                                                              +
-       "Alias": "estimate_items",                                                                                                                                                                                               +
-       "Disabled": false,                                                                                                                                                                                                       +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                               +
-       "Table": "estimate_items",                                                                                                                                                                                               +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                      +
-       "Worker Selection": "Cost model",                                                                                                                                                                                        +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                                    +
-       "Scores": false,                                                                                                                                                                                                         +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"fuzzy_term\":{\"field\":\"description\",\"value\":\"sheos\",\"distance\":1,\"transposition_cost_one\":null,\"prefix\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
-     }                                                                                                                                                                                                                          +
-   }                                                                                                                                                                                                                            +
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                     +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                            +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                     +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],+
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                    +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                  +
+       "Scores": false,                                                                                                                                                                                                                                                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"fuzzy_term\":{\"field\":\"description\",\"value\":\"sheos\",\"distance\":1,\"transposition_cost_one\":null,\"prefix\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"                                                                                              +
+     }                                                                                                                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                                                                                                                          +
  ]
 (1 row)
 
@@ -1259,28 +1259,28 @@ WHERE description @@@ paradedb.fuzzy_term(
 SET paradedb.explain_recursive_estimates = OFF;
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                             +
-   {                                                                                                                                                                           +
-     "Plan": {                                                                                                                                                                 +
-       "Node Type": "Custom Scan",                                                                                                                                             +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                           +
-       "Parallel Aware": false,                                                                                                                                                +
-       "Async Capable": false,                                                                                                                                                 +
-       "Relation Name": "estimate_items",                                                                                                                                      +
-       "Schema": "recursive_test",                                                                                                                                             +
-       "Alias": "estimate_items",                                                                                                                                              +
-       "Disabled": false,                                                                                                                                                      +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],              +
-       "Table": "estimate_items",                                                                                                                                              +
-       "Index": "idx_recursive_estimates",                                                                                                                                     +
-       "Worker Selection": "Cost model",                                                                                                                                       +
-       "Exec Method": "NormalScanExecState",                                                                                                                                   +
-       "Scores": false,                                                                                                                                                        +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null}}}}"+
-     }                                                                                                                                                                         +
-   }                                                                                                                                                                           +
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                     +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                            +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                     +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],+
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                    +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                  +
+       "Scores": false,                                                                                                                                                                                                                                                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null}}}}"                                                                                                                                               +
+     }                                                                                                                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                                                                                                                          +
  ]
 (1 row)
 
@@ -1288,28 +1288,28 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
 SET paradedb.explain_recursive_estimates = ON;
 EXPLAIN (FORMAT JSON, VERBOSE, COSTS OFF)
 SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                       +
-   {                                                                                                                                                                                                                     +
-     "Plan": {                                                                                                                                                                                                           +
-       "Node Type": "Custom Scan",                                                                                                                                                                                       +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                     +
-       "Parallel Aware": false,                                                                                                                                                                                          +
-       "Async Capable": false,                                                                                                                                                                                           +
-       "Relation Name": "estimate_items",                                                                                                                                                                                +
-       "Schema": "recursive_test",                                                                                                                                                                                       +
-       "Alias": "estimate_items",                                                                                                                                                                                        +
-       "Disabled": false,                                                                                                                                                                                                +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
-       "Table": "estimate_items",                                                                                                                                                                                        +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                               +
-       "Worker Selection": "Cost model",                                                                                                                                                                                 +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
-       "Scores": false,                                                                                                                                                                                                  +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
-     }                                                                                                                                                                                                                   +
-   }                                                                                                                                                                                                                     +
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                +
+       "Relation Name": "estimate_items",                                                                                                                                                                                                                                                                                     +
+       "Schema": "recursive_test",                                                                                                                                                                                                                                                                                            +
+       "Alias": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Disabled": false,                                                                                                                                                                                                                                                                                                     +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range", "shelf_number", "barcode", "unit_weight_kg", "popularity_score", "price", "sku", "updated_from_ip", "specifications", "last_restocked_at", "store_opens_at"],+
+       "Table": "estimate_items",                                                                                                                                                                                                                                                                                             +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                    +
+       "Worker Selection": "Cost model",                                                                                                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                  +
+       "Scores": false,                                                                                                                                                                                                                                                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"                                                                                                     +
+     }                                                                                                                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                                                                                                                          +
  ]
 (1 row)
 
@@ -1338,6 +1338,16 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        - "last_updated_date"                                                                                                                                                                                         +
        - "latest_available_time"                                                                                                                                                                                     +
        - "weight_range"                                                                                                                                                                                              +
+       - "shelf_number"                                                                                                                                                                                              +
+       - "barcode"                                                                                                                                                                                                   +
+       - "unit_weight_kg"                                                                                                                                                                                            +
+       - "popularity_score"                                                                                                                                                                                          +
+       - "price"                                                                                                                                                                                                     +
+       - "sku"                                                                                                                                                                                                       +
+       - "updated_from_ip"                                                                                                                                                                                           +
+       - "specifications"                                                                                                                                                                                            +
+       - "last_restocked_at"                                                                                                                                                                                         +
+       - "store_opens_at"                                                                                                                                                                                            +
      Table: "estimate_items"                                                                                                                                                                                         +
      Index: "idx_recursive_estimates"                                                                                                                                                                                +
      Worker Selection: "Cost model"                                                                                                                                                                                  +
@@ -1373,6 +1383,16 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
          <Item>last_updated_date</Item>                                                                                                                                                                        +
          <Item>latest_available_time</Item>                                                                                                                                                                    +
          <Item>weight_range</Item>                                                                                                                                                                             +
+         <Item>shelf_number</Item>                                                                                                                                                                             +
+         <Item>barcode</Item>                                                                                                                                                                                  +
+         <Item>unit_weight_kg</Item>                                                                                                                                                                           +
+         <Item>popularity_score</Item>                                                                                                                                                                         +
+         <Item>price</Item>                                                                                                                                                                                    +
+         <Item>sku</Item>                                                                                                                                                                                      +
+         <Item>updated_from_ip</Item>                                                                                                                                                                          +
+         <Item>specifications</Item>                                                                                                                                                                           +
+         <Item>last_restocked_at</Item>                                                                                                                                                                        +
+         <Item>store_opens_at</Item>                                                                                                                                                                           +
        </Output>                                                                                                                                                                                               +
        <Table>estimate_items</Table>                                                                                                                                                                           +
        <Index>idx_recursive_estimates</Index>                                                                                                                                                                  +

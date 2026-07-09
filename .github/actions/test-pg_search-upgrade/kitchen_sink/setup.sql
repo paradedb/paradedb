@@ -1,7 +1,8 @@
 CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');
 
 ALTER TABLE mock_items
-ADD COLUMN price NUMERIC(10, 2),
+-- IF NOT EXISTS: newer versions of create_bm25_test_table create price themselves
+ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2),
 ADD COLUMN precise_price NUMERIC,
 ADD COLUMN score DOUBLE PRECISION,
 ADD COLUMN external_id UUID,

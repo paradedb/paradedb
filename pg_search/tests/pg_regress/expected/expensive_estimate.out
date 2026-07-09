@@ -24,10 +24,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
     value => 'sheos',
     distance => 1::integer
 );
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: mock_items
    Index: idx_mock_items
    Worker Selection: Cost model
@@ -54,10 +54,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
     value => 'sheos',
     distance => 2::integer
 );
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: mock_items
    Index: idx_mock_items
    Worker Selection: Cost model
@@ -85,10 +85,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
     field => 'description',
     pattern => 'sh.*es'
 );
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: mock_items
    Index: idx_mock_items
    Worker Selection: Cost model
@@ -115,10 +115,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ p
     field => 'rating',
     range => int4range(3, 5)
 );
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: mock_items
    Index: idx_mock_items
    Worker Selection: Cost model
@@ -167,10 +167,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ p
     field => 'created_at',
     range => tsrange('2023-04-01', '2023-06-01')
 );
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: mock_items
    Index: idx_mock_items
    Worker Selection: Cost model
@@ -237,10 +237,10 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
         paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
     ]
 );
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.mock_items
-   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, shelf_number, barcode, unit_weight_kg, popularity_score, price, sku, updated_from_ip, specifications, last_restocked_at, store_opens_at
    Table: mock_items
    Index: idx_mock_items
    Worker Selection: Cost model

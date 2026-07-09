@@ -5,7 +5,6 @@ CALL paradedb.create_bm25_test_table(
         table_name => 'mock_items'
 );
 
-ALTER TABLE mock_items ADD COLUMN sku UUID;
 UPDATE mock_items SET sku = ('da2fea21-' || lpad(to_hex( id::int4), 4, '0') || '-411b-9e8c-2cb64e471293')::uuid;
 VACUUM FULL mock_items;
 

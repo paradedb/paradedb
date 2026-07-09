@@ -67,8 +67,8 @@ ORDER BY score DESC, o.order_id
 LIMIT 5;
 EXPLAIN (COSTS OFF)
 EXECUTE rrf_query('Johnson', 'running shoes');
-                                                                                                                                             QUERY PLAN                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (sum(((1.0 / ((60 + order_search.rank))::numeric)))) DESC, o.order_id
@@ -77,46 +77,46 @@ EXECUTE rrf_query('Johnson', 'running shoes');
                ->  Sort
                      Sort Key: o.order_id, m.description
                      ->  Hash Join
-                           Hash Cond: (o.product_id = m.id)
-                           ->  Hash Join
-                                 Hash Cond: (o.order_id = order_search.order_id)
-                                 ->  Seq Scan on orders_rrf o
-                                 ->  Hash
-                                       ->  Append
-                                             ->  Subquery Scan on order_search
-                                                   ->  WindowAgg
-                                                         Window: w1 AS (ORDER BY unnamed_subquery.score ROWS UNBOUNDED PRECEDING)
-                                                         ->  Subquery Scan on unnamed_subquery
-                                                               ->  Limit
-                                                                     ->  Custom Scan (ParadeDB Base Scan) on orders_rrf
-                                                                           Table: orders_rrf
-                                                                           Index: orders_rrf_idx
-                                                                           Exec Method: TopKScanExecState
-                                                                           Scores: true
-                                                                              TopK Order By: pdb.score() desc
-                                                                              TopK Limit: 20
-                                                                           Tantivy Query: {"with_index":{"query":{"match":{"field":"customer_name","value":"Johnson","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                                             ->  Subquery Scan on product_search
-                                                   ->  WindowAgg
-                                                         Window: w1 AS (ORDER BY m_1.score ROWS UNBOUNDED PRECEDING)
-                                                         ->  Sort
-                                                               Sort Key: m_1.score DESC
-                                                               ->  Hash Join
-                                                                     Hash Cond: (o_1.product_id = m_1.id)
-                                                                     ->  Seq Scan on orders_rrf o_1
-                                                                     ->  Hash
-                                                                           ->  Subquery Scan on m_1
-                                                                                 ->  Limit
-                                                                                       ->  Custom Scan (ParadeDB Base Scan) on mock_items_rrf
-                                                                                             Table: mock_items_rrf
-                                                                                             Index: mock_items_rrf_idx
-                                                                                             Exec Method: TopKScanExecState
-                                                                                             Scores: true
-                                                                                                TopK Order By: pdb.score() desc
-                                                                                                TopK Limit: 20
-                                                                                             Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                           Hash Cond: (m.id = o.product_id)
+                           ->  Seq Scan on mock_items_rrf m
                            ->  Hash
-                                 ->  Seq Scan on mock_items_rrf m
+                                 ->  Hash Join
+                                       Hash Cond: (o.order_id = order_search.order_id)
+                                       ->  Seq Scan on orders_rrf o
+                                       ->  Hash
+                                             ->  Append
+                                                   ->  Subquery Scan on order_search
+                                                         ->  WindowAgg
+                                                               Window: w1 AS (ORDER BY unnamed_subquery.score ROWS UNBOUNDED PRECEDING)
+                                                               ->  Subquery Scan on unnamed_subquery
+                                                                     ->  Limit
+                                                                           ->  Custom Scan (ParadeDB Base Scan) on orders_rrf
+                                                                                 Table: orders_rrf
+                                                                                 Index: orders_rrf_idx
+                                                                                 Exec Method: TopKScanExecState
+                                                                                 Scores: true
+                                                                                    TopK Order By: pdb.score() desc
+                                                                                    TopK Limit: 20
+                                                                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"customer_name","value":"Johnson","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                                                   ->  Subquery Scan on product_search
+                                                         ->  WindowAgg
+                                                               Window: w1 AS (ORDER BY m_1.score ROWS UNBOUNDED PRECEDING)
+                                                               ->  Sort
+                                                                     Sort Key: m_1.score DESC
+                                                                     ->  Hash Join
+                                                                           Hash Cond: (o_1.product_id = m_1.id)
+                                                                           ->  Seq Scan on orders_rrf o_1
+                                                                           ->  Hash
+                                                                                 ->  Subquery Scan on m_1
+                                                                                       ->  Limit
+                                                                                             ->  Custom Scan (ParadeDB Base Scan) on mock_items_rrf
+                                                                                                   Table: mock_items_rrf
+                                                                                                   Index: mock_items_rrf_idx
+                                                                                                   Exec Method: TopKScanExecState
+                                                                                                   Scores: true
+                                                                                                      TopK Order By: pdb.score() desc
+                                                                                                      TopK Limit: 20
+                                                                                                   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (48 rows)
 
 EXECUTE rrf_query('Johnson', 'running shoes');

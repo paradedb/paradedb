@@ -86,7 +86,12 @@ static KOR_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("ko-
 
 fn load_mmap_dictionary(name: &str) -> Dictionary {
     crate::lindera_mmap::load_dictionary(name).unwrap_or_else(|err| {
-        panic!("Lindera `{name}` dictionary must be installed as mmap component files: {err:#}")
+        panic!(
+            "Lindera `{name}` dictionary must be installed as mmap component files: {err:#}. \
+             If you built pg_search from source, run \
+             `scripts/install_lindera_dictionaries.sh --pg-config <path-to-pg_config>` \
+             after `cargo pgrx install`."
+        )
     })
 }
 
@@ -353,6 +358,13 @@ mod tests {
             return false;
         }
 
+        if std::env::var_os("CI").is_some() {
+            panic!(
+                "Lindera dictionaries are missing in CI; set {} to a preinstalled dictionary root",
+                crate::lindera_mmap::DICTIONARY_ROOT_ENV
+            );
+        }
+
         eprintln!(
             "skipping Lindera tokenizer test; set {} to a preinstalled dictionary root",
             crate::lindera_mmap::DICTIONARY_ROOT_ENV
@@ -447,6 +459,10 @@ mod tests {
     // segment. The OFF/ON comparison proves the option is not a no-op.
     #[rstest]
     fn test_lindera_japanese_tokenizer_with_nfkc() {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let input = "ＡＢＣ１２３";
 
         let mut off = LinderaJapaneseTokenizer::with_options(false, false, false);
@@ -468,6 +484,10 @@ mod tests {
     // (katakana). "日本語" -> "ニホンゴ".
     #[rstest]
     fn test_lindera_japanese_tokenizer_with_reading_form() {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let input = "日本語";
 
         let mut off = LinderaJapaneseTokenizer::with_options(false, false, false);
@@ -488,6 +508,10 @@ mod tests {
     // tokens with their ko-dic Hangul reading. "韓國" -> "한국".
     #[rstest]
     fn test_lindera_korean_tokenizer_with_reading_form() {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let input = "韓國";
 
         let mut off = LinderaKoreanTokenizer::with_options(false, false, false);

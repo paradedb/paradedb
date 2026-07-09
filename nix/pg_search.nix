@@ -84,6 +84,11 @@ buildPgrxExtension (finalAttrs: {
     echo "Lindera cache prepared at $LINDERA_CACHE"
   '';
 
+  postInstall = ''
+    cargo run --release --package lindera-dict-builder -- \
+      "$out/share/postgresql/extension/pg_search/lindera"
+  '';
+
   cargoPgrxFlags = [
     "--package"
     "pg_search"

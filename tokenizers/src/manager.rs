@@ -964,6 +964,13 @@ mod tests {
             return false;
         }
 
+        if std::env::var_os("CI").is_some() {
+            panic!(
+                "Lindera dictionaries are missing in CI; set {} to a preinstalled dictionary root",
+                crate::lindera_mmap::DICTIONARY_ROOT_ENV
+            );
+        }
+
         eprintln!(
             "skipping Lindera tokenizer manager test; set {} to a preinstalled dictionary root",
             crate::lindera_mmap::DICTIONARY_ROOT_ENV

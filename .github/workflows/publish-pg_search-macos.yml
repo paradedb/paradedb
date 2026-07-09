@@ -183,6 +183,9 @@ jobs:
           pg_version=${{ matrix.pg_version }}
           tag_version=${{ steps.version.outputs.tag_version }}
           package_dir="pg_search-${tag_version}-arm64-pg${pg_version}"
+          PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${pg_version}/bin/pg_config"
+          sharedir="$($PG_CONFIG_PATH --sharedir)"
+          sharedir_rel="${sharedir#/}"
 
           # Define Homebrew PostgreSQL paths
           lib_path="lib/postgresql"
@@ -200,7 +203,7 @@ jobs:
           fi
           cp archive/*.control ${package_dir}/${share_path}
           cp archive/*.sql ${package_dir}/${share_path}
-          cp -R target/release/pg_search-pg${{ matrix.pg_version }}/opt/homebrew/share/postgresql@${{ matrix.pg_version }}/extension/pg_search ${package_dir}/${share_path}/
+          cp -R "target/release/pg_search-pg${pg_version}/${sharedir_rel}/extension/pg_search" ${package_dir}/${share_path}/
 
           # Bundle the LICENSE so it lands at /opt/homebrew/opt/paradedb/LICENSE
           # alongside the Homebrew install prefix.

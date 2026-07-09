@@ -25,9 +25,13 @@ use lindera_dictionary::builder::DictionaryBuilder;
 use lindera_dictionary::decompress::{Algorithm, CompressedData};
 use lindera_dictionary::dictionary::metadata::Metadata;
 
+// Keep this in sync with the exact lindera-dictionary dependency version in
+// this crate's Cargo.toml; it is part of the cache key for generated files.
 const LINDERA_VERSION: &str = "1.5.1";
 const READY_MARKER: &str = ".paradedb-lindera-mmap-ready";
 
+// Must stay in sync with tokenizers/src/lindera_mmap.rs and with
+// lindera-dictionary's mmap component layout for the pinned Lindera version.
 const COMPONENT_FILES: &[&str] = &[
     "metadata.json",
     "char_def.bin",
@@ -50,6 +54,9 @@ struct DictionarySpec {
     metadata_json: &'static str,
 }
 
+// These metadata blobs are copied from the lindera-cc-cedict, lindera-ipadic,
+// and lindera-ko-dic 1.5.1 crates, with compress_algorithm set to "raw". When
+// bumping Lindera, recopy the upstream metadata for the same crate versions.
 const DICTIONARIES: &[DictionarySpec] = &[
     DictionarySpec {
         name: "cc-cedict",
@@ -270,11 +277,19 @@ fn prepare_for_lindera_mmap(path: &Path) -> anyhow::Result<()> {
 fn wrap_for_compress_loader(path: &Path) -> anyhow::Result<()> {
     let data =
         fs::read(path).with_context(|| format!("failed to read component {}", path.display()))?;
+    if compressed_data_ready(&data) {
+        return Ok(());
+    }
+
     let wrapped = CompressedData::new(Algorithm::Raw, data);
     let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&wrapped)
         .with_context(|| format!("failed to serialize component {}", path.display()))?;
 
     fs::write(path, bytes).with_context(|| format!("failed to write component {}", path.display()))
+}
+
+fn compressed_data_ready(data: &[u8]) -> bool {
+    rkyv::from_bytes::<CompressedData, rkyv::rancor::Error>(data).is_ok()
 }
 
 fn copy_dictionary(source: &Path, destination: &Path) -> anyhow::Result<()> {
@@ -293,4 +308,18 @@ fn copy_dictionary(source: &Path, destination: &Path) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compressed_data_ready_detects_already_wrapped_bytes() {
+        let wrapped = CompressedData::new(Algorithm::Raw, b"component bytes".to_vec());
+        let wrapped_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&wrapped).unwrap();
+
+        assert!(compressed_data_ready(&wrapped_bytes));
+        assert!(!compressed_data_ready(b"component bytes"));
+    }
 }

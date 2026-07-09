@@ -61,18 +61,20 @@ else
 fi
 
 if [[ -z "${LINDERA_CACHE:-}" ]]; then
-  if [[ "$use_sudo" -eq 1 ]]; then
-    export LINDERA_CACHE="/tmp/paradedb-lindera-dict-cache"
-  else
-    export LINDERA_CACHE="$repo_root/target/lindera-dict-cache"
-  fi
+  export LINDERA_CACHE="$repo_root/target/lindera-dict-cache"
 fi
 
 cargo build --release --manifest-path "$repo_root/Cargo.toml" --package lindera-dict-builder
 
 builder="$repo_root/target/release/lindera-dict-builder"
 if [[ "$use_sudo" -eq 1 ]]; then
-  sudo env LINDERA_CACHE="$LINDERA_CACHE" "$builder" "$destination"
+  staging_root="$(mktemp -d)"
+  trap 'rm -rf "$staging_root"' EXIT
+  staging_destination="$staging_root/lindera"
+  "$builder" "$staging_destination"
+  sudo rm -rf "$destination"
+  sudo mkdir -p "$(dirname "$destination")"
+  sudo cp -R "$staging_destination" "$destination"
 else
   "$builder" "$destination"
 fi

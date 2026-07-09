@@ -6,7 +6,7 @@ license = { workspace = true }
 
 [dependencies]
 anyhow = "1.0.102"
-lindera-dictionary = { version = "1.5.1", default-features = false, features = [
+lindera-dictionary = { version = "=1.5.1", default-features = false, features = [
   "build_rs",
 ] }
 rkyv = "0.8.16"

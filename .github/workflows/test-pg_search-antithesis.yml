@@ -228,6 +228,7 @@ jobs:
           cp archive/*.so* ${package_dir}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib
           cp archive/*.control ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension
           cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension
+          cp -R target/release-with-debug/pg_search-pg${{ env.PG_VERSION }}/usr/share/postgresql/${{ env.PG_VERSION }}/extension/pg_search ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension/
 
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN

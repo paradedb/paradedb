@@ -25,6 +25,8 @@ pub const DICTIONARY_ROOT_ENV: &str = "PARADEDB_LINDERA_DICT_ROOT";
 
 pub const DICTIONARY_NAMES: &[&str] = &["cc-cedict", "ipadic", "ko-dic"];
 
+// Must stay in sync with lindera-dict-builder's component list and with
+// lindera-dictionary's mmap component layout for the pinned Lindera version.
 pub const DICTIONARY_COMPONENT_FILES: &[&str] = &[
     "metadata.json",
     "char_def.bin",
@@ -48,15 +50,17 @@ pub fn set_dictionary_root(path: impl Into<PathBuf>) {
 }
 
 pub fn dictionary_root() -> anyhow::Result<PathBuf> {
+    if let Some(root) = DICTIONARY_ROOT.get() {
+        return Ok(root.clone());
+    }
+
     if let Some(root) = std::env::var_os(DICTIONARY_ROOT_ENV) {
         return Ok(root.into());
     }
 
-    DICTIONARY_ROOT.get().cloned().ok_or_else(|| {
-        anyhow!(
-            "{DICTIONARY_ROOT_ENV} is not set and pg_search did not configure a Lindera dictionary root"
-        )
-    })
+    Err(anyhow!(
+        "pg_search did not configure a Lindera dictionary root and {DICTIONARY_ROOT_ENV} is not set"
+    ))
 }
 
 pub fn dictionary_dir_ready(path: &Path) -> bool {

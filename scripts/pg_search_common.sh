@@ -60,6 +60,8 @@ PGVER=${PGVER:-18.1}
 BASEVER=$(echo "${PGVER}" | cut -f1 -d.)
 PORT=288${BASEVER}  # Port 2880 + major version (e.g., 28818 for version 18.1)
 FEATURE=pg${BASEVER}  # Feature flag (e.g., pg18)
+PG_CONFIG="${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
+export PG_CONFIG
 
 # Enable command echo for debugging
 set -x
@@ -68,7 +70,9 @@ set -x
 cargo pgrx stop "${FEATURE}" --package pg_search
 
 # Install pg_search extension, conditionally using --release
-cargo pgrx install --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $? # ksh88: there's a space between --profile and the value
+cargo pgrx install --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${PG_CONFIG}" || exit $? # ksh88: there's a space between --profile and the value
+"${SCRIPT_DIR}/install_lindera_dictionaries.sh" --pg-config "${PG_CONFIG}"
+export PARADEDB_LINDERA_DICT_ROOT="$("${PG_CONFIG}" --sharedir)/extension/pg_search/lindera"
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search
@@ -82,5 +86,4 @@ export DATABASE_URL="postgresql://${USER}@localhost:${PORT}/pg_search"
 # Clean up any previous logs
 rm -rf /tmp/ephemeral_postgres_logs/*
 
-# Export the PG_CONFIG variable for use by sourcing scripts
-export PG_CONFIG="${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
+# PG_CONFIG and PARADEDB_LINDERA_DICT_ROOT are exported for use by sourcing scripts.

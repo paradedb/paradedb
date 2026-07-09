@@ -30,7 +30,7 @@ ParadeDB provides prebuilt binaries of our extension for Postgres 15+ on:
 - macOS via [Postgres.app](https://postgresapp.com/extensions/) (PostgreSQL 18)
 - Red Hat Enterprise Linux 9 and 10
 
-If you are using a different version of Postgres or a different operating system, you will need to build the extension from source.
+If you are using a different version of Postgres or a different operating system, you will need to build the extension from source. After running `cargo pgrx install`, run `scripts/install_lindera_dictionaries.sh --pg-config <path-to-pg_config>` from the repository root so the Lindera tokenizer dictionaries are installed next to the extension.
 
 #### pg_search
 

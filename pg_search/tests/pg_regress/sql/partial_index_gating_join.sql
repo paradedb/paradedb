@@ -1,0 +1,60 @@
+-- Regression test: partial-index gating for the join custom scans.
+--
+-- The JoinScan and the aggregate-over-join DataFusion path resolve queries
+-- against each source's bm25 index at different planning phases than the base
+-- scan, so each carries its own partial-index gate (all via
+-- `missing_partial_index_predicate`). A query that does not imply a partial
+-- index's predicate must decline the pushdown rather than answer from the index
+-- (which is missing the excluded rows).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS pig_left, pig_right;
+CREATE TABLE pig_left (id serial PRIMARY KEY, category text, active boolean);
+INSERT INTO pig_left (category, active)
+SELECT (ARRAY['a', 'b', 'c'])[1 + (g % 3)], (g % 2 = 0)
+FROM generate_series(1, 900) g;
+
+CREATE TABLE pig_right (id serial PRIMARY KEY, left_id int);
+INSERT INTO pig_right (left_id) SELECT g FROM generate_series(1, 900) g;
+
+-- Partial index on the left table: only rows WHERE active. `active` is not indexed.
+CREATE INDEX pig_left_idx ON pig_left
+USING bm25 (id, category) WITH (key_field = 'id') WHERE active;
+CREATE INDEX pig_right_idx ON pig_right
+USING bm25 (id, left_id) WITH (key_field = 'id');
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Reports whether the plan for `q` uses a given ParadeDB custom scan, without
+-- capturing the full plan (which embeds a non-deterministic index oid).
+CREATE OR REPLACE FUNCTION pig_uses(q text, scan text) RETURNS boolean AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (COSTS OFF) ' || q LOOP
+    IF r."QUERY PLAN" LIKE '%' || scan || '%' THEN RETURN true; END IF;
+  END LOOP;
+  RETURN false;
+END $$ LANGUAGE plpgsql;
+
+-- Pure JoinScan (no aggregate). Query does NOT imply the partial predicate:
+-- must decline (false).
+SELECT pig_uses(
+  $$SELECT l.id FROM pig_left l JOIN pig_right r ON r.left_id = l.id
+    WHERE l.category @@@ 'a' ORDER BY l.id LIMIT 5$$,
+  'ParadeDB Join Scan') AS join_scan_when_predicate_missing;
+
+-- Pure JoinScan. Query DOES imply the partial predicate (AND active): used (true).
+SELECT pig_uses(
+  $$SELECT l.id FROM pig_left l JOIN pig_right r ON r.left_id = l.id
+    WHERE l.category @@@ 'a' AND l.active ORDER BY l.id LIMIT 5$$,
+  'ParadeDB Join Scan') AS join_scan_when_predicate_present;
+
+-- Aggregate over a join (DataFusion path). Query does NOT imply the partial
+-- predicate: must decline (false).
+SELECT pig_uses(
+  $$SELECT count(*) FROM pig_left l JOIN pig_right r ON r.left_id = l.id
+    WHERE l.category @@@ 'a'$$,
+  'ParadeDB Aggregate Scan') AS agg_join_when_predicate_missing;
+
+DROP FUNCTION pig_uses(text, text);
+DROP TABLE pig_left, pig_right;

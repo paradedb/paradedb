@@ -46,7 +46,9 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator, strip_wrappers};
+use crate::postgres::utils::{
+    expr_collect_vars, expr_contains_any_operator, missing_partial_index_predicate, strip_wrappers,
+};
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 
@@ -221,6 +223,11 @@ pub(super) unsafe fn collect_join_sources_base_rel(
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
+
+        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        if missing_partial_index_predicate(bm25_index.rd_indpred, &baserestrictinfo) {
+            return None;
+        }
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 

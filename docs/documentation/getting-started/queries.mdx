@@ -277,13 +277,6 @@ await dbContext
 (3 rows)
 ```
 
-<Note>
-  When ordering by `pdb.score`, we recommend including a unique tiebreaker
-  column (such as the primary key) to guarantee deterministic results. See
-  [Deterministic Sorting](/documentation/sorting/score#deterministic-sorting)
-  for more information.
-</Note>
-
 ## Highlighting
 
 Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.

@@ -175,6 +175,10 @@ impl SerialIndexWriter {
             SearchIndexSchema::build_sort_by_field(&options.sort_by(), &tantivy_schema);
         let settings = IndexSettings {
             sort_by_field,
+            // A dedicated compressor thread would receive process-directed signals, and pgrx's
+            // background worker signal handlers call into Postgres FFI, which panics off the
+            // main thread. Compress inline instead.
+            docstore_compress_dedicated_thread: false,
             codec_types: vec![
                 tantivy::columnar::CodecType::Bitpacked,
                 tantivy::columnar::CodecType::BlockwiseLinearV2,

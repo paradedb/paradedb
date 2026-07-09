@@ -112,7 +112,9 @@ If any of the above conditions are not met, the query cannot be fully optimized 
 
 ## Tiebreaker Sorting
 
-To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`:
+To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`.
+
+This is particularly important when sorting by `pdb.score(...)`, as equal scores can result in non-deterministic orderings (due to Postgres' internal sorting behavior and segment compactions). As noted above, all tiebreaker columns must be indexed to receive the Top K optimization.
 
 <CodeGroup>
 ```sql SQL

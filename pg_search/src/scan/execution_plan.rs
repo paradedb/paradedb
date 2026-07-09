@@ -874,11 +874,8 @@ fn build_filters(
     (filters, score_threshold)
 }
 
-/// Check for expressions that we know always evaluate to false when applied to score
-fn expr_always_false_when_applied_to_score(
-    expr: &Arc<dyn PhysicalExpr>,
-    score_col_schema_idx: usize,
-) -> bool {
+/// Check for expressions that we know always evaluate to false
+fn expr_always_false(expr: &Arc<dyn PhysicalExpr>, score_col_schema_idx: usize) -> bool {
     // FALSE literals are obviously always false
     if let Some(lit) = expr.downcast_ref::<Literal>() {
         return matches!(lit.value(), ScalarValue::Boolean(Some(false)));
@@ -898,7 +895,9 @@ fn expr_always_false_when_applied_to_score(
 /// - `AND`        => the minimum of the bounds from either side (so it holds for the whole conjunction)
 /// - `OR`  
 ///     - If both sides contain a bound, keep the minimum. If one side has a bound, use
-///       it only in the case the other side always evaluates to false.
+///       it only in the case the other side always evaluates to false. Any OR with a
+///       possibly-true non-score expression cannot provide a threshold, as the non-score
+///       arm may be true
 ///
 /// The returned threshold value assumes the threshold check uses > (greater-than) semantics.
 /// ASSUMPTION: We intentionally don't check the Operator::Lt variant as DataFusion always puts the column
@@ -918,7 +917,8 @@ fn try_extract_score_threshold(
         ) {
             // We should never see a score threshold on both sides of an AND, but
             // if we do, this will at least return a value that is safe to prune.
-            // We can't take the higher value, as the lower value may come from an
+            // We might have threshold's on both sides of an OR. In both cases,
+            // we can't take the higher value, as the lower value may come from an
             // Eq check
             (Some(left), Some(right)) => Some(left.min(right)),
             (Some(left), None) => Some(left),
@@ -951,13 +951,10 @@ fn try_extract_score_threshold(
         }
         Operator::Or => {
             // Members of an OR expression that are always false can be safely ignored, so we can
-            // try to pull the score threshold from the other side
-            if expr_always_false_when_applied_to_score(binary_expr.left(), score_col_schema_idx) {
+            // try to pull the score threshold from the other side.
+            if expr_always_false(binary_expr.left(), score_col_schema_idx) {
                 try_extract_score_threshold(binary_expr.right(), Some(score_col_schema_idx))
-            } else if expr_always_false_when_applied_to_score(
-                binary_expr.right(),
-                score_col_schema_idx,
-            ) {
+            } else if expr_always_false(binary_expr.right(), score_col_schema_idx) {
                 try_extract_score_threshold(binary_expr.left(), Some(score_col_schema_idx))
             }
             // If both sides have a threshold-containing part, take the lower threshold: then any matching

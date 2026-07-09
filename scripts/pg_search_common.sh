@@ -72,7 +72,8 @@ cargo pgrx stop "${FEATURE}" --package pg_search
 # Install pg_search extension, conditionally using --release
 cargo pgrx install --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${PG_CONFIG}" || exit $? # ksh88: there's a space between --profile and the value
 "${SCRIPT_DIR}/install_lindera_dictionaries.sh" --pg-config "${PG_CONFIG}"
-export PARADEDB_LINDERA_DICT_ROOT="$("${PG_CONFIG}" --sharedir)/extension/pg_search/lindera"
+PARADEDB_LINDERA_DICT_ROOT="$("${PG_CONFIG}" --sharedir)/extension/pg_search/lindera"
+export PARADEDB_LINDERA_DICT_ROOT
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

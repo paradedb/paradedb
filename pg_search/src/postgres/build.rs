@@ -17,6 +17,7 @@
 
 use crate::api::version::VersionInfo;
 use crate::api::FieldName;
+use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
@@ -24,11 +25,11 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
-use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
+use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::schema::Schema;
-use tantivy::{Index, IndexSettings};
+use tantivy::Index;
 use tokenizers::SearchTokenizer;
 
 #[pg_guard]
@@ -340,18 +341,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let schema = builder.build();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
-    // Configure sort_by for segment sorting
-    let sort_by_field = SearchIndexSchema::build_sort_by_field(&options.sort_by(), &schema);
-
-    let settings = IndexSettings {
-        sort_by_field,
-        docstore_compress_dedicated_thread: false,
-        codec_types: vec![
-            tantivy::columnar::CodecType::Bitpacked,
-            tantivy::columnar::CodecType::BlockwiseLinearV2,
-        ],
-        ..IndexSettings::default()
-    };
+    let settings = index_settings(options, &schema);
     let _ = Index::create(directory, schema, settings)?;
     Ok(())
 }
@@ -362,9 +352,11 @@ mod tests {
     use super::*;
     use crate::api::FieldName;
     use crate::postgres::options::{SortByDirection, SortByField};
+    use crate::schema::SearchIndexSchema;
     use pgrx::pg_test;
     use tantivy::index::Order;
     use tantivy::schema::{NumericOptions, Schema, FAST};
+    use tantivy::IndexSettings;
 
     #[pg_test]
     fn test_build_sort_by_field_empty() {

@@ -1625,7 +1625,7 @@ fn range(
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
 }
 
-fn resolve_search_tokenizer(
+pub(crate) fn resolve_search_tokenizer(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     searcher: &Searcher,

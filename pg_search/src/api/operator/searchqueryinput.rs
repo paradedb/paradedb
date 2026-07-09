@@ -14,25 +14,27 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use super::inline_eval::{self, BoundField, ElementValue, FieldKind, InlinePredicate};
 use super::{anyelement_query_input_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
-use crate::api::{HashMap, HashSet};
+use crate::api::HashMap;
 use crate::gucs::per_tuple_cost;
-use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
+use crate::query::pdb_query::resolve_search_tokenizer;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchFieldType;
 use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
-    check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
-    Internal, PgList, PgOid, PgRelation,
+    pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys, FromDatum, Internal,
+    PgList, PgOid, PgRelation,
 };
 use std::ptr::NonNull;
 
@@ -61,37 +63,21 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
     }
 }
 
-enum CacheEntry {
-    All,
-    Set(HashSet<TantivyValue>),
-}
-
-struct QueryCacheEntry {
-    element_oid: PgOid,
-    matches: CacheEntry,
-    /// Key-field values for rows where the indexed field is absent (SQL NULL semantics).
-    missing_values: Option<CacheEntry>,
-}
-
-impl FromIterator<TantivyValue> for CacheEntry {
-    fn from_iter<T: IntoIterator<Item = TantivyValue>>(iter: T) -> Self {
-        let set = iter.into_iter().collect();
-        Self::Set(set)
-    }
-}
-
-impl CacheEntry {
-    fn contains(&self, value: &TantivyValue) -> bool {
-        match self {
-            CacheEntry::All => true,
-            CacheEntry::Set(set) => set.contains(value),
-        }
-    }
-}
-
-#[derive(Default)]
+/// Per-call-site state for [`search_with_query_input`].
+///
+/// The left-hand-side field (the field whose value the operator receives) and its Postgres
+/// type are fixed for a given plan node, so we resolve them once. The query (right-hand side)
+/// may vary per row when it references a column, so compiled predicates are memoized per
+/// distinct query datum.
 struct Cache {
-    by_query: HashMap<Vec<u8>, QueryCacheEntry>,
+    /// The Postgres type OID of the left-hand-side value.
+    element_oid: PgOid,
+    /// The field the LHS value belongs to (plus how to interpret it), resolved from the operator's
+    /// expression node. `None` if it could not be resolved (e.g. the LHS is not a plain indexed
+    /// column), which makes every query unsupported.
+    bound: Option<BoundField>,
+    /// Memoized compiled predicate (or the reason it is unsupported) per query datum.
+    by_query: HashMap<Vec<u8>, Result<InlinePredicate, String>>,
 }
 
 /// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
@@ -136,59 +122,99 @@ unsafe impl SqlTranslatable for FakeSearchQueryInput {
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
-/// Whether `query` is (after unwrapping wrappers) an `Exists` predicate.
+/// Resolve the field whose value appears on the left-hand side of the operator (and how to
+/// interpret it), by inspecting the operator's expression node (`flinfo->fn_expr`).
 ///
-/// `Exists` is a total predicate: a missing field means it is FALSE, not NULL.
-/// So we must not build the missing-values set for it.
-fn query_is_exists(query: &SearchQueryInput) -> bool {
-    match query {
-        SearchQueryInput::WithIndex { query, .. } => query_is_exists(query),
-        SearchQueryInput::Boost { query, .. } => query_is_exists(query),
-        SearchQueryInput::ConstScore { query, .. } => query_is_exists(query),
-        SearchQueryInput::FieldedQuery { query, .. } => {
-            matches!(query, crate::query::pdb_query::pdb::Query::Exists)
-        }
-        SearchQueryInput::Boolean {
-            must,
-            should,
-            must_not,
-            ..
-        } => {
-            let clauses: Vec<_> = must
-                .iter()
-                .chain(should.iter())
-                .chain(must_not.iter())
-                .collect();
-            clauses.len() == 1 && query_is_exists(clauses[0])
-        }
-        _ => false,
+/// Returns `None` when the LHS is not a plain indexed column we can resolve, or the query is not
+/// scoped to an index — in which case every query is treated as unsupported.
+unsafe fn resolve_bound_field(
+    fcinfo: pg_sys::FunctionCallInfo,
+    query: &SearchQueryInput,
+) -> Option<BoundField> {
+    let flinfo = (*fcinfo).flinfo;
+    if flinfo.is_null() || (*flinfo).fn_expr.is_null() {
+        return None;
     }
-}
+    let fn_expr = (*flinfo).fn_expr;
 
-/// Whether the null-preserving existence guard is valid for this field.
-///
-/// The guard equates "field absent from the index" with SQL NULL, which is only
-/// correct for scalar columns. Array and JSON columns can be non-NULL in SQL
-/// while having no indexed values (e.g. `'{}'::text[]`, `'{}'::jsonb`).
-fn field_supports_null_preserving_guard(
-    schema: &crate::schema::SearchIndexSchema,
-    field: &str,
-) -> bool {
-    let Some(search_field) = schema.search_field(field) else {
-        return false;
+    // As an operator qual the node is an `OpExpr`; a direct function call is a `FuncExpr`.
+    // Both expose their argument list the same way; the LHS is the first argument.
+    let args = if let Some(op) = nodecast!(OpExpr, T_OpExpr, fn_expr) {
+        PgList::<pg_sys::Node>::from_pg((*op).args)
+    } else if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, fn_expr) {
+        PgList::<pg_sys::Node>::from_pg((*func).args)
+    } else {
+        return None;
     };
-    if !search_field.is_fast() {
-        return false;
-    }
+    let lhs = normalize_lhs_attr(args.get_ptr(0)?);
 
-    let categorized = schema.categorized_fields();
-    let root = crate::api::FieldName::from(field).root();
-    categorized
-        .iter()
-        .find(|(sf, _)| sf.field_name().root() == root)
-        .is_none_or(|(_, data)| !data.is_array && !data.is_json)
+    let index_oid = query.index_oid()?;
+    let index_relation =
+        PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+    let heap_relation = index_relation.heap_relation()?;
+
+    let field_name = super::field_name_from_node(
+        crate::postgres::var::VarContext::from_exec(heap_relation.oid()),
+        &heap_relation,
+        &index_relation,
+        lhs,
+    )?;
+
+    let schema = index_relation.schema().ok()?;
+    let search_field = schema.search_field(field_name.root())?;
+
+    // Only genuine text columns are analyzed: their datum is a Rust `String` we can tokenize. Other
+    // `is_str()` field types (uuid, inet, hex-encoded numeric bytes, composites, ...) are stored as
+    // strings internally but their *column* value is not text, so they are compared exactly instead.
+    // Resolving the analyzer needs a `Searcher`, so we open a reader once (no search is performed, so
+    // this stays O(1) in memory).
+    let kind = match search_field.field_type() {
+        SearchFieldType::Text(_) | SearchFieldType::Tokenized(..) => {
+            let reader = SearchIndexReader::open(
+                &index_relation,
+                query.clone(),
+                false,
+                MvccSatisfies::Snapshot,
+            )
+            .ok()?;
+            let analyzer =
+                resolve_search_tokenizer(&search_field, &schema, reader.searcher()).ok()?;
+            FieldKind::Tokenized(analyzer)
+        }
+        ft => FieldKind::Raw {
+            integer: matches!(ft, SearchFieldType::I64(_)),
+        },
+    };
+
+    Some(BoundField {
+        name: field_name,
+        kind,
+    })
 }
 
+/// If `node` is a `Var` that `setrefs` translated (e.g. a join filter above a Custom Scan, where
+/// `varattno` becomes a position in the child's projected target list), rewrite a copy so its
+/// `varattno` is the original heap attribute number preserved in `varattnosyn`. This lets field
+/// resolution work off the real column rather than a tuple slot position.
+unsafe fn normalize_lhs_attr(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if let Some(var) = nodecast!(Var, T_Var, node) {
+        if (*var).varattnosyn > 0 && (*var).varattnosyn != (*var).varattno {
+            let copy = pg_sys::copyObjectImpl(var.cast()).cast::<pg_sys::Var>();
+            (*copy).varattno = (*copy).varattnosyn;
+            return copy.cast();
+        }
+    }
+    node
+}
+
+/// Per-row evaluation of a search operator (`@@@`, `&&&`, `|||`, `###`, `===`) when it could
+/// not be pushed down to the BM25 index.
+///
+/// The query is evaluated *inline* against `element` — the value of the field on the operator's
+/// left-hand side for the current row — rather than searching the index and materializing every
+/// matching key. This is only possible when every predicate targets that same field; otherwise
+/// (or for constructs we cannot evaluate inline) we raise an error rather than silently falling
+/// back to an unbounded materialization.
 #[allow(unused_variables)]
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
@@ -201,164 +227,84 @@ pub fn search_with_query_input(
         "paradedb.search_with_query_input must be STRICT"
     );
 
-    // get the Cache attached to this instance of the function
-    let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
-
-    // get the raw query datum from fcinfo.  because this function is declared STRICT we're guaranteed
-    // that it won't be SQL NULL
+    // Because this function is STRICT, neither argument is ever SQL NULL.
     let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
 
-    // we build a cache of query results, where the key is the Vec<u8> representation of the raw query datum.
-    // this form is chosen as it's the most efficient way to uniquely identify the input query with as
-    // minimal overhead as possible.
+    // Per-call-site state: the LHS type and bound field are fixed for this plan node, so resolve
+    // them once (using the first query datum to locate the index).
+    let mut cache = unsafe {
+        pg_func_extra(fcinfo, || {
+            let element_oid = PgOid::from_untagged(pg_getarg_type(fcinfo, 0));
+            let first_query = SearchQueryInput::from_datum(query_datum, false)
+                .expect("the query argument cannot be NULL");
+            let bound = resolve_bound_field(fcinfo, &first_query);
+            Cache {
+                element_oid,
+                bound,
+                by_query: HashMap::default(),
+            }
+        })
+    };
+    // Split the borrows so `by_query` (mutated) and `bound` (read) can be used together.
+    let Cache {
+        element_oid,
+        bound,
+        by_query,
+    } = &mut *cache;
+    let element_oid = *element_oid;
+    let bound = bound.as_ref();
+
+    // Compile the query into a predicate over the bound field's value, memoized per distinct
+    // query datum (the query can vary per row when it references a column).
     let key = unsafe {
         let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
         pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
-
-    let query_cache = cache.by_query.entry(key).or_insert_with(|| {
-        let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
+    let compiled = by_query.entry(key).or_insert_with(|| {
         let search_query_input = unsafe {
-            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+            SearchQueryInput::from_datum(query_datum, false)
                 .expect("the query argument cannot be NULL")
         };
-
-        // optimize the case where the user asked for literally every matching document to avoid
-        // making a copy of every primary key in ram
-        {
-            let is_paradedb_all = matches!(&search_query_input, SearchQueryInput::WithIndex { query, .. } if matches!(query.as_ref(), &SearchQueryInput::All))
-                || matches!(&search_query_input, SearchQueryInput::All);
-            if is_paradedb_all {
-                return QueryCacheEntry {
-                    element_oid,
-                    matches: CacheEntry::All,
-                    missing_values: None,
-                };
-            }
-        }
-
-        let index_oid = search_query_input
-            .index_oid()
-            .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
-
-        let index_relation =
-            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-
-        let mut field_names = HashSet::default();
-        search_query_input.extract_field_names(&mut field_names);
-
-        // For an `Exists` predicate a missing field is FALSE, not NULL, so we
-        // skip the missing-values computation below and let missing fields fall
-        // through to `Some(false)`.
-        let is_exists_query = query_is_exists(&search_query_input);
-
-        let search_reader = SearchIndexReader::open(
-            &index_relation,
-            search_query_input,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-            .expect("search_with_query_input: should be able to open a SearchIndexReader");
-        let schema = search_reader.schema();
-        let key_field_name = schema.key_field_name();
-        let key_field_type = schema.key_field_type();
-        let key_ff_helper =
-            FFHelper::with_fields(&search_reader, &[(key_field_name.clone(), key_field_type).into()]);
-
-        // now, query the SearchReader and collect up the docs that match our query.
-        // the matches are cached so that the same input query will return the same results
-        // throughout the duration of the scan
-        let matches = search_reader
-            .search()
-            .map(|(_, doc_address)| {
-                check_for_interrupts!();
-                key_ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null")
-            })
-            .collect();
-
-        let missing_values = if field_names.len() == 1 && !is_exists_query {
-            let field = field_names
-                .into_iter()
-                .next()
-                .expect("field_names should contain exactly one field");
-
-            if !field_supports_null_preserving_guard(schema, &field) {
-                return QueryCacheEntry {
-                    element_oid,
-                    matches,
-                    missing_values: None,
-                };
-            }
-
-            // Collect rows where the field is absent (the complement of `exists`).
-            // Membership in this set means SQL NULL for negation semantics.
-            let complement_query = SearchQueryInput::WithIndex {
-                oid: index_oid,
-                query: Box::new(SearchQueryInput::Boolean {
-                    must: vec![SearchQueryInput::All],
-                    should: Default::default(),
-                    must_not: vec![SearchQueryInput::FieldedQuery {
-                        field: field.into(),
-                        query: crate::query::pdb_query::pdb::Query::Exists,
-                    }],
-                    minimum_should_match: None,
-                }),
-            };
-
-            let complement_reader = SearchIndexReader::open(
-                &index_relation,
-                complement_query,
-                false,
-                MvccSatisfies::Snapshot,
-            )
-            .expect("search_with_query_input: should be able to open a complement SearchIndexReader");
-
-            let complement_ff_helper = FFHelper::with_fields(
-                &complement_reader,
-                &[(key_field_name, key_field_type).into()],
-            );
-
-            Some(
-                complement_reader
-                    .search()
-                    .map(|(_, doc_address)| {
-                        check_for_interrupts!();
-                        complement_ff_helper
-                            .value(0, doc_address)
-                            .expect("key_field value should not be null")
-                    })
-                    .collect(),
-            )
-        } else {
-            None
-        };
-
-        QueryCacheEntry {
-            element_oid,
-            matches,
-            missing_values,
-        }
+        inline_eval::compile(&search_query_input, bound).map_err(|e| e.0)
     });
 
-    // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
-    // is contained in the matches set
-    unsafe {
-        let element = pg_getarg_datum_raw(fcinfo, 0);
-        let user_value = TantivyValue::try_from_datum(element, query_cache.element_oid)
-            .expect("no value present");
+    match compiled {
+        Ok(predicate) => {
+            let element = build_element_value(fcinfo, element_oid, bound);
+            Some(predicate.eval(&element))
+        }
+        Err(reason) => {
+            pgrx::error!(
+                "pg_search: this search predicate cannot be evaluated as a per-row filter: {reason}. \
+                 It requires the BM25 index scan; ensure `paradedb.enable_custom_scan` is on and the \
+                 query can use the index, or rewrite it so the searched field is on the left-hand side \
+                 of the operator."
+            )
+        }
+    }
+}
 
-        if query_cache.matches.contains(&user_value) {
-            Some(true)
-        } else if let Some(missing_values) = &query_cache.missing_values {
-            if missing_values.contains(&user_value) {
-                None
-            } else {
-                Some(false)
-            }
-        } else {
-            Some(false)
+/// Build the current row's bound-field value for evaluation. For a tokenized text field the value
+/// is analyzed into its token set (matching index-time analysis); otherwise it is a raw scalar.
+fn build_element_value(
+    fcinfo: pg_sys::FunctionCallInfo,
+    element_oid: PgOid,
+    bound: Option<&BoundField>,
+) -> ElementValue {
+    let element = unsafe { pg_getarg_datum_raw(fcinfo, 0) };
+    match bound.map(|b| &b.kind) {
+        Some(FieldKind::Tokenized(analyzer)) => {
+            let text = unsafe {
+                String::from_datum(element, false)
+                    .expect("tokenized bound field value should be text")
+            };
+            ElementValue::Text(inline_eval::analyze(analyzer, &text).into_iter().collect())
+        }
+        _ => {
+            let value = unsafe {
+                TantivyValue::try_from_datum(element, element_oid).expect("no value present")
+            };
+            ElementValue::Raw(value)
         }
     }
 }

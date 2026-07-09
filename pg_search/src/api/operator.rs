@@ -22,6 +22,7 @@ pub(crate) mod const_score;
 mod eqeqeq;
 pub(crate) mod fuzzy;
 mod hashhashhash;
+pub(crate) mod inline_eval;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
@@ -768,7 +769,6 @@ unsafe fn make_lhs_var(
     lhs: *mut pg_sys::Node,
 ) -> *mut pg_sys::Var {
     let index_info = unsafe { *indexrel.index_info() };
-    let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
     let vars = find_vars(lhs);
     if vars.is_empty() {
@@ -778,21 +778,39 @@ unsafe fn make_lhs_var(
     let base_var = vars[0];
     #[cfg(feature = "pg18")]
     let base_var = resolve_lhs_var_for_group(root, base_var);
-    let tupdesc = indexrel.tuple_desc();
-    let att = tupdesc
-        .get(0)
-        .expect("`USING bm25` index must have at least one attribute which is the 'key_field'");
 
     let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
 
-    // the Var must look like the first attribute from the index definition
-    (*var).varattno = heap_attno;
-    (*var).varattnosyn = (*var).varattno;
+    // If the LHS directly references an indexed column, keep it as-is. The operator then receives
+    // that field's value at runtime, which lets `search_with_query_input` evaluate the predicate
+    // inline (per tuple) instead of searching the index -- see that function and `inline_eval`.
+    //
+    // Whole-row references (`varattno == 0`) and columns that are not themselves a direct index
+    // attribute (e.g. the underlying column of an indexed *expression*) fall back to the key field,
+    // whose value uniquely identifies the row. This preserves the historical behavior for those
+    // shapes; the pushdown path is unaffected either way, because it reads the target field from the
+    // right-hand-side query rather than from this Var.
+    let base_attno = (*var).varattno;
+    let references_indexed_column = base_attno > 0
+        && (0..index_info.ii_NumIndexAttrs as usize)
+            .any(|i| index_info.ii_IndexAttrNumbers[i] == base_attno);
 
-    // the Var must also assume the type of the first attribute from the index definition
-    (*var).vartype = att.atttypid;
-    (*var).vartypmod = att.atttypmod;
-    (*var).varcollid = att.attcollation;
+    if !references_indexed_column {
+        let heap_attno = index_info.ii_IndexAttrNumbers[0];
+        let tupdesc = indexrel.tuple_desc();
+        let att = tupdesc
+            .get(0)
+            .expect("`USING bm25` index must have at least one attribute which is the 'key_field'");
+
+        // the Var must look like the first attribute from the index definition
+        (*var).varattno = heap_attno;
+        (*var).varattnosyn = (*var).varattno;
+
+        // the Var must also assume the type of the first attribute from the index definition
+        (*var).vartype = att.atttypid;
+        (*var).vartypmod = att.atttypmod;
+        (*var).varcollid = att.attcollation;
+    }
 
     var
 }

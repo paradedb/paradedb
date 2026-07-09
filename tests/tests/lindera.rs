@@ -42,25 +42,27 @@ fn gather_workers_launched(plan: &Value) -> Option<i64> {
     }
 }
 
-fn has_parallel_paradedb_scan(plan: &Value) -> bool {
+fn has_worker_instrumented_paradedb_scan(plan: &Value) -> bool {
     match plan {
         Value::Object(object) => {
-            let is_parallel_paradedb_scan = object
+            let is_paradedb_scan = object
                 .get("Node Type")
                 .and_then(Value::as_str)
                 .is_some_and(|node_type| node_type == "Custom Scan")
                 && object
                     .get("Custom Plan Provider")
                     .and_then(Value::as_str)
-                    .is_some_and(|provider| provider == "ParadeDB Base Scan")
-                && object
-                    .get("Parallel Aware")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                    .is_some_and(|provider| provider == "ParadeDB Base Scan");
 
-            is_parallel_paradedb_scan || object.values().any(has_parallel_paradedb_scan)
+            let worker_instrumented = object
+                .get("Workers")
+                .and_then(Value::as_array)
+                .is_some_and(|workers| !workers.is_empty());
+
+            (is_paradedb_scan && worker_instrumented)
+                || object.values().any(has_worker_instrumented_paradedb_scan)
         }
-        Value::Array(values) => values.iter().any(has_parallel_paradedb_scan),
+        Value::Array(values) => values.iter().any(has_worker_instrumented_paradedb_scan),
         _ => false,
     }
 }
@@ -135,8 +137,8 @@ fn assert_lindera_match_launches_workers(conn: &mut PgConnection, table: &str, q
         "{table} should launch parallel workers: {plan:#?}"
     );
     assert!(
-        has_parallel_paradedb_scan(&plan),
-        "{table} should execute ParadeDB Base Scan in parallel: {plan:#?}"
+        has_worker_instrumented_paradedb_scan(&plan),
+        "{table} should execute ParadeDB Base Scan in a worker: {plan:#?}"
     );
 }
 

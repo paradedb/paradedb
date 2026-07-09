@@ -5,8 +5,11 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 
+ALTER TABLE mock_items ADD COLUMN created_at_tz TIMESTAMPTZ, ADD COLUMN latest_available_time_tz TIMETZ;
+UPDATE mock_items SET created_at_tz = created_at AT TIME ZONE 'UTC', latest_available_time_tz = (latest_available_time || '+00')::timetz;
+
 CREATE INDEX on mock_items
-USING bm25 (id, description, rating, category, metadata, created_at, last_updated_date, latest_available_time)
+USING bm25 (id, description, rating, category, metadata, created_at, last_updated_date, latest_available_time, created_at_tz, latest_available_time_tz)
 WITH (key_field='id');
 
 SELECT id, description, category FROM mock_items
@@ -26,5 +29,11 @@ WHERE id @@@ pdb.parse('last_updated_date:"2023-05-03"') ORDER BY id;
 
 SELECT id, description, latest_available_time FROM mock_items
 WHERE id @@@ pdb.parse('latest_available_time:"09:12:34"') ORDER BY id;
+
+SELECT id, description, created_at_tz FROM mock_items
+WHERE id @@@ pdb.parse('created_at_tz:"2023-05-01 09:12:34+00"') ORDER BY id;
+
+SELECT id, description, latest_available_time_tz FROM mock_items
+WHERE id @@@ pdb.parse('latest_available_time_tz:"09:12:34+00"') ORDER BY id;
 
 DROP TABLE mock_items;

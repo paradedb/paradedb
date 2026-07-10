@@ -279,7 +279,7 @@ impl Conn {
             ServerStyle::With { .. } => server.connstr(),
             _ => format!("{} application_name={}", server.connstr(), sanitized),
         };
-        let mut conn = postgres::Client::connect(&connstr, {
+        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), {
             use openssl::ssl::{SslConnector, SslMethod};
             use postgres_openssl::MakeTlsConnector;
             let mut builder =
@@ -333,6 +333,19 @@ fn do_query_replacements(query: &str, server_lookup: &Arc<HashMap<String, Server
         query = query.replace(&key, &server.connstr());
     }
     query
+}
+
+/// Adapts a connection string for our tokio-postgres client.
+///
+/// Connection strings are written with libpq's canonical parameter names so the same
+/// string works both here and when it is inlined verbatim into SQL the server parses with
+/// libpq (e.g. `CREATE SUBSCRIPTION ... CONNECTION '...'`, via [`do_query_replacements`]).
+/// The two spellings agree on every keyword except the keepalive probe count, which libpq
+/// calls `keepalives_count` and tokio-postgres calls `keepalives_retries`; tokio-postgres
+/// rejects the libpq name outright. Translate just that one so the client accepts the
+/// libpq-canonical string. Names never used in-tree stay untranslated on purpose.
+fn tokio_connstr(connstr: &str) -> String {
+    connstr.replace("keepalives_count", "keepalives_retries")
 }
 
 /// Manages the entire suite: runs setup once, spawns each job's thread, optionally a monitor job,
@@ -1192,4 +1205,29 @@ fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tokio_connstr;
+
+    #[test]
+    fn tokio_connstr_translates_only_the_keepalive_probe_count() {
+        // libpq's keepalives_count becomes tokio-postgres's keepalives_retries; every
+        // other keyword (including the identically-spelled keepalives_* and
+        // tcp_user_timeout) is left untouched.
+        assert_eq!(
+            tokio_connstr(
+                "postgresql://h:5432/db?connect_timeout=5&keepalives=1&keepalives_idle=5\
+                 &keepalives_interval=2&keepalives_count=3&tcp_user_timeout=15"
+            ),
+            "postgresql://h:5432/db?connect_timeout=5&keepalives=1&keepalives_idle=5\
+             &keepalives_interval=2&keepalives_retries=3&tcp_user_timeout=15"
+        );
+        // A string that never mentions the probe count is returned verbatim.
+        assert_eq!(
+            tokio_connstr("host=localhost port=5432 dbname=stressgres"),
+            "host=localhost port=5432 dbname=stressgres"
+        );
+    }
 }

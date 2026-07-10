@@ -1270,6 +1270,27 @@ impl Drop for TempPgList {
     }
 }
 
+/// Returns `true` if `index_predicate` belongs to a partial index whose predicate
+/// is NOT implied by the query's restriction clauses -- i.e. the query is missing
+/// the predicate, so the index is missing rows the query needs and cannot safely
+/// answer it. Returns `false` for a non-partial index, or a partial index whose
+/// predicate the query implies.
+pub unsafe fn missing_partial_index_predicate(
+    index_predicate: *mut pg_sys::List,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> bool {
+    // Not a partial index: nothing can be missing.
+    if index_predicate.is_null() {
+        return false;
+    }
+
+    let mut clause_list: *mut pg_sys::List = std::ptr::null_mut();
+    for ri in restrict_info.iter_ptr() {
+        clause_list = pg_sys::lappend(clause_list, (*ri).clause as *mut std::ffi::c_void);
+    }
+    !pg_sys::predicate_implied_by(index_predicate, clause_list, false)
+}
+
 /// Filter out RestrictInfo entries whose clauses are implied by a partial index predicate.
 ///
 /// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
@@ -1279,6 +1300,10 @@ impl Drop for TempPgList {
 ///
 /// This function uses PostgreSQL's `predicate_implied_by` to check if the index predicate
 /// implies each query clause. If so, that clause is filtered out.
+///
+/// This is only the redundant-clause optimization; it does NOT verify the query is
+/// compatible with the partial index. Callers must separately gate on
+/// [`missing_partial_index_predicate`].
 pub unsafe fn filter_implied_predicates(
     index_predicate: *mut pg_sys::List,
     restrict_info: &PgList<pg_sys::RestrictInfo>,

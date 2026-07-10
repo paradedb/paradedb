@@ -79,9 +79,9 @@ paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
-datafusion = { git = "https://github.com/apache/datafusion", rev = "bde8e5b24e772210885ea5272e5cb06b52c939c3", default-features = false }
-datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "bde8e5b24e772210885ea5272e5cb06b52c939c3", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "11d6c621287f0ff3e87c43ddde81492b230edf98", default-features = false }
+datafusion = { git = "https://github.com/apache/datafusion", rev = "63e25c15bc72e731c174ba03d1143b243cc1aaae", default-features = false }
+datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "63e25c15bc72e731c174ba03d1143b243cc1aaae", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", branch = "stuhood.datafusion-0.55.x-pre", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

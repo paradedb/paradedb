@@ -16,6 +16,12 @@ cargo run -- ui suites/vanilla-postgres.toml
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
+- Run headless mode tolerating transient database faults (e.g. under Antithesis)
+
+```bash
+cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace=30000
+```
+
 - Run a suite against a throwaway Postgres cluster built from a given `pg_config`:
 
 ```bash

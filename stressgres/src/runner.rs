@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::fault_tolerance::tolerate_transient;
 use crate::sqlscanner::StatementDestination;
 use crate::suite::{Job, Server, ServerStyle, Suite};
 use anyhow::{anyhow, Result};
@@ -345,14 +346,65 @@ pub struct SuiteRunner {
     runners: Vec<Arc<JobRunner>>,
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
+    reconnect_grace: Duration,
 
     monitors: Vec<Arc<JobRunner>>,
     sys: Arc<RwLock<System>>,
 }
 
+/// Run `op` against a live [`Conn`], tolerating transient connectivity faults.
+///
+/// The connection lives in `conn` and is (re)opened lazily: whenever it is `None`
+/// — the first call, or after a prior error dropped it — a fresh one is opened and
+/// the reconnect grace window is reset (the fault-tolerance layer's `mark_recovered`).
+/// On any error from `op` the connection is dropped so the next attempt reconnects;
+/// replaying the whole `op` is what keeps transactional work correct.
+///
+/// One-shot callers (version probe, setup, teardown) pass a throwaway `&mut None`;
+/// the job worker passes a long-lived slot so its connection persists across
+/// iterations. This is the single place the open / `mark_recovered` / drop-on-error
+/// dance lives, so callers only have to say what to do with the connection.
+///
+/// Returns `Ok(None)` if `alive` went false while waiting out a fault.
+fn with_reconnect<T>(
+    alive: &AtomicBool,
+    grace: Duration,
+    conn: &mut Option<Conn>,
+    suite: &Suite,
+    job: &Job,
+    mut op: impl FnMut(&mut Conn) -> Result<T>,
+) -> Result<Option<T>> {
+    tolerate_transient(alive, grace, |progress| {
+        if conn.is_none() {
+            *conn = Some(Conn::open(suite, job)?);
+            progress.mark_recovered();
+        }
+        let result = op(conn.as_mut().unwrap());
+        if result.is_err() {
+            *conn = None;
+        }
+        result
+    })
+}
+
 impl SuiteRunner {
+    /// [`with_reconnect`] for a one-shot job (version probe, setup, teardown): opens a
+    /// throwaway connection and fills in the runner's `alive` / grace / suite, so the
+    /// caller only supplies the job and what to do with the connection.
+    fn run_once<T>(&self, job: &Job, op: impl FnMut(&mut Conn) -> Result<T>) -> Result<Option<T>> {
+        let mut conn = None;
+        with_reconnect(
+            &self.alive,
+            self.reconnect_grace,
+            &mut conn,
+            &self.suite,
+            job,
+            op,
+        )
+    }
+
     /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
-    pub fn new(suite: Suite, paused: bool) -> Result<Arc<Self>> {
+    pub fn new(suite: Suite, paused: bool, reconnect_grace: Duration) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
         let mut runner = Self {
             suite: suite.clone(),
@@ -363,15 +415,23 @@ impl SuiteRunner {
             runners: Default::default(),
             have_error: Arc::new(AtomicBool::new(false)),
             first_error_duration_bits: Default::default(),
+            reconnect_grace,
 
             monitors: Default::default(),
             sys: Arc::new(RwLock::new(System::new_all())),
         };
 
-        runner.pgver = Conn::open(&suite, &Job::default())?
-            .first_client()
-            .query_one("SELECT version()", &[])?
-            .get(0);
+        // Probe the server version, riding out any transient connectivity fault
+        let default_job = Job::default();
+        if let Some(version) = runner.run_once(&default_job, |conn| {
+            let version: String = conn
+                .first_client()
+                .query_one("SELECT version()", &[])?
+                .get(0);
+            Ok(version)
+        })? {
+            runner.pgver = version;
+        }
 
         runner.init()?;
         let suite_runner = Arc::new(runner);
@@ -420,7 +480,13 @@ impl SuiteRunner {
                 self.alive.clone(),
                 self.sys.clone(),
             )?;
-            setup_runner.run(&mut Conn::open(&self.suite, &setup_runner.job)?)?;
+            // Run setup on a fresh connection, replaying it in full if a transient
+            // fault interrupts it. Replay is safe because setup is idempotent (every
+            // statement is DROP ... IF EXISTS / CREATE OR REPLACE), so re-running from
+            // the top rebuilds state no matter how far a partial attempt got — not
+            // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
+            // pg_reload_conf, which are disallowed inside a transaction block).
+            self.run_once(&setup_runner.job, |conn| setup_runner.run(conn))?;
         }
 
         // setup and start the monitors
@@ -489,12 +555,13 @@ impl SuiteRunner {
 
         let job_runner = Arc::new(job_runner);
         let refresh_ms = Duration::from_millis(job_runner.job.refresh_ms as u64);
+        let reconnect_grace = self.reconnect_grace;
 
         // The actual thread loop
         let handle = {
             let job_runner = job_runner.clone();
             std::thread::spawn(move || {
-                match Self::job_runner_worker(paused, refresh_ms, &job_runner) {
+                match Self::job_runner_worker(paused, refresh_ms, reconnect_grace, &job_runner) {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         job_runner.running.store(false, Ordering::Relaxed);
@@ -520,6 +587,7 @@ impl SuiteRunner {
     fn job_runner_worker(
         paused: Arc<AtomicBool>,
         refresh_ms: Duration,
+        reconnect_grace: Duration,
         job_runner: &Arc<JobRunner>,
     ) -> Result<(), anyhow::Error> {
         *job_runner.runtime_stats.write() = Conn::make_infos(&job_runner.suite, &job_runner.job)
@@ -527,13 +595,13 @@ impl SuiteRunner {
             .map(|info| (info, RuntimeStats::default()))
             .collect();
 
-        let mut conn = if job_runner.job.atomic_connection {
-            None
-        } else {
-            Some(Conn::open(&job_runner.suite, &job_runner.job)?)
-        };
-
         let alive = job_runner.alive.clone();
+
+        // A normal job keeps a persistent connection; an `atomic_connection` job
+        // opens a fresh one each iteration. Either way it is (re)opened lazily by
+        // `with_reconnect`, so a dropped socket just reconnects.
+        let mut conn: Option<Conn> = None;
+
         while alive.load(Ordering::Relaxed) {
             // If paused, sleep until unpaused
             while paused.load(Ordering::Relaxed) && alive.load(Ordering::Relaxed) {
@@ -543,11 +611,27 @@ impl SuiteRunner {
                 break;
             }
 
-            let conn = match &mut conn {
-                Some(conn) => conn,
-                None => &mut Conn::open(&job_runner.suite, &job_runner.job)?,
-            };
-            job_runner.run(conn)?;
+            // An `atomic_connection` job opens a fresh connection each iteration.
+            // Dropping it here rather than after `run` keeps it open across the refresh
+            // sleep and closes it before the next iteration reopens it.
+            if job_runner.job.atomic_connection {
+                conn = None;
+            }
+
+            // Run one iteration, riding out transient faults. `with_reconnect` drops
+            // the (possibly poisoned) connection on error so the next attempt
+            // reconnects; replaying the whole iteration keeps transactional jobs correct.
+            let outcome = with_reconnect(
+                &alive,
+                reconnect_grace,
+                &mut conn,
+                &job_runner.suite,
+                &job_runner.job,
+                |conn| job_runner.run(conn),
+            )?;
+            if outcome.is_none() {
+                break; // `alive` went false while waiting out a fault
+            }
 
             if refresh_ms.as_millis() <= 1000 {
                 // if the refresh interval is less than a second, just sleep for that amount of time
@@ -668,7 +752,10 @@ impl SuiteRunner {
                 self.alive.clone(),
                 self.sys.clone(),
             )?;
-            teardown_runner.run(&mut Conn::open(&self.suite, &teardown_runner.job)?)?;
+            // Best-effort teardown: ride out a transient fault, and if connectivity
+            // is gone during shutdown (`alive` is already false here) skip it rather
+            // than panicking the shutdown thread.
+            self.run_once(&teardown_runner.job, |conn| teardown_runner.run(conn))?;
         }
 
         for job in &self.runners {

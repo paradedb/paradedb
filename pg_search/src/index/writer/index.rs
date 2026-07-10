@@ -23,13 +23,13 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    directory::RamDirectory, Directory, Index, IndexMeta, IndexSettings, IndexWriter, Opstamp,
-    Segment, SegmentMeta, TantivyDocument,
+    directory::RamDirectory, Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment,
+    SegmentMeta, TantivyDocument,
 };
 use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::setup_tokenizers;
+use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
@@ -169,18 +169,7 @@ impl SerialIndexWriter {
         let schema = index_relation.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
-        // Build IndexSettings from rd_options (same source as build.rs:create_index)
-        let options = index_relation.options();
-        let sort_by_field =
-            SearchIndexSchema::build_sort_by_field(&options.sort_by(), &tantivy_schema);
-        let settings = IndexSettings {
-            sort_by_field,
-            codec_types: vec![
-                tantivy::columnar::CodecType::Bitpacked,
-                tantivy::columnar::CodecType::BlockwiseLinearV2,
-            ],
-            ..IndexSettings::default()
-        };
+        let settings = index_settings(index_relation.options(), &tantivy_schema);
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();

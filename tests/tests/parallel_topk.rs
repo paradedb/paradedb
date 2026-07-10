@@ -360,6 +360,12 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     ORDER BY paradedb.score(id) DESC LIMIT 1000",
             expected_workers: None,
         },
+        PlanCase {
+            name: "secondary_sort_key_is_serial",
+            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'alpha'
+                    ORDER BY paradedb.score(id) DESC, id ASC LIMIT 10",
+            expected_workers: None,
+        },
     ] {
         assert_plan_case(&mut conn, case);
     }
@@ -420,12 +426,6 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
             name: "field_sort_large_match_parallelizes",
             query: "SELECT id FROM topk_desc_large WHERE body @@@ 'gamma'
                     ORDER BY id ASC LIMIT 10",
-            expected_workers: Some(2),
-        },
-        PlanCase {
-            name: "secondary_sort_key_parallelizes",
-            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'alpha'
-                    ORDER BY paradedb.score(id) DESC, id ASC LIMIT 10",
             expected_workers: Some(2),
         },
         PlanCase {

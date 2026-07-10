@@ -30,7 +30,7 @@ mod table_helper;
 mod tui;
 
 use crate::auto::{setup_server, ServerHandler};
-use crate::cli::{Cli, Command};
+use crate::cli::{AutoArgs, Cli, Command};
 use crate::runner::SuiteRunner;
 use crate::suite::{PgConfigStyle, PgVersion, ServerStyle, Suite, SuiteDefinition};
 use anyhow::Context;
@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         // When using the "ui" subcommand.
         Command::Ui(args) => {
-            let suite = load_suite(&args.suite_path, args.pgversion).with_context(|| {
+            let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
             let suite_runner = SuiteRunner::new(suite, args.paused)?;
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
 
         // When using the "headless" subcommand.
         Command::Headless(args) => {
-            let suite = load_suite(&args.suite_path, args.pgversion).with_context(|| {
+            let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
             let suite_runner = SuiteRunner::new(suite, false)?;
@@ -83,6 +83,22 @@ fn main() -> anyhow::Result<()> {
             )?;
         }
 
+        // When using the "auto" subcommand: spin up a throwaway Postgres cluster
+        // (or two, for logical replication) from the given `pg_config` and run the
+        // suite headless against it.
+        Command::Auto(args) => {
+            let suite = load_suite(&args.suite_path, None, Some(&args)).with_context(|| {
+                format!("Failed to load suite file: {}", args.suite_path.display())
+            })?;
+            let suite_runner = SuiteRunner::new(suite, false)?;
+            headless::run(
+                suite_runner,
+                args.log_path.clone(),
+                1000,
+                Some(args.runtime as u128),
+            )?;
+        }
+
         // When using the "graph" subcommand.
         Command::Graph(graph_args) => {
             graph::run(&graph_args)?;
@@ -91,15 +107,22 @@ fn main() -> anyhow::Result<()> {
         Command::Csv(csv_args) => {
             csv::run(&csv_args)?;
         }
-
-        other => panic!("Unrecognized command: {:?}", other),
     }
 
     Ok(())
 }
 
 /// Loads the Suite (TOML) from the provided path.
-fn load_suite<P: AsRef<Path>>(path: P, pgversion: Option<PgVersion>) -> anyhow::Result<Suite> {
+///
+/// When `auto` is provided (the `auto` subcommand), every `Automatic` server is
+/// pointed at the supplied `pg_config` binary and given a data directory under the
+/// supplied base path, so a suite can be run against an arbitrary Postgres build
+/// without editing its TOML.
+fn load_suite<P: AsRef<Path>>(
+    path: P,
+    pgversion: Option<PgVersion>,
+    auto: Option<&AutoArgs>,
+) -> anyhow::Result<Suite> {
     eprintln!("Loading Suite: {}", path.as_ref().display());
     let file = std::fs::read_to_string(path.as_ref())?;
     let mut definition = toml::from_str::<SuiteDefinition>(&file)?;
@@ -120,6 +143,36 @@ fn load_suite<P: AsRef<Path>>(path: P, pgversion: Option<PgVersion>) -> anyhow::
                 _ => {
                     // For other server styles, we don't override
                 }
+            }
+        }
+    }
+
+    // Override every server to use the `auto`-provided pg_config binary and a data
+    // directory under the requested base path.
+    if let Some(auto) = auto {
+        std::fs::create_dir_all(&auto.pg_data_base).with_context(|| {
+            format!(
+                "Failed to create data directory base {}",
+                auto.pg_data_base.display()
+            )
+        })?;
+        for server in &mut definition.servers {
+            let name = server.name.clone();
+            match &mut server.style {
+                ServerStyle::Automatic {
+                    pg_config,
+                    pgdata,
+                    log_path,
+                    ..
+                } => {
+                    *pg_config = PgConfigStyle::Path(auto.pg_config.clone());
+                    *pgdata = Some(auto.pg_data_base.join(format!("{name}.data")));
+                    *log_path = Some(auto.pg_data_base.join(format!("{name}.log")));
+                }
+                style => anyhow::bail!(
+                    "`stressgres auto` requires `[server.style.Automatic]` servers, \
+                     but server `{name}` is {style:?}"
+                ),
             }
         }
     }

@@ -79,29 +79,41 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Gather Merge
-         Workers Planned: 1
-         ->  Parallel Custom Scan (ParadeDB Join Scan)
-               Relation Tree: (cccf ANTI cne) SEMI ce
-               Join Cond: cccf.company_id = ce.company_id, cne.company_id = cccf.company_id
-               Limit: 25
-               Order By: cccf.revenue_rank desc nulls last, cccf.contact_id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
-                 :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[cccf]
-                 :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
-                 :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
-(20 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: (cccf ANTI cne) SEMI ce
+         Join Cond: cccf.company_id = ce.company_id, cne.company_id = cccf.company_id
+         Limit: 25
+         Order By: cccf.revenue_rank desc nulls last, cccf.contact_id asc
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec ── Tasks: t0:[p0]
+           : │ ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
+           : │   SortPreservingMergeExec: [revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], fetch=25
+           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
+           :   │ SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[true]
+           :   │   VisibilityFilterExec: tables=[cccf]
+           :   │     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
+           :   │       CoalescePartitionsExec
+           :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :   │       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
+           :   │         CoalescePartitionsExec
+           :   │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :   │           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+           :     │   PgSearchScan: segments=1, query="all"
+           :     └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── Tasks: t0:[p0..p2]
+           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+           :     │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+(32 rows)
 
 -- Result rows in parallel mode (verifies correctness, not just plan shape).
 SELECT contact_id, company_id, revenue_rank

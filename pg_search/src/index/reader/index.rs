@@ -776,11 +776,11 @@ impl SearchIndexReader {
     /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
     pub(crate) fn orderby_uses_score_desc_topk_collector(orderby_info: &[OrderByInfo]) -> bool {
         matches!(
-            orderby_info,
-            [OrderByInfo {
+            orderby_info.first(),
+            Some(OrderByInfo {
                 feature: OrderByFeature::Score { .. },
                 direction,
-            }] if !direction.is_asc()
+            }) if !direction.is_asc()
         )
     }
 

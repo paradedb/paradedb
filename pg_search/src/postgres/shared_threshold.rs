@@ -234,25 +234,6 @@ impl SharedThreshold<tantivy::Score> for PgAtomicSharedScoreThreshold {
             }
         }
     }
-
-    /// # Tie-breaking determinism
-    /// Tantivy's fast-path WAND scorer uses a strict inequality (`score > threshold`) to prune documents.
-    /// When our segment is supposed to WIN a global tie-breaker (`segment_ord < threshold_ord`), we must
-    /// accept documents with a score *equal* to the threshold.
-    /// To do this mathematically against a strict `>` operator, we artificially lower the threshold by
-    /// one float epsilon (`next_down()`), ensuring `score > threshold_minus_epsilon` evaluates to `true`.
-    fn competitive_threshold(
-        &self,
-        value: tantivy::Score,
-        threshold_ord: u32,
-        segment_ord: u32,
-    ) -> tantivy::Score {
-        if segment_ord < threshold_ord {
-            value.next_down()
-        } else {
-            value
-        }
-    }
 }
 
 pub fn new_score_threshold(

@@ -138,24 +138,21 @@ SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')
 ORDER BY paradedb.score(id) DESC, id
 LIMIT 10;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, (paradedb.score(id))
-   ->  Gather Merge
-         Output: id, name, (paradedb.score(id))
-         Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
-               Output: id, name, paradedb.score(id)
-               Table: items
-               Index: items_bm25_idx
-               Worker Selection: Cost model (LIMIT)
-               Exec Method: TopKScanExecState
-               Scores: true
-                  TopK Order By: pdb.score() desc, id asc
-                  TopK Limit: 10
-               Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(15 rows)
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
+         Output: id, name, paradedb.score(id)
+         Table: items
+         Index: items_bm25_idx
+         Worker Selection: Prunable top-K
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(12 rows)
 
 SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')

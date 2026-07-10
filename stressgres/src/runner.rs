@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::fault_tolerance::tolerate_transient;
+use crate::fault_tolerance::{tolerate_transient, GraceWindow};
 use crate::sqlscanner::StatementDestination;
 use crate::suite::{Job, Server, ServerStyle, Suite};
 use anyhow::{anyhow, Result};
@@ -346,7 +346,7 @@ pub struct SuiteRunner {
     runners: Vec<Arc<JobRunner>>,
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
-    reconnect_grace: Duration,
+    reconnect_grace: GraceWindow,
 
     monitors: Vec<Arc<JobRunner>>,
     sys: Arc<RwLock<System>>,
@@ -368,7 +368,7 @@ pub struct SuiteRunner {
 /// Returns `Ok(None)` if `alive` went false while waiting out a fault.
 fn with_reconnect<T>(
     alive: &AtomicBool,
-    grace: Duration,
+    grace: &GraceWindow,
     conn: &mut Option<Conn>,
     suite: &Suite,
     job: &Job,
@@ -395,7 +395,7 @@ impl SuiteRunner {
         let mut conn = None;
         with_reconnect(
             &self.alive,
-            self.reconnect_grace,
+            &self.reconnect_grace,
             &mut conn,
             &self.suite,
             job,
@@ -404,7 +404,20 @@ impl SuiteRunner {
     }
 
     /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
-    pub fn new(suite: Suite, paused: bool, reconnect_grace: Duration) -> Result<Arc<Self>> {
+    ///
+    /// `startup_timeout` caps the version-probe-plus-setup phase. Those run with the full
+    /// reconnect grace, which the fault suite sets far longer than a run, so a fault
+    /// straddling startup would otherwise pin the process for the whole grace window and
+    /// the driver would never finish. Pass `None` (ui, auto) to keep the old unbounded
+    /// behaviour; pass `Some(_)` under fault injection so a start that never reaches the
+    /// database gives up. When it lapses the returned runner is dormant (`alive()` is
+    /// false) and the caller should exit without a workload.
+    pub fn new(
+        suite: Suite,
+        paused: bool,
+        reconnect_grace: GraceWindow,
+        startup_timeout: Option<Duration>,
+    ) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
         let mut runner = Self {
             suite: suite.clone(),
@@ -421,6 +434,28 @@ impl SuiteRunner {
             sys: Arc::new(RwLock::new(System::new_all())),
         };
 
+        // Once the budget lapses with the database still unreachable, flip `alive` so the
+        // in-flight `tolerate_transient` returns `Ok(None)` instead of riding the fault out
+        // for the whole grace window. `startup_done` cancels the watchdog the moment setup
+        // finishes, so a healthy run keeps its full runtime.
+        let startup_done = Arc::new(AtomicBool::new(false));
+        if let Some(budget) = startup_timeout {
+            let alive = runner.alive.clone();
+            let startup_done = startup_done.clone();
+            std::thread::spawn(move || {
+                let start = Instant::now();
+                while start.elapsed() < budget {
+                    if startup_done.load(Ordering::Acquire) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                if !startup_done.load(Ordering::Acquire) {
+                    alive.store(false, Ordering::Release);
+                }
+            });
+        }
+
         // Probe the server version, riding out any transient connectivity fault
         let default_job = Job::default();
         if let Some(version) = runner.run_once(&default_job, |conn| {
@@ -433,7 +468,12 @@ impl SuiteRunner {
             runner.pgver = version;
         }
 
-        runner.init()?;
+        // Skip setup (and, via the dormant runner, the workload) if the startup budget
+        // lapsed while the database was unreachable. `alive` is already false.
+        if runner.alive.load(Ordering::Relaxed) {
+            runner.init()?;
+        }
+        startup_done.store(true, Ordering::Release);
         let suite_runner = Arc::new(runner);
 
         // refresh sysinfo stats very frequently
@@ -486,7 +526,13 @@ impl SuiteRunner {
             // the top rebuilds state no matter how far a partial attempt got — not
             // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
             // pg_reload_conf, which are disallowed inside a transaction block).
-            self.run_once(&setup_runner.job, |conn| setup_runner.run(conn))?;
+            if self
+                .run_once(&setup_runner.job, |conn| setup_runner.run(conn))?
+                .is_none()
+            {
+                // Startup budget lapsed mid-setup; stop before spawning any workers.
+                return Ok(());
+            }
         }
 
         // setup and start the monitors
@@ -555,7 +601,7 @@ impl SuiteRunner {
 
         let job_runner = Arc::new(job_runner);
         let refresh_ms = Duration::from_millis(job_runner.job.refresh_ms as u64);
-        let reconnect_grace = self.reconnect_grace;
+        let reconnect_grace = self.reconnect_grace.clone();
 
         // The actual thread loop
         let handle = {
@@ -587,7 +633,7 @@ impl SuiteRunner {
     fn job_runner_worker(
         paused: Arc<AtomicBool>,
         refresh_ms: Duration,
-        reconnect_grace: Duration,
+        reconnect_grace: GraceWindow,
         job_runner: &Arc<JobRunner>,
     ) -> Result<(), anyhow::Error> {
         *job_runner.runtime_stats.write() = Conn::make_infos(&job_runner.suite, &job_runner.job)
@@ -623,7 +669,7 @@ impl SuiteRunner {
             // reconnects; replaying the whole iteration keeps transactional jobs correct.
             let outcome = with_reconnect(
                 &alive,
-                reconnect_grace,
+                &reconnect_grace,
                 &mut conn,
                 &job_runner.suite,
                 &job_runner.job,

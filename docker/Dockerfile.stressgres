@@ -26,6 +26,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     ca-certificates \
     postgresql-client \
     libpq5 \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user

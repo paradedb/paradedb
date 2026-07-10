@@ -66,10 +66,22 @@ pub struct UiArgs {
     /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
     /// error fails the run immediately.
     ///
-    /// Set this when the database is expected to go away and come back, e.g. under a
-    /// fault injector that stops, kills, or partitions its container.
+    /// Under fault injection set this longer than `--runtime`, so a connectivity fault
+    /// can never fail the run, and pair it with `--reconnect-grace-file`: any window
+    /// shorter than the run is one the fault injector can outlast, so liveness has to be
+    /// asserted while faults are healed rather than guessed at while they are active.
     #[arg(long, default_value = "0")]
     pub reconnect_grace: u64,
+
+    /// Path to a file whose contents (a count of milliseconds) override
+    /// `--reconnect-grace` for as long as it exists, re-read on every failed attempt.
+    ///
+    /// This is how an external supervisor narrows the window at runtime. Under Antithesis
+    /// the `anytime_recovery_liveness` command heals every fault and then writes a shorter
+    /// window here, so the run fails only if the database was provably reachable and the
+    /// workload still could not make progress.
+    #[arg(long)]
+    pub reconnect_grace_file: Option<PathBuf>,
 }
 
 /// Arguments for running the suite in headless mode.
@@ -95,10 +107,22 @@ pub struct HeadlessArgs {
     /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
     /// error fails the run immediately.
     ///
-    /// Set this when the database is expected to go away and come back, e.g. under a
-    /// fault injector that stops, kills, or partitions its container.
+    /// Under fault injection set this longer than `--runtime`, so a connectivity fault
+    /// can never fail the run, and pair it with `--reconnect-grace-file`: any window
+    /// shorter than the run is one the fault injector can outlast, so liveness has to be
+    /// asserted while faults are healed rather than guessed at while they are active.
     #[arg(long, default_value = "0")]
     pub reconnect_grace: u64,
+
+    /// Path to a file whose contents (a count of milliseconds) override
+    /// `--reconnect-grace` for as long as it exists, re-read on every failed attempt.
+    ///
+    /// This is how an external supervisor narrows the window at runtime. Under Antithesis
+    /// the `anytime_recovery_liveness` command heals every fault and then writes a shorter
+    /// window here, so the run fails only if the database was provably reachable and the
+    /// workload still could not make progress.
+    #[arg(long)]
+    pub reconnect_grace_file: Option<PathBuf>,
 }
 
 /// Arguments for parsing a log file and generating the desired charts.

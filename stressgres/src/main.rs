@@ -32,6 +32,7 @@ mod tui;
 
 use crate::auto::{setup_server, ServerHandler};
 use crate::cli::{AutoArgs, Cli, Command};
+use crate::fault_tolerance::GraceWindow;
 use crate::runner::SuiteRunner;
 use crate::suite::{PgConfigStyle, PgVersion, ServerStyle, Suite, SuiteDefinition};
 use anyhow::Context;
@@ -50,8 +51,22 @@ pub struct MetricsLine {
     pub metrics: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Builds the reconnect grace window from the CLI's baseline (in milliseconds) and
+/// optional poke file.
+fn grace_window(baseline_ms: u64, file: Option<std::path::PathBuf>) -> GraceWindow {
+    let baseline = Duration::from_millis(baseline_ms);
+    match file {
+        Some(file) => GraceWindow::pokeable(baseline, file),
+        None => GraceWindow::fixed(baseline),
+    }
+}
+
 /// Main entry point using subcommands.
 fn main() -> anyhow::Result<()> {
+    // Registers the assertion catalog so Antithesis knows which `assert_reachable!`
+    // sites exist but were never hit. A no-op outside the Antithesis environment.
+    antithesis_sdk::antithesis_init();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -63,7 +78,8 @@ fn main() -> anyhow::Result<()> {
             let suite_runner = SuiteRunner::new(
                 suite,
                 args.paused,
-                Duration::from_millis(args.reconnect_grace),
+                grace_window(args.reconnect_grace, args.reconnect_grace_file),
+                None,
             )?;
             tui::run(suite_runner)?;
         }
@@ -73,8 +89,23 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner =
-                SuiteRunner::new(suite, false, Duration::from_millis(args.reconnect_grace))?;
+            // Cap startup at one runtime's worth of time: if we cannot even reach the
+            // database within that, this timeline has no server to test, so exit cleanly
+            // rather than riding the fault out for the whole reconnect grace.
+            let startup_timeout =
+                Duration::from_millis(u64::try_from(args.runtime).unwrap_or(u64::MAX));
+            let suite_runner = SuiteRunner::new(
+                suite,
+                false,
+                grace_window(args.reconnect_grace, args.reconnect_grace_file.clone()),
+                Some(startup_timeout),
+            )?;
+            if !suite_runner.alive() {
+                eprintln!(
+                    "stressgres: database unreachable throughout startup, exiting without a workload"
+                );
+                return Ok(());
+            }
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {
@@ -98,7 +129,8 @@ fn main() -> anyhow::Result<()> {
             })?;
             // `auto` is a local-dev command with no fault injection, so fail fast
             // (grace 0) rather than tolerating transient connectivity faults.
-            let suite_runner = SuiteRunner::new(suite, false, Duration::ZERO)?;
+            let suite_runner =
+                SuiteRunner::new(suite, false, GraceWindow::fixed(Duration::ZERO), None)?;
             headless::run(
                 suite_runner,
                 args.log_path.clone(),

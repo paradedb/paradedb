@@ -45,13 +45,6 @@ fi
 exec 9>"${LOCK_FILE}"
 flock -n 9 || exit 0
 
-# Absent when dry-running the test template locally, where there is no fault
-# injector to pause and therefore nothing to assert.
-if [ -z "${ANTITHESIS_STOP_FAULTS:-}" ]; then
-  echo "ANTITHESIS_STOP_FAULTS unset, skipping the recovery liveness check"
-  exit 0
-fi
-
 # Write via rename so a reader never observes a half-written window. Removing the file
 # restores whatever `--reconnect-grace` the driver was started with, so the baseline
 # lives in exactly one place.

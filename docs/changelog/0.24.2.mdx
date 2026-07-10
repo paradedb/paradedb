@@ -17,6 +17,8 @@ noindex: true
 
 ## Stability Improvements 💪
 
+- Gate use of the aggregate and join scans on the presence of a partial index predicate.
+- Fix an issue with heap filters representing constants in the aggregate scan.
 - Fix missed timestamp-rewriting sites and add `time`/`timetz` parsing support.
 - Fix potential crash when receiving a UNIX signal during mutable segment reading.
 - Fix `ORDER BY` score Top-K queries with alternate join shapes in the join scan.

@@ -1,18 +1,19 @@
 #!/bin/bash
 #
 # Antithesis "anytime" command: heal every fault, then require that the Stressgres
-# processes running alongside us reconnect and make progress before faults resume. The
+# driver running alongside us reconnects and makes progress before faults resume. The
 # failure condition is "the database was provably reachable and stressgres still could
 # not make progress", which no fault schedule can fake.
 #
-# We poke the already-running drivers rather than starting our own, because Stressgres
+# We poke the already-running driver rather than starting our own, because Stressgres
 # spends its first 60s waiting for the cluster and then builds its schema.
 # See https://github.com/paradedb/paradedb/issues/5501.
 
 set -Eeuo pipefail
 
-# Shared with the `--reconnect-grace-file` passed by every singleton driver. Both
-# commands run in the Stressgres container, so this is a plain shared file.
+# The poke channel, shared via the Stressgres container's filesystem. Every singleton
+# driver is launched with this same `--reconnect-grace-file`, but Antithesis runs exactly
+# one of them per timeline, so at runtime the file has a single reader.
 GRACE_FILE=/tmp/stressgres-reconnect-grace
 LOCK_FILE=/tmp/stressgres-recovery-liveness.lock
 
@@ -31,9 +32,10 @@ TRIGGER_PERCENT=5
 sample=$(od -An -N2 -tu2 < /dev/urandom | tr -d '[:space:]')
 (( sample % 100 < TRIGGER_PERCENT )) || exit 0
 
-# Overlapping quiet periods merge into the longest interval, but overlapping pokes
-# would race: the first to finish would restore the baseline while the second is still
-# counting down, silently disarming the check.
+# Antithesis fires anytime commands concurrently (the drivers can't overlap — only one
+# singleton runs per timeline — but these can). Overlapping quiet periods merge into the
+# longest interval, but overlapping pokes would race: the first to finish would restore
+# the baseline while the second is still counting down, silently disarming the check.
 #
 # Check for flock(1) separately from taking the lock: a missing binary exits 127,
 # which `|| exit 0` would otherwise report as "another instance holds the lock" and
@@ -71,6 +73,6 @@ restore
 echo "recovery liveness: stressgres survived the quiet period"
 
 # A nonzero exit here would report *this* command as the failure. The assertion
-# belongs to the drivers: if one of them could not reconnect inside the window,
-# it exits nonzero and Antithesis attributes the failure to the workload.
+# belongs to the driver: if it could not reconnect inside the window, it exits
+# nonzero and Antithesis attributes the failure to the workload.
 exit 0

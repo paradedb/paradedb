@@ -26,7 +26,7 @@
 //! The grace defaults to zero, under which any error fails the run, so this is inert
 //! unless a caller opts in with `--reconnect-grace`.
 //!
-//! Under fault injection the grace is set larger than the run itself, so a connectivity
+//! Under fault injection the grace should be set larger than the run itself, so a connectivity
 //! fault can never fail the run: Antithesis searches for the fault schedule that breaks
 //! us, so any window shorter than the run is one it can outlast. Liveness is instead
 //! asserted from the outside: the `anytime_recovery_liveness` test command heals every

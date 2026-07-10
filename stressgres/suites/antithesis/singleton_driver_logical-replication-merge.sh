@@ -10,8 +10,7 @@ set -Eeuo pipefail
 # Subscriber -> paradedb-rw (primary of the CNPG cluster, has pg_search).
 echo ""
 echo "Updating suite to use Antithesis connections..."
-# The connect_timeout/keepalive/tcp_user_timeout params make a dropped or partitioned
-# socket fail fast instead of hanging ~130s, so a recovery poke lands inside the window.
+# The connect_timeout/keepalive/tcp_user_timeout params make a dropped or partitioned socket fail fast, so a recovery poke lands inside the reconnect-grace window
 sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Publisher"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@logical-replication-publisher:5432/postgres?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_retries=3\&tcp_user_timeout=15"|' /home/app/stressgres/suites/logical-replication-merge.toml
 sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Subscriber"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_retries=3\&tcp_user_timeout=15"|' /home/app/stressgres/suites/logical-replication-merge.toml
 

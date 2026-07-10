@@ -56,16 +56,20 @@ CREATE OR REPLACE FUNCTION assert_plan_contains(
 ) RETURNS boolean AS $$
 DECLARE
     plan_line text;
+    full_plan text := '';
 BEGIN
-    -- Loop through each line of the EXPLAIN output
-    FOR plan_line IN EXECUTE 'EXPLAIN ' || p_query LOOP
+    -- Accumulate the EXPLAIN output as we go so we can show the plan we actually
+    -- got if the assertion fails (invaluable when a fault-injection run flips the plan).
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
         -- Check if the current line contains the expected text
         IF plan_line ILIKE '%' || p_expected_text || '%' THEN
             RETURN true;
         END IF;
     END LOOP;
 
-    RAISE EXCEPTION 'Plan assertion failed: Expected text "%" not found in plan for query: %', p_expected_text, p_query;
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -116,6 +120,8 @@ title = "Normal Scan"
 log_tps = true
 on_connect = """
 SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
 SELECT assert_plan_contains(
     $q$ SELECT count(*) FROM test where message ||| 'wine' $q$,
     'NormalScanExecState'

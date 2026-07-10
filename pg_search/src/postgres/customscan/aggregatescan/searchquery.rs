@@ -24,7 +24,7 @@ use crate::postgres::customscan::qual_inspect::{
     contains_exec_param, extract_quals, PlannerContext, QualExtractState,
 };
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::utils::filter_implied_predicates;
+use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -74,6 +74,10 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
             // for us to do anything.
             return Err("relation is a join".into());
+        }
+
+        if unsafe { missing_partial_index_predicate(index.rd_indpred, &restrict_info) } {
+            return Err("query does not imply the partial index predicate".into());
         }
 
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);

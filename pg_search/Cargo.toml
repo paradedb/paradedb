@@ -86,7 +86,7 @@ tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "54", default-features = false }
 datafusion-proto = { version = "54", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "f2087994c4e7b8f742168762b2e1da5e9a9c13c1", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "c58122ab6207e178d0a50dfb15f955282f9d52e4", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

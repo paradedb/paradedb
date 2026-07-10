@@ -41,7 +41,6 @@ use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
 use crate::postgres::customscan::mpp::worker_fragments::{
     collect_dispatched_stages, FragmentAssignment, FragmentRouting,
 };
-use crate::scan::physical_codec::serialize_physical_plan;
 
 /// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.
 /// Shared by all workers; each selects the `task_idx` slots it owns. The stage's plan arrives
@@ -51,17 +50,6 @@ struct DispatchedStage {
     stage_num: u32,
     task_count: usize,
     routing: FragmentRouting,
-}
-
-/// One stage's plan bytes, headed for per-task `SetPlan` frames. Stays leader-side: the leader
-/// stamps each task's `TaskKey` from `query_id`/`stage_num` and ships `plan_proto` once per task.
-#[derive(Clone)]
-pub struct StagePlan {
-    pub stage_num: u32,
-    pub query_id: Vec<u8>,
-    pub task_count: usize,
-    /// `PhysicalPlanNode`-encoded `stage.local_plan()` (via the combined codec).
-    pub plan_proto: Vec<u8>,
 }
 
 /// First byte of the DSM plan region. Only the dispatch blob is shipped today (every MPP
@@ -127,39 +115,32 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
     })
 }
 
-/// Build the dispatch payload from the leader's own execution plan: collect every producer
-/// stage, serialize each subplan, and frame the routing blob to `capacity`.
+/// Build the dispatch payload (the routing blob, framed to `capacity`) from the leader's own
+/// execution plan, and report how many producer stages it found. The stage subplans travel
+/// separately: the coordinator serializes each through the leader's
+/// [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
 ///
-/// The leader executes the same plan object it serialized from, so stage numbering and routing
-/// cannot drift from what the coordinator dispatches. Scan encodes are context-free recipes;
-/// each worker injects its own `ParallelScanState` + segment view on decode, and re-runs the
-/// pushdown pass to re-link dynamic filters.
+/// The leader executes the same plan object the routing derives from, so stage numbering and
+/// routing cannot drift from what the coordinator dispatches.
 pub fn dispatch_payload_from_plan(
     physical: &Arc<dyn ExecutionPlan>,
     n_workers: u32,
     capacity: usize,
-) -> Result<(Vec<u8>, Vec<StagePlan>)> {
+) -> Result<(Vec<u8>, usize)> {
     let stages = collect_dispatched_stages(physical, n_workers)?;
-    let mut dispatched = Vec::with_capacity(stages.len());
-    let mut stage_plans = Vec::with_capacity(stages.len());
-    for stage in stages {
-        let plan_proto = serialize_physical_plan(stage.plan)?;
-        dispatched.push(DispatchedStage {
+    let stage_count = stages.len();
+    let dispatched: Vec<DispatchedStage> = stages
+        .into_iter()
+        .map(|stage| DispatchedStage {
             stage_num: stage.stage_num,
             task_count: stage.task_count,
             routing: stage.routing,
-        });
-        stage_plans.push(StagePlan {
-            stage_num: stage.stage_num,
-            query_id: stage.query_id.as_bytes().to_vec(),
-            task_count: stage.task_count,
-            plan_proto,
-        });
-    }
+        })
+        .collect();
     let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
     let payload = frame_dispatch_payload(&blob, capacity)?;
-    Ok((payload, stage_plans))
+    Ok((payload, stage_count))
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.

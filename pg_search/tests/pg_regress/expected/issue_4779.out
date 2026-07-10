@@ -194,7 +194,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
          Limit: 10
          Order By: m.id desc
          DataFusion Physical Plan: 
-           : ┌───── DistributedExec ── Tasks: t0:[p0]
+           : ┌───── DistributedExec
            : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            : │   SortPreservingMergeExec: [id@1 DESC], fetch=10
            : │     SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
@@ -205,7 +205,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            : │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
            : │             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
+           :   ┌───── Stage 1 ── tasks=3, partitions=9
            :   │ HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :   │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :   │   RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1

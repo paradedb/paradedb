@@ -383,7 +383,7 @@ pub fn launch_mpp_commit(
     // Derive the per-stage subplans from the plan the leader itself will execute. A failure
     // here is a hard error: a serialization gap is a codec bug, and the parked workers die
     // with the transaction.
-    let (payload, stage_plans) =
+    let (payload, stage_count) =
         match dispatch_payload_from_plan(physical, producer_count, payload_capacity) {
             Ok(p) => p,
             Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
@@ -409,7 +409,7 @@ pub fn launch_mpp_commit(
     // A plan with no producer stages has nothing to distribute; the workers would only exit
     // with no fragments while the leader runs a plan whose per-source scans aren't executable
     // without a worker's state. Release the workers and let the caller replan serially.
-    if stage_plans.is_empty() {
+    if stage_count == 0 {
         go.store(GO_ABORT, Ordering::Release);
         finish.wait_for_finish();
         return None;
@@ -421,7 +421,7 @@ pub fn launch_mpp_commit(
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp: mesh region missing"),
     };
-    let mut leader = match unsafe { leader_setup(mesh_ptr, payload, stage_plans) } {
+    let mut leader = match unsafe { leader_setup(mesh_ptr, payload) } {
         Ok(l) => l,
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };

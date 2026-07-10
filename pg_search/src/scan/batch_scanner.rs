@@ -150,6 +150,7 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    score_threshold: Option<Score>,
 }
 
 impl Scanner {
@@ -206,6 +207,7 @@ impl Scanner {
             defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            score_threshold: None,
         }
     }
 
@@ -214,11 +216,25 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
+    /// Sets the score threshold to be applied to batches extracted afterwards.
+    /// We assume the threshold will monotonically increase, and uses
+    /// greater-than (>) semantics.
+    ///
+    /// Passing a `None` will not cause the threshold on the current segment
+    /// to be updated, as threshold changes are only applied when
+    /// `self.threshold` is `Some(_)`.
+    pub(crate) fn set_score_threshold(&mut self, threshold: Option<Score>) {
+        self.score_threshold = threshold;
+    }
+
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         // Collect a batch of ids for a single segment.
         loop {
             let scorer_iter = self.search_results.current_segment()?;
             let segment_ord = scorer_iter.segment_ord();
+            if let Some(threshold) = self.score_threshold {
+                scorer_iter.set_threshold(threshold);
+            }
 
             // Collect a batch of ids/scores for this segment.
             let mut scores = Vec::with_capacity(self.batch_size);
@@ -229,7 +245,6 @@ impl Scanner {
                     self.search_results.current_segment_pop();
                     break;
                 };
-
                 // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.
                 debug_assert_eq!(id.segment_ord, segment_ord);
                 scores.push(score);

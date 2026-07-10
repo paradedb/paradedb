@@ -17,7 +17,7 @@
 
 use crate::index::reader::index::enable_scoring;
 use std::sync::OnceLock;
-use tantivy::query::{Query, Scorer};
+use tantivy::query::{PruningScorer, Query, Scorer};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
 pub struct DeferredScorer {
@@ -25,7 +25,7 @@ pub struct DeferredScorer {
     need_scores: bool,
     segment_reader: SegmentReader,
     searcher: Searcher,
-    scorer: OnceLock<Box<dyn Scorer>>,
+    scorer: OnceLock<Box<dyn PruningScorer>>,
 }
 
 impl DeferredScorer {
@@ -46,7 +46,7 @@ impl DeferredScorer {
 
     #[track_caller]
     #[inline(always)]
-    fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
+    fn scorer_mut(&mut self) -> &mut dyn PruningScorer {
         self.scorer();
         self.scorer
             .get_mut()
@@ -55,7 +55,7 @@ impl DeferredScorer {
 
     #[track_caller]
     #[inline(always)]
-    fn scorer(&self) -> &dyn Scorer {
+    fn scorer(&self) -> &dyn PruningScorer {
         self.scorer.get_or_init(|| {
             let weight = self
                 .query
@@ -63,9 +63,14 @@ impl DeferredScorer {
                 .expect("weight should be constructable");
 
             weight
-                .scorer(&self.segment_reader, 1.0)
-                .expect("scorer should be constructable")
+                .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)
+                .expect("pruning scorer should be constructable")
         })
+    }
+
+    fn set_threshold(&mut self, threshold: Score) {
+        let scorer = self.scorer_mut();
+        scorer.set_threshold(threshold);
     }
 }
 
@@ -124,6 +129,10 @@ impl ScorerIter {
     /// This is used for query planning statistics and uses Tantivy's `size_hint`.
     pub fn estimated_doc_count(&self) -> u32 {
         self.deferred.size_hint()
+    }
+
+    pub fn set_threshold(&mut self, threshold: Score) {
+        self.deferred.set_threshold(threshold);
     }
 }
 

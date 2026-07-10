@@ -1,0 +1,43 @@
+-- Regression test: aggregate custom scan over a bare boolean heap filter.
+--
+-- When a predicate references a column that is NOT in the bm25 index, the
+-- aggregate custom scan evaluates it as a "heap filter" against the fetched
+-- heap tuple. A bare boolean Var (e.g. `WHERE flag`) compiles to PostgreSQL's
+-- `ExecJustScanVarVirt` fast path, which requires a virtual scan slot. The
+-- aggregate scan advertises virtual scan-slot ops, so feeding it the buffer-heap
+-- fetch slot tripped `Assert(TTS_IS_VIRTUAL(slot))` and crashed the backend on
+-- assert-enabled builds. This test exercises those bare-boolean heap filters.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS agg_heap_bool;
+CREATE TABLE agg_heap_bool (
+    id       serial PRIMARY KEY,
+    category text,
+    flag     boolean
+);
+INSERT INTO agg_heap_bool (category, flag)
+SELECT (ARRAY['a', 'b'])[1 + (g % 2)], (g % 2 = 0)
+FROM generate_series(1, 500) g;
+
+-- `flag` is intentionally NOT indexed, so predicates on it become heap filters.
+CREATE INDEX agg_heap_bool_idx ON agg_heap_bool
+USING bm25 (id, category) WITH (key_field = 'id');
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Bare boolean Var heap filter (previously crashed).
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag;
+SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag;
+
+-- Boolean equality heap filter (previously crashed).
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag = false;
+SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND flag = false;
+
+-- Negated bare boolean Var heap filter.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND NOT flag;
+SELECT count(*) FROM agg_heap_bool WHERE category === 'a' AND NOT flag;
+
+DROP TABLE agg_heap_bool;

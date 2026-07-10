@@ -777,10 +777,10 @@ pub fn index_memory_segment(
                 }
 
                 let mut htsv_result = {
-                    let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                    let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     HeapTupleSatisfiesVacuum(
-                        (*heap_fetch_state.buffer_slot()).base.tuple,
+                        (*heap_fetch_state.buffer_heap_slot()).base.tuple,
                         oldest_xmin,
                         buffer,
                     )
@@ -800,10 +800,10 @@ pub fn index_memory_segment(
                     let fresh_oldest_xmin =
                         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
                     if fresh_oldest_xmin != oldest_xmin {
-                        let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                        let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
                         let _lock = BorrowedBuffer::from_pg(buffer);
                         htsv_result = HeapTupleSatisfiesVacuum(
-                            (*heap_fetch_state.buffer_slot()).base.tuple,
+                            (*heap_fetch_state.buffer_heap_slot()).base.tuple,
                             fresh_oldest_xmin,
                             buffer,
                         );

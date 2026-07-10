@@ -14,12 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use super::keyset::{KeySet, KeySetBuilder};
+use super::keyset::KeySet;
 use super::{anyelement_query_input_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
-use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
@@ -32,8 +31,8 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
-    check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
-    Internal, PgList, PgOid, PgRelation,
+    pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys, Internal, PgList, PgOid,
+    PgRelation,
 };
 use std::ptr::NonNull;
 
@@ -69,40 +68,40 @@ struct QueryCacheEntry {
     missing_values: Option<KeySet>,
 }
 
-/// Whether the query matches every document (`pdb.all()`, possibly wrapped/fielded), so we can
-/// answer every row `true` without materializing any keys.
-fn query_matches_all(query: &SearchQueryInput) -> bool {
-    match query {
-        SearchQueryInput::All => true,
-        SearchQueryInput::WithIndex { query, .. }
-        | SearchQueryInput::Boost { query, .. }
-        | SearchQueryInput::ConstScore { query, .. } => query_matches_all(query),
-        // `pdb::Query::All` is an AllQuery regardless of the field it is attached to.
-        SearchQueryInput::FieldedQuery { query, .. } => {
-            matches!(query, crate::query::pdb_query::pdb::Query::All)
-        }
-        _ => false,
-    }
-}
-
-/// Collect the key-field values of every document matching `reader`'s query into a memory-bounded
-/// [`KeySet`] (spills to a temp file past `work_mem`).
-fn collect_keyset(reader: &SearchIndexReader, key_ff_helper: &FFHelper) -> KeySet {
-    let mut builder = KeySetBuilder::default();
-    for (_, doc_address) in reader.search() {
-        check_for_interrupts!();
-        builder.push(
-            key_ff_helper
-                .value(0, doc_address)
-                .expect("key_field value should not be null"),
-        );
-    }
-    builder.finish()
-}
-
 #[derive(Default)]
 struct Cache {
     by_query: HashMap<Vec<u8>, QueryCacheEntry>,
+}
+
+thread_local! {
+    /// The statement (identified by [`current_statement_id`]) for which we last warned that the
+    /// index isn't being used / that the match set spilled. A statement can have many `@@@`
+    /// predicate nodes, each with its own per-`fcinfo` cache, so dedup at the statement level to
+    /// warn just once.
+    static WARNED_INDEX_UNUSED_AT: std::cell::Cell<StatementId> =
+        const { std::cell::Cell::new(pg_sys::TimestampTz::MIN) };
+    static WARNED_SPILLED_AT: std::cell::Cell<StatementId> =
+        const { std::cell::Cell::new(pg_sys::TimestampTz::MIN) };
+}
+
+/// Uniquely identifies the currently-executing statement (its start timestamp).
+type StatementId = pg_sys::TimestampTz;
+
+/// Identifies the currently-executing statement. Distinct statements -- including each `EXECUTE` of
+/// a prepared statement -- get distinct values, letting us dedup a warning to once per statement.
+fn current_statement_id() -> StatementId {
+    unsafe { pg_sys::GetCurrentStatementStartTimestamp() }
+}
+
+/// Emit `message` as a WARNING at most once per statement, tracked by `warned_at`.
+fn warn_once_per_statement(
+    warned_at: &'static std::thread::LocalKey<std::cell::Cell<StatementId>>,
+    message: &str,
+) {
+    let stmt_id = current_statement_id();
+    if warned_at.with(|last| last.replace(stmt_id)) != stmt_id {
+        pgrx::warning!("{message}");
+    }
 }
 
 /// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
@@ -145,35 +144,6 @@ unsafe impl SqlTranslatable for FakeSearchQueryInput {
     const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
         <SearchQueryInput as SqlTranslatable>::ARGUMENT_SQL;
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
-}
-
-/// Whether `query` is (after unwrapping wrappers) an `Exists` predicate.
-///
-/// `Exists` is a total predicate: a missing field means it is FALSE, not NULL.
-/// So we must not build the missing-values set for it.
-fn query_is_exists(query: &SearchQueryInput) -> bool {
-    match query {
-        SearchQueryInput::WithIndex { query, .. } => query_is_exists(query),
-        SearchQueryInput::Boost { query, .. } => query_is_exists(query),
-        SearchQueryInput::ConstScore { query, .. } => query_is_exists(query),
-        SearchQueryInput::FieldedQuery { query, .. } => {
-            matches!(query, crate::query::pdb_query::pdb::Query::Exists)
-        }
-        SearchQueryInput::Boolean {
-            must,
-            should,
-            must_not,
-            ..
-        } => {
-            let clauses: Vec<_> = must
-                .iter()
-                .chain(should.iter())
-                .chain(must_not.iter())
-                .collect();
-            clauses.len() == 1 && query_is_exists(clauses[0])
-        }
-        _ => false,
-    }
 }
 
 /// Whether the null-preserving existence guard is valid for this field.
@@ -227,16 +197,18 @@ pub fn search_with_query_input(
         pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
 
+    let mut newly_built = false;
     let query_cache = cache.by_query.entry(key).or_insert_with(|| {
+        newly_built = true;
         let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
             SearchQueryInput::from_datum(query_datum, query_datum.is_null())
                 .expect("the query argument cannot be NULL")
         };
 
-        // Short-circuit the degenerate queries so we never materialize a key per row: `all()`
-        // (in any wrapped/fielded form) matches everything, `empty()` matches nothing.
-        if query_matches_all(&search_query_input) {
+        // Short-circuit the degenerate queries so we never materialize a key per row: `all()` (in
+        // any wrapped/fielded form) matches everything, `empty()` matches nothing.
+        if search_query_input.is_match_all() {
             return QueryCacheEntry {
                 element_oid,
                 matches: KeySet::All,
@@ -251,9 +223,11 @@ pub fn search_with_query_input(
             };
         }
 
-        let index_oid = search_query_input
-            .index_oid()
-            .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
+        // Reaching here means the planner could not use the BM25 index to satisfy this query, so we
+        // materialize the match set and apply it as a per-row filter (the slow path).
+        let index_oid = search_query_input.index_oid().unwrap_or_else(|| {
+            panic!("pg_search: could not determine the index to use for this query")
+        });
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
@@ -261,10 +235,9 @@ pub fn search_with_query_input(
         let mut field_names = HashSet::default();
         search_query_input.extract_field_names(&mut field_names);
 
-        // For an `Exists` predicate a missing field is FALSE, not NULL, so we
-        // skip the missing-values computation below and let missing fields fall
-        // through to `Some(false)`.
-        let is_exists_query = query_is_exists(&search_query_input);
+        // For an `Exists` predicate a missing field is FALSE, not NULL, so we skip the missing-values
+        // computation below and let missing fields fall through to `Some(false)`.
+        let is_exists_query = search_query_input.is_exists();
 
         let search_reader = SearchIndexReader::open(
             &index_relation,
@@ -272,16 +245,12 @@ pub fn search_with_query_input(
             false,
             MvccSatisfies::Snapshot,
         )
-            .expect("search_with_query_input: should be able to open a SearchIndexReader");
+        .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
-        let key_field_name = schema.key_field_name();
-        let key_field_type = schema.key_field_type();
-        let key_ff_helper =
-            FFHelper::with_fields(&search_reader, &[(key_field_name.clone(), key_field_type).into()]);
 
-        // query the SearchReader and collect the matching key-field values into a memory-bounded
-        // set (spills to a temp file past `work_mem`), reused for every row of the scan.
-        let matches = collect_keyset(&search_reader, &key_ff_helper);
+        // collect the matching key-field values into a memory-bounded set (spills to a temp file
+        // past `work_mem`), reused for every row of the scan.
+        let matches = search_reader.collect_keyset();
 
         let missing_values = if field_names.len() == 1 && !is_exists_query {
             let field = field_names
@@ -297,8 +266,8 @@ pub fn search_with_query_input(
                 };
             }
 
-            // Collect rows where the field is absent (the complement of `exists`).
-            // Membership in this set means SQL NULL for negation semantics.
+            // Collect rows where the field is absent (the complement of `exists`). Membership in
+            // this set means SQL NULL for negation semantics.
             let complement_query = SearchQueryInput::WithIndex {
                 oid: index_oid,
                 query: Box::new(SearchQueryInput::Boolean {
@@ -318,14 +287,11 @@ pub fn search_with_query_input(
                 false,
                 MvccSatisfies::Snapshot,
             )
-            .expect("search_with_query_input: should be able to open a complement SearchIndexReader");
-
-            let complement_ff_helper = FFHelper::with_fields(
-                &complement_reader,
-                &[(key_field_name, key_field_type).into()],
+            .expect(
+                "search_with_query_input: should be able to open a complement SearchIndexReader",
             );
 
-            Some(collect_keyset(&complement_reader, &complement_ff_helper))
+            Some(complement_reader.collect_keyset())
         } else {
             None
         };
@@ -337,9 +303,17 @@ pub fn search_with_query_input(
         }
     });
 
-    // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
-    // is contained in the matches set
-    unsafe {
+    // Reaching this function at all means the `@@@` predicate is being applied as a per-row filter
+    // rather than an index scan, so warn whenever we evaluate a query here -- regardless of the
+    // all()/empty() short-circuits -- but at most once per statement. Separately warn if the
+    // materialized match set spilled past work_mem.
+    let spilled = newly_built
+        && (matches!(query_cache.matches, KeySet::Spilled(_))
+            || matches!(&query_cache.missing_values, Some(KeySet::Spilled(_))));
+
+    // see if the value on the lhs of the operator (which should always be our "key_field") is
+    // contained in the matches set
+    let result = unsafe {
         let element = pg_getarg_datum_raw(fcinfo, 0);
         let user_value = TantivyValue::try_from_datum(element, query_cache.element_oid)
             .expect("no value present");
@@ -355,7 +329,22 @@ pub fn search_with_query_input(
         } else {
             Some(false)
         }
+    };
+
+    if newly_built {
+        warn_once_per_statement(
+            &WARNED_INDEX_UNUSED_AT,
+            "the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow",
+        );
     }
+    if spilled {
+        warn_once_per_statement(
+            &WARNED_SPILLED_AT,
+            "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded",
+        );
+    }
+
+    result
 }
 
 #[pg_extern(immutable, parallel_safe)]

@@ -167,6 +167,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp

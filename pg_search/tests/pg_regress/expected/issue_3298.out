@@ -89,6 +89,7 @@ SELECT
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
 FROM mock_items;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  total | count | count 
 -------+-------+-------
     41 |     5 |     0

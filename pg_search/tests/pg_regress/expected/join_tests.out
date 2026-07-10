@@ -131,6 +131,7 @@ INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
   author_name  |      book_title      | author_score | book_score 
 ---------------+----------------------+--------------+------------
  J.K. Rowling  | Harry Potter Magic   |            0 |    0.98641
@@ -151,6 +152,7 @@ LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.5552412 |          0
@@ -167,6 +169,7 @@ RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -204,6 +207,7 @@ WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Horrors |   0.66167223 |          0
@@ -229,6 +233,7 @@ INNER JOIN books b ON a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  Stephen King | Harry Potter Magic   |   0.66167223 |          0
@@ -266,6 +271,7 @@ INNER JOIN books b ON a.birth_year + 50 > b.publication_year
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.0395092 |          0
@@ -302,6 +308,7 @@ WHERE (a.bio @@@ 'smartphone' OR b.content @@@ 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
    author_name   |                        book_content                         | author_score | book_score 
 -----------------+-------------------------------------------------------------+--------------+------------
  J.K. Rowling    | A horror story about supernatural terror events performance |            0 |  1.3702781
@@ -330,6 +337,7 @@ CROSS JOIN categories c
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'science' OR c.description @@@ 'technology')
 ORDER BY a.id, b.id, c.id, author_score DESC, book_score DESC, category_score DESC
 LIMIT 10;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name  |     book_title     | category_name | author_score | book_score | category_score 
 --------------+--------------------+---------------+--------------+------------+----------------
  J.K. Rowling | Harry Potter Magic | Fantasy       |   0.66167223 |          0 |              0
@@ -357,6 +365,7 @@ WHERE (a.bio @@@ 'smartphone' OR a.country @@@ 'British' OR b.content @@@ 'perfo
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
    author_name   | author_country |                        book_content                         | author_score | book_score 
 -----------------+----------------+-------------------------------------------------------------+--------------+------------
  J.K. Rowling    | UK             | A horror story about supernatural terror events performance |            0 |  1.3702781
@@ -385,6 +394,7 @@ INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |            0 |          0
@@ -408,6 +418,7 @@ WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950)
    OR (b.content @@@ 'magic' AND b.publication_year > 1980)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -488,6 +499,7 @@ LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id, b.id;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |   0.66167223 | 0.27030534
@@ -516,6 +528,7 @@ WHERE a.bio @@@ 'author'
    OR (b.content @@@ 'story' AND c.name @@@ 'Fantasy')
 ORDER BY a.id, b.id, c.id
 LIMIT 15;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name  |      book_title      | category_name | author_score | book_score | category_score 
 --------------+----------------------+---------------+--------------+------------+----------------
  J.K. Rowling | Harry Potter Magic   | Fantasy       |   0.66167223 | 0.27030534 |      1.5404451
@@ -598,6 +611,7 @@ WHERE (a.bio @@@ 'smartphone' OR a.birth_year = b.publication_year)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 5;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name |      book_title      | author_score | book_score 
 -------------+----------------------+--------------+------------
  John Smith  | Harry Potter Magic   |    1.6503524 |          0
@@ -644,6 +658,7 @@ WHERE (a.bio @@@ 'smartphone')    -- Safe condition on authors
    OR (c.description @@@ 'electronic')    -- External condition on categories
 ORDER BY a.id, c.id, author_score DESC, category_score DESC;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, c)
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  author_name | category_name | author_score | category_score 
 -------------+---------------+--------------+----------------
  John Smith  | Technology    |    1.6503524 |              0
@@ -691,6 +706,7 @@ WHERE (a.bio @@@ 'technology' OR a.country @@@ 'British')
    OR (p.description @@@ 'technology' OR p.name @@@ 'Academic')
 ORDER BY a.id, b.id, c.id, p.id, author_score DESC, book_score DESC
 LIMIT 15;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
   author_name  |      book_title      | category_name |    publisher_name    | author_score | book_score | category_score | publisher_score 
 ---------------+----------------------+---------------+----------------------+--------------+------------+----------------+-----------------
  J.K. Rowling  | Harry Potter Magic   | Fantasy       | Magic Books          |            0 |  1.2683676 |      1.5404451 |               0

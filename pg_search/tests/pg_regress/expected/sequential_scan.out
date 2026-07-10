@@ -1,0 +1,116 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+DROP TABLE IF EXISTS sequential_scan CASCADE;
+CREATE TABLE sequential_scan (id int PRIMARY KEY, body text NOT NULL, keep boolean NOT NULL DEFAULT true);
+INSERT INTO sequential_scan SELECT g, 'keyword number ' || g, true FROM generate_series(1, 20000) g;
+CREATE INDEX sequential_scan_idx ON sequential_scan USING bm25 (id, body) WITH (key_field = 'id') WHERE keep;
+-- Silence the (unrelated) "Aggregate Scan not used" partial-index diagnostic so the output shows
+-- only the per-row filter's own warnings.
+SET paradedb.check_aggregate_scan = false;
+-- The per-row filter's deparsed qual embeds the BM25 index oid, which changes on every database
+-- creation; mask it so the plans below are stable.
+CREATE FUNCTION explain_seqscan(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
+    END LOOP;
+END;
+$$;
+-- Tiny work_mem: the ~20k-key match set exceeds it and spills; count is still correct.
+SET work_mem = '64kB';
+SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+                                                                                                              explain_seqscan                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Seq Scan on sequential_scan
+         Filter: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
+(3 rows)
+
+SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ count 
+-------
+ 20000
+(1 row)
+
+-- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
+SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
+                                                                                                              explain_seqscan                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Bitmap Heap Scan on sequential_scan
+         Recheck Cond: (id = ANY ('{1,10000,20000}'::integer[]))
+         Filter: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
+         ->  Bitmap Index Scan on sequential_scan_pkey
+               Index Cond: (id = ANY ('{1,10000,20000}'::integer[]))
+(7 rows)
+
+SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+  id   
+-------
+     1
+ 10000
+ 20000
+(3 rows)
+
+-- Negation over the spilled set: everything matched, so NOT (...) excludes all rows.
+SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
+                                                                                                                 explain_seqscan                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Seq Scan on sequential_scan
+         Filter: (NOT (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput))
+(3 rows)
+
+SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword');
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ count 
+-------
+     0
+(1 row)
+
+-- A term matched by no row -> empty set -> nothing matches (no spill).
+SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
+                                                                                                                  explain_seqscan                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Seq Scan on sequential_scan
+         Filter: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"nonexistentterm","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
+(3 rows)
+
+SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm';
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+ count 
+-------
+     0
+(1 row)
+
+-- With ample work_mem the identical query stays in memory: no spill WARNING.
+SET work_mem = '256MB';
+SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+                                                                                                              explain_seqscan                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Seq Scan on sequential_scan
+         Filter: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
+(3 rows)
+
+SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+ count 
+-------
+ 20000
+(1 row)
+
+DROP TABLE sequential_scan CASCADE;

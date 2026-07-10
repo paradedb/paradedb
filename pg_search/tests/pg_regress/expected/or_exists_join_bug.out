@@ -140,6 +140,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  id | name  
 ----+-------
   1 | Alice
@@ -167,6 +168,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  id | name  
 ----+-------
   1 | Alice
@@ -193,6 +195,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  id |  name   
 ----+---------
   3 | Charlie
@@ -246,6 +249,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
  id | name  
 ----+-------
   1 | Alice

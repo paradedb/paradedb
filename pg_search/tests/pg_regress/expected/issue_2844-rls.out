@@ -371,6 +371,7 @@ UPDATE "app"."contacts" AS t
 SET "assignee" = 'ad_singh'
 WHERE t.id IN (SELECT id FROM "app".contacts LIMIT 1)
 RETURNING t.org_id, t.type, t.name;
+WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
   org_id  |    type    |   name    
 ----------+------------+-----------
  tenant-1 | individual | Contact 1

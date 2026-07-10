@@ -210,30 +210,20 @@ impl TransientProgress {
 
 /// Runs `op`, tolerating transient connectivity faults for as long as `grace` allows:
 /// while `op` keeps failing with a transient error (a dropped/refused socket, server
-/// restarting, etc.) it is retried with capped backoff. A real (non-transient) error
-/// is returned immediately. The connection is only declared dropped — and the error
-/// surfaced — once it has stayed broken for the whole grace window continuously.
-///
-/// The connection is only declared dropped — and the error surfaced — once it has
-/// stayed broken for the whole window continuously.
+/// restarting, etc.) it is retried with capped backoff. A real (non-transient) error is
+/// returned immediately. The fault is only surfaced once the connection has stayed
+/// broken for the whole grace window continuously.
 ///
 /// The window is re-read on every failed attempt, and the clock restarts whenever it
-/// changes. That reset is what makes an external poke meaningful: a supervisor that
-/// heals all faults and *then* narrows the window is asking "can you reconnect within N
-/// seconds of now", not "were you already down N seconds ago", and without the reset a
-/// database that had been unreachable for ten minutes would fail on the very next
-/// attempt. The clock also restarts when `op` calls
-/// [`TransientProgress::mark_recovered`] before returning a later transient error,
-/// because the database recovered in between.
+/// changes or `op` calls [`TransientProgress::mark_recovered`]. That reset is what lets
+/// an external poke narrow the window mid-fault: it asks "can you reconnect within N
+/// seconds of now", not "were you already down N seconds ago".
 ///
-/// With a zero window, the default, any error fails the run immediately and unwrapped,
-/// exactly as it did before this module existed. A non-zero grace is opt-in via
-/// `--reconnect-grace`.
+/// With a zero window, the default, any error fails the run immediately, as it did
+/// before this module existed. A non-zero grace is opt-in via `--reconnect-grace`.
 ///
-/// This is the single place reconnection lives. Callers express *what* to do (probe
-/// the version, run setup, run one job iteration); reopening a dead connection is
-/// the caller's job inside `op`, and re-running the whole `op` is what makes this
-/// safe for transactional work — a lost transaction is simply replayed from scratch.
+/// Reopening a dead connection is the caller's job inside `op`; re-running the whole
+/// `op` is what keeps this safe for transactional work — a lost transaction is replayed.
 ///
 /// Returns `Ok(None)` if `alive` went false while we were waiting out a fault.
 pub(crate) fn tolerate_transient<T>(
@@ -553,6 +543,4 @@ mod tests {
         assert_eq!(result, Some("ok"));
         assert_eq!(attempts, 4);
     }
-
-    // appended temporarily to fault_tolerance.rs tests
 }

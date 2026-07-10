@@ -1,19 +1,13 @@
 #!/bin/bash
 #
 # Antithesis "anytime" command: heal every fault, then require that the stressgres
-# processes running alongside us reconnect and make progress before faults resume.
+# processes running alongside us reconnect and make progress before faults resume. The
+# failure condition is "the database was provably reachable and stressgres still could
+# not make progress", which no fault schedule can fake.
 #
-# This is the liveness check that lets the singleton drivers run with a reconnect grace
-# longer than the run. A grace shorter than the run can be outlasted by a long enough
-# injected fault, so it reports a bug we don't have as soon as Antithesis finds the
-# schedule that exceeds it; raising the bound only moves the false positive into a rarer
-# rollout. Here the failure condition is instead "the database was provably reachable
-# and stressgres still could not make progress", which no fault schedule can fake.
-#
-# We poke the running processes rather than starting our own, because stressgres
-# spends its first 60s waiting for the cluster and then builds its schema, and
-# because an `eventually_` command would kill the drivers we want to observe
-# recovering. See https://github.com/paradedb/paradedb/issues/5501.
+# We poke the already-running drivers rather than starting our own, because stressgres
+# spends its first 60s waiting for the cluster and then builds its schema.
+# See https://github.com/paradedb/paradedb/issues/5501.
 
 set -Eeuo pipefail
 

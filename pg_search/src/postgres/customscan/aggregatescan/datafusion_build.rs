@@ -42,7 +42,10 @@ use crate::postgres::customscan::pullup::{
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::utils::{
+    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator,
+    missing_partial_index_predicate,
+};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
@@ -429,6 +432,10 @@ unsafe fn build_scan_node(
     if !rel_array.is_null() && (rti as isize) < (*root).simple_rel_array_size as isize {
         let rel = *rel_array.offset(rti as isize);
         if !rel.is_null() {
+            let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+            if missing_partial_index_predicate(bm25_index.rd_indpred, &baserestrictinfo) {
+                return Err("query does not imply the partial index predicate".into());
+            }
             classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
         }
     }

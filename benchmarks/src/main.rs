@@ -154,10 +154,17 @@ struct RecallArgs {
     data_source: Option<String>,
 
     /// Query file (stem of `queries/{query}.sql`) to measure recall for. Recall runs that exact
-    /// query for each held-out vector and compares to `ground_truth_{query}_{size}.parquet`.
-    /// Defaults to the unfiltered query.
+    /// query for each held-out vector and compares to the ground truth. May include an index
+    /// subdirectory (e.g. `vchord/knn_top10_1pct_prefilter_on`). Defaults to the unfiltered query.
     #[arg(long, default_value = "knn_top10_unfiltered")]
     query: String,
+
+    /// Ground-truth stem, selecting `ground_truth_{ground_truth}_{size}.parquet`. The exact top-10
+    /// depends only on the filter selectivity, not the index or its scan mode, so several query
+    /// files share one ground truth (e.g. vchord's prefilter on/off both map to `knn_top10_1pct`).
+    /// Defaults to `--query` (with any index subdirectory stripped).
+    #[arg(long)]
+    ground_truth: Option<String>,
 }
 
 #[tokio::main]
@@ -545,6 +552,14 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         );
     }
 
+    // Ground-truth stem: explicit --ground-truth, else the query with any index subdirectory
+    // stripped (e.g. `vchord/knn_top10_unfiltered` -> `knn_top10_unfiltered`). Filter variants that
+    // share a ground truth (vchord's prefilter on/off) pass --ground-truth explicitly.
+    let gt_stem = args
+        .ground_truth
+        .clone()
+        .unwrap_or_else(|| args.query.rsplit('/').next().unwrap().to_string());
+
     // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
     // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
     let mut fixtures = vec![
@@ -556,7 +571,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             "recall_gt",
             format!(
                 "{base}/queries/ground_truth_{}_{}.parquet",
-                args.query, args.size
+                gt_stem, args.size
             ),
         ),
     ];
@@ -686,8 +701,18 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
     }
 
-    // Locate all query paths, and sort them for stability in the output.
-    let queries_dir = format!("datasets/{}/queries", args.dataset);
+    // Locate all query paths, and sort them for stability in the output. An index may ship its own
+    // query set under `queries/{index}/` (e.g. vchord's prefilter on/off variants, which drive the
+    // ANN index in both cases and so can't share the pgvector files); fall back to the flat
+    // `queries/` dir otherwise.
+    let queries_dir = {
+        let index_specific = format!("datasets/{}/queries/{}", args.dataset, args.index);
+        if Path::new(&index_specific).is_dir() {
+            index_specific
+        } else {
+            format!("datasets/{}/queries", args.dataset)
+        }
+    };
     let query_paths: anyhow::Result<Vec<Option<_>>> = std::fs::read_dir(queries_dir)
         .with_context(|| "Failed to read queries directory")?
         .map(|entry| {

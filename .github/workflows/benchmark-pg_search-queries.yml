@@ -28,13 +28,14 @@ on:
           - stackoverflow
           - cohere
       cohere_index:
-        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat)."
+        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat / -vchord)."
         required: false
         default: hnsw
         type: choice
         options:
           - hnsw
           - ivfflat
+          - vchord
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
@@ -74,7 +75,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
       )
     env:
       pg_version: 18
@@ -89,8 +90,8 @@ jobs:
       # cohere: opt-in only -- the benchmark-cohere-{hnsw,ivfflat} PR labels, or a manual run. The
       # chosen index comes from the dispatch input or the label name (no default).
       RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)) }}
-      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)) }}
-      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
+      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)) }}
+      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
@@ -98,7 +99,7 @@ jobs:
       - name: Maybe Remove Label
         if: >-
           github.event_name == 'pull_request' &&
-          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -107,7 +108,8 @@ jobs:
             --remove-label benchmarks \
             --remove-label benchmark-stackoverflow \
             --remove-label benchmark-cohere-hnsw \
-            --remove-label benchmark-cohere-ivfflat || true
+            --remove-label benchmark-cohere-ivfflat \
+            --remove-label benchmark-cohere-vchord || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -150,7 +152,7 @@ jobs:
       # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch the Latest Composite Actions
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
         uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
@@ -161,18 +163,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch latest benchmark code, suites
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -337,7 +339,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      # Cohere (vector): restore a snapshot like stackoverflow, then benchmark (HNSW or IVFFlat index + kNN, per COHERE_INDEX).
+      # Cohere (vector): restore a snapshot like stackoverflow, then benchmark (HNSW / IVFFlat / vchordrq index + kNN, per COHERE_INDEX).
       - name: Restore "cohere" Heap Snapshot (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
         run: |
@@ -353,6 +355,19 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
+      # vchord requires `shared_preload_libraries = ...,vchord`, but the restore above overwrote
+      # postgresql.auto.conf with the snapshot's config (snapshots are captured without vchord
+      # preloaded, so they stay shared with the hnsw/ivfflat runs). Re-apply the preload and restart
+      # before the vchordrq index is built.
+      - name: Preload vchord after restore (cohere/vchord, 1M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_search,pg_stat_statements,vchord';"
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "cohere" Dataset (1M)
@@ -378,12 +393,19 @@ jobs:
         run: |
           set -euo pipefail
           : > recall_1m.tsv
-          for f in datasets/cohere/queries/*.sql; do
+          # An index may ship its own query set under queries/{index}/; recall resolves --query
+          # relative to datasets/cohere/queries/, so prepend the subdir when present. Filter variants
+          # that share a ground truth (vchord's prefilter on/off) map to the base stem via
+          # --ground-truth (strip the _prefilter_{on,off} suffix).
+          sub=""; [ -d "datasets/cohere/queries/${{ env.COHERE_INDEX }}" ] && sub="${{ env.COHERE_INDEX }}/"
+          for f in datasets/cohere/queries/${sub}*.sql; do
             q=$(basename "$f" .sql)
+            gt=$(printf '%s' "$q" | sed -E 's/_prefilter_(on|off)$//')
             out=$(cargo run --release -- recall \
               --dataset cohere \
               --size 1m \
-              --query "$q" \
+              --query "${sub}${q}" \
+              --ground-truth "$gt" \
               --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
             echo "$out"
             printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_1m.tsv
@@ -406,6 +428,15 @@ jobs:
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
+      - name: Preload vchord after restore (cohere/vchord, 10M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'vchord' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_search,pg_stat_statements,vchord';"
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+
       - name: Benchmark "cohere" Dataset (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
         uses: ./.github/actions/benchmark-queries
@@ -426,12 +457,15 @@ jobs:
         run: |
           set -euo pipefail
           : > recall_10m.tsv
-          for f in datasets/cohere/queries/*.sql; do
+          sub=""; [ -d "datasets/cohere/queries/${{ env.COHERE_INDEX }}" ] && sub="${{ env.COHERE_INDEX }}/"
+          for f in datasets/cohere/queries/${sub}*.sql; do
             q=$(basename "$f" .sql)
+            gt=$(printf '%s' "$q" | sed -E 's/_prefilter_(on|off)$//')
             out=$(cargo run --release -- recall \
               --dataset cohere \
               --size 10m \
-              --query "$q" \
+              --query "${sub}${q}" \
+              --ground-truth "$gt" \
               --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
             echo "$out"
             printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_10m.tsv

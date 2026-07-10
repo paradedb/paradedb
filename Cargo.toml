@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "pg_search",
-    "tests",
-    "tokenizers",
-    "benchmarks",
-    "macros",
-    "stressgres",
+  "pg_search",
+  "tests",
+  "tokenizers",
+  "benchmarks",
+  "macros",
+  "stressgres",
 ]
 
 [workspace.package]
@@ -31,20 +31,20 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", branch = "refactor-block-wand-to-scorer", features = [
-    "columnar-zstd-compression",
-    "lz4-compression",
-    "paradedb",
-    "quickwit",                  # for sstable support
-    "stemmer",
-    "stopwords",
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "3c423758142d018d92f7e38d93fc5d23b94287d1", features = [
+  "columnar-zstd-compression",
+  "lz4-compression",
+  "paradedb",
+  "quickwit",                  # for sstable support
+  "stemmer",
+  "stopwords",
 ], default-features = false }
 pgrx = "=0.19.0"
 pgrx-tests = "=0.19.0"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "refactor-block-wand-to-scorer" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "3c423758142d018d92f7e38d93fc5d23b94287d1" }
 
 # datafusion 54.0.0 + the null-aware anti-join dynamic-filter fix (paradedb/datafusion PR #2, backported
 # to a 54.0.0 branch so it stays on arrow 58). Patch every datafusion crate, or two `datafusion-common`

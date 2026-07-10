@@ -326,24 +326,24 @@ impl HeapFetchState {
         }
     }
 
-    /// The buffer-heap slot that holds the most recently fetched tuple, as the
-    /// generic `TupleTableSlot` type that executor APIs accept.
+    /// The slot that holds the most recently fetched tuple, as the generic
+    /// `TupleTableSlot` type that executor APIs accept.
     ///
     /// This is the raw storage slot: it is the target of the heap fetch and keeps
-    /// the heap buffer pinned. [`Self::buffer_slot`] returns the *same* slot as its
-    /// concrete `BufferHeapTupleTableSlot` type, for reading buffer-heap-only
-    /// fields. To evaluate a PostgreSQL expression against a fetched tuple, use
-    /// [`Self::fetch_eval_slot`] instead, which presents the tuple as a virtual
-    /// slot the executor can always consume.
-    pub fn buffer_heap_slot(&self) -> *mut pg_sys::TupleTableSlot {
+    /// the heap buffer pinned. [`Self::buffer_heap_slot`] returns the *same* slot
+    /// as its concrete `BufferHeapTupleTableSlot` type, for reading
+    /// buffer-heap-only fields. To evaluate a PostgreSQL expression against a
+    /// fetched tuple, use [`Self::fetch_eval_slot`] instead, which presents the
+    /// tuple as a virtual slot the executor can always consume.
+    pub fn slot(&self) -> *mut pg_sys::TupleTableSlot {
         self.slot.cast()
     }
 
-    /// The same slot as [`Self::buffer_heap_slot`], but as its concrete
+    /// The same slot as [`Self::slot`], but as its concrete
     /// `BufferHeapTupleTableSlot` type so callers can read buffer-heap-only fields
     /// such as `buffer` and `base.tuple`. (Rust raw pointers don't upcast
     /// implicitly, so we expose both rather than casting at every call site.)
-    pub fn buffer_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
+    pub fn buffer_heap_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
         self.slot
     }
 
@@ -361,6 +361,11 @@ impl HeapFetchState {
         ctid: &mut pg_sys::ItemPointerData,
         snapshot: pg_sys::Snapshot,
     ) -> Option<*mut pg_sys::TupleTableSlot> {
+        // `call_again`/`all_dead` are only meaningful when walking a HOT chain
+        // for every matching tuple (e.g. a SnapshotAny scan). Callers pass an MVCC
+        // snapshot, for which `table_index_fetch_tuple` returns the single visible
+        // version directly, so we take that one and ignore both -- as the
+        // query-visible path in `mvcc.rs` does.
         let mut call_again = false;
         let mut all_dead = false;
         if !self.fetch_tuple(ctid, snapshot, &mut call_again, &mut all_dead) {
@@ -374,7 +379,7 @@ impl HeapFetchState {
         // `HeapFetchState` still holds the buffer pin. We deliberately avoid
         // `ExecCopySlot`, which would materialize (palloc + copy) every varlena
         // column on every row.
-        let src = self.buffer_heap_slot();
+        let src = self.slot();
         let dst = self.virtual_slot;
 
         pg_sys::ExecClearTuple(dst);
@@ -412,7 +417,7 @@ impl HeapFetchState {
             self.scan,
             ctid,
             snapshot,
-            self.buffer_heap_slot(),
+            self.slot(),
             call_again,
             all_dead,
         )

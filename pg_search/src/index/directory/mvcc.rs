@@ -749,7 +749,7 @@ pub fn index_memory_segment(
                     heap_fetch_state.scan,
                     &mut ipd,
                     fetch_snapshot,
-                    heap_fetch_state.buffer_heap_slot(),
+                    heap_fetch_state.slot(),
                     // call_again: This parameter will be set to true if this `ctid` points to multiple
                     // tuples as part of a HOT chain. We must attempt to find one live version of the
                     // tuple, and it may not be the first one in the chain.
@@ -777,10 +777,10 @@ pub fn index_memory_segment(
                 }
 
                 let mut htsv_result = {
-                    let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                    let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     HeapTupleSatisfiesVacuum(
-                        (*heap_fetch_state.buffer_slot()).base.tuple,
+                        (*heap_fetch_state.buffer_heap_slot()).base.tuple,
                         oldest_xmin,
                         buffer,
                     )
@@ -800,10 +800,10 @@ pub fn index_memory_segment(
                     let fresh_oldest_xmin =
                         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
                     if fresh_oldest_xmin != oldest_xmin {
-                        let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                        let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
                         let _lock = BorrowedBuffer::from_pg(buffer);
                         htsv_result = HeapTupleSatisfiesVacuum(
-                            (*heap_fetch_state.buffer_slot()).base.tuple,
+                            (*heap_fetch_state.buffer_heap_slot()).base.tuple,
                             fresh_oldest_xmin,
                             buffer,
                         );
@@ -814,7 +814,7 @@ pub fn index_memory_segment(
                     // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
                     // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
                     // skip so the slot releases its buffer pin.
-                    pg_sys::ExecClearTuple(heap_fetch_state.buffer_heap_slot());
+                    pg_sys::ExecClearTuple(heap_fetch_state.slot());
 
                     // This copy of the tuple is no longer visible to any transaction. Are there
                     // more in the HOT chain?
@@ -844,7 +844,7 @@ pub fn index_memory_segment(
             // heap tuple and deleting its TOAST chunks while we read them below.
             // See: https://github.com/paradedb/paradedb/issues/5076
             let htup = pg_sys::ExecFetchSlotHeapTuple(
-                heap_fetch_state.buffer_heap_slot(),
+                heap_fetch_state.slot(),
                 false,
                 std::ptr::null_mut(),
             );
@@ -871,7 +871,7 @@ pub fn index_memory_segment(
                 }
             }
 
-            let expr_results = expression_state.evaluate(heap_fetch_state.buffer_heap_slot());
+            let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
             let mut doc = tantivy::TantivyDocument::new();
 
@@ -929,7 +929,7 @@ pub fn index_memory_segment(
             // stay held until the next table_index_fetch_tuple call (which
             // replaces the slot contents) or until HeapFetchState is dropped at
             // end-of-query, unnecessarily blocking VACUUM on this buffer.
-            pg_sys::ExecClearTuple(heap_fetch_state.buffer_heap_slot());
+            pg_sys::ExecClearTuple(heap_fetch_state.slot());
         }
     }
 

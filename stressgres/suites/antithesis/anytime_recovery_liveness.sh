@@ -23,12 +23,12 @@ LOCK_FILE=/tmp/stressgres-recovery-liveness.lock
 # primary, be promoted back into service before a connection can succeed. Too short and
 # the liveness check itself becomes the flake.
 QUIET_SECONDS=90
-RECOVER_SECONDS=75
+RECOVER_SECONDS=50
 
 # Antithesis schedules anytime commands aggressively, and a quiet period suppresses
 # exactly the faults this test exists to inject. Fire on a small fraction of
 # invocations so most of the run is spent under chaos.
-TRIGGER_PERCENT=5
+TRIGGER_PERCENT=10
 sample=$(od -An -N2 -tu2 < /dev/urandom | tr -d '[:space:]')
 (( sample % 100 < TRIGGER_PERCENT )) || exit 0
 

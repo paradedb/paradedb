@@ -269,6 +269,9 @@ impl VisibilityChecker {
 pub struct HeapFetchState {
     pub scan: *mut pg_sys::IndexFetchTableData,
     slot: *mut pg_sys::BufferHeapTupleTableSlot,
+    // A virtual view of the fetched tuple, handed to expression evaluation by
+    // `fetch_eval_slot`. See that method for why a virtual slot is required.
+    virtual_slot: *mut pg_sys::TupleTableSlot,
     // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
     // The scan stores an internal pointer to the relation, so it must not be closed early.
     _heaprel: PgSearchRelation,
@@ -284,23 +287,83 @@ impl HeapFetchState {
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+            let virtual_slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsVirtual);
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
                 scan,
                 slot: slot.cast(),
+                virtual_slot,
                 _heaprel: heaprel.clone(),
                 nblocks,
             }
         }
     }
 
+    /// The slot that holds the most recently fetched tuple, as the generic
+    /// `TupleTableSlot` type that executor APIs accept.
+    ///
+    /// This is the raw storage slot: it is the target of the heap fetch and keeps
+    /// the heap buffer pinned. [`Self::buffer_heap_slot`] returns the *same* slot
+    /// as its concrete `BufferHeapTupleTableSlot` type, for reading
+    /// buffer-heap-only fields. To evaluate a PostgreSQL expression against a
+    /// fetched tuple, use [`Self::fetch_eval_slot`] instead, which presents the
+    /// tuple as a virtual slot the executor can always consume.
     pub fn slot(&self) -> *mut pg_sys::TupleTableSlot {
         self.slot.cast()
     }
 
-    pub fn buffer_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
+    /// The same slot as [`Self::slot`], but as its concrete
+    /// `BufferHeapTupleTableSlot` type so callers can read buffer-heap-only fields
+    /// such as `buffer` and `base.tuple`. (Rust raw pointers don't upcast
+    /// implicitly, so we expose both rather than casting at every call site.)
+    pub fn buffer_heap_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
         self.slot
+    }
+
+    /// Fetch the tuple at `ctid` and return it as a virtual slot ready for
+    /// PostgreSQL expression evaluation, or `None` if it is not visible.
+    ///
+    /// The executor may compile a scan `Var` into the `ExecJustScanVarVirt` fast
+    /// path (which requires a virtual slot) when the owning plan node advertises
+    /// virtual scan-slot ops, as the aggregate custom scan does. Handing it the
+    /// buffer-heap fetch slot there trips `Assert(TTS_IS_VIRTUAL(slot))`. A
+    /// virtual slot is accepted by both the fast and generic evaluation paths, so
+    /// we always present one here.
+    pub unsafe fn fetch_eval_slot(
+        &self,
+        ctid: &mut pg_sys::ItemPointerData,
+        snapshot: pg_sys::Snapshot,
+    ) -> Option<*mut pg_sys::TupleTableSlot> {
+        // `call_again`/`all_dead` are only meaningful when walking a HOT chain
+        // for every matching tuple (e.g. a SnapshotAny scan). Callers pass an MVCC
+        // snapshot, for which `table_index_fetch_tuple` returns the single visible
+        // version directly, so we take that one and ignore both -- as the
+        // query-visible path in `mvcc.rs` does.
+        let mut call_again = false;
+        let mut all_dead = false;
+        if !self.fetch_tuple(ctid, snapshot, &mut call_again, &mut all_dead) {
+            return None;
+        }
+
+        // Present the fetched tuple through the virtual slot. Deform it and
+        // shallow-copy the resulting value/null arrays into the virtual slot --
+        // byref values still point into the pinned heap buffer, which is sound
+        // because the caller evaluates the expression immediately, while this
+        // `HeapFetchState` still holds the buffer pin. We deliberately avoid
+        // `ExecCopySlot`, which would materialize (palloc + copy) every varlena
+        // column on every row.
+        let src = self.slot();
+        let dst = self.virtual_slot;
+
+        pg_sys::ExecClearTuple(dst);
+        pg_sys::slot_getallattrs(src);
+
+        let natts = (*src).tts_nvalid as usize;
+        std::ptr::copy_nonoverlapping((*src).tts_values, (*dst).tts_values, natts);
+        std::ptr::copy_nonoverlapping((*src).tts_isnull, (*dst).tts_isnull, natts);
+
+        Some(pg_sys::ExecStoreVirtualTuple(dst))
     }
 
     /// Wrapper around `table_index_fetch_tuple` that guards against stale ctids
@@ -339,6 +402,7 @@ crate::impl_safe_drop!(HeapFetchState, |self| {
     unsafe {
         if crate::postgres::utils::IsTransactionState() {
             pg_sys::ExecDropSingleTupleTableSlot(self.slot.cast());
+            pg_sys::ExecDropSingleTupleTableSlot(self.virtual_slot);
             pg_sys::table_index_fetch_end(self.scan);
         }
     }

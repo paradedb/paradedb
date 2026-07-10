@@ -109,27 +109,17 @@ impl HeapFieldFilter {
             .get_or_insert_with(|| HeapFetchState::new(relation));
         let econtext = expr_context.as_ptr();
 
-        let mut call_again = false;
-        let mut all_dead = false;
-        if !heap_fetch_state.fetch_tuple(
-            &mut *ctid,
-            pg_sys::GetActiveSnapshot(),
-            &mut call_again,
-            &mut all_dead,
-        ) {
+        // Fetch the tuple and present it as a virtual slot suitable for expression
+        // evaluation (see `HeapFetchState::fetch_eval_slot`).
+        let Some(eval_slot) =
+            heap_fetch_state.fetch_eval_slot(&mut *ctid, pg_sys::GetActiveSnapshot())
+        else {
             return false;
-        }
+        };
 
         // Store the original scan tuple to restore later if we're using a provided context
         let original_scan_tuple = (*econtext).ecxt_scantuple;
-
-        // Set the tuple slot in the expression context
-        (*econtext).ecxt_scantuple = heap_fetch_state.slot();
-
-        // Ensure all attributes in the slot are deformed (fetched from tuple storage)
-        // This is necessary because the expression might reference any attribute,
-        // and the slot's tts_nvalid must be >= the highest attribute number referenced
-        pg_sys::slot_getallattrs(heap_fetch_state.slot());
+        (*econtext).ecxt_scantuple = eval_slot;
 
         let eval_result = (|| {
             // Initialize the expression for execution with proper planstate for subquery support

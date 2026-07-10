@@ -20,6 +20,7 @@
 mod auto;
 mod cli;
 mod csv;
+mod fault_tolerance;
 mod graph;
 mod headless;
 mod metrics;
@@ -59,7 +60,11 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(suite, args.paused)?;
+            let suite_runner = SuiteRunner::new(
+                suite,
+                args.paused,
+                Duration::from_millis(args.reconnect_grace),
+            )?;
             tui::run(suite_runner)?;
         }
 
@@ -68,7 +73,8 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(suite, false)?;
+            let suite_runner =
+                SuiteRunner::new(suite, false, Duration::from_millis(args.reconnect_grace))?;
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {
@@ -90,7 +96,9 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, None, Some(&args)).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(suite, false)?;
+            // `auto` is a local-dev command with no fault injection, so fail fast
+            // (grace 0) rather than tolerating transient connectivity faults.
+            let suite_runner = SuiteRunner::new(suite, false, Duration::ZERO)?;
             headless::run(
                 suite_runner,
                 args.log_path.clone(),

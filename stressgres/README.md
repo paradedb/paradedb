@@ -16,6 +16,22 @@ cargo run -- ui suites/vanilla-postgres.toml
 cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --log-file=logs/test.log
 ```
 
+- Run headless mode tolerating transient database faults (e.g. under Antithesis)
+
+```bash
+cargo run -- headless suites/vanilla-postgres.toml --runtime=300000 --reconnect-grace=30000
+```
+
+By default (`--reconnect-grace=0`) any error fails the run. A larger value rides out
+transient connectivity faults — dropped or refused sockets, a restarting server — by
+reconnecting and replaying the operation, failing only once the database has stayed
+unreachable for the whole window. The window restarts after a successful reconnect.
+Real SQL errors always fail immediately, whatever the grace, because they carry a
+SQLSTATE and so mean the server answered.
+
+Set this when the database is expected to go away and come back, e.g. under a fault
+injector that stops, kills, or partitions its container.
+
 - Run a suite against a throwaway Postgres cluster built from a given `pg_config`:
 
 ```bash

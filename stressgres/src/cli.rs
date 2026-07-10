@@ -60,6 +60,16 @@ pub struct UiArgs {
     /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
+
+    /// How long (in milliseconds) to tolerate one continuous transient database fault
+    /// (dropped/refused sockets, server restarting) by reconnecting before failing the
+    /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
+    /// error fails the run immediately.
+    ///
+    /// Set this when the database is expected to go away and come back, e.g. under a
+    /// fault injector that stops, kills, or partitions its container.
+    #[arg(long, default_value = "0")]
+    pub reconnect_grace: u64,
 }
 
 /// Arguments for running the suite in headless mode.
@@ -80,6 +90,15 @@ pub struct HeadlessArgs {
     /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
+    /// How long (in milliseconds) to tolerate one continuous transient database fault
+    /// (dropped/refused sockets, server restarting) by reconnecting before failing the
+    /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
+    /// error fails the run immediately.
+    ///
+    /// Set this when the database is expected to go away and come back, e.g. under a
+    /// fault injector that stops, kills, or partitions its container.
+    #[arg(long, default_value = "0")]
+    pub reconnect_grace: u64,
 }
 
 /// Arguments for parsing a log file and generating the desired charts.

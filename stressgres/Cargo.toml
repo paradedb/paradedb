@@ -36,7 +36,9 @@ toml = "0.8.23"
 url = "2.5.8"
 postgres-openssl = "0.5.3"
 openssl = "0.10.78"
-antithesis_sdk = { version = "0.2.9", default-features = false, features = ["full"] }
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "full",
+] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

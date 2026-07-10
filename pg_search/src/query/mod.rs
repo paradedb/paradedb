@@ -1442,8 +1442,14 @@ impl SearchQueryInput {
                 let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
                 // Is initialized in `begin_custom_scan` if `has_heap_filters`.
-                let expr_context = expr_context
-                    .expect("An expression context must be provided when heap filtering.");
+                // During EXPLAIN-only mode, `begin_custom_scan` skips creating the expression
+                // context, so we return an Err here instead of panicking — the caller's error
+                // handler will display a graceful message in the EXPLAIN output.
+                let Some(expr_context) = expr_context else {
+                    return Err(anyhow::anyhow!(
+                        "No expression context available for heap filtering (EXPLAIN-only mode)"
+                    ));
+                };
 
                 // Create combined query with heap field filters
                 let query = Box::new(heap_field_filter::HeapFilterQuery::new(

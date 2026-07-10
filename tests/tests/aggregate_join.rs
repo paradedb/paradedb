@@ -703,3 +703,22 @@ fn test_join_aggregate_cross_join_falls_back(mut conn: PgConnection) {
         "CROSS JOIN should produce same count whether DataFusion is ON or OFF"
     );
 }
+
+#[rstest]
+fn test_explain_aggregate_join_with_heap_filter(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+    "SET paradedb.enable_join_custom_scan TO on".execute(&mut conn);
+
+    // EXPLAIN of an aggregate join query with a heap filter (ILIKE) used to panic with:
+    // "An expression context must be provided when heap filtering."
+    // because begin_custom_scan skips creating the expr context in EXPLAIN-only mode,
+    // but explain_custom_scan still tried to rebuild the full DataFusion physical plan.
+    r#"
+        EXPLAIN
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop' AND p.description ILIKE '%laptop%'
+    "#
+    .execute(&mut conn);
+}

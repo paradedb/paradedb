@@ -59,18 +59,18 @@ restore() { rm -f "${GRACE_FILE}" "${GRACE_FILE}.tmp"; }
 # Restore the baseline no matter how we leave, or the next fault would be measured
 # against a window that is no longer in force and fail the run. The EXIT trap covers a
 # normal exit, a `set -e` failure, and SIGTERM. Only SIGKILL would strand the short
-# window, and the stressgres container is named in
+# window, and the Stressgres container is named in
 # `container_faults_{stop,kill}_exclusion_patterns`, so the run never injects one.
 trap restore EXIT
 
-echo "recovery liveness: pausing faults for ${QUIET_SECONDS}s; stressgres must recover within ${RECOVER_SECONDS}s"
+echo "Recovery liveness: pausing faults for ${QUIET_SECONDS}s; Stressgres must recover within ${RECOVER_SECONDS}s"
 "${ANTITHESIS_STOP_FAULTS}" "${QUIET_SECONDS}"
 
 poke "$(( RECOVER_SECONDS * 1000 ))"
 sleep "${RECOVER_SECONDS}"
 restore
 
-echo "recovery liveness: stressgres survived the quiet period"
+echo "Recovery liveness: Stressgres survived the quiet period"
 
 # A nonzero exit here would report *this* command as the failure. The assertion
 # belongs to the driver: if it could not reconnect inside the window, it exits

@@ -143,10 +143,6 @@ impl TransientProgress {
 /// [`TransientProgress::mark_recovered`] before returning a later transient error, the
 /// window restarts, because the database recovered in between.
 ///
-/// With `grace == 0`, the default, any error fails the run immediately and unwrapped.
-/// That is the only behaviour anything in-tree relies on today; a non-zero grace is
-/// opt-in via `--reconnect-grace`.
-///
 /// This is the single place reconnection lives. Callers express *what* to do (probe
 /// the version, run setup, run one job iteration); reopening a dead connection is
 /// the caller's job inside `op`, and re-running the whole `op` is what makes this

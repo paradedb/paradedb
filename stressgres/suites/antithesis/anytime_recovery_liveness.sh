@@ -1,37 +1,32 @@
 #!/bin/bash
 #
-# Antithesis "anytime" command: heal every fault, then require that the stressgres
+# Antithesis "anytime" command: heal every fault, then require that the Stressgres
 # processes running alongside us reconnect and make progress before faults resume. The
 # failure condition is "the database was provably reachable and stressgres still could
 # not make progress", which no fault schedule can fake.
 #
-# We poke the already-running drivers rather than starting our own, because stressgres
+# We poke the already-running drivers rather than starting our own, because Stressgres
 # spends its first 60s waiting for the cluster and then builds its schema.
 # See https://github.com/paradedb/paradedb/issues/5501.
 
 set -Eeuo pipefail
 
 # Shared with the `--reconnect-grace-file` passed by every singleton driver. Both
-# commands run in the stressgres container, so this is a plain shared file.
+# commands run in the Stressgres container, so this is a plain shared file.
 GRACE_FILE=/tmp/stressgres-reconnect-grace
 LOCK_FILE=/tmp/stressgres-recovery-liveness.lock
 
-# How long to hold faults off, and how much of that window stressgres gets to recover
+# How long to hold faults off, and how much of that window Stressgres gets to recover
 # in. The recovery window has to cover the worst fault we inject: a killed container,
-# restarted by k8s, whose Postgres then has to finish crash recovery and, for the CNPG
+# restarted by K8s, whose Postgres then has to finish crash recovery and, for the CNPG
 # primary, be promoted back into service before a connection can succeed. Too short and
-# the liveness check itself becomes the flake. The remainder is slack, so the workload
-# is healthy again before faults resume.
+# the liveness check itself becomes the flake.
 QUIET_SECONDS=90
 RECOVER_SECONDS=75
 
 # Antithesis schedules anytime commands aggressively, and a quiet period suppresses
 # exactly the faults this test exists to inject. Fire on a small fraction of
 # invocations so most of the run is spent under chaos.
-#
-# Sample /dev/urandom rather than $RANDOM: Antithesis controls the former, but bash
-# seeds its own PRNG for the latter, so a $RANDOM-gated command is invisible to the
-# fault scheduler's search.
 TRIGGER_PERCENT=5
 sample=$(od -An -N2 -tu2 < /dev/urandom | tr -d '[:space:]')
 (( sample % 100 < TRIGGER_PERCENT )) || exit 0

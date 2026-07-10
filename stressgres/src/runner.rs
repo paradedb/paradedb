@@ -388,6 +388,21 @@ fn with_reconnect<T>(
 }
 
 impl SuiteRunner {
+    /// [`with_reconnect`] for a one-shot job (version probe, setup, teardown): opens a
+    /// throwaway connection and fills in the runner's `alive` / grace / suite, so the
+    /// caller only supplies the job and what to do with the connection.
+    fn run_once<T>(&self, job: &Job, op: impl FnMut(&mut Conn) -> Result<T>) -> Result<Option<T>> {
+        let mut conn = None;
+        with_reconnect(
+            &self.alive,
+            self.reconnect_grace,
+            &mut conn,
+            &self.suite,
+            job,
+            op,
+        )
+    }
+
     /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
     pub fn new(suite: Suite, paused: bool, reconnect_grace: Duration) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
@@ -408,22 +423,15 @@ impl SuiteRunner {
 
         // Probe the server version, riding out any transient connectivity fault
         let default_job = Job::default();
-        let mut conn = None;
-        runner.pgver = with_reconnect(
-            &runner.alive,
-            runner.reconnect_grace,
-            &mut conn,
-            &suite,
-            &default_job,
-            |conn| {
-                let version: String = conn
-                    .first_client()
-                    .query_one("SELECT version()", &[])?
-                    .get(0);
-                Ok(version)
-            },
-        )?
-        .unwrap_or_else(|| String::from("<unknown>"));
+        if let Some(version) = runner.run_once(&default_job, |conn| {
+            let version: String = conn
+                .first_client()
+                .query_one("SELECT version()", &[])?
+                .get(0);
+            Ok(version)
+        })? {
+            runner.pgver = version;
+        }
 
         runner.init()?;
         let suite_runner = Arc::new(runner);
@@ -478,15 +486,7 @@ impl SuiteRunner {
             // the top rebuilds state no matter how far a partial attempt got — not
             // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
             // pg_reload_conf, which are disallowed inside a transaction block).
-            let mut conn = None;
-            with_reconnect(
-                &self.alive,
-                self.reconnect_grace,
-                &mut conn,
-                &self.suite,
-                &setup_runner.job,
-                |conn| setup_runner.run(conn),
-            )?;
+            self.run_once(&setup_runner.job, |conn| setup_runner.run(conn))?;
         }
 
         // setup and start the monitors
@@ -756,15 +756,7 @@ impl SuiteRunner {
             // Best-effort teardown: ride out a transient fault, and if connectivity
             // is gone during shutdown (`alive` is already false here) skip it rather
             // than panicking the shutdown thread.
-            let mut conn = None;
-            with_reconnect(
-                &self.alive,
-                self.reconnect_grace,
-                &mut conn,
-                &self.suite,
-                &teardown_runner.job,
-                |conn| teardown_runner.run(conn),
-            )?;
+            self.run_once(&teardown_runner.job, |conn| teardown_runner.run(conn))?;
         }
 
         for job in &self.runners {

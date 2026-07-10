@@ -22,7 +22,6 @@ echo ""
 echo "Running Stressgres with suite logical-replication.toml..."
 # Keep the runtime short: Antithesis explores by branching across many short timelines, so a
 # fast, self-contained run covers far more fault schedules per budget than one long scenario.
-# (A ~10-minute run also trips the Antithesis "all commands were run to completion" check.)
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace 3600000 --reconnect-grace-file /tmp/stressgres-reconnect-grace
 
 echo ""

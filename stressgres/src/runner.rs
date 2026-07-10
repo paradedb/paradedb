@@ -611,10 +611,9 @@ impl SuiteRunner {
                 break;
             }
 
-            // An `atomic_connection` job opens a fresh connection each iteration. It is
-            // dropped here rather than after `run`, matching the temporary that the
-            // previous `&mut Conn::open(..)` bound: both keep the connection open
-            // across the refresh sleep and close it before the next iteration opens.
+            // An `atomic_connection` job opens a fresh connection each iteration.
+            // Dropping it here rather than after `run` keeps it open across the refresh
+            // sleep and closes it before the next iteration reopens it.
             if job_runner.job.atomic_connection {
                 conn = None;
             }

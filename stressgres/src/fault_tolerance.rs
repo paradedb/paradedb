@@ -139,16 +139,13 @@ impl TransientProgress {
 /// while `op` keeps failing with a transient error (a dropped/refused socket, server
 /// restarting, etc.) it is retried with capped backoff. A real (non-transient) error
 /// is returned immediately. The connection is only declared dropped — and the error
-/// surfaced — once it has stayed broken for the whole grace window continuously.
-///
-/// The connection is only declared dropped — and the error surfaced — once it has
-/// stayed broken for `grace` continuously. If `op` calls
+/// surfaced — once it has stayed broken for `grace` continuously. If `op` calls
 /// [`TransientProgress::mark_recovered`] before returning a later transient error, the
 /// window restarts, because the database recovered in between.
 ///
-/// With `grace == 0`, the default, any error fails the run immediately and unwrapped,
-/// exactly as it did before this module existed. That is the only behaviour anything
-/// in-tree relies on today; a non-zero grace is opt-in via `--reconnect-grace`.
+/// With `grace == 0`, the default, any error fails the run immediately and unwrapped.
+/// That is the only behaviour anything in-tree relies on today; a non-zero grace is
+/// opt-in via `--reconnect-grace`.
 ///
 /// This is the single place reconnection lives. Callers express *what* to do (probe
 /// the version, run setup, run one job iteration); reopening a dead connection is
@@ -170,9 +167,9 @@ pub(crate) fn tolerate_transient<T>(
             Err(e) if !is_transient_error(&e) => return Err(e),
             Err(e) => {
                 // Checked before `alive`, so that a zero grace fails the run on the
-                // first error even during shutdown, as it did before this module. With
-                // a real grace we would rather abandon a fault we are waiting out than
-                // block teardown for the whole window.
+                // first error even during shutdown. With a real grace we would rather
+                // abandon a fault we are waiting out than block teardown for the whole
+                // window.
                 if grace.is_zero() {
                     return Err(e);
                 }

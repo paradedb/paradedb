@@ -51,16 +51,6 @@ pub struct MetricsLine {
     pub metrics: serde_json::Map<String, serde_json::Value>,
 }
 
-/// Builds the reconnect grace window from the CLI's baseline (in milliseconds) and
-/// optional poke file.
-fn grace_window(baseline_ms: u64, file: Option<std::path::PathBuf>) -> GraceWindow {
-    let baseline = Duration::from_millis(baseline_ms);
-    match file {
-        Some(file) => GraceWindow::pokeable(baseline, file),
-        None => GraceWindow::fixed(baseline),
-    }
-}
-
 /// Main entry point using subcommands.
 fn main() -> anyhow::Result<()> {
     // Registers the assertion catalog so Antithesis knows which `assert_reachable!`
@@ -75,12 +65,7 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(
-                suite,
-                args.paused,
-                grace_window(args.reconnect_grace, args.reconnect_grace_file),
-                None,
-            )?;
+            let suite_runner = SuiteRunner::new(suite, args.paused, args.grace.window(), None)?;
             tui::run(suite_runner)?;
         }
 
@@ -94,12 +79,8 @@ fn main() -> anyhow::Result<()> {
             // rather than riding the fault out for the whole reconnect grace.
             let startup_timeout =
                 Duration::from_millis(u64::try_from(args.runtime).unwrap_or(u64::MAX));
-            let suite_runner = SuiteRunner::new(
-                suite,
-                false,
-                grace_window(args.reconnect_grace, args.reconnect_grace_file.clone()),
-                Some(startup_timeout),
-            )?;
+            let suite_runner =
+                SuiteRunner::new(suite, false, args.grace.window(), Some(startup_timeout))?;
             if !suite_runner.alive() {
                 eprintln!(
                     "stressgres: database unreachable throughout startup, exiting without a workload"

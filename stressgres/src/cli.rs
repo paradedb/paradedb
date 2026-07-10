@@ -15,9 +15,48 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::fault_tolerance::GraceWindow;
 use crate::suite::PgVersion;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
+use std::time::Duration;
+
+/// Reconnect-grace options, shared by the `ui` and `headless` subcommands.
+#[derive(Debug, Args)]
+pub struct ReconnectGraceArgs {
+    /// How long (in milliseconds) to tolerate one continuous transient database fault
+    /// (dropped/refused sockets, server restarting) by reconnecting before failing the
+    /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
+    /// error fails the run immediately.
+    ///
+    /// Under fault injection set this longer than `--runtime`, so a connectivity fault
+    /// can never fail the run, and pair it with `--reconnect-grace-file`: any window
+    /// shorter than the run is one the fault injector can outlast, so liveness has to be
+    /// asserted while faults are healed rather than guessed at while they are active.
+    #[arg(long, default_value = "0")]
+    pub reconnect_grace: u64,
+
+    /// Path to a file whose contents (a count of milliseconds) override
+    /// `--reconnect-grace` for as long as it exists, re-read on every failed attempt.
+    ///
+    /// This is how an external supervisor narrows the window at runtime. Under Antithesis
+    /// the `anytime_recovery_liveness` command heals every fault and then writes a shorter
+    /// window here, so the run fails only if the database was provably reachable and the
+    /// workload still could not make progress.
+    #[arg(long)]
+    pub reconnect_grace_file: Option<PathBuf>,
+}
+
+impl ReconnectGraceArgs {
+    /// The grace window these options describe.
+    pub fn window(&self) -> GraceWindow {
+        let baseline = Duration::from_millis(self.reconnect_grace);
+        match self.reconnect_grace_file.clone() {
+            Some(file) => GraceWindow::pokeable(baseline, file),
+            None => GraceWindow::fixed(baseline),
+        }
+    }
+}
 
 /// Stress testing for ParadeDB/PostgreSQL
 #[derive(Debug, Parser)]
@@ -61,27 +100,8 @@ pub struct UiArgs {
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 
-    /// How long (in milliseconds) to tolerate one continuous transient database fault
-    /// (dropped/refused sockets, server restarting) by reconnecting before failing the
-    /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
-    /// error fails the run immediately.
-    ///
-    /// Under fault injection set this longer than `--runtime`, so a connectivity fault
-    /// can never fail the run, and pair it with `--reconnect-grace-file`: any window
-    /// shorter than the run is one the fault injector can outlast, so liveness has to be
-    /// asserted while faults are healed rather than guessed at while they are active.
-    #[arg(long, default_value = "0")]
-    pub reconnect_grace: u64,
-
-    /// Path to a file whose contents (a count of milliseconds) override
-    /// `--reconnect-grace` for as long as it exists, re-read on every failed attempt.
-    ///
-    /// This is how an external supervisor narrows the window at runtime. Under Antithesis
-    /// the `anytime_recovery_liveness` command heals every fault and then writes a shorter
-    /// window here, so the run fails only if the database was provably reachable and the
-    /// workload still could not make progress.
-    #[arg(long)]
-    pub reconnect_grace_file: Option<PathBuf>,
+    #[command(flatten)]
+    pub grace: ReconnectGraceArgs,
 }
 
 /// Arguments for running the suite in headless mode.
@@ -102,27 +122,8 @@ pub struct HeadlessArgs {
     /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
-    /// How long (in milliseconds) to tolerate one continuous transient database fault
-    /// (dropped/refused sockets, server restarting) by reconnecting before failing the
-    /// run. The window restarts after a successful reconnect. Defaults to 0, i.e. any
-    /// error fails the run immediately.
-    ///
-    /// Under fault injection set this longer than `--runtime`, so a connectivity fault
-    /// can never fail the run, and pair it with `--reconnect-grace-file`: any window
-    /// shorter than the run is one the fault injector can outlast, so liveness has to be
-    /// asserted while faults are healed rather than guessed at while they are active.
-    #[arg(long, default_value = "0")]
-    pub reconnect_grace: u64,
-
-    /// Path to a file whose contents (a count of milliseconds) override
-    /// `--reconnect-grace` for as long as it exists, re-read on every failed attempt.
-    ///
-    /// This is how an external supervisor narrows the window at runtime. Under Antithesis
-    /// the `anytime_recovery_liveness` command heals every fault and then writes a shorter
-    /// window here, so the run fails only if the database was provably reachable and the
-    /// workload still could not make progress.
-    #[arg(long)]
-    pub reconnect_grace_file: Option<PathBuf>,
+    #[command(flatten)]
+    pub grace: ReconnectGraceArgs,
 }
 
 /// Arguments for parsing a log file and generating the desired charts.

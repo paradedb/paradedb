@@ -190,9 +190,11 @@ impl MVCCDirectory {
 
         match meta_entry {
             LoadedSegmentMetaEntry::Persisted { entry, .. } => {
-                let file_entry = entry
-                    .file_entry(uuid_string, path)
-                    .expect("No such path for {entry:?}: {path:?}");
+                let Some(file_entry) = entry.file_entry(uuid_string, path) else {
+                    return Err(TantivyError::OpenDirectoryError(
+                        OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                    ));
+                };
                 Ok(Arc::new(unsafe {
                     SegmentComponentReader::new(&self.indexrel, file_entry)
                 }))

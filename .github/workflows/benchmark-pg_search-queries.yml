@@ -366,7 +366,7 @@ jobs:
         run: |
           set -euo pipefail
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_search,pg_stat_statements,vchord';"
+            -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements,vchord;"
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
@@ -433,7 +433,7 @@ jobs:
         run: |
           set -euo pipefail
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_search,pg_stat_statements,vchord';"
+            -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements,vchord;"
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 

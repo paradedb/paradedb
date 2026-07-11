@@ -404,7 +404,7 @@ jobs:
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '360' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
-            custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}
+            custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }},logical-replication-publisher
             custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
             custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
 

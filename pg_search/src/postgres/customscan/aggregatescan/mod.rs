@@ -100,7 +100,9 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
-use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
+use crate::postgres::utils::{
+    add_vars_to_tlist, is_unnest_func, make_text_const, ExprContextGuard,
+};
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
 use crate::scan::codec::serialize_logical_plan;
@@ -946,6 +948,13 @@ impl AggregateScan {
                 explainer,
             )
         } else {
+            // Building the physical plan calls PgSearchTableProvider::scan() which opens each index
+            // reader and converts the query to a Tantivy query. HeapFilter predicates (e.g. from
+            // ILIKE) require an ExprContext to evaluate Postgres expressions at that point. During
+            // EXPLAIN-only mode begin_custom_scan skips allocating one on the planstate, so create a
+            // temporary standalone context for this rebuild — the same pattern JoinScan uses.
+            let expr_context = ExprContextGuard::new();
+
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
             let ctx = if mpp_is_active() {
@@ -971,7 +980,7 @@ impl AggregateScan {
                     custom_scan_tlist,
                     df_state.having_filter.as_ref(),
                     &ctx,
-                    None,
+                    Some(expr_context.as_ptr()),
                     None,
                     false,
                 )

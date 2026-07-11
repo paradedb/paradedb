@@ -433,23 +433,21 @@ impl SearchIndexReader {
         let index_created_by_version = index_relation.created_by_version();
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
-            search_query_input
-                .into_tantivy_query(
-                    &schema,
-                    index_created_by_version,
-                    &|| {
-                        QueryParser::for_index(
-                            &index,
-                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-                        )
-                    },
-                    &searcher,
-                    index_relation.oid(),
-                    index_relation.rel_oid(),
-                    expr_context,
-                    planstate,
-                )
-                .unwrap_or_else(|e| panic!("{e}"))
+            search_query_input.into_tantivy_query(
+                &schema,
+                index_created_by_version,
+                &|| {
+                    QueryParser::for_index(
+                        &index,
+                        schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                    )
+                },
+                &searcher,
+                index_relation.oid(),
+                index_relation.rel_oid(),
+                expr_context,
+                planstate,
+            )?
         };
         let segment_ord_by_id = searcher
             .segment_readers()

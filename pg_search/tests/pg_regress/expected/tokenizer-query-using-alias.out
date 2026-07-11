@@ -76,7 +76,23 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) @@@ 'this is a test';
-ERROR:  field 'no_such_alias' is not part of the pg_search index
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"no_such_alias","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) &&& 'this is a test';
-ERROR:  field 'no_such_alias' is not part of the pg_search index
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"no_such_alias","value":"this is a test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
+
 RESET paradedb.enable_aggregate_custom_scan;

@@ -378,8 +378,11 @@ pub fn deserialize_physical_plan_with_runtime(
     })?;
     let plan = proto.try_into_physical_plan(ctx, &codec)?;
     // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between a
-    // node and the scans below it; serialization drops them. Re-running the post-optimization
-    // pushdown pass on the decoded fragment re-creates the links, so this task's probe scans
-    // prune against its build side instead of scanning every segment.
+    // node and the scans below it; the proto layer snapshots them into static expressions, so
+    // the shared link can't ride the wire. Re-running the post-optimization pushdown pass on
+    // the decoded fragment re-creates the links, so this task's probe scans prune against its
+    // own build side instead of scanning every segment. The relink is possible only because a
+    // fragment keeps an operator and its probe scans in the same process; a link that crossed
+    // fragments would need the filter values shipped between processes.
     FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

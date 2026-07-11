@@ -135,7 +135,8 @@ runs:
         VCHORD_VERSION: "1.1.1"
       run: |
         set -euo pipefail
-        deb="postgresql-${{ inputs.pg_version }}-vchord_${VCHORD_VERSION}-1_amd64.deb"
+        arch="$(dpkg --print-architecture)"   # arm64 on the benchmark runners; amd64 elsewhere
+        deb="postgresql-${{ inputs.pg_version }}-vchord_${VCHORD_VERSION}-1_${arch}.deb"
         curl -fsSL -o "/tmp/${deb}" \
           "https://github.com/tensorchord/VectorChord/releases/download/${VCHORD_VERSION}/${deb}"
         sudo apt-get install -y "/tmp/${deb}"

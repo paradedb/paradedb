@@ -1330,19 +1330,17 @@ unsafe fn build_search_filter(
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     for &clause in clauses {
-        match transform_to_search_expr(
+        // If any clause can't be fully transformed, bail out.
+        // Returning None leaves the clause as "unhandled", which causes
+        // has_non_equi_join_quals to reject the DataFusion path.
+        let expr = transform_to_search_expr(
             root,
             clause,
             &sources,
             &mut temp_clause,
             &mut multi_table_clauses,
-        ) {
-            Some(expr) => expr_trees.push(expr),
-            // If any clause can't be fully transformed, bail out.
-            // Returning None leaves the clause as "unhandled", which causes
-            // has_non_equi_join_quals to reject the DataFusion path.
-            None => return None,
-        }
+        )?;
+        expr_trees.push(expr);
     }
 
     if expr_trees.is_empty() {

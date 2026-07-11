@@ -11,7 +11,7 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.96-slim-trixie
+FROM rust:1.97-slim-trixie
 
 # Install build and runtime dependencies. Upgrade existing OS packages first so
 # we pick up the latest Debian security fixes regardless of the base layer's age.

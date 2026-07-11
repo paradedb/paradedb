@@ -81,7 +81,7 @@ pub(crate) mod pdb {
     // Magic number: "err\0" - includes null bytes to ensure no valid text string can match
     // (PostgreSQL text values cannot contain embedded nulls). Prints as the string "err" if
     // interpreted as TEXT, making it a bit easier to catch.
-    const ALIAS_MAGIC: u32 = u32::from_ne_bytes([b'e', b'r', b'r', b'\0']);
+    const ALIAS_MAGIC: u32 = u32::from_ne_bytes(*b"err\0");
 
     impl DatumWithType {
         unsafe fn new(mut datum: pg_sys::Datum, typoid: pg_sys::Oid) -> *mut Self {

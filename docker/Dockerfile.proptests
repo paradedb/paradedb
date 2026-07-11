@@ -7,7 +7,7 @@
 # the in-cluster ParadeDB primary by the driver script (see
 # tests/antithesis/singleton_driver_property-tests.sh).
 
-FROM rust:1.96-slim
+FROM rust:1.97-slim
 
 # Required for the piped RUN below (hadolint DL4006).
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

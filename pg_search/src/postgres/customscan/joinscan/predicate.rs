@@ -243,17 +243,14 @@ pub unsafe fn transform_to_search_expr(
         let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
         let mut children = Vec::new();
         for item in list.iter_ptr() {
-            if let Some(child_expr) = transform_to_search_expr(
+            let child_expr = transform_to_search_expr(
                 root,
                 item,
                 sources,
                 join_clause,
                 multi_table_predicate_clauses,
-            ) {
-                children.push(child_expr);
-            } else {
-                return None;
-            }
+            )?;
+            children.push(child_expr);
         }
         return if children.is_empty() {
             None
@@ -274,17 +271,14 @@ pub unsafe fn transform_to_search_expr(
             pg_sys::BoolExprType::AND_EXPR | pg_sys::BoolExprType::OR_EXPR => {
                 let mut children = Vec::new();
                 for arg in args.iter_ptr() {
-                    if let Some(child_expr) = transform_to_search_expr(
+                    let child_expr = transform_to_search_expr(
                         root,
                         arg,
                         sources,
                         join_clause,
                         multi_table_predicate_clauses,
-                    ) {
-                        children.push(child_expr);
-                    } else {
-                        return None;
-                    }
+                    )?;
+                    children.push(child_expr);
                 }
                 if children.is_empty() {
                     None

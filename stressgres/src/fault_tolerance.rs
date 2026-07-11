@@ -260,12 +260,12 @@ pub(crate) fn tolerate_transient<T>(
                     last_grace.is_some_and(|last| grace < last),
                     "a recovery poke narrowed the grace window during an active database fault"
                 );
-                // The other direction: widening resets the clock too, so a quiet period
-                // ending mid-fault drops back to riding the fault out.
-                assert_sometimes!(
-                    last_grace.is_some_and(|last| grace > last),
-                    "a recovery poke widened the grace window during an active database fault"
-                );
+                // There is deliberately no symmetric "widened during a fault" assertion.
+                // The window is only read here, on the error path, and the only widening is
+                // the supervisor restoring the baseline — which it does deep inside the healed
+                // quiet period, once the fault is long gone, so no active fault is ever riding
+                // out a widen for us to observe. The widen-resets-the-clock behaviour is pinned
+                // by the `widening_the_window_also_restarts_the_clock` test instead.
                 if progress.recovered || last_grace.is_some_and(|last| last != grace) {
                     down_since = None;
                     backoff = INITIAL_RECONNECT_BACKOFF;

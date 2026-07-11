@@ -215,7 +215,12 @@ fn launch_mpp(
         ParallelScanState::size_of(&args.all_nsegments(), partitioning_source_idx, &[], false);
 
     let process = MppParallelProcess {
-        mesh_region: crate::parallel_worker::UninitializedBytesParallelState::new(region_bytes),
+        // SAFETY: workers can only read the region back as `u8`, and they hold on the go
+        // flag until `leader_setup` has written every ring header, so nothing reads the
+        // reserved bytes before their first writer.
+        mesh_region: unsafe {
+            crate::parallel_worker::UninitializedBytesParallelState::new(region_bytes)
+        },
         scan_state: vec![0u8; scan_size],
         go: GO_WAIT,
         partitioning_source_idx: partitioning_source_idx as u64,

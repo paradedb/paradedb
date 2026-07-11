@@ -58,6 +58,10 @@ impl From<TocKeys> for u64 {
     }
 }
 
+/// Marker for plain-old-data types stored in DSM entries as raw bytes. An entry is written
+/// by copying a live value, and [`ParallelStateManager`] checks the recorded type name
+/// before handing it back, so a reader always sees a valid instance of the type it asked
+/// for.
 pub trait ParallelStateType: Copy {}
 
 pub trait ParallelState {
@@ -96,19 +100,30 @@ pub trait ParallelState {
     /// into it; the contents start uninitialized. For large regions whose first writer runs
     /// after the DSM is mapped, this skips materializing (and zeroing) a same-sized buffer
     /// on the host side only to memcpy it over.
+    ///
+    /// Implementations must record an element type that accepts any bit pattern (`u8` in
+    /// practice), so the [`ParallelStateManager`] type check keeps readers from viewing
+    /// unwritten bytes as anything stricter.
     fn reserve_only(&self) -> bool {
         false
     }
 }
 
 /// A [`ParallelState`] entry that only reserves `len` bytes in the DSM (see
-/// [`ParallelState::reserve_only`]). Workers read it back as a `u8` slice.
+/// [`ParallelState::reserve_only`]). The entry is recorded as `u8`, so the
+/// [`ParallelStateManager`] type check hands it back only as a byte slice, and every bit
+/// pattern is a valid `u8`.
 pub struct UninitializedBytesParallelState {
     len: usize,
 }
 
 impl UninitializedBytesParallelState {
-    pub fn new(len: usize) -> Self {
+    /// # Safety
+    ///
+    /// The reserved bytes hold no meaningful value until a consumer writes them in place.
+    /// The caller asserts that the protocol run over the region tolerates that: its first
+    /// writer runs before any read that depends on the contents.
+    pub unsafe fn new(len: usize) -> Self {
         Self { len }
     }
 }

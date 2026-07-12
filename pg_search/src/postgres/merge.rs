@@ -393,9 +393,63 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 next_xid,
             )
         }))
+        // A crash here dies in this background worker: it never reaches a client
+        // connection, and Postgres logs only to the container's stdout, so nothing
+        // outside would fail on it. Report it to Antithesis before rethrowing so the
+        // fuzzer's run fails instead of silently passing. Rethrowing preserves the
+        // existing behaviour (Postgres logs the error and the worker exits).
+        .catch_others(|caught| {
+            report_background_merge_crash(&caught);
+            caught.rethrow()
+        })
         .execute();
     })
 }
+
+/// Under Antithesis, surface a background-merge crash as an assertion failure.
+///
+/// We fire only for bug-class errors — internal-error / corruption SQLSTATEs (class
+/// `XX`) and Rust panics. An interrupt-driven cancellation is not a bug and never
+/// reaches here: [`merge_index`] downgrades it to a `warning!` (see the
+/// `check_for_interrupts!` before it re-raises a merge error), so the faults we
+/// deliberately inject do not trip the assertion.
+#[cfg(feature = "antithesis")]
+fn report_background_merge_crash(caught: &pg_sys::panic::CaughtError) {
+    use pg_sys::panic::CaughtError;
+    use pgrx::PgSqlErrorCode::*;
+
+    let report = match caught {
+        // A Rust panic (a failed `expect`, or the `panic!("failed to merge…")` in
+        // `merge_index`) is always a bug.
+        CaughtError::RustPanic { ereport, .. } => ereport,
+        // A Postgres/ereport error is a bug only when it is an internal error or
+        // corruption; cancellations, shutdowns and connection faults are the chaos we
+        // are injecting, not defects.
+        CaughtError::PostgresError(report) | CaughtError::ErrorReport(report) => {
+            if !matches!(
+                report.sql_error_code(),
+                ERRCODE_INTERNAL_ERROR
+                    | ERRCODE_DATA_CORRUPTED
+                    | ERRCODE_INDEX_CORRUPTED
+                    | ERRCODE_ASSERT_FAILURE
+            ) {
+                return;
+            }
+            report
+        }
+    };
+
+    antithesis_sdk::assert_unreachable!(
+        "pg_search background merge crashed",
+        &serde_json::json!({
+            "sqlstate": format!("{:?}", report.sql_error_code()),
+            "message": report.message(),
+        })
+    );
+}
+
+#[cfg(not(feature = "antithesis"))]
+fn report_background_merge_crash(_caught: &pg_sys::panic::CaughtError) {}
 
 #[inline]
 #[allow(clippy::too_many_arguments)]

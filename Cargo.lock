@@ -5503,6 +5503,7 @@ dependencies = [
 name = "pg_search"
 version = "0.24.3"
 dependencies = [
+ "antithesis_sdk",
  "anyhow",
  "arrow-array",
  "arrow-buffer",

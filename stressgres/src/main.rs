@@ -87,6 +87,13 @@ fn main() -> anyhow::Result<()> {
                 );
                 return Ok(());
             }
+            // Setup (schema build) is done and the workload is about to start. Antithesis
+            // holds fault injection until this signal, so every suite gets a clean startup
+            // and actually runs its workload rather than being killed mid-initialisation.
+            // A no-op outside the Antithesis environment.
+            antithesis_sdk::lifecycle::setup_complete(&serde_json::json!({
+                "suite": args.suite_path.display().to_string(),
+            }));
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {

@@ -14,13 +14,14 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use super::keyset::KeySet;
 use super::{anyelement_query_input_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
-use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
@@ -31,8 +32,8 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
-    check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
-    Internal, PgList, PgOid, PgRelation,
+    pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys, Internal, PgList, PgOid,
+    PgRelation,
 };
 use std::ptr::NonNull;
 
@@ -61,32 +62,11 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
     }
 }
 
-enum CacheEntry {
-    All,
-    Set(HashSet<TantivyValue>),
-}
-
 struct QueryCacheEntry {
     element_oid: PgOid,
-    matches: CacheEntry,
+    matches: KeySet,
     /// Key-field values for rows where the indexed field is absent (SQL NULL semantics).
-    missing_values: Option<CacheEntry>,
-}
-
-impl FromIterator<TantivyValue> for CacheEntry {
-    fn from_iter<T: IntoIterator<Item = TantivyValue>>(iter: T) -> Self {
-        let set = iter.into_iter().collect();
-        Self::Set(set)
-    }
-}
-
-impl CacheEntry {
-    fn contains(&self, value: &TantivyValue) -> bool {
-        match self {
-            CacheEntry::All => true,
-            CacheEntry::Set(set) => set.contains(value),
-        }
-    }
+    missing_values: Option<KeySet>,
 }
 
 #[derive(Default)]
@@ -134,35 +114,6 @@ unsafe impl SqlTranslatable for FakeSearchQueryInput {
     const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
         <SearchQueryInput as SqlTranslatable>::ARGUMENT_SQL;
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
-}
-
-/// Whether `query` is (after unwrapping wrappers) an `Exists` predicate.
-///
-/// `Exists` is a total predicate: a missing field means it is FALSE, not NULL.
-/// So we must not build the missing-values set for it.
-fn query_is_exists(query: &SearchQueryInput) -> bool {
-    match query {
-        SearchQueryInput::WithIndex { query, .. } => query_is_exists(query),
-        SearchQueryInput::Boost { query, .. } => query_is_exists(query),
-        SearchQueryInput::ConstScore { query, .. } => query_is_exists(query),
-        SearchQueryInput::FieldedQuery { query, .. } => {
-            matches!(query, crate::query::pdb_query::pdb::Query::Exists)
-        }
-        SearchQueryInput::Boolean {
-            must,
-            should,
-            must_not,
-            ..
-        } => {
-            let clauses: Vec<_> = must
-                .iter()
-                .chain(should.iter())
-                .chain(must_not.iter())
-                .collect();
-            clauses.len() == 1 && query_is_exists(clauses[0])
-        }
-        _ => false,
-    }
 }
 
 /// Whether the null-preserving existence guard is valid for this field.
@@ -216,30 +167,37 @@ pub fn search_with_query_input(
         pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
 
+    let mut newly_built = false;
     let query_cache = cache.by_query.entry(key).or_insert_with(|| {
+        newly_built = true;
         let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
             SearchQueryInput::from_datum(query_datum, query_datum.is_null())
                 .expect("the query argument cannot be NULL")
         };
 
-        // optimize the case where the user asked for literally every matching document to avoid
-        // making a copy of every primary key in ram
-        {
-            let is_paradedb_all = matches!(&search_query_input, SearchQueryInput::WithIndex { query, .. } if matches!(query.as_ref(), &SearchQueryInput::All))
-                || matches!(&search_query_input, SearchQueryInput::All);
-            if is_paradedb_all {
-                return QueryCacheEntry {
-                    element_oid,
-                    matches: CacheEntry::All,
-                    missing_values: None,
-                };
-            }
+        // Short-circuit the degenerate queries so we never materialize a key per row: `all()` (in
+        // any wrapped/fielded form) matches everything, `empty()` matches nothing.
+        if search_query_input.is_match_all() {
+            return QueryCacheEntry {
+                element_oid,
+                matches: KeySet::All,
+                missing_values: None,
+            };
+        }
+        if matches!(&search_query_input, SearchQueryInput::Empty) {
+            return QueryCacheEntry {
+                element_oid,
+                matches: KeySet::None,
+                missing_values: None,
+            };
         }
 
-        let index_oid = search_query_input
-            .index_oid()
-            .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
+        // Reaching here means the planner could not use the BM25 index to satisfy this query, so we
+        // materialize the match set and apply it as a per-row filter (the slow path).
+        let index_oid = search_query_input.index_oid().unwrap_or_else(|| {
+            panic!("pg_search: could not determine the index to use for this query")
+        });
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
@@ -247,10 +205,9 @@ pub fn search_with_query_input(
         let mut field_names = HashSet::default();
         search_query_input.extract_field_names(&mut field_names);
 
-        // For an `Exists` predicate a missing field is FALSE, not NULL, so we
-        // skip the missing-values computation below and let missing fields fall
-        // through to `Some(false)`.
-        let is_exists_query = query_is_exists(&search_query_input);
+        // For an `Exists` predicate a missing field is FALSE, not NULL, so we skip the missing-values
+        // computation below and let missing fields fall through to `Some(false)`.
+        let is_exists_query = search_query_input.is_exists();
 
         let search_reader = SearchIndexReader::open(
             &index_relation,
@@ -258,25 +215,12 @@ pub fn search_with_query_input(
             false,
             MvccSatisfies::Snapshot,
         )
-            .expect("search_with_query_input: should be able to open a SearchIndexReader");
+        .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
-        let key_field_name = schema.key_field_name();
-        let key_field_type = schema.key_field_type();
-        let key_ff_helper =
-            FFHelper::with_fields(&search_reader, &[(key_field_name.clone(), key_field_type).into()]);
 
-        // now, query the SearchReader and collect up the docs that match our query.
-        // the matches are cached so that the same input query will return the same results
-        // throughout the duration of the scan
-        let matches = search_reader
-            .search()
-            .map(|(_, doc_address)| {
-                check_for_interrupts!();
-                key_ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null")
-            })
-            .collect();
+        // collect the matching key-field values into a memory-bounded set (spills to a temp file
+        // past `work_mem`), reused for every row of the scan.
+        let matches = search_reader.collect_keyset();
 
         let missing_values = if field_names.len() == 1 && !is_exists_query {
             let field = field_names
@@ -292,8 +236,8 @@ pub fn search_with_query_input(
                 };
             }
 
-            // Collect rows where the field is absent (the complement of `exists`).
-            // Membership in this set means SQL NULL for negation semantics.
+            // Collect rows where the field is absent (the complement of `exists`). Membership in
+            // this set means SQL NULL for negation semantics.
             let complement_query = SearchQueryInput::WithIndex {
                 oid: index_oid,
                 query: Box::new(SearchQueryInput::Boolean {
@@ -313,24 +257,11 @@ pub fn search_with_query_input(
                 false,
                 MvccSatisfies::Snapshot,
             )
-            .expect("search_with_query_input: should be able to open a complement SearchIndexReader");
-
-            let complement_ff_helper = FFHelper::with_fields(
-                &complement_reader,
-                &[(key_field_name, key_field_type).into()],
+            .expect(
+                "search_with_query_input: should be able to open a complement SearchIndexReader",
             );
 
-            Some(
-                complement_reader
-                    .search()
-                    .map(|(_, doc_address)| {
-                        check_for_interrupts!();
-                        complement_ff_helper
-                            .value(0, doc_address)
-                            .expect("key_field value should not be null")
-                    })
-                    .collect(),
-            )
+            Some(complement_reader.collect_keyset())
         } else {
             None
         };
@@ -342,9 +273,17 @@ pub fn search_with_query_input(
         }
     });
 
-    // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
-    // is contained in the matches set
-    unsafe {
+    // Reaching this function at all means the search-operator predicate is being applied as a
+    // per-row filter rather than an index scan, so warn whenever we evaluate a query here -- regardless of the
+    // all()/empty() short-circuits -- but at most once per statement. Separately warn if the
+    // materialized match set spilled past work_mem.
+    let spilled = newly_built
+        && (matches!(query_cache.matches, KeySet::Spilled(_))
+            || matches!(&query_cache.missing_values, Some(KeySet::Spilled(_))));
+
+    // see if the value on the lhs of the operator (which should always be our "key_field") is
+    // contained in the matches set
+    let result = unsafe {
         let element = pg_getarg_datum_raw(fcinfo, 0);
         let user_value = TantivyValue::try_from_datum(element, query_cache.element_oid)
             .expect("no value present");
@@ -360,7 +299,16 @@ pub fn search_with_query_input(
         } else {
             Some(false)
         }
+    };
+
+    if newly_built {
+        warn_sequential_scan();
     }
+    if spilled {
+        warn_filter_spilled();
+    }
+
+    result
 }
 
 #[pg_extern(immutable, parallel_safe)]

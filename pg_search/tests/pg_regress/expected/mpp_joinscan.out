@@ -352,7 +352,20 @@ EXECUTE mpp_join_heapfilter_param(6);
 (9 rows)
 
 EXECUTE mpp_join_heapfilter_param(6);
-ERROR:  per-source claim needs `parallel_state` installed before recipe execution
+  title   | size_bytes 
+----------+------------
+ file-10  |        153
+ file-10  |       1465
+ file-10  |       2161
+ file-10  |       2857
+ file-10  |       3553
+ file-100 |        291
+ file-100 |        987
+ file-100 |       1683
+ file-100 |       2995
+ file-100 |       3691
+(10 rows)
+
 CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
 DECLARE r record;
 BEGIN
@@ -365,7 +378,11 @@ FROM mpp_explain_analyze_lines(
   $$EXECUTE mpp_join_heapfilter_param(6)$$
 ) AS line
 WHERE line LIKE '%output_rows%';
-ERROR:  per-source claim needs `parallel_state` installed before recipe execution
+ worker_metrics_shown 
+----------------------
+ t
+(1 row)
+
 DEALLOCATE mpp_join_heapfilter_param;
 SET plan_cache_mode = auto;
 -- =====================================================================
@@ -383,8 +400,11 @@ FROM mpp_explain_analyze_lines(
     LIMIT 10$$
 ) AS line
 WHERE line LIKE '%output_rows%';
-ERROR:  mpp: dispatch payload build failed: Internal error: postgres expressions have not been solved: missing planstate.
-This issue was likely caused by a bug in DataFusion's code. Please help us to resolve this by filing a bug report in our issue tracker: https://github.com/apache/datafusion/issues
+ worker_metrics_shown 
+----------------------
+ t
+(1 row)
+
 DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================
 -- Cleanup

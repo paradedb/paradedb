@@ -184,6 +184,7 @@ use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -1008,19 +1009,44 @@ impl JoinScan {
         )
     }
 
-    /// First-exec MPP prepare. Builds the DSM (mesh region + shared scan state) but launches no
+    /// First-exec MPP prepare. Solves Param/SubPlan-backed expressions on the leader if the
+    /// plan needs them, rebaking the logical plan afterward so the bytes prepared for dispatch
+    /// are fully resolved. Builds the DSM (mesh region + shared scan state) but launches no
     /// workers yet: the leader plans first, and `launch_mpp_commit` spawns the producers only
     /// once the plan's stages serialize. Any fallback here leaves the lifecycle `Inactive` and
     /// the query runs serially.
     fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
-        if !mpp_is_active()
-            || Self::source_queries_have_parameters(&state.custom_state().join_clause)
-        {
+        if !mpp_is_active() {
             return;
         }
-        let Some(plan_bytes) = state.custom_state_mut().mpp.take_plan_bytes() else {
+        let Some(mut plan_bytes) = state.custom_state_mut().mpp.take_plan_bytes() else {
             return;
         };
+
+        if Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
+            let planstate = state.planstate();
+            let expr_context = state.runtime_context;
+
+            state
+                .custom_state_mut()
+                .prepare_query_for_execution(planstate, expr_context);
+
+            match unsafe { Self::rebake_for_mpp(state) } {
+                Some(bytes) => {
+                    plan_bytes = bytes.clone();
+                    // Keep the leader's own execution in sync with what's dispatched to workers:
+                    // exec_custom_scan's build_plan closure deserializes this same field.
+                    state.custom_state_mut().logical_plan = Some(bytes::Bytes::from(bytes));
+                }
+                None => {
+                    // Could not rebake a resolved plan (e.g. nodeToString/stringToNode round-trip
+                    // failure). Stay serial rather than dispatch a plan with unresolved
+                    // expressions.
+                    return;
+                }
+            }
+        }
+
         Self::ensure_source_manifests(state);
         let partitioning_idx = state.custom_state().join_clause.partitioning_source_index();
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -1051,8 +1077,26 @@ impl JoinScan {
             state.custom_state_mut().mpp = MppLifecycle::Prepared(prep);
         }
     }
-}
 
+    /// Re-bake the DataFusion logical plan from the current (post-solve) `join_clause`, so the
+    /// plan bytes used for dispatch and for the leader's own execution have every
+    /// Param/SubPlan-backed `SearchQueryInput` fully resolved.
+    unsafe fn rebake_for_mpp(state: &mut CustomScanStateWrapper<Self>) -> Option<Vec<u8>> {
+        let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
+            Some(s) => {
+                let cstr = std::ffi::CString::new(s.as_str()).ok()?;
+                pg_sys::stringToNode(cstr.as_ptr()).cast()
+            }
+            None => std::ptr::null_mut(),
+        };
+
+        let mut private_data = PrivateData::new(state.custom_state().join_clause.clone());
+        private_data.output_columns = state.custom_state().output_columns.clone();
+
+        bake_logical_plan(&mut private_data, custom_exprs);
+        private_data.logical_plan.map(|b| b.to_vec())
+    }
+}
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
     type Args = JoinPathlistHookArgs;
@@ -1176,6 +1220,15 @@ impl CustomScan for JoinScan {
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
+            // snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
+            private_data.custom_exprs_string = if node.custom_exprs.is_null() {
+                None
+            } else {
+                let s = pg_sys::nodeToString(node.custom_exprs.cast());
+                let owned = std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned();
+                pg_sys::pfree(s.cast());
+                Some(owned)
+            };
 
             // Collect all required fields for execution
             collect_required_fields(
@@ -1196,9 +1249,18 @@ impl CustomScan for JoinScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        builder.custom_state().join_clause = builder.custom_private().join_clause.clone();
+        let mut join_clause = builder.custom_private().join_clause.clone();
+        let has_params = join_clause.has_parameters() || join_clause.has_postgres_expressions();
+
+        if has_params {
+            builder.custom_state().base_join_clause = join_clause.clone();
+        }
+        builder.custom_state().join_clause = join_clause;
+
         builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
         builder.custom_state().logical_plan = builder.custom_private().logical_plan.clone();
+        builder.custom_state().custom_exprs_string =
+            builder.custom_private().custom_exprs_string.clone();
         builder.build()
     }
 
@@ -1421,10 +1483,7 @@ impl CustomScan for JoinScan {
             // can write it into the DSM region. Only the leader runs this branch
             // (`ParallelWorkerNumber == -1`); workers read the bytes back from DSM in
             // initialize_worker_custom_scan via `worker_setup`.
-            if mpp_is_active()
-                && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
-            {
+            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
                     let partitioning_idx =

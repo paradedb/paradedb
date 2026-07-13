@@ -56,10 +56,18 @@ impl<'a> RelationAlias<'a> {
             .unwrap_or_else(|| format!("source_{}", index))
     }
 
-    /// For DataFusion execution, suffix the relation to make it unique
+    /// For DataFusion execution, suffix the relation to make it unique.
+    ///
+    /// Lowercased so schema registration (which goes through `parse_str` and
+    /// case-folds unquoted identifiers) agrees with column references built
+    /// via [`super::super::datafusion::translator::make_col`] (which use
+    /// `TableReference::Bare` and preserve case). Otherwise a quoted mixed-
+    /// case Postgres alias like `"Parent"` registers as `parent_0` but is
+    /// referenced as `Parent_0`, yielding a DataFusion `FieldNotFound`.
+    /// See paradedb/paradedb#5525.
     pub fn execution(&self, index: usize) -> String {
         match self.name {
-            Some(alias) => format!("{alias}_{index}"),
+            Some(alias) => format!("{}_{}", alias.to_lowercase(), index),
             None => format!("source_{}", index),
         }
     }

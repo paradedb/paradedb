@@ -1288,12 +1288,26 @@ fn queries(file: &Path) -> Vec<String> {
     content
         .split(";\n")
         .filter_map(|query| {
+            // Strip line comments and flatten each statement onto one line, but keep the interior of
+            // dollar-quoted ($$...$$) blocks verbatim -- e.g. vchord's index `options`, which is TOML
+            // and needs its newlines. Splitting on `$$` alternates outside/inside segments (even =
+            // outside, odd = inside); only flatten the outside ones. Files without `$$` (all others)
+            // are a single segment and processed exactly as before.
             let query = query
-                .trim()
-                .split('\n')
-                .map(|line| line.split("--").next().unwrap().trim())
+                .split("$$")
+                .enumerate()
+                .map(|(i, seg)| {
+                    if i % 2 == 1 {
+                        seg.to_owned()
+                    } else {
+                        seg.split('\n')
+                            .map(|line| line.split("--").next().unwrap().trim())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    }
+                })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join("$$")
                 .trim()
                 .to_owned();
             if query.is_empty() {

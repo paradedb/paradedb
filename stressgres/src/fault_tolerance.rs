@@ -50,10 +50,8 @@ const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
 /// How long a continuous transient fault may last before the run fails.
 ///
 /// The window has a `baseline`, fixed at startup, and an optional `file` that overrides
-/// it for as long as the file exists. The file is how an external supervisor — under
-/// Antithesis, an `anytime_` test command that has just healed every fault — narrows
-/// the window to one the workload is actually expected to meet, turning an
-/// unfalsifiable timeout into a liveness assertion. Deleting the file restores the
+/// it for as long as the file exists — the poke channel an external supervisor uses to
+/// narrow the window at runtime (see the module docs). Deleting the file restores the
 /// baseline, so the supervisor never has to know what it was.
 ///
 /// It is only read on the error path, so a healthy run never touches it.
@@ -64,8 +62,8 @@ pub(crate) struct GraceWindow {
 }
 
 impl GraceWindow {
-    /// A window that never changes. `Duration::ZERO` is the default, under which any
-    /// error fails the run immediately.
+    /// A window that never changes. `Duration::ZERO` is the default (fail on the first
+    /// error).
     pub(crate) fn fixed(baseline: Duration) -> Self {
         Self {
             baseline,
@@ -113,6 +111,10 @@ impl GraceWindow {
 
 /// Substrings that identify a transient connectivity failure when all we have is a
 /// stringified error (e.g. one already flattened by `format_postgres_error`).
+///
+/// The `(sqlstate: ...` needles must mirror the connection-class codes in
+/// [`is_transient_connection_error`]; this is the fallback for errors that have lost
+/// their structured `postgres::Error`, so keep the two lists in sync.
 const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
     "network is unreachable",
     "no route to host",
@@ -131,6 +133,7 @@ const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
     "(sqlstate: 57p01", // admin_shutdown
     "(sqlstate: 57p02", // crash_shutdown
     "(sqlstate: 57p03", // cannot_connect_now
+    "(sqlstate: 57p05", // idle_session_timeout
 ];
 
 fn message_looks_transient(msg: &str) -> bool {
@@ -157,8 +160,9 @@ fn is_transient_connection_error(e: &postgres::Error) -> bool {
     match e.as_db_error() {
         Some(db) => {
             let code = db.code().code();
-            // Class 08 = connection exception; 57P0x = operator/crash shutdown and
-            // "cannot connect now" (server starting up / shutting down).
+            // Class 08 = connection exception; 57P0x = operator/crash shutdown,
+            // "cannot connect now" (server starting up / shutting down), and idle-session
+            // timeout — all cases where the connection is gone and reconnecting is right.
             code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05")
         }
         // Client-side/transport failure: no answer from the server, so it never got
@@ -219,9 +223,6 @@ impl TransientProgress {
 /// an external poke narrow the window mid-fault: it asks "can you reconnect within N
 /// seconds of now", not "were you already down N seconds ago".
 ///
-/// With a zero window, the default, any error fails the run immediately, as it did
-/// before this module existed. A non-zero grace is opt-in via `--reconnect-grace`.
-///
 /// Reopening a dead connection is the caller's job inside `op`; re-running the whole
 /// `op` is what keeps this safe for transactional work — a lost transaction is replayed.
 ///
@@ -260,12 +261,10 @@ pub(crate) fn tolerate_transient<T>(
                     last_grace.is_some_and(|last| grace < last),
                     "a recovery poke narrowed the grace window during an active database fault"
                 );
-                // There is deliberately no symmetric "widened during a fault" assertion.
-                // The window is only read here, on the error path, and the only widening is
-                // the supervisor restoring the baseline — which it does deep inside the healed
-                // quiet period, once the fault is long gone, so no active fault is ever riding
-                // out a widen for us to observe. The widen-resets-the-clock behaviour is pinned
-                // by the `widening_the_window_also_restarts_the_clock` test instead.
+                // No symmetric "widened during a fault" assertion: the only widening is the
+                // supervisor restoring the baseline, which happens deep in the healed quiet
+                // period with no active fault to observe it. That path is pinned by the
+                // `widening_the_window_also_restarts_the_clock` test instead.
                 if progress.recovered || last_grace.is_some_and(|last| last != grace) {
                     down_since = None;
                     backoff = INITIAL_RECONNECT_BACKOFF;

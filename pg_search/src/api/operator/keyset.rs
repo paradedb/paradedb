@@ -31,17 +31,13 @@
 //! (`[u8]` `Ord`), which is all binary-search membership needs.
 
 use crate::api::HashSet;
+use crate::gucs::WorkMem;
 use crate::postgres::types::TantivyValue;
 use pgrx::pg_sys;
 use std::os::raw::c_int;
 
 /// One sparse-index entry per this many spilled records.
 const INDEX_STRIDE: usize = 1024;
-
-/// `work_mem` in bytes (it is stored in KiB).
-fn work_mem_bytes() -> usize {
-    (unsafe { pg_sys::work_mem } as usize).saturating_mul(1024)
-}
 
 /// Serialize a key to the bytes used for both sorting and probing.
 fn key_bytes(value: &TantivyValue) -> Vec<u8> {
@@ -85,7 +81,7 @@ pub struct KeySetBuilder {
 impl Default for KeySetBuilder {
     fn default() -> Self {
         Self {
-            budget: work_mem_bytes(),
+            budget: WorkMem::Postgres.bytes(),
             resident_bytes: 0,
             in_memory: HashSet::default(),
             sort: None,

@@ -273,8 +273,8 @@ pub fn search_with_query_input(
         }
     });
 
-    // Reaching this function at all means the `@@@` predicate is being applied as a per-row filter
-    // rather than an index scan, so warn whenever we evaluate a query here -- regardless of the
+    // Reaching this function at all means the search-operator predicate is being applied as a
+    // per-row filter rather than an index scan, so warn whenever we evaluate a query here -- regardless of the
     // all()/empty() short-circuits -- but at most once per statement. Separately warn if the
     // materialized match set spilled past work_mem.
     let spilled = newly_built

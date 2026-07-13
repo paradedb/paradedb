@@ -239,7 +239,7 @@ pub fn emit_planner_warnings() {
 //
 // Unlike the planner warnings above, which are batched and flushed at the end of planning, these
 // fire during execution and dedup against the currently-executing statement so a warning raised
-// from many `@@@` predicate nodes surfaces just once.
+// from many search-operator predicate nodes surfaces just once.
 //
 
 /// Uniquely identifies the currently-executing statement (its start timestamp).
@@ -250,8 +250,8 @@ const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 
 thread_local! {
     /// The statement for which we last warned that the table is being sequentially scanned / that
-    /// the match set spilled. A statement can have many `@@@` predicate nodes, each with its own
-    /// per-`fcinfo` cache, so dedup at the statement level to warn just once.
+    /// the match set spilled. A statement can have many search-operator predicate nodes, each with
+    /// its own per-`fcinfo` cache, so dedup at the statement level to warn just once.
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
 }
@@ -290,8 +290,8 @@ fn planner_warned_in(categories: &[&str]) -> bool {
     })
 }
 
-/// Warn (once per statement) that a `@@@` predicate is being applied as a per-row filter over a
-/// sequential scan rather than via the index.
+/// Warn (once per statement) that a search-operator predicate is being applied as a per-row filter
+/// over a sequential scan rather than via the index.
 ///
 /// Suppressed when the planner already emitted a join- or aggregate-scan warning for this
 /// statement: that warning names a concrete alternative, so the generic sequential-scan warning

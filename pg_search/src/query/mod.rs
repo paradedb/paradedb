@@ -286,6 +286,44 @@ impl SearchQueryInput {
         }
     }
 
+    pub fn is_match_all(&self) -> bool {
+        match self {
+            SearchQueryInput::All => true,
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => query.is_match_all(),
+            SearchQueryInput::FieldedQuery { query, .. } => {
+                matches!(query, crate::query::pdb_query::pdb::Query::All)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_exists(&self) -> bool {
+        match self {
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => query.is_exists(),
+            SearchQueryInput::FieldedQuery { query, .. } => {
+                matches!(query, crate::query::pdb_query::pdb::Query::Exists)
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                let clauses: Vec<_> = must
+                    .iter()
+                    .chain(should.iter())
+                    .chain(must_not.iter())
+                    .collect();
+                clauses.len() == 1 && clauses[0].is_exists()
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_full_scan_query(&self) -> bool {
         match self {
             // All by itself is a full scan

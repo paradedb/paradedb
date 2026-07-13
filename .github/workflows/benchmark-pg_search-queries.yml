@@ -369,6 +369,8 @@ jobs:
             -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements,vchord;"
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
       - name: Benchmark "cohere" Dataset (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -436,6 +438,8 @@ jobs:
             -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements,vchord;"
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
       - name: Benchmark "cohere" Dataset (10M)
         if: ${{ env.RUN_COHERE == 'true' }}

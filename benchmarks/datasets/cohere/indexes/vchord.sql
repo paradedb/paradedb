@@ -1,14 +1,14 @@
 -- VectorChord RaBitQ IVF index (`vchordrq`). Reuses pgvector's `vector` type, so the corpus schema
--- is unchanged; `CREATE EXTENSION vchord CASCADE` pulls in `vector`. Requires `vchord` in
--- shared_preload_libraries (the benchmark workflow re-applies this after restoring the heap
--- snapshot). `{{ vchord_lists }}` resolves from the dataset's [params] in config.toml (scales with
--- dataset_size per VectorChord's recommended lists table); it must be an integer literal.
+-- is unchanged. The `vchord` extension + `shared_preload_libraries` are set up by the benchmark
+-- workflow's post-restore preload step (this file holds only CREATE INDEX statements, like the
+-- hnsw/ivfflat files -- the harness runs each statement and reads its index metadata, so a
+-- CREATE EXTENSION here would break that). `{{ vchord_lists }}` resolves from the dataset's [params]
+-- in config.toml (scales with dataset_size per VectorChord's recommended lists table); it must be an
+-- integer literal.
 --
 -- Options follow the VectorChord docs' recommendation for cosine similarity: enable
 -- `residual_quantization` and `build.internal.spherical_centroids` to improve both QPS and recall.
 -- https://docs.vectorchord.ai/vectorchord/usage/indexing.html
-CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
-
 CREATE INDEX cohere_wiki_emb_idx ON cohere_wiki USING vchordrq (emb vector_cosine_ops)
   WITH (options = $$
 residual_quantization = true

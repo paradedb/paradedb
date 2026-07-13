@@ -249,17 +249,10 @@ pub struct JoinScanState {
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
-    /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and the query qualifies.
-    /// Held only by the leader; builder-launched workers reconstruct their state from DSM and
-    /// never carry this.
-    pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
-    /// The prepared-but-unlaunched MPP DSM. Set on the first exec call before planning; consumed
-    /// by `launch_mpp_commit` once the leader's plan is built, in the same call.
-    pub mpp_prep: Option<crate::postgres::customscan::mpp::launch::MppLaunchPrep>,
-    /// Serialized logical-plan bytes that the leader writes into DSM and workers read back.
-    /// Stashed in `begin_custom_scan` when MPP is active; consumed by `estimate_dsm` /
-    /// `initialize_dsm`.
-    pub mpp_plan_bytes: Option<Vec<u8>>,
+    /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
+    /// prepared on first exec before planning, launched once the plan's stages are committed.
+    /// Stays `Inactive` on the serial path.
+    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
     /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
     /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
     pub mpp_partitioning_source_idx: Option<usize>,

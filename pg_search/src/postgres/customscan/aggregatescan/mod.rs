@@ -50,6 +50,7 @@ use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -404,9 +405,7 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
-                    mpp: None,
-                    mpp_prep: None,
-                    mpp_plan_bytes: None,
+                    mpp: MppLifecycle::Inactive,
                 });
                 builder.build()
             }
@@ -557,11 +556,10 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
-            // MPP: serialize the logical plan so estimate_dsm/initialize_dsm
-            // can write it into the DSM region. Only the leader runs
-            // this branch (`ParallelWorkerNumber == -1` in the leader
-            // backend); workers read the bytes back from DSM in
-            // initialize_worker_custom_scan.
+            // MPP: serialize the logical plan now, while the source manifests are alive, so
+            // the first-exec prepare can size the DSM payload region before the physical plan
+            // exists. Only the leader runs this branch (`ParallelWorkerNumber == -1` in the
+            // leader backend).
             if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 Self::stash_mpp_plan_bytes(state);
             }
@@ -639,7 +637,7 @@ impl CustomScan for AggregateScan {
             // longjmps out of this hook; a release placed after it would never run, leaving the
             // senders to drop at xact commit, past the DSM's lifetime, where their `fetch_sub`
             // faults. The query is done producing here, so the senders aren't needed.
-            if let Some(leader) = df_state.mpp.as_ref() {
+            if let Some(leader) = df_state.mpp.leader() {
                 leader.release_control_senders();
             }
             // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
@@ -648,7 +646,7 @@ impl CustomScan for AggregateScan {
             // Draining here is what frees them, so the `recv` below returns immediately instead
             // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
             // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.as_ref() {
+            if let Some(leader) = df_state.mpp.leader() {
                 if let Some(plan) = df_state.physical_plan.as_ref() {
                     crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                         plan,
@@ -656,7 +654,7 @@ impl CustomScan for AggregateScan {
                     );
                 }
             }
-            if let Some(leader) = df_state.mpp.as_mut() {
+            if let Some(leader) = df_state.mpp.leader_mut() {
                 if let Some(finish) = leader.finish.as_mut() {
                     let _ = finish.recv();
                 }
@@ -672,7 +670,7 @@ impl CustomScan for AggregateScan {
             // Pull the builder handle out so we can join the workers and destroy the parallel
             // context once nothing references the ring mesh anymore. The leader value (and its
             // own mesh handle) drops at the end of this match arm.
-            let finish = match df_state.mpp.take() {
+            let finish = match df_state.mpp.take_leader() {
                 Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
@@ -815,11 +813,10 @@ impl AggregateScan {
             .unwrap_or(0)
     }
 
-    /// Serialize the leader's logical plan (already on `df_state`) and stash
-    /// the bytes on `df_state.mpp_plan_bytes`. `estimate_dsm_custom_scan`
-    /// reads the length to size the DSM region; `initialize_dsm_custom_scan`
-    /// hands the bytes to `glue::leader_setup` which copies them into DSM
-    /// for workers.
+    /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
+    /// to `PlanBytes`. The first-exec prepare uses the byte length to size the DSM payload
+    /// region; the dispatched stage plans themselves are derived later, from the leader's
+    /// physical plan.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
         // Capture source manifests + partitioning_source_idx BEFORE building
         // the logical plan. Each `PgSearchTableProvider` needs to know whether
@@ -883,12 +880,12 @@ impl AggregateScan {
                 return;
             }
         };
-        df_state.mpp_plan_bytes = Some(bytes.to_vec());
+        df_state.mpp = MppLifecycle::PlanBytes(bytes.to_vec());
     }
 
     /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
     /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
-    /// (or any setup fallback) leaves `mpp` unset and the query runs serially.
+    /// (or any setup fallback) leaves the lifecycle `Inactive` and the query runs serially.
     fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         if !mpp_is_active() {
             return;
@@ -897,7 +894,7 @@ impl AggregateScan {
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .and_then(|d| d.mpp_plan_bytes.take())
+            .and_then(|d| d.mpp.take_plan_bytes())
         else {
             return;
         };
@@ -931,7 +928,7 @@ impl AggregateScan {
             return;
         };
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
-            df_state.mpp_prep = Some(prep);
+            df_state.mpp = MppLifecycle::Prepared(prep);
         }
     }
 
@@ -1025,7 +1022,7 @@ impl AggregateScan {
         let Some(plan) = df_state.physical_plan.clone() else {
             return;
         };
-        let rendered = match (df_state.mpp.as_ref(), df_state.runtime.as_ref()) {
+        let rendered = match (df_state.mpp.leader(), df_state.runtime.as_ref()) {
             (Some(_), Some(_runtime)) => {
                 match crate::postgres::customscan::mpp::glue::merge_worker_metrics(&plan) {
                     Some(merged) => display_plan_ascii(merged.as_ref(), true),
@@ -1553,7 +1550,7 @@ impl AggregateScan {
             // aggregate profile so `create_physical_plan` produces a `DistributedExec`. The
             // mesh and the dispatch source are execute-time concerns; the exec session below
             // carries them once the workers are committed.
-            let prep = df_state.mpp_prep.take();
+            let prep = df_state.mpp.take_prep();
             let plan_ctx = if prep.is_some() {
                 Self::build_mpp_session_context(None)
             } else {
@@ -1618,7 +1615,7 @@ impl AggregateScan {
                             }
                             let exec_ctx =
                                 Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)));
-                            df_state.mpp = Some(leader);
+                            df_state.mpp = MppLifecycle::Launched(leader);
                             (exec_ctx, physical_plan)
                         }
                         None => {

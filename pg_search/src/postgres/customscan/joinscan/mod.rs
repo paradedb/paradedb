@@ -179,6 +179,7 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -1009,15 +1010,15 @@ impl JoinScan {
 
     /// First-exec MPP prepare. Builds the DSM (mesh region + shared scan state) but launches no
     /// workers yet: the leader plans first, and `launch_mpp_commit` spawns the producers only
-    /// once the plan's stages serialize. Any fallback here leaves `mpp_prep` unset and the query
-    /// runs serially.
+    /// once the plan's stages serialize. Any fallback here leaves the lifecycle `Inactive` and
+    /// the query runs serially.
     fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         if !mpp_is_active()
             || Self::source_queries_have_parameters(&state.custom_state().join_clause)
         {
             return;
         }
-        let Some(plan_bytes) = state.custom_state_mut().mpp_plan_bytes.take() else {
+        let Some(plan_bytes) = state.custom_state_mut().mpp.take_plan_bytes() else {
             return;
         };
         Self::ensure_source_manifests(state);
@@ -1047,7 +1048,7 @@ impl JoinScan {
             state.custom_state_mut().parallel_state = Some(prep.scan_ptr);
             state.custom_state_mut().non_partitioning_segments =
                 prep.non_partitioning_segments.clone();
-            state.custom_state_mut().mpp_prep = Some(prep);
+            state.custom_state_mut().mpp = MppLifecycle::Prepared(prep);
         }
     }
 }
@@ -1332,7 +1333,7 @@ impl CustomScan for JoinScan {
                 // they exited; fold them in so the stage boxes show more than the leader's
                 // own nodes.
                 let merged = match (
-                    state.custom_state().mpp.as_ref(),
+                    state.custom_state().mpp.leader(),
                     state.custom_state().runtime.as_ref(),
                 ) {
                     (Some(_), Some(_runtime)) => {
@@ -1425,7 +1426,7 @@ impl CustomScan for JoinScan {
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
             {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
-                    state.custom_state_mut().mpp_plan_bytes = Some(bytes.to_vec());
+                    state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
                     let partitioning_idx =
                         state.custom_state().join_clause.partitioning_source_index();
                     state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
@@ -1543,7 +1544,7 @@ impl CustomScan for JoinScan {
                 // plan is a `DistributedExec`. The mesh and the dispatch source are
                 // execute-time concerns; the exec session below carries them once the workers
                 // are committed.
-                let plan_ctx = if state.custom_state().mpp_prep.is_some() {
+                let plan_ctx = if state.custom_state().mpp.is_prepared() {
                     Self::build_mpp_session_context(None)
                 } else {
                     create_datafusion_session_context(SessionContextProfile::Join)
@@ -1551,9 +1552,7 @@ impl CustomScan for JoinScan {
                 // A rescan after an MPP run replans serially: the launched generation's
                 // workers have already claimed the shared scan state, so binding the fresh
                 // plan to it would leave the leader with nothing to scan.
-                let plan_parallel_state = if state.custom_state().mpp.is_some()
-                    && state.custom_state().mpp_prep.is_none()
-                {
+                let plan_parallel_state = if state.custom_state().mpp.is_launched() {
                     None
                 } else {
                     state.custom_state().parallel_state
@@ -1568,7 +1567,7 @@ impl CustomScan for JoinScan {
                 // spawn the workers, and hand the coordinator the same stages to dispatch. On a
                 // short launch the workers are gone and the `DistributedExec` shape has no mesh
                 // to read from, so replan serially.
-                let (ctx, plan) = match state.custom_state_mut().mpp_prep.take() {
+                let (ctx, plan) = match state.custom_state_mut().mpp.take_prep() {
                     Some(prep) => {
                         match crate::postgres::customscan::mpp::launch::launch_mpp_commit(
                             prep, &plan,
@@ -1585,7 +1584,7 @@ impl CustomScan for JoinScan {
                                 }
                                 let exec_ctx =
                                     Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)));
-                                state.custom_state_mut().mpp = Some(leader);
+                                state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
                                 (exec_ctx, plan)
                             }
                             None => {
@@ -1674,7 +1673,7 @@ impl CustomScan for JoinScan {
         // out of this hook; a release placed after it would never run, leaving the senders to drop
         // at xact commit, past the DSM's lifetime, where their `fetch_sub` faults. The query is
         // done producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
-        if let Some(leader) = state.custom_state().mpp.as_ref() {
+        if let Some(leader) = state.custom_state().mpp.leader() {
             leader.release_control_senders();
         }
         // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
@@ -1682,7 +1681,7 @@ impl CustomScan for JoinScan {
         // bounded metrics send spins on the full ring until the leader frees slots. Draining here
         // is what frees them: the sends land on the next try, the workers detach, and the `recv`
         // below returns immediately instead of waiting out the workers' full spin bound.
-        if let Some(leader) = state.custom_state().mpp.as_ref() {
+        if let Some(leader) = state.custom_state().mpp.leader() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
@@ -1690,7 +1689,7 @@ impl CustomScan for JoinScan {
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs
         // before end_custom_scan, where the context is finally destroyed). A worker error is
         // re-raised from inside `recv`.
-        if let Some(leader) = state.custom_state_mut().mpp.as_mut() {
+        if let Some(leader) = state.custom_state_mut().mpp.leader_mut() {
             if let Some(finish) = leader.finish.as_mut() {
                 let _ = finish.recv();
             }
@@ -1701,7 +1700,7 @@ impl CustomScan for JoinScan {
         // Join the MPP producer workers and destroy the parallel context once nothing references
         // the ring mesh. Take the leader out first (its mesh handle drops with it), then drop the
         // stream/plan/runtime (all carry mesh references) before wait_for_finish destroys the DSM.
-        let finish = match state.custom_state_mut().mpp.take() {
+        let finish = match state.custom_state_mut().mpp.take_leader() {
             Some(mut leader) => leader.finish.take(),
             _ => None,
         };

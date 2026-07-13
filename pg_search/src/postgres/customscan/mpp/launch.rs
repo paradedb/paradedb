@@ -218,6 +218,86 @@ pub struct MppLaunchPrep {
     payload_capacity: usize,
 }
 
+/// Where MPP sits in a scan's launch lifecycle. Every transition consumes the previous stage,
+/// so a scan is in exactly one stage at a time; a single field keeps the impossible
+/// combinations (prepared and launched at once, say) unrepresentable. Held only by the leader;
+/// builder-launched workers reconstruct their state from DSM and never carry this.
+#[derive(Default)]
+pub enum MppLifecycle {
+    /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
+    /// teardown already reclaimed the leader state.
+    #[default]
+    Inactive,
+    /// Serialized logical-plan bytes, stashed at begin time. Prepare uses their length to size
+    /// the DSM payload region before the physical plan exists.
+    PlanBytes(Vec<u8>),
+    /// The DSM is built and the producer workers are spawned, parked on the go flag while the
+    /// leader plans.
+    Prepared(MppLaunchPrep),
+    /// The workers are running dispatched fragments; carries the leader's mesh and finish
+    /// handles until teardown.
+    Launched(MppLeaderState),
+}
+
+impl MppLifecycle {
+    /// Consume the stashed plan bytes. Leaves `Inactive`, so a prepare fallback reads as the
+    /// serial path from then on.
+    pub fn take_plan_bytes(&mut self) -> Option<Vec<u8>> {
+        match std::mem::take(self) {
+            MppLifecycle::PlanBytes(bytes) => Some(bytes),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    /// Consume the prepared launch. Leaves `Inactive`; [`launch_mpp_commit`] decides whether
+    /// the scan moves to `Launched` or stays serial.
+    pub fn take_prep(&mut self) -> Option<MppLaunchPrep> {
+        match std::mem::take(self) {
+            MppLifecycle::Prepared(prep) => Some(prep),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    /// Consume the leader state at teardown, leaving `Inactive`.
+    pub fn take_leader(&mut self) -> Option<MppLeaderState> {
+        match std::mem::take(self) {
+            MppLifecycle::Launched(leader) => Some(leader),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    pub fn leader(&self) -> Option<&MppLeaderState> {
+        match self {
+            MppLifecycle::Launched(leader) => Some(leader),
+            _ => None,
+        }
+    }
+
+    pub fn leader_mut(&mut self) -> Option<&mut MppLeaderState> {
+        match self {
+            MppLifecycle::Launched(leader) => Some(leader),
+            _ => None,
+        }
+    }
+
+    pub fn is_prepared(&self) -> bool {
+        matches!(self, MppLifecycle::Prepared(_))
+    }
+
+    pub fn is_launched(&self) -> bool {
+        matches!(self, MppLifecycle::Launched(_))
+    }
+}
+
 /// Build the MPP DSM (mesh region, `ParallelScanState`, go flag) and spawn the workers parked
 /// on the go flag. `None` covers the fallbacks that must not deploy MPP: DSM too large, or no
 /// parallel context available.

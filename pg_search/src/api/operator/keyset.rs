@@ -57,8 +57,6 @@ pub enum KeySet {
 }
 
 impl KeySet {
-    /// Build a memory-bounded set from an iterator of key-field values, transparently spilling to
-    /// a temporary file once the resident size would exceed `work_mem`.
     pub fn build_from(values: impl IntoIterator<Item = TantivyValue>) -> Self {
         let mut builder = KeySetBuilder::default();
         for value in values {

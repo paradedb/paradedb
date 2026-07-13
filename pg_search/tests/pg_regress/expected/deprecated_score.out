@@ -55,7 +55,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | J.K. Rowling    |     2.540445 |          0
@@ -136,7 +135,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
        1 | Stephen King |    1.5404451 |          0
@@ -164,7 +162,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | Stephen King    |     2.540445 |          0
@@ -218,7 +215,6 @@ LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
        1 | J.K. Rowling    |     2.540445 |          0
@@ -255,7 +251,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id | author_name  | author_score_1 | author_score_2 | book_score_1 | book_score_2 
 ---------+--------------+----------------+----------------+--------------+--------------
        1 | J.K. Rowling |              1 |              1 |   0.35745716 |   0.35745716
@@ -292,7 +287,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id |   author_name   | author_score |   author_snippet    | book_score |                                                                       book_snippet                                                                       
 ---------+-----------------+--------------+---------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------
        1 | J.K. Rowling    |     2.540445 | J.K. <b>Rowling</b> |          0 | 
@@ -310,7 +304,6 @@ LEFT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  id |     name     | author_score | book_score 
 ----+--------------+--------------+------------
   1 | Stephen King |    1.5404451 |          0
@@ -324,7 +317,6 @@ RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY a.id;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  id |     name     | author_score | book_score 
 ----+--------------+--------------+------------
   1 | Stephen King |    1.5404451 |          0

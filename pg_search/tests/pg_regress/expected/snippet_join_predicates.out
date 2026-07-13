@@ -66,7 +66,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+---------------------+------------------+--------------+------------
        1 | J.K. <b>Rowling</b> | {{5,12}}         |    2.3862944 | 0.20342469
@@ -133,7 +132,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |     content_positions     | author_score | book_score 
 ---------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{5,12}}         | {{10,14},{15,19},{58,62}} |    2.3862944 | 0.20342469
@@ -154,7 +152,6 @@ JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3862944 | 0.20342469
@@ -175,7 +172,6 @@ LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3862944 | 0.20342469

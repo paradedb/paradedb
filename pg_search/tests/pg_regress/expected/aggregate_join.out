@@ -1204,7 +1204,6 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  count 
 -------
      2

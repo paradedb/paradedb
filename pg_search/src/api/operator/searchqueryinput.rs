@@ -21,9 +21,9 @@ use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::statement_warnings::{self, warn_once_per_statement, StatementId};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -72,16 +72,6 @@ struct QueryCacheEntry {
 #[derive(Default)]
 struct Cache {
     by_query: HashMap<Vec<u8>, QueryCacheEntry>,
-}
-
-thread_local! {
-    /// The statement for which we last warned that the table is being sequentially scanned / that
-    /// the match set spilled. A statement can have many `@@@` predicate nodes, each with its own
-    /// per-`fcinfo` cache, so dedup at the statement level to warn just once.
-    static WARNED_SEQ_SCAN_AT: std::cell::Cell<StatementId> =
-        const { std::cell::Cell::new(statement_warnings::NEVER) };
-    static WARNED_SPILLED_AT: std::cell::Cell<StatementId> =
-        const { std::cell::Cell::new(statement_warnings::NEVER) };
 }
 
 /// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
@@ -312,16 +302,10 @@ pub fn search_with_query_input(
     };
 
     if newly_built {
-        warn_once_per_statement(
-            &WARNED_SEQ_SCAN_AT,
-            "the table is being sequentially scanned for this query, so performance may be slow",
-        );
+        warn_sequential_scan();
     }
     if spilled {
-        warn_once_per_statement(
-            &WARNED_SPILLED_AT,
-            "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded",
-        );
+        warn_filter_spilled();
     }
 
     result

@@ -733,14 +733,31 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
     NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
 }
 
-pub fn adjust_work_mem() -> NonZeroUsize {
-    let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
-    let wm_as_bytes = wm_as_bytes.clamp(
-        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
-        limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
-    );
+/// Which interpretation of the `work_mem` setting to return from [`WorkMem::get`].
+pub enum WorkMem {
+    /// The raw `work_mem` setting, in bytes.
+    Postgres,
+    /// `work_mem` clamped to the min/max budget tantivy requires.
+    Tantivy,
+}
 
-    NonZeroUsize::new(wm_as_bytes).unwrap()
+impl WorkMem {
+    pub fn get(self) -> NonZeroUsize {
+        let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+        let wm_as_bytes = match self {
+            WorkMem::Postgres => wm_as_bytes,
+            WorkMem::Tantivy => wm_as_bytes.clamp(
+                limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+                limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
+            ),
+        };
+
+        NonZeroUsize::new(wm_as_bytes).unwrap()
+    }
+
+    pub fn bytes(self) -> usize {
+        self.get().get()
+    }
 }
 
 pub fn limit_fetch_multiplier() -> f64 {
@@ -872,12 +889,14 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_adjust_work_mem() {
+    fn test_work_mem() {
         Spi::run("SET work_mem = '4MB';").unwrap();
-        assert_approx_eq!(adjust_work_mem().get(), 15 * 1_000_000, 1.0);
+        assert_approx_eq!(WorkMem::Tantivy.bytes(), 15 * 1_000_000, 1.0);
+        assert_approx_eq!(WorkMem::Postgres.bytes(), 4 * 1024 * 1024, 1.0);
 
         Spi::run("SET work_mem = '1GB';").unwrap();
-        assert_approx_eq!(adjust_work_mem().get(), 1024 * 1024 * 1024, 1.0);
+        assert_approx_eq!(WorkMem::Tantivy.bytes(), 1024 * 1024 * 1024, 1.0);
+        assert_approx_eq!(WorkMem::Postgres.bytes(), 1024 * 1024 * 1024, 1.0);
     }
 
     #[pg_test]

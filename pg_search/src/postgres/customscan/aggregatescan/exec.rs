@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
+use crate::gucs::WorkMem;
 
 use crate::aggregate::{execute_aggregate, scrub_missing_sentinel_value, AggregateRequest};
 use crate::api::version::VersionInfo;
@@ -76,7 +77,7 @@ pub fn aggregation_results_iter(
         query,
         AggregateRequest::Sql(aggregate_clause),
         mvcc_enabled,
-        gucs::adjust_work_mem().get().try_into().unwrap(),
+        WorkMem::Tantivy.bytes().try_into().unwrap(),
         bucket_limit,
         expr_context,
         planstate,

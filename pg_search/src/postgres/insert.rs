@@ -19,7 +19,7 @@ use std::panic::{catch_unwind, resume_unwind};
 
 use crate::api::version::Version;
 use crate::api::FieldName;
-use crate::gucs;
+use crate::gucs::WorkMem;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::composite::CompositeSlotValues;
@@ -47,7 +47,7 @@ pub struct InsertModeImmutable {
 impl InsertModeImmutable {
     fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
-            memory_budget: gucs::adjust_work_mem(),
+            memory_budget: WorkMem::Tantivy.get(),
             max_docs_per_segment: None,
         };
         let writer = SerialIndexWriter::with_mvcc(

@@ -22,8 +22,10 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
@@ -549,6 +551,21 @@ impl SearchIndexReader {
 
     pub fn schema(&self) -> &SearchIndexSchema {
         &self.schema
+    }
+
+    /// Collect the key-field value of every matching document into a memory-bounded [`KeySet`],
+    /// which spills to a temporary file once it would exceed `work_mem`.
+    pub fn collect_keyset(&self) -> KeySet {
+        let key_ff_helper = FFHelper::with_fields(
+            self,
+            &[(self.schema.key_field_name(), self.schema.key_field_type()).into()],
+        );
+
+        KeySet::build_from(self.search().map(|(_, doc_address)| {
+            key_ff_helper
+                .value(0, doc_address)
+                .expect("key_field value should not be null")
+        }))
     }
 
     pub fn searcher(&self) -> &Searcher {

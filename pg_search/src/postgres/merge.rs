@@ -399,7 +399,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         // fuzzer's run fails instead of silently passing. Rethrowing preserves the
         // existing behaviour (Postgres logs the error and the worker exits).
         .catch_others(|caught| {
-            crate::dst::report_merge_crash(&caught);
+            crate::dst::report_merge_crash!(&caught);
             caught.rethrow()
         })
         .execute();

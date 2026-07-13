@@ -256,7 +256,7 @@ pub(crate) fn tolerate_transient<T>(
                 // the recovery clock while we were down, which is the only situation in
                 // which the liveness check can actually fail. If the harness never
                 // reaches it, the check passed vacuously and proved nothing.
-                crate::dst::poke_narrowed_window(last_grace.is_some_and(|last| grace < last));
+                crate::dst::poke_narrowed_window!(last_grace.is_some_and(|last| grace < last));
                 // No symmetric "widened during a fault" assertion: the only widening is the
                 // supervisor restoring the baseline, which happens deep in the healed quiet
                 // period with no active fault to observe it. That path is pinned by the
@@ -276,7 +276,7 @@ pub(crate) fn tolerate_transient<T>(
                         down_since.elapsed()
                     )));
                 }
-                crate::dst::retried_transient_fault();
+                crate::dst::retried_transient_fault!();
                 eprintln!("stressgres: transient database fault, retrying: {e:#}");
                 interruptible_sleep(alive, backoff);
                 backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);

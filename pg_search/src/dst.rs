@@ -22,19 +22,23 @@
 //!
 //! Built only under `--features dst` (the instrumented build); a no-op everywhere else,
 //! so production `pg_search` never links the SDK.
+//!
+//! [`report_merge_crash!`] is a forwarding macro, not a function, so the SDK captures the
+//! assertion's location at the call site (`background_merge`) rather than here. The
+//! bug-class classification stays in the [`merge_crash_details`] function.
 
+#[cfg(feature = "dst")]
 use pgrx::pg_sys::panic::CaughtError;
 
-/// Unreachable: surface a background-merge worker crash as an invariant violation so the
-/// run fails instead of silently passing on a crash that only ever reached the container's
-/// stdout.
+/// The DST details payload for a background-merge worker crash, or `None` when `caught` is
+/// not a bug.
 ///
 /// Fires only for bug-class errors — internal-error / corruption SQLSTATEs and Rust
 /// panics. An interrupt-driven cancellation is not a bug and never reaches here:
 /// `merge_index` downgrades it to a `warning!`, so the faults we deliberately inject do
 /// not trip the assertion.
 #[cfg(feature = "dst")]
-pub(crate) fn report_merge_crash(caught: &CaughtError) {
+pub(crate) fn merge_crash_details(caught: &CaughtError) -> Option<serde_json::Value> {
     use pgrx::PgSqlErrorCode::*;
 
     let report = match caught {
@@ -52,20 +56,35 @@ pub(crate) fn report_merge_crash(caught: &CaughtError) {
                     | ERRCODE_INDEX_CORRUPTED
                     | ERRCODE_ASSERT_FAILURE
             ) {
-                return;
+                return None;
             }
             report
         }
     };
 
-    antithesis_sdk::assert_unreachable!(
-        "pg_search background merge crashed",
-        &serde_json::json!({
-            "sqlstate": format!("{:?}", report.sql_error_code()),
-            "message": report.message(),
-        })
-    );
+    Some(serde_json::json!({
+        "sqlstate": format!("{:?}", report.sql_error_code()),
+        "message": report.message(),
+    }))
+}
+
+/// Unreachable: surface a background-merge worker crash as an invariant violation so the
+/// run fails instead of silently passing on a crash that only ever reached the container's
+/// stdout.
+#[cfg(feature = "dst")]
+macro_rules! report_merge_crash {
+    ($caught:expr) => {
+        if let Some(details) = $crate::dst::merge_crash_details($caught) {
+            ::antithesis_sdk::assert_unreachable!("pg_search background merge crashed", &details);
+        }
+    };
 }
 
 #[cfg(not(feature = "dst"))]
-pub(crate) fn report_merge_crash(_caught: &CaughtError) {}
+macro_rules! report_merge_crash {
+    ($caught:expr) => {{
+        let _ = $caught;
+    }};
+}
+
+pub(crate) use report_merge_crash;

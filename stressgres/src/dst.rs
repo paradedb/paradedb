@@ -20,11 +20,14 @@
 //! The only module that talks to the DST vendor SDK (Antithesis), pulled in as
 //! `antithesis_sdk`.
 //!
+//! The assertion wrappers are forwarding macros, not functions, so the SDK captures each
+//! assertion's location at the real call site rather than here in `dst.rs`. The lifecycle
+//! calls carry no location, so they stay plain functions.
+//!
 //! Stressgres links the SDK unconditionally: it is test-only tooling, and the SDK is a
 //! runtime no-op outside the DST environment, so there is no feature gate here (unlike
 //! `pg_search`, which gates its equivalent module behind `--features dst`).
 
-use antithesis_sdk::{assert_reachable, assert_sometimes};
 use serde_json::json;
 
 /// Register the assertion catalog so the harness knows which sites exist but were never
@@ -42,16 +45,22 @@ pub fn setup_complete(suite: &str) {
 
 /// Reachability: mark that the workload retried and rode out a transient database fault.
 /// A run where this is never hit exercised no fault and proves nothing about recovery.
-pub fn retried_transient_fault() {
-    assert_reachable!("stressgres retried a transient database fault");
+macro_rules! retried_transient_fault {
+    () => {
+        ::antithesis_sdk::assert_reachable!("stressgres retried a transient database fault")
+    };
 }
+pub(crate) use retried_transient_fault;
 
-/// Sometimes: `narrowed` is true when a recovery poke shrank the grace window during an
+/// Sometimes: `$narrowed` is true when a recovery poke shrank the grace window during an
 /// active fault — the only situation in which the liveness check can actually fail, so it
 /// must hold true at least once across the fault search or the check proved nothing.
-pub fn poke_narrowed_window(narrowed: bool) {
-    assert_sometimes!(
-        narrowed,
-        "a recovery poke narrowed the grace window during an active database fault"
-    );
+macro_rules! poke_narrowed_window {
+    ($narrowed:expr) => {
+        ::antithesis_sdk::assert_sometimes!(
+            $narrowed,
+            "a recovery poke narrowed the grace window during an active database fault"
+        )
+    };
 }
+pub(crate) use poke_narrowed_window;

@@ -64,6 +64,7 @@ mod parallel;
 pub mod pdb_owned_value;
 pub mod planner_warnings;
 pub mod rel;
+pub mod statement_warnings;
 pub mod storage;
 pub mod types;
 pub mod types_arrow;

@@ -57,6 +57,17 @@ pub enum KeySet {
 }
 
 impl KeySet {
+    /// Build a memory-bounded set from an iterator of key-field values, transparently spilling to
+    /// a temporary file once the resident size would exceed `work_mem`.
+    pub fn build_from(values: impl IntoIterator<Item = TantivyValue>) -> Self {
+        let mut builder = KeySetBuilder::default();
+        for value in values {
+            pgrx::check_for_interrupts!();
+            builder.push(value);
+        }
+        builder.finish()
+    }
+
     /// Does `value` belong to the set?
     pub fn contains(&self, value: &TantivyValue) -> bool {
         match self {
@@ -70,7 +81,7 @@ impl KeySet {
 
 /// Accumulates keys into an in-memory set, transparently spilling to an external sort once the
 /// resident size would exceed `work_mem`.
-pub struct KeySetBuilder {
+struct KeySetBuilder {
     budget: usize,
     resident_bytes: usize,
     in_memory: HashSet<TantivyValue>,
@@ -90,7 +101,7 @@ impl Default for KeySetBuilder {
 }
 
 impl KeySetBuilder {
-    pub fn push(&mut self, value: TantivyValue) {
+    fn push(&mut self, value: TantivyValue) {
         if let Some(sort) = self.sort.as_mut() {
             sort.put(&key_bytes(&value));
             return;
@@ -111,7 +122,7 @@ impl KeySetBuilder {
         }
     }
 
-    pub fn finish(self) -> KeySet {
+    fn finish(self) -> KeySet {
         match self.sort {
             None => KeySet::InMemory(self.in_memory),
             Some(sort) => KeySet::Spilled(sort.finish()),
@@ -201,6 +212,10 @@ impl Sorter {
 }
 
 /// A spilled key set: a temp file of sorted length-prefixed records plus a sparse in-RAM index.
+///
+/// JOINs will need their own spill-to-disk support (see
+/// <https://github.com/paradedb/paradedb/issues/4064>); the `BufFile`/`Tuplesortstate`
+/// machinery here is a candidate for reuse.
 pub struct Spilled {
     file: *mut pg_sys::BufFile,
     index: Vec<IndexEntry>,

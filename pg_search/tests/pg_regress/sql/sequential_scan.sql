@@ -5,10 +5,6 @@ CREATE TABLE sequential_scan (id int PRIMARY KEY, body text NOT NULL, keep boole
 INSERT INTO sequential_scan SELECT g, 'keyword number ' || g, true FROM generate_series(1, 20000) g;
 CREATE INDEX sequential_scan_idx ON sequential_scan USING bm25 (id, body) WITH (key_field = 'id') WHERE keep;
 
--- Silence the (unrelated) "Aggregate Scan not used" partial-index diagnostic so the output shows
--- only the per-row filter's own warnings.
-SET paradedb.check_aggregate_scan = false;
-
 -- The per-row filter's deparsed qual embeds the BM25 index oid, which changes on every database
 -- creation; mask it so the plans below are stable.
 CREATE FUNCTION explain_seqscan(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$

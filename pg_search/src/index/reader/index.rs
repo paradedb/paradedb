@@ -22,7 +22,7 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::operator::keyset::{KeySet, KeySetBuilder};
+use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
@@ -576,16 +576,11 @@ impl SearchIndexReader {
             &[(self.schema.key_field_name(), self.schema.key_field_type()).into()],
         );
 
-        let mut builder = KeySetBuilder::default();
-        for (_, doc_address) in self.search() {
-            pgrx::check_for_interrupts!();
-            builder.push(
-                key_ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null"),
-            );
-        }
-        builder.finish()
+        KeySet::build_from(self.search().map(|(_, doc_address)| {
+            key_ff_helper
+                .value(0, doc_address)
+                .expect("key_field value should not be null")
+        }))
     }
 
     pub fn searcher(&self) -> &Searcher {

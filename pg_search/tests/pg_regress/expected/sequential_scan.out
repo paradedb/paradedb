@@ -8,9 +8,6 @@ DROP TABLE IF EXISTS sequential_scan CASCADE;
 CREATE TABLE sequential_scan (id int PRIMARY KEY, body text NOT NULL, keep boolean NOT NULL DEFAULT true);
 INSERT INTO sequential_scan SELECT g, 'keyword number ' || g, true FROM generate_series(1, 20000) g;
 CREATE INDEX sequential_scan_idx ON sequential_scan USING bm25 (id, body) WITH (key_field = 'id') WHERE keep;
--- Silence the (unrelated) "Aggregate Scan not used" partial-index diagnostic so the output shows
--- only the per-row filter's own warnings.
-SET paradedb.check_aggregate_scan = false;
 -- The per-row filter's deparsed qual embeds the BM25 index oid, which changes on every database
 -- creation; mask it so the plans below are stable.
 CREATE FUNCTION explain_seqscan(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
@@ -25,6 +22,7 @@ $$;
 -- Tiny work_mem: the ~20k-key match set exceeds it and spills; count is still correct.
 SET work_mem = '64kB';
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
                                                                                                               explain_seqscan                                                                                                              
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -33,7 +31,8 @@ SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'ke
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
  count 
 -------
@@ -54,7 +53,7 @@ SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword'
 (7 rows)
 
 SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id;
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
   id   
 -------
@@ -65,6 +64,7 @@ WARNING:  the query's filter match set exceeded work_mem and spilled to a tempor
 
 -- Negation over the spilled set: everything matched, so NOT (...) excludes all rows.
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
                                                                                                                  explain_seqscan                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -73,7 +73,8 @@ SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword');
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
  count 
 -------
@@ -82,6 +83,7 @@ WARNING:  the query's filter match set exceeded work_mem and spilled to a tempor
 
 -- A term matched by no row -> empty set -> nothing matches (no spill).
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
                                                                                                                   explain_seqscan                                                                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -90,7 +92,8 @@ SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'no
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm';
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  count 
 -------
      0
@@ -99,6 +102,7 @@ WARNING:  the BM25 index is not being used for this query; it is applied as a pe
 -- With ample work_mem the identical query stays in memory: no spill WARNING.
 SET work_mem = '256MB';
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
                                                                                                               explain_seqscan                                                                                                              
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -107,7 +111,8 @@ SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'ke
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  count 
 -------
  20000

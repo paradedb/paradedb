@@ -68,7 +68,7 @@ WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
 WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  id | id 
 ----+----
   1 |  1

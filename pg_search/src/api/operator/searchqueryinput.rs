@@ -23,6 +23,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::statement_warnings::{self, warn_once_per_statement, StatementId};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -74,34 +75,13 @@ struct Cache {
 }
 
 thread_local! {
-    /// The statement (identified by [`current_statement_id`]) for which we last warned that the
-    /// index isn't being used / that the match set spilled. A statement can have many `@@@`
-    /// predicate nodes, each with its own per-`fcinfo` cache, so dedup at the statement level to
-    /// warn just once.
-    static WARNED_INDEX_UNUSED_AT: std::cell::Cell<StatementId> =
-        const { std::cell::Cell::new(pg_sys::TimestampTz::MIN) };
+    /// The statement for which we last warned that the table is being sequentially scanned / that
+    /// the match set spilled. A statement can have many `@@@` predicate nodes, each with its own
+    /// per-`fcinfo` cache, so dedup at the statement level to warn just once.
+    static WARNED_SEQ_SCAN_AT: std::cell::Cell<StatementId> =
+        const { std::cell::Cell::new(statement_warnings::NEVER) };
     static WARNED_SPILLED_AT: std::cell::Cell<StatementId> =
-        const { std::cell::Cell::new(pg_sys::TimestampTz::MIN) };
-}
-
-/// Uniquely identifies the currently-executing statement (its start timestamp).
-type StatementId = pg_sys::TimestampTz;
-
-/// Identifies the currently-executing statement. Distinct statements -- including each `EXECUTE` of
-/// a prepared statement -- get distinct values, letting us dedup a warning to once per statement.
-fn current_statement_id() -> StatementId {
-    unsafe { pg_sys::GetCurrentStatementStartTimestamp() }
-}
-
-/// Emit `message` as a WARNING at most once per statement, tracked by `warned_at`.
-fn warn_once_per_statement(
-    warned_at: &'static std::thread::LocalKey<std::cell::Cell<StatementId>>,
-    message: &str,
-) {
-    let stmt_id = current_statement_id();
-    if warned_at.with(|last| last.replace(stmt_id)) != stmt_id {
-        pgrx::warning!("{message}");
-    }
+        const { std::cell::Cell::new(statement_warnings::NEVER) };
 }
 
 /// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
@@ -333,8 +313,8 @@ pub fn search_with_query_input(
 
     if newly_built {
         warn_once_per_statement(
-            &WARNED_INDEX_UNUSED_AT,
-            "the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow",
+            &WARNED_SEQ_SCAN_AT,
+            "the table is being sequentially scanned for this query, so performance may be slow",
         );
     }
     if spilled {

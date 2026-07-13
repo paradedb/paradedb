@@ -492,7 +492,7 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
 WARNING:  Aggregate Scan not used: unsupported aggregate function: stddev. To disable this warning: SET paradedb.check_aggregate_scan = false (table: filter_agg_test)
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  total |   price_stddev   | apple_count 
 -------+------------------+-------------
     20 | 901.871070925012 |           3
@@ -1033,7 +1033,7 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
 WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: filter_agg_test)
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
  unique_categories | apple_count 
 -------------------+-------------
                  4 |           3
@@ -1049,7 +1049,7 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 ORDER BY price DESC
 LIMIT 5;
-WARNING:  the BM25 index is not being used for this query; it is applied as a per-row filter, so query performance may be slow
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
   category   |  price  | total_count | apple_count_window 
 -------------+---------+-------------+--------------------
  electronics | 2499.99 |           8 |                  3

@@ -32,7 +32,6 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
-WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
  count 
 -------
  20000
@@ -74,7 +73,6 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
 
 SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword');
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.check_aggregate_scan = false (table: sequential_scan)
-WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
  count 
 -------
      0

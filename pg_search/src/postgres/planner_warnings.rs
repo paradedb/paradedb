@@ -22,6 +22,9 @@ use std::thread::LocalKey;
 use pgrx::pg_sys;
 
 use crate::api::HashMap;
+use crate::postgres::customscan::aggregatescan::AggregateScan;
+use crate::postgres::customscan::joinscan::JoinScan;
+use crate::postgres::customscan::CustomScan;
 
 #[derive(Default)]
 pub struct WarningData {
@@ -242,27 +245,19 @@ pub fn emit_planner_warnings() {
 // from many search-operator predicate nodes surfaces just once.
 //
 
-/// Uniquely identifies the currently-executing statement (its start timestamp).
 type StatementId = pg_sys::TimestampTz;
 
-/// Sentinel [`StatementId`] that never matches a real statement, for initializing trackers.
 const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 
 thread_local! {
-    /// The statement for which we last warned that the table is being sequentially scanned / that
-    /// the match set spilled. A statement can have many search-operator predicate nodes, each with
-    /// its own per-`fcinfo` cache, so dedup at the statement level to warn just once.
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
 }
 
-/// Identifies the currently-executing statement. Distinct statements -- including each `EXECUTE` of
-/// a prepared statement -- get distinct values, letting us dedup a warning to once per statement.
 fn current_statement_id() -> StatementId {
     unsafe { pg_sys::GetCurrentStatementStartTimestamp() }
 }
 
-/// Emit `message` as a WARNING at most once per statement, tracked by `warned_at`.
 fn warn_once_per_statement(warned_at: &'static LocalKey<Cell<StatementId>>, message: &str) {
     let stmt_id = current_statement_id();
     if warned_at.with(|last| last.replace(stmt_id)) != stmt_id {
@@ -270,15 +265,17 @@ fn warn_once_per_statement(warned_at: &'static LocalKey<Cell<StatementId>>, mess
     }
 }
 
-/// Planner-warning categories (the custom scans' `NAME`s) whose presence means the user already
-/// received more actionable guidance than the generic sequential-scan warning.
-const JOIN_SCAN_CATEGORY: &str = "ParadeDB Join Scan";
-const AGGREGATE_SCAN_CATEGORY: &str = "ParadeDB Aggregate Scan";
-
-/// Whether a warning was recorded for the current planning cycle under any of `categories`. The
-/// planner state is populated during planning and only cleared at the start of the next planning
-/// cycle, so it is still readable while the plan executes.
-fn planner_warned_in(categories: &[&str]) -> bool {
+/// Whether the planner already warned (this statement) that a join or aggregate scan wasn't used.
+/// Those warnings name a concrete alternative, so the sequential-scan/spill warnings below would
+/// just be noise next to them. The planner state is populated during planning and only cleared at
+/// the start of the next planning cycle, so it is still readable while the plan executes.
+fn superseded_by_scan_warning() -> bool {
+    let categories = [
+        JoinScan::NAME.to_str().expect("scan NAME is valid UTF-8"),
+        AggregateScan::NAME
+            .to_str()
+            .expect("scan NAME is valid UTF-8"),
+    ];
     PLANNER_STATE.with(|state| {
         let state = state.borrow();
         categories.iter().any(|cat| {
@@ -292,12 +289,8 @@ fn planner_warned_in(categories: &[&str]) -> bool {
 
 /// Warn (once per statement) that a search-operator predicate is being applied as a per-row filter
 /// over a sequential scan rather than via the index.
-///
-/// Suppressed when the planner already emitted a join- or aggregate-scan warning for this
-/// statement: that warning names a concrete alternative, so the generic sequential-scan warning
-/// would just be noise next to it.
 pub fn warn_sequential_scan() {
-    if planner_warned_in(&[JOIN_SCAN_CATEGORY, AGGREGATE_SCAN_CATEGORY]) {
+    if superseded_by_scan_warning() {
         return;
     }
     warn_once_per_statement(
@@ -310,6 +303,9 @@ pub fn warn_sequential_scan() {
 /// Warn (once per statement) that the materialized filter match set exceeded `work_mem` and
 /// spilled to a temporary file.
 pub fn warn_filter_spilled() {
+    if superseded_by_scan_warning() {
+        return;
+    }
     warn_once_per_statement(
         &WARNED_SPILLED_AT,
         "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded",

@@ -384,5 +384,12 @@ pub fn deserialize_physical_plan_with_runtime(
     // own build side instead of scanning every segment. The relink is possible only because a
     // fragment keeps an operator and its probe scans in the same process; a link that crossed
     // fragments would need the filter values shipped between processes.
+    //
+    // Prior art: the same pass was proposed for datafusion-distributed
+    // (https://github.com/datafusion-contrib/datafusion-distributed/pull/348) and closed in
+    // favor of fixing it in DataFusion proper, by serializing and deduping dynamic filters so
+    // decode re-shares one instance (https://github.com/apache/datafusion/pull/20416, design
+    // discussion in https://github.com/apache/datafusion/issues/21207). Once DataFusion
+    // round-trips the filters natively, this pass can go.
     FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

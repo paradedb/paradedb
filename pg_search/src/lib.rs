@@ -19,6 +19,7 @@
 mod aggregate;
 mod api;
 mod bootstrap;
+mod dst;
 mod index;
 mod postgres;
 mod query;

@@ -53,6 +53,7 @@ SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword'
 
 SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
 WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
   id   
 -------

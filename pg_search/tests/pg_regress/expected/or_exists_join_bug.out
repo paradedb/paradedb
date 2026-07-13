@@ -141,6 +141,7 @@ AND EXISTS(
 )
 ORDER BY u.id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | name  
 ----+-------
   1 | Alice
@@ -169,6 +170,7 @@ AND EXISTS(
 )
 ORDER BY u.id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | name  
 ----+-------
   1 | Alice
@@ -196,6 +198,7 @@ AND EXISTS(
 )
 ORDER BY u.id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id |  name   
 ----+---------
   3 | Charlie
@@ -250,6 +253,7 @@ AND EXISTS(
 )
 ORDER BY u.id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | name  
 ----+-------
   1 | Alice

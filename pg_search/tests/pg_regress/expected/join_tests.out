@@ -331,6 +331,7 @@ WHERE (a.bio @@@ 'author' OR b.content @@@ 'science' OR c.description @@@ 'techn
 ORDER BY a.id, b.id, c.id, author_score DESC, book_score DESC, category_score DESC
 LIMIT 10;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  author_name  |     book_title     | category_name | author_score | book_score | category_score 
 --------------+--------------------+---------------+--------------+------------+----------------
  J.K. Rowling | Harry Potter Magic | Fantasy       |   0.66167223 |          0 |              0
@@ -518,6 +519,7 @@ WHERE a.bio @@@ 'author'
 ORDER BY a.id, b.id, c.id
 LIMIT 15;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  author_name  |      book_title      | category_name | author_score | book_score | category_score 
 --------------+----------------------+---------------+--------------+------------+----------------
  J.K. Rowling | Harry Potter Magic   | Fantasy       |   0.66167223 | 0.27030534 |      1.5404451
@@ -694,6 +696,7 @@ WHERE (a.bio @@@ 'technology' OR a.country @@@ 'British')
 ORDER BY a.id, b.id, c.id, p.id, author_score DESC, book_score DESC
 LIMIT 15;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
   author_name  |      book_title      | category_name |    publisher_name    | author_score | book_score | category_score | publisher_score 
 ---------------+----------------------+---------------+----------------------+--------------+------------+----------------+-----------------
  J.K. Rowling  | Harry Potter Magic   | Fantasy       | Magic Books          |            0 |  1.2683676 |      1.5404451 |               0

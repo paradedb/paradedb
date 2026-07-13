@@ -90,6 +90,7 @@ SELECT
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
 FROM mock_items;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  total | count | count 
 -------+-------+-------
     41 |     5 |     0

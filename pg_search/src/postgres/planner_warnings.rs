@@ -302,7 +302,8 @@ pub fn warn_sequential_scan() {
     }
     warn_once_per_statement(
         &WARNED_SEQ_SCAN_AT,
-        "the table is being sequentially scanned for this query, so performance may be slow",
+        "the table is being sequentially scanned for this query, so performance may be slow\n\
+         if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose",
     );
 }
 

@@ -20,9 +20,8 @@ pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
 deferred_wal = []
 # Emit deterministic-simulation-testing (DST) assertions from bug-class code paths (e.g. a
-# background-merge crash), via the vendor SDK in `src/dst.rs`. Enabled only for the
-# instrumented build; a no-op everywhere else. Vendor-neutral name so the harness (today
-# Antithesis) can be swapped without touching call sites.
+# background-merge crash), via the Antithesis SDK in `src/dst.rs`. Enabled only for the
+# instrumented build; a no-op everywhere else.
 dst = ["dep:antithesis_sdk"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released

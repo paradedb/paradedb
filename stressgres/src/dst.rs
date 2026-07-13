@@ -17,12 +17,10 @@
 
 //! Deterministic-simulation-testing (DST) hooks.
 //!
-//! The only module that talks to the DST vendor SDK — currently Antithesis, pulled in as
-//! `antithesis_sdk`. The rest of stressgres calls this crate-local vocabulary instead of
-//! the SDK directly, so moving to a different DST harness means rewriting this file and
-//! the one dependency line in `Cargo.toml`, not chasing vendor calls across the tree.
+//! The only module that talks to the DST vendor SDK (Antithesis), pulled in as
+//! `antithesis_sdk`.
 //!
-//! stressgres links the SDK unconditionally: it is test-only tooling, and the SDK is a
+//! Stressgres links the SDK unconditionally: it is test-only tooling, and the SDK is a
 //! runtime no-op outside the DST environment, so there is no feature gate here (unlike
 //! `pg_search`, which gates its equivalent module behind `--features dst`).
 

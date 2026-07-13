@@ -17,10 +17,8 @@
 
 //! Deterministic-simulation-testing (DST) hooks.
 //!
-//! The only module that talks to the DST vendor SDK — currently Antithesis, pulled in as
-//! the optional `antithesis_sdk` dependency. Everything else in `pg_search` calls this
-//! crate-local vocabulary, so moving to a different DST harness means rewriting this file
-//! and the one dependency line in `Cargo.toml`, not chasing vendor calls across the tree.
+//! The only module that talks to the DST vendor SDK (Antithesis), pulled in as
+//! the optional `antithesis_sdk` dependency.
 //!
 //! Built only under `--features dst` (the instrumented build); a no-op everywhere else,
 //! so production `pg_search` never links the SDK.

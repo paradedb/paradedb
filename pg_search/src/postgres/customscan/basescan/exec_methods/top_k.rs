@@ -20,6 +20,7 @@ use std::cell::RefCell;
 use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
+use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
@@ -347,7 +348,7 @@ impl ExecMethod for TopKScanExecState {
         let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
 
         let agg_limits = AggregationLimitsGuard::new(
-            Some(gucs::adjust_work_mem().get().try_into().unwrap()),
+            Some(WorkMem::Tantivy.bytes().try_into().unwrap()),
             Some(bucket_limit),
         );
 

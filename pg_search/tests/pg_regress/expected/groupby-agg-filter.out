@@ -1047,6 +1047,8 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 ORDER BY price DESC
 LIMIT 5;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
   category   |  price  | total_count | apple_count_window 
 -------------+---------+-------------+--------------------
  electronics | 2499.99 |           8 |                  3

@@ -1405,6 +1405,21 @@ async fn execute_query_multiple_times(
     // query
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
 
+    // Apply the query's `SET` preamble to the session up front, so operating-point GUCs are in effect
+    // for get_query_id's EXPLAIN of the bare measured query below. Most access methods fall back to a
+    // default when a GUC is unset, but vchordrq errors ("need N probes, but 0 probes provided") if
+    // vchordrq.probes is empty, so planning the SELECT without its SETs would fail. The measured runs
+    // re-apply the SETs anyway (they run the full `query`); this is idempotent.
+    for stmt in query.split(';') {
+        let stmt = stmt.trim();
+        if stmt.len() >= 4 && stmt[..4].eq_ignore_ascii_case("set ") {
+            sqlx::raw_sql(&format!("{stmt};"))
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
+        }
+    }
+
     let query_id = get_query_id(measured_query, &mut conn).await?;
     let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
 

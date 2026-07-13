@@ -1,43 +1,40 @@
 ---
 title: Search without a second system
-description: ParadeDB unifies your application data, full-text search, vector retrieval, and aggregations in Postgres.
+description: One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.
 canonical: https://docs.paradedb.com/welcome/introduction
 ---
 
 ![ParadeDB Banner](/images/paradedb_banner.png)
 
-ParadeDB is a search engine built into Postgres. It brings BM25 relevance ranking, faceting, hybrid search, and aggregations to your tables
-in standard SQL — running inside your system of record, with Postgres' transactional guarantees, rather than in a second system you have to
-keep in sync.
+ParadeDB is a search engine built into Postgres. Its **pg_search** extension brings BM25 relevance ranking, faceting, hybrid search, and
+aggregations to your tables in standard SQL. Everything runs inside your system of record with Postgres' transactional guarantees, not in
+a second system you have to keep in sync.
 
 ## Who is ParadeDB for?
 
 You're likely a good fit for ParadeDB if any of the following sound like you:
 
-1. **Postgres is your primary database** — managed or self-managed — and you'd rather build on it than around it.
+1. **Postgres is your primary database** (managed or self-managed) and you'd rather build on it than around it.
 2. You've **outgrown Postgres' built-in search** (`tsvector` and the GIN index) and hit **performance bottlenecks** or **missing features** like BM25 scoring, fuzzy matching, or faceting.
-3. You're **evaluating a search engine** like Elasticsearch, but don't want to run — and continuously sync — a second system alongside your database.
-4. You need **full-text and semantic search together**, and want to combine BM25 relevance with vector similarity in a single query.
-5. You run **faceted search or real-time analytics** over that same data, and don't want to ship it to a separate engine first.
+3. You're **evaluating a search engine** like Elasticsearch, but don't want to run (and continuously sync) a second system alongside your database.
 
 ## Why ParadeDB?
 
-For teams that already use Postgres, ParadeDB is the simplest way to unify your application data, full-text search, vector retrieval, and aggregations in one database.
+For teams that already use Postgres, ParadeDB is the simplest path to one Postgres for your application data, full-text search, vector retrieval, and aggregations.
 
 ### Zero ETL Required
 
 Syncing Postgres with an external search engine like Elastic is a time-consuming, error-prone process that involves babysitting ETL pipelines
 and debugging data inconsistencies. ParadeDB eliminates this class of problems because search, vectors, and aggregations live right next to your data.
 
-The simplest way to run ParadeDB is to [install the extension](/deploy/self-hosted/extension) directly in your primary Postgres. Your search
-index stays current automatically — index updates happen in the same transaction as your writes, with no pipeline to maintain. If you can't
-install extensions on your primary (for example, on a managed provider like RDS), you can instead [run ParadeDB as a logical
-replica](/deploy/logical-replication/getting-started) of your primary Postgres.
+pg_search is a pure Postgres extension: no fork, no separate server. [Install it](/deploy/self-hosted/extension) in your primary Postgres
+and your search index stays current automatically: index updates happen in the same transaction as your writes, with no pipeline to
+maintain. If you can't install extensions on your primary, see [other deployment options](/deploy/overview).
 
 ### Search That Feels Like Postgres
 
 In ParadeDB, a search query is just SQL. You get BM25 relevance scoring, filtering, and sorting with the operators and functions you
-already know — plus full support for `JOIN`s, so there's no need to denormalize your existing schema.
+already know, plus full support for `JOIN`s, so there's no need to denormalize your existing schema.
 
 ```sql
 -- Index a table for full-text search
@@ -55,12 +52,15 @@ LIMIT 5;
 
 The same index also serves faceted search and aggregations, pushing filters and aggregates directly into the index instead of computing
 them afterward. And because ParadeDB runs inside Postgres, you can pair it with [pgvector](https://github.com/pgvector/pgvector) to combine
-full-text and semantic search in one query — no separate vector database to keep in sync.
+full-text and semantic search in one query, with no separate vector database to keep in sync. Vectors run on pgvector today, and a
+high-performance, pgvector-compatible version is coming to the ParadeDB index soon.
 
 ### One Index Behind Every Query
 
-Behind the SQL is a single custom index — the **BM25 index** — that handles full-text ranking and aggregations together and stays current
-inside your transactions, so search never lags your writes. [See how it's built →](/welcome/architecture)
+Behind the SQL is a single custom index: the **BM25 index**, built on [Tantivy](https://github.com/quickwit-oss/tantivy), the Rust port of
+Lucene. It handles full-text ranking and aggregations together and stays current inside your transactions, so search never lags your
+writes. It goes toe-to-toe with dedicated search engines on full-text performance, often coming out on top. Vector search is coming to the
+same index soon, so hybrid queries will run on one index too. [See how it's built →](/welcome/architecture)
 
 ### As Reliable As Postgres
 
@@ -88,7 +88,7 @@ People usually compare ParadeDB to two other types of systems: OLTP databases li
 
 ParadeDB launched out of the [Y Combinator (YC)](https://ycombinator.com) S23 batch and has run in production since December 2023.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb), the open-source version of ParadeDB, has been deployed over 700,000 times.
+[ParadeDB Community](https://github.com/paradedb/paradedb), the open-source version of ParadeDB, has been deployed over 1.5 million times via its Docker image, and the pg_search extension has been installed over 250,000 times.
 ParadeDB Enterprise, the durable and production-hardened edition of ParadeDB, powers core search and analytics use cases at enterprises ranging from Fortune 500s to fast-growing startups. A few
 examples include:
 

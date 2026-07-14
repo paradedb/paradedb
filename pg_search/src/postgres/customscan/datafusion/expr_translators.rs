@@ -205,7 +205,7 @@ impl<'a> PredicateTranslator<'a> {
         }
     }
 
-    /// Translate a `CaseExpr` (CASE [operand] WHEN … THEN … ELSE … END).
+    /// Translate a `CaseExpr` (CASE `operand` WHEN … THEN … ELSE … END).
     pub(crate) unsafe fn translate_case_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         let case = node as *mut pg_sys::CaseExpr;
 

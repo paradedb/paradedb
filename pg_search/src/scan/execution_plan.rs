@@ -110,7 +110,7 @@ pub enum ScanRecipe {
 }
 
 /// State for a scan partition.
-/// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
+/// Uses `Arc<FFHelper>` so the same FFHelper can be shared across multiple partitions.
 pub struct ScanPartition {
     pub recipe: ScanRecipe,
     pub ffhelper: Arc<FFHelper>,

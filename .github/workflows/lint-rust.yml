@@ -81,6 +81,11 @@ jobs:
       - name: Run Rustfmt
         run: cargo fmt -- --check
 
+      - name: Run Rustdoc
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --document-private-items
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 

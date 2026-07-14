@@ -304,7 +304,7 @@ impl PgSearchRelation {
     }
 
     /// Returns true if Postgres thinks this relation needs WAL *or* instead returns the WAL-ness
-    /// based on a prior call to [`set_need_wal`].
+    /// based on a prior call to `set_need_wal`.
     pub fn need_wal(&self) -> bool {
         self.0.as_ref().unwrap().7.get(self.as_ptr())
     }

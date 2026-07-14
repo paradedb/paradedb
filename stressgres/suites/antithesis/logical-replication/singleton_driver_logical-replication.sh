@@ -1,15 +1,15 @@
 #!/bin/bash
 
+# Workload only. The paired first_ command built the schema; connect to it with --skip-setup
+# and run the workload. No teardown, so the schema survives for the rest of the timeline.
+
 set -Eeuo pipefail
 
-# Workload only. The paired first_ command has already rewritten both connection strings and
-# built the schema fault-free, so we connect with --skip-setup and run the workload under
-# active faults. No teardown: the schema is left in place for the rest of the timeline.
 echo ""
 echo "Running Stressgres workload for logical-replication.toml..."
-# Keep the runtime short: Antithesis explores by branching across many short timelines, so a
-# fast, self-contained run covers far more fault schedules per budget than one long scenario.
+# Short runtime: the fuzzer branches across many short timelines, so a fast run covers more
+# fault schedules per budget.
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication.toml --skip-setup --runtime 100000 --log-interval-ms 10000 --reconnect-grace 3600000 --reconnect-grace-file /tmp/stressgres-reconnect-grace
 
 echo ""
-echo "Stressgres workload completed!"
+echo "Stressgres workload complete!"

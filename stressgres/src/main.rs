@@ -84,10 +84,9 @@ fn main() -> anyhow::Result<()> {
                 SetupMode::Full
             };
             let suite_runner = SuiteRunner::new(suite, false, args.grace.window(), setup_mode)?;
-            // A `first_` command (`--setup-only`) has built the schema and is done; the
-            // workload runs later in a separate `--skip-setup` driver process. There is no
-            // startup bound here: setup runs fault-free in `first_`, and the workload is
-            // bounded by `headless::run`'s runtime, so the process always finishes.
+            // `--setup-only` (a `first_` command) has built the schema and is done; the
+            // workload runs later under `--skip-setup`. No startup bound is needed: setup is
+            // fault-free and the workload is bounded by `headless::run`'s runtime.
             if setup_mode == SetupMode::SetupOnly {
                 eprintln!("stressgres: setup complete, exiting without a workload");
                 return Ok(());

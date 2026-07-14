@@ -25,7 +25,7 @@
 //!
 //! [`report_merge_crash!`] is a forwarding macro, not a function, so the SDK captures the
 //! assertion's location at the call site (`background_merge`) rather than here. The
-//! bug-class classification stays in the [`merge_crash_details`] function.
+//! bug-class classification stays in the `merge_crash_details` function.
 
 #[cfg(feature = "dst")]
 use pgrx::pg_sys::panic::CaughtError;
@@ -33,8 +33,8 @@ use pgrx::pg_sys::panic::CaughtError;
 /// The DST details payload for a background-merge worker crash, or `None` when `caught` is
 /// not a bug.
 ///
-/// Fires only for bug-class errors — internal-error / corruption SQLSTATEs and Rust
-/// panics. An interrupt-driven cancellation is not a bug and never reaches here:
+/// Returns `Some` only for bug-class errors — internal-error / corruption SQLSTATEs and
+/// Rust panics. An interrupt-driven cancellation is not a bug and never reaches here:
 /// `merge_index` downgrades it to a `warning!`, so the faults we deliberately inject do
 /// not trip the assertion.
 #[cfg(feature = "dst")]

@@ -1,10 +1,11 @@
 #!/bin/bash
 
-set -Eeuo pipefail
-
 # Workload only. The paired first_ command has already rewritten the connection string and
 # built the schema fault-free, so we connect with --skip-setup and run the workload under
 # active faults. No teardown: the schema is left in place for the rest of the timeline.
+
+set -Eeuo pipefail
+
 echo ""
 echo "Running Stressgres workload for background-merge.toml..."
 # Keep the runtime short: Antithesis explores by branching across many short timelines, so a

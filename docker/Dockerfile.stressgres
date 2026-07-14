@@ -42,6 +42,7 @@ COPY --chown=app:app . .
 # subdirectory under /opt/antithesis/test/v1 as a separate test template and never runs
 # commands from two templates in the same timeline, so each suite's first_/singleton_driver_
 # pair is isolated and no two suites ever share the paradedb-rw database (or its disk) at once.
+
 COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/
 # The recovery-liveness "anytime" command is shared machinery — it pokes the reconnect-grace
 # file that every stressgres process reads — so it must exist in each template's directory.

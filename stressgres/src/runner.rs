@@ -348,10 +348,28 @@ fn tokio_connstr(connstr: &str) -> String {
     connstr.replace("keepalives_count", "keepalives_retries")
 }
 
+/// Which portion of the suite lifecycle a [`SuiteRunner`] executes.
+///
+/// Under Antithesis the schema build and the workload run in separate processes: a
+/// `first_` command builds the schema fault-free (before any faults start), and a
+/// `singleton_driver_` command runs the workload against it under active faults. Splitting
+/// the lifecycle is what lets setup stay off the fault path entirely.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SetupMode {
+    /// Build the schema (the `setup` job) and stop — no workload, no teardown. For `first_`.
+    SetupOnly,
+    /// Skip the `setup` job and teardown; connect to a schema a prior `first_` built and run
+    /// the workload only. For `singleton_driver_`.
+    SkipSetup,
+    /// The whole lifecycle: setup, workload, teardown. For the TUI, `auto`, and local runs.
+    Full,
+}
+
 /// Manages the entire suite: runs setup once, spawns each job's thread, optionally a monitor job,
 /// and finally runs teardown when finished.
 pub struct SuiteRunner {
     suite: Arc<Suite>,
+    setup_mode: SetupMode,
     pgver: String,
     alive: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
@@ -416,24 +434,25 @@ impl SuiteRunner {
         )
     }
 
-    /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
+    /// Create a new SuiteRunner in the given [`SetupMode`], run whatever startup that mode
+    /// calls for (setup and/or the version probe), then spawn threads for each job + monitor.
     ///
-    /// `startup_timeout` caps the version-probe-plus-setup phase. Those run with the full
-    /// reconnect grace, which the fault suite sets far longer than a run, so a fault
-    /// straddling startup would otherwise pin the process for the whole grace window and
-    /// the driver would never finish. Pass `None` (ui, auto) to keep the old unbounded
-    /// behaviour; pass `Some(_)` under fault injection so a start that never reaches the
-    /// database gives up. When it lapses the returned runner is dormant (`alive()` is
-    /// false) and the caller should exit without a workload.
+    /// There is deliberately no startup bound here. Under Antithesis the schema build runs in
+    /// a `first_` command, which the harness holds fault-free, so setup can never be pinned by
+    /// a fault. A `singleton_driver_` runs with `SkipSetup`, does no blocking startup work at
+    /// all (see the probe skip below), and lets `headless::run` bound the workload by its
+    /// runtime — so the process always finishes without any of this having to guess whether a
+    /// fault is in flight.
     pub fn new(
         suite: Suite,
         paused: bool,
         reconnect_grace: GraceWindow,
-        startup_timeout: Option<Duration>,
+        setup_mode: SetupMode,
     ) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
         let mut runner = Self {
             suite: suite.clone(),
+            setup_mode,
             pgver: String::from("<unknown>"),
             alive: Arc::new(AtomicBool::new(true)),
             paused: Arc::new(AtomicBool::new(paused)),
@@ -447,46 +466,24 @@ impl SuiteRunner {
             sys: Arc::new(RwLock::new(System::new_all())),
         };
 
-        // Once the budget lapses with the database still unreachable, flip `alive` so the
-        // in-flight `tolerate_transient` returns `Ok(None)` instead of riding the fault out
-        // for the whole grace window. `startup_done` cancels the watchdog the moment setup
-        // finishes, so a healthy run keeps its full runtime.
-        let startup_done = Arc::new(AtomicBool::new(false));
-        if let Some(budget) = startup_timeout {
-            let alive = runner.alive.clone();
-            let startup_done = startup_done.clone();
-            std::thread::spawn(move || {
-                let start = Instant::now();
-                while start.elapsed() < budget {
-                    if startup_done.load(Ordering::Acquire) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                if !startup_done.load(Ordering::Acquire) {
-                    alive.store(false, Ordering::Release);
-                }
-            });
+        // Probe the server version (informational). Skip it under `SkipSetup`: that mode runs
+        // under active faults, so a blocking probe would ride the long reconnect grace before
+        // the runtime clock starts and pin the driver. Setup itself is fault-free (it runs in
+        // a `first_` command), so the probe is safe under `SetupOnly` / `Full`.
+        if setup_mode != SetupMode::SkipSetup {
+            let default_job = Job::default();
+            if let Some(version) = runner.run_once(&default_job, |conn| {
+                let version: String = conn
+                    .first_client()
+                    .query_one("SELECT version()", &[])?
+                    .get(0);
+                Ok(version)
+            })? {
+                runner.pgver = version;
+            }
         }
 
-        // Probe the server version, riding out any transient connectivity fault
-        let default_job = Job::default();
-        if let Some(version) = runner.run_once(&default_job, |conn| {
-            let version: String = conn
-                .first_client()
-                .query_one("SELECT version()", &[])?
-                .get(0);
-            Ok(version)
-        })? {
-            runner.pgver = version;
-        }
-
-        // Skip setup (and, via the dormant runner, the workload) if the startup budget
-        // lapsed while the database was unreachable. `alive` is already false.
-        if runner.alive.load(Ordering::Relaxed) {
-            runner.init()?;
-        }
-        startup_done.store(true, Ordering::Release);
+        runner.init()?;
         let suite_runner = Arc::new(runner);
 
         // refresh sysinfo stats very frequently
@@ -512,40 +509,50 @@ impl SuiteRunner {
         Ok(suite_runner)
     }
 
-    /// Perform setup job, optionally create a monitor job, and spawn all main job threads.
+    /// Run whatever the [`SetupMode`] calls for: the setup job (unless `SkipSetup`), and —
+    /// unless `SetupOnly` — the monitors and the main job threads.
     fn init(&mut self) -> Result<()> {
-        // 1. Run setup job (always present)
-        for server in self.suite.all_servers() {
-            let mut setup_job = server.setup.clone();
-            eprintln!(
-                "Running setup job for {} on {}",
-                server.name,
-                server.connstr()
-            );
-            setup_job.destinations = vec![StatementDestination::SpecificServers(vec![server
-                .name
-                .clone()])];
+        // 1. Run the setup job, unless this process is running the workload against a schema
+        //    a prior `first_` command already built (`SkipSetup`).
+        if self.setup_mode != SetupMode::SkipSetup {
+            for server in self.suite.all_servers() {
+                let mut setup_job = server.setup.clone();
+                eprintln!(
+                    "Running setup job for {} on {}",
+                    server.name,
+                    server.connstr()
+                );
+                setup_job.destinations = vec![StatementDestination::SpecificServers(vec![server
+                    .name
+                    .clone()])];
 
-            let setup_runner = JobRunner::new(
-                self.suite.clone(),
-                setup_job,
-                false,
-                self.alive.clone(),
-                self.sys.clone(),
-            )?;
-            // Run setup on a fresh connection, replaying it in full if a transient
-            // fault interrupts it. Replay is safe because setup is idempotent (every
-            // statement is DROP ... IF EXISTS / CREATE OR REPLACE), so re-running from
-            // the top rebuilds state no matter how far a partial attempt got — not
-            // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
-            // pg_reload_conf, which are disallowed inside a transaction block).
-            if self
-                .run_once(&setup_runner.job, |conn| setup_runner.run(conn))?
-                .is_none()
-            {
-                // Startup budget lapsed mid-setup; stop before spawning any workers.
-                return Ok(());
+                let setup_runner = JobRunner::new(
+                    self.suite.clone(),
+                    setup_job,
+                    false,
+                    self.alive.clone(),
+                    self.sys.clone(),
+                )?;
+                // Run setup on a fresh connection, replaying it in full if a transient
+                // fault interrupts it. Replay is safe because setup is idempotent (every
+                // statement is DROP ... IF EXISTS / CREATE OR REPLACE), so re-running from
+                // the top rebuilds state no matter how far a partial attempt got — not
+                // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
+                // pg_reload_conf, which are disallowed inside a transaction block).
+                if self
+                    .run_once(&setup_runner.job, |conn| setup_runner.run(conn))?
+                    .is_none()
+                {
+                    // `alive` went false before setup finished; stop before spawning workers.
+                    return Ok(());
+                }
             }
+        }
+
+        // A `first_` command builds the schema and stops here; the workload runs in a
+        // separate `singleton_driver_` process.
+        if self.setup_mode == SetupMode::SetupOnly {
+            return Ok(());
         }
 
         // setup and start the monitors
@@ -798,23 +805,29 @@ impl SuiteRunner {
             }
         }
 
-        for server in &mut self.suite.all_servers() {
-            let mut teardown_job = server.teardown.clone();
-            teardown_job.destinations = vec![StatementDestination::SpecificServers(vec![server
-                .name
-                .clone()])];
+        // Only a `Full` run owns the schema's whole lifecycle and tears it down. A
+        // `SkipSetup` workload connects to a schema a `first_` command built and other driver
+        // runs in the timeline may still use, so it must leave it in place. (`SetupOnly`
+        // never reaches here — it returns before the workload starts.)
+        if self.setup_mode == SetupMode::Full {
+            for server in &mut self.suite.all_servers() {
+                let mut teardown_job = server.teardown.clone();
+                teardown_job.destinations = vec![StatementDestination::SpecificServers(vec![
+                    server.name.clone(),
+                ])];
 
-            let teardown_runner = JobRunner::new(
-                self.suite.clone(),
-                teardown_job,
-                false,
-                self.alive.clone(),
-                self.sys.clone(),
-            )?;
-            // Best-effort teardown: ride out a transient fault, and if connectivity
-            // is gone during shutdown (`alive` is already false here) skip it rather
-            // than panicking the shutdown thread.
-            self.run_once(&teardown_runner.job, |conn| teardown_runner.run(conn))?;
+                let teardown_runner = JobRunner::new(
+                    self.suite.clone(),
+                    teardown_job,
+                    false,
+                    self.alive.clone(),
+                    self.sys.clone(),
+                )?;
+                // Best-effort teardown: ride out a transient fault, and if connectivity
+                // is gone during shutdown (`alive` is already false here) skip it rather
+                // than panicking the shutdown thread.
+                self.run_once(&teardown_runner.job, |conn| teardown_runner.run(conn))?;
+            }
         }
 
         for job in &self.runners {

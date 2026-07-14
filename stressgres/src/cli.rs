@@ -122,6 +122,14 @@ pub struct HeadlessArgs {
     /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
+    /// Build the schema (run the `setup` job) and exit, running no workload. For an
+    /// Antithesis `first_` command, which runs fault-free before any driver commands.
+    #[arg(long, conflicts_with = "skip_setup")]
+    pub setup_only: bool,
+    /// Skip the `setup` job and teardown; connect to a schema a prior `first_` built and run
+    /// the workload only. For an Antithesis `singleton_driver_` command.
+    #[arg(long)]
+    pub skip_setup: bool,
     #[command(flatten)]
     pub grace: ReconnectGraceArgs,
 }

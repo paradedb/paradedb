@@ -2,7 +2,9 @@
 
 set -Eeuo pipefail
 
-# See stressgres/README.md about these connection strings.
+# First command: runs fault-free, before any faults or driver commands. Rewrites both
+# connection strings, then builds the schema with --setup-only and exits. The paired
+# singleton_driver_ command runs the workload against it. See stressgres/README.md.
 #
 # Publisher  -> vanilla Postgres pod (see docker/manifests/antithesis-paradedb.yaml).
 #               Mirrors a real-world logical-replication topology where the
@@ -19,10 +21,8 @@ echo "Sleeping for 60 seconds to allow the ParadeDB cluster to initialize..."
 sleep 60
 
 echo ""
-echo "Running Stressgres with suite logical-replication-merge.toml..."
-# Keep the runtime short: Antithesis explores by branching across many short timelines, so a
-# fast, self-contained run covers far more fault schedules per budget than one long scenario.
-/home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication-merge.toml --runtime 100000 --log-interval-ms 10000 --reconnect-grace 3600000 --reconnect-grace-file /tmp/stressgres-reconnect-grace
+echo "Building schema for logical-replication-merge.toml..."
+/home/app/target/release/stressgres headless /home/app/stressgres/suites/logical-replication-merge.toml --setup-only --reconnect-grace 3600000
 
 echo ""
-echo "Stressgres completed!"
+echo "Schema build completed!"

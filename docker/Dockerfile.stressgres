@@ -38,9 +38,17 @@ WORKDIR /home/app
 # Copy the entire paradedb/paradedb source code
 COPY --chown=app:app . .
 
-# Configure Antithesis test singletons
-RUN mkdir -p /opt/antithesis/test/v1/quickstart
-COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/quickstart/
+# Configure Antithesis test templates: one per suite. The Test Composer treats each
+# subdirectory under /opt/antithesis/test/v1 as a separate test template and never runs
+# commands from two templates in the same timeline, so each suite's first_/singleton_driver_
+# pair is isolated and no two suites ever share the paradedb-rw database (or its disk) at once.
+COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/
+# The recovery-liveness "anytime" command is shared machinery — it pokes the reconnect-grace
+# file that every stressgres process reads — so it must exist in each template's directory.
+RUN for d in /opt/antithesis/test/v1/*/; do \
+        cp /opt/antithesis/test/v1/anytime_recovery_liveness.sh "$d"; \
+    done && \
+    rm -f /opt/antithesis/test/v1/anytime_recovery_liveness.sh
 
 # Switch to app user
 USER app

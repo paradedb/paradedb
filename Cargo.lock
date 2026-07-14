@@ -5524,7 +5524,6 @@ dependencies = [
  "futures",
  "half 2.7.1",
  "lazy_static",
- "libc",
  "macros",
  "once_cell",
  "ordered-float 5.3.0",

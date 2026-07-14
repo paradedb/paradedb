@@ -30,6 +30,18 @@
 #[cfg(feature = "dst")]
 use pgrx::pg_sys::panic::CaughtError;
 
+/// Register the DST assertion catalog for this process. The SDK requires this once per
+/// process that emits assertions; without it a never-hit `assert_unreachable!` passes
+/// vacuously instead of being reported. Called from `_PG_init`, so it runs in the
+/// postmaster and every forked backend/bgworker (`antithesis_init` is idempotent).
+#[cfg(feature = "dst")]
+pub(crate) fn init() {
+    antithesis_sdk::antithesis_init();
+}
+
+#[cfg(not(feature = "dst"))]
+pub(crate) fn init() {}
+
 /// The DST details payload for a background-merge worker crash, or `None` when `caught` is
 /// not a bug.
 ///

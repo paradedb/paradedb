@@ -586,13 +586,10 @@ fn set_missing_on_terms(
 ) {
     use crate::schema::SearchFieldType;
 
-    for (
-        _name,
-        Aggregation {
-            agg,
-            sub_aggregation,
-        },
-    ) in aggs.iter_mut()
+    for Aggregation {
+        agg,
+        sub_aggregation,
+    } in aggs.values_mut()
     {
         if let AggregationVariants::Terms(terms) = agg {
             if terms.missing.is_none() {

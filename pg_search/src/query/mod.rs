@@ -464,12 +464,7 @@ impl SearchQueryInput {
         use crate::MORE_LIKE_THIS_SELECTIVITY;
 
         match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not: _,
-                ..
-            } => {
+            SearchQueryInput::Boolean { must, should, .. } => {
                 // AND: product of children selectivities; OR: max of children selectivities.
                 let must_sel = must
                     .iter()

@@ -90,7 +90,7 @@ struct BenchmarkArgs {
 
     /// Skip index creation (and the after-create-index hook). Assumes the index already exists;
     /// useful for iterating on queries against an already-indexed database.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, num_args = 1)]
     skip_index: bool,
 
     /// Number of runs to execute for each query.
@@ -129,6 +129,20 @@ struct LoadHeapArgs {
     /// config.toml. CSVs are loaded from `{data_source}/sampled/{size}/csv/{table}/`.
     #[arg(long)]
     data_source: Option<String>,
+
+    /// Append into the existing tables instead of (re)creating them. Skips create_tables.sql (which
+    /// drops the tables), so the rows are `INSERT`ed on top of whatever is already loaded and any
+    /// existing index is maintained incrementally. Used to grow a corpus one chunk at a time (e.g.
+    /// the update benchmark, which loads disjoint chunks of `sampled/1m` between query runs).
+    #[arg(long, default_value_t = false)]
+    append: bool,
+
+    /// Load each table from a single exact parquet key (`{table}/data.parquet`) instead of a
+    /// `{table}/*.parquet` glob. A glob requires `s3:ListBucket`; an exact key needs only GetObject,
+    /// so this reads a public-GetObject bucket (e.g. the update benchmark's chunks) from CI, which
+    /// has no ListBucket. Requires each table to have been written as one `data.parquet` file.
+    #[arg(long, default_value_t = false)]
+    single_file: bool,
 }
 
 #[derive(Parser)]
@@ -158,6 +172,12 @@ struct RecallArgs {
     /// Defaults to the unfiltered query.
     #[arg(long, default_value = "knn_top10_unfiltered")]
     query: String,
+
+    /// Override the ground-truth parquet source (a local path or S3 URL) instead of the default
+    /// `{data_source}/queries/ground_truth_{query}_{size}.parquet`. Used by the update benchmark to
+    /// point recall at the per-step ground truth from scripts/generate_cohere_ground_truth.sh.
+    #[arg(long)]
+    ground_truth_path: Option<String>,
 }
 
 #[tokio::main]
@@ -178,6 +198,8 @@ async fn main() -> anyhow::Result<()> {
             &args.dataset,
             &args.size,
             args.data_source.as_deref(),
+            args.append,
+            args.single_file,
         ),
         Commands::SnapshotHeap(args) => backrest::run_snapshot_heap(args),
         Commands::RestoreHeap(args) => backrest::run_restore_heap(args),
@@ -469,57 +491,25 @@ const QVEC_GUC: &str = "cohere.qvec";
 /// Number of neighbors per query the ground truth stores (recall@k).
 const RECALL_K: usize = 10;
 
-/// Measure recall@k of an already-built vector index for one query file. Recall runs the *actual*
-/// latency query (`queries/{query}.sql`) verbatim -- including its `current_setting('cohere.qvec')`
-/// operand and any `SET` lines -- once per held-out vector, setting `cohere.qvec` to that vector
-/// each time. Running the query with the vector as a per-call *constant* (not a join parameter) is
-/// what keeps recall's query plan identical to the benchmark's: a lateral parameter can tip the
-/// planner to a different plan (e.g. a btree/GIN pre-filter + exact sort instead of the ANN index),
-/// which would make recall measure something the benchmark never runs. The returned top-k is
-/// intersected with the precomputed exact top-k in `ground_truth_{query}_{size}.parquet`. Assumes
-/// the corpus and its index already exist (from a prior `benchmark` run).
-async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
-    let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
-    if !Path::new(&recall_sql).exists() {
-        bail!("Dataset '{}' has no recall.sql", args.dataset);
-    }
-    let query_file = format!("datasets/{}/queries/{}.sql", args.dataset, args.query);
+/// Parse `queries/{query}.sql`: resolve its `{{ param }}` references (per-query probes/ef_search
+/// scaled by dataset_size), then split the FIRST variant into its `SET` statements (the operating
+/// point) and the single kNN query. A file may hold multiple variants (the benchmark runs all of
+/// them -- see benchmark_queries); recall/ground truth use only the first (the one the benchmark
+/// labels with the bare file stem), so later variants' queries and SETs don't leak in. Splitting on
+/// `;` handles the inline `SET ...; SELECT ...` compound the harness uses. The query must order by
+/// current_setting('cohere.qvec') so callers can vary the vector without changing the plan.
+async fn parse_recall_query(
+    conn: &mut PgConnection,
+    dataset: &str,
+    query: &str,
+    size: &str,
+) -> anyhow::Result<(Vec<String>, String)> {
+    let query_file = format!("datasets/{dataset}/queries/{query}.sql");
     if !Path::new(&query_file).exists() {
         bail!("No query file at {query_file}; --query must name a queries/<query>.sql file");
     }
-    let config_path = format!("datasets/{}/config.toml", args.dataset);
-    let (config, _) = config::load_dataset_config(&config_path)
-        .with_context(|| format!("Failed to load config '{config_path}'"))?;
-
-    let base = args
-        .data_source
-        .as_deref()
-        .or(config.s3_base_path.as_deref())
-        .with_context(|| {
-            format!(
-                "Dataset '{}' has no S3 base path. Provide --data-source or set s3_base_path in \
-                 datasets/{}/config.toml",
-                args.dataset, args.dataset
-            )
-        })?;
-    let base = base.trim_end_matches('/');
-
-    let mut conn = PgConnection::connect(&args.url)
-        .await
-        .with_context(|| "Failed to connect to database")?;
-
-    // Parse the query file: resolve its `{{ param }}` references (per-query probes/ef_search scaled
-    // by dataset_size), then split into the `SET` statements (operating point, applied to the
-    // session) and the single kNN query. A file may hold multiple variants (the benchmark runs all
-    // of them -- see benchmark_queries); recall measures only the FIRST variant (the one the
-    // benchmark labels with the bare file stem), so later variants' queries and SETs don't leak in.
-    // Splitting on `;` handles the inline `SET ...; SELECT ...` compound the harness uses. The query
-    // is run verbatim per held-out vector, so it must order by current_setting('cohere.qvec') --
-    // that lets recall vary the vector without changing the query (and thus its plan).
     let raw_statements = queries(Path::new(&query_file));
-    let params =
-        resolve_template_params(&mut conn, &args.dataset, Some(&args.size), &raw_statements)
-            .await?;
+    let params = resolve_template_params(conn, dataset, Some(size), &raw_statements).await?;
     let first_variant = raw_statements
         .first()
         .with_context(|| format!("Query file {query_file} is empty"))?;
@@ -544,21 +534,64 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
              vary the query vector for it"
         );
     }
+    Ok((set_statements, knn_query))
+}
+
+/// Measure recall@k of an already-built vector index for one query file. Recall runs the *actual*
+/// latency query (`queries/{query}.sql`) verbatim -- including its `current_setting('cohere.qvec')`
+/// operand and any `SET` lines -- once per held-out vector, setting `cohere.qvec` to that vector
+/// each time. Running the query with the vector as a per-call *constant* (not a join parameter) is
+/// what keeps recall's query plan identical to the benchmark's: a lateral parameter can tip the
+/// planner to a different plan (e.g. a btree/GIN pre-filter + exact sort instead of the ANN index),
+/// which would make recall measure something the benchmark never runs. The returned top-k is
+/// intersected with the precomputed exact top-k in `ground_truth_{query}_{size}.parquet` (or the
+/// `--ground-truth-path` override). Assumes the corpus and its index already exist (from a prior
+/// `benchmark` run).
+async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
+    let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
+    if !Path::new(&recall_sql).exists() {
+        bail!("Dataset '{}' has no recall.sql", args.dataset);
+    }
+    let config_path = format!("datasets/{}/config.toml", args.dataset);
+    let (config, _) = config::load_dataset_config(&config_path)
+        .with_context(|| format!("Failed to load config '{config_path}'"))?;
+
+    let base = args
+        .data_source
+        .as_deref()
+        .or(config.s3_base_path.as_deref())
+        .with_context(|| {
+            format!(
+                "Dataset '{}' has no S3 base path. Provide --data-source or set s3_base_path in \
+                 datasets/{}/config.toml",
+                args.dataset, args.dataset
+            )
+        })?;
+    let base = base.trim_end_matches('/');
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+
+    let (set_statements, knn_query) =
+        parse_recall_query(&mut conn, &args.dataset, &args.query, &args.size).await?;
 
     // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
-    // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
+    // public-GetObject bucket can be read cross-account without ListBucket) once it appears. The
+    // ground truth defaults to `{base}/queries/ground_truth_{query}_{size}.parquet`, or an explicit
+    // `--ground-truth-path` (e.g. a per-step file from generate_cohere_ground_truth.sh).
+    let recall_gt_source = args.ground_truth_path.clone().unwrap_or_else(|| {
+        format!(
+            "{base}/queries/ground_truth_{}_{}.parquet",
+            args.query, args.size
+        )
+    });
     let mut fixtures = vec![
         (
             "cohere_queries",
             format!("{base}/queries/cohere_queries.parquet"),
         ),
-        (
-            "recall_gt",
-            format!(
-                "{base}/queries/ground_truth_{}_{}.parquet",
-                args.query, args.size
-            ),
-        ),
+        ("recall_gt", recall_gt_source),
     ];
 
     // Create the fixture tables (recall.sql) and load each from parquet right after its CREATE.
@@ -597,13 +630,14 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
     }
 
-    // Held-out query vectors (as pgvector text, ready to assign to cohere.qvec) and the exact ground
-    // truth, keyed by query id.
+    // Held-out query vectors (as pgvector text, ready to assign to cohere.qvec).
     let vectors: Vec<(i32, String)> =
         sqlx::query_as("SELECT id, emb::text FROM cohere_queries ORDER BY id")
             .fetch_all(&mut conn)
             .await
             .with_context(|| "Failed to read cohere_queries")?;
+
+    // Precomputed exact top-k, keyed by query id.
     let ground_truth: HashMap<i32, HashSet<String>> =
         sqlx::query_as::<_, (i32, Vec<String>)>("SELECT query_id, gt_ids FROM recall_gt")
             .fetch_all(&mut conn)
@@ -989,6 +1023,8 @@ fn load_external_data(
     dataset: &str,
     size_label: &str,
     data_source: Option<&str>,
+    append: bool,
+    single_file: bool,
 ) -> anyhow::Result<()> {
     // Read dataset config for table names and S3 path.
     let config_path = format!("datasets/{dataset}/config.toml");
@@ -1013,26 +1049,29 @@ fn load_external_data(
     );
     println!("Data source: {source_path}");
 
-    // Create tables via DDL.
-    let create_tables_sql = format!("datasets/{dataset}/create_tables.sql");
-    if !Path::new(&create_tables_sql).exists() {
-        bail!(
-            "Dataset '{dataset}' requires create_tables.sql but none found at {create_tables_sql}"
-        );
-    }
-    let status = Command::new("psql")
-        .arg(url)
-        .arg("-f")
-        .arg(&create_tables_sql)
-        .status()
-        .with_context(|| "Failed to execute create_tables.sql")?;
-    if !status.success() {
-        bail!("Failed to create tables from {create_tables_sql}");
+    // Create tables via DDL, unless appending -- create_tables.sql drops the tables, which would
+    // discard the rows and index already loaded by a prior chunk.
+    if !append {
+        let create_tables_sql = format!("datasets/{dataset}/create_tables.sql");
+        if !Path::new(&create_tables_sql).exists() {
+            bail!(
+                "Dataset '{dataset}' requires create_tables.sql but none found at {create_tables_sql}"
+            );
+        }
+        let status = Command::new("psql")
+            .arg(url)
+            .arg("-f")
+            .arg(&create_tables_sql)
+            .status()
+            .with_context(|| "Failed to execute create_tables.sql")?;
+        if !status.success() {
+            bail!("Failed to create tables from {create_tables_sql}");
+        }
     }
 
     match config.load_format {
         LoadFormat::Csv => load_tables_csv(url, dataset, &config, &source_path)?,
-        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path)?,
+        LoadFormat::Parquet => load_tables_parquet(url, &config, &source_path, single_file)?,
     }
 
     println!("External data loaded successfully.");
@@ -1122,6 +1161,7 @@ fn load_tables_parquet(
     url: &str,
     config: &config::DatasetConfig,
     source_path: &str,
+    single_file: bool,
 ) -> anyhow::Result<()> {
     let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
     conn.execute_batch("INSTALL postgres; LOAD postgres;")
@@ -1130,10 +1170,16 @@ fn load_tables_parquet(
         .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
 
     for table_name in config.all_table_names() {
-        let glob = format!("{source_path}/{table_name}/*.parquet");
-        println!("Loading '{table_name}' from {glob} into PostgreSQL...");
+        // A `*.parquet` glob needs s3:ListBucket; an exact `data.parquet` key needs only GetObject,
+        // so `--single-file` can read a public-GetObject bucket without ListBucket (see LoadHeapArgs).
+        let source = if single_file {
+            format!("{source_path}/{table_name}/data.parquet")
+        } else {
+            format!("{source_path}/{table_name}/*.parquet")
+        };
+        println!("Loading '{table_name}' from {source} into PostgreSQL...");
         conn.execute_batch(&format!(
-            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{glob}');"
+            "INSERT INTO pg.public.\"{table_name}\" SELECT * FROM read_parquet('{source}');"
         ))
         .with_context(|| format!("Failed to load parquet into table '{table_name}'"))?;
         println!("  Loaded '{table_name}'.");

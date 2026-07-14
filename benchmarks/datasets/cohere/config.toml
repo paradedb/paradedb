@@ -9,10 +9,15 @@ primary_key = "_id"  # used only if sampled later
 
 [params]
 lists = "sqrt({{ dataset_size }})::int"
-# tuned for 95% recall
-probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 45 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
-probes_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 54 WHEN 10000000 THEN 108 ELSE round(0.035 * sqrt({{ dataset_size }}))::int END"
-probes_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 150 WHEN 10000000 THEN 240 ELSE round(0.079 * sqrt({{ dataset_size }}))::int END"
+# tuned for 95% recall. The 100000 entries are the operating point for the vector-update benchmark,
+# whose ivfflat index is built on the first ~100k chunk (lists = sqrt(100k) ≈ 316) and then grown by
+# inserts without rebuild: probes are held constant across steps and set to the 1m operating point
+# scaled to that lists count (× sqrt(100000 / 1000000) ≈ 0.316), so the curve reflects corpus growth
+# rather than a moving probe count. (The standalone benchmark only runs 1m/10m, so it never uses the
+# 100000 entries.)
+probes_unfiltered = "CASE {{ dataset_size }} WHEN 100000 THEN 9 WHEN 1000000 THEN 28 WHEN 10000000 THEN 45 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
+probes_10pct = "CASE {{ dataset_size }} WHEN 100000 THEN 17 WHEN 1000000 THEN 54 WHEN 10000000 THEN 108 ELSE round(0.035 * sqrt({{ dataset_size }}))::int END"
+probes_1pct = "CASE {{ dataset_size }} WHEN 100000 THEN 47 WHEN 1000000 THEN 150 WHEN 10000000 THEN 240 ELSE round(0.079 * sqrt({{ dataset_size }}))::int END"
 ef_search_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 115 WHEN 10000000 THEN 185 ELSE 100 END"
 ef_search_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 280 WHEN 10000000 THEN 560 ELSE 200 END"
 ef_search_1pct = "1000"

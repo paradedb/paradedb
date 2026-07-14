@@ -84,9 +84,6 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
-      # Fail on broken intra-doc links, bare URLs, and malformed HTML in doc comments.
-      # --document-private-items so crate-internal docs are checked too; matches Clippy's
-      # default feature set (single pg version), so cfg-gated doc links aren't covered.
       - name: Run Rustdoc
         env:
           RUSTDOCFLAGS: "-D warnings"

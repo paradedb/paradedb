@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Fault-free setup: point at the cluster, build the schema (--setup-only), exit.
+# Runs before fault injection begins: point the suite at the cluster, build the schema
+# with --setup-only, then exit. The paired singleton_driver runs the workload against it.
 
 set -Eeuo pipefail
 

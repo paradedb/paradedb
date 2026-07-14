@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Workload only: first_ built the schema. --skip-setup, no teardown.
+# Workload only. The paired first_ command built the schema; connect to it with --skip-setup
+# and run the workload. No teardown, so the schema survives for the rest of the timeline.
 
 set -Eeuo pipefail
 

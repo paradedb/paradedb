@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Fault-free setup: point both servers at their clusters, build the schema (--setup-only), exit.
-# Publisher = vanilla Postgres (upstream we don't control); subscriber = paradedb-rw (has pg_search).
+# Runs before fault injection begins: point both servers at their clusters, build the schema
+# with --setup-only, then exit. The paired singleton_driver runs the workload against it.
+#
+# Publisher  -> vanilla Postgres pod, an upstream primary we do not control.
+# Subscriber -> paradedb-rw (the CNPG primary, has pg_search).
 
 set -Eeuo pipefail
 

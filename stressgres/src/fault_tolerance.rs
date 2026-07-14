@@ -36,7 +36,6 @@
 //! When a non-zero grace is enabled, bug detection is expected to come from Antithesis
 //! properties / postgres-side checks, not from stressgres exit codes.
 
-use antithesis_sdk::{assert_reachable, assert_sometimes};
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -255,12 +254,9 @@ pub(crate) fn tolerate_transient<T>(
 
                 // A narrower window means the supervisor healed the faults and started
                 // the recovery clock while we were down, which is the only situation in
-                // which the liveness check can actually fail. If Antithesis never
+                // which the liveness check can actually fail. If the harness never
                 // reaches it, the check passed vacuously and proved nothing.
-                assert_sometimes!(
-                    last_grace.is_some_and(|last| grace < last),
-                    "a recovery poke narrowed the grace window during an active database fault"
-                );
+                crate::dst::poke_narrowed_window!(last_grace.is_some_and(|last| grace < last));
                 // No symmetric "widened during a fault" assertion: the only widening is the
                 // supervisor restoring the baseline, which happens deep in the healed quiet
                 // period with no active fault to observe it. That path is pinned by the
@@ -280,7 +276,7 @@ pub(crate) fn tolerate_transient<T>(
                         down_since.elapsed()
                     )));
                 }
-                assert_reachable!("stressgres retried a transient database fault");
+                crate::dst::retried_transient_fault!();
                 eprintln!("stressgres: transient database fault, retrying: {e:#}");
                 interruptible_sleep(alive, backoff);
                 backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);

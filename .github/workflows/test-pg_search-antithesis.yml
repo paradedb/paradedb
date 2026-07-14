@@ -191,7 +191,7 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
           RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id -lvoidstar" \
           CARGO_PROFILE_RELEASE_WITH_DEBUG_LTO=off \
-            cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH" --features antithesis
+            cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH" --features dst
 
       # Catch the broken-symbol case above before shipping to Antithesis.
       # Undefined Rust symbols (_ZN/_R) mean a broken .so; Postgres C symbols stay undefined and are fine.

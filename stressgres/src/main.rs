@@ -20,6 +20,7 @@
 mod auto;
 mod cli;
 mod csv;
+mod dst;
 mod fault_tolerance;
 mod graph;
 mod headless;
@@ -53,9 +54,9 @@ pub struct MetricsLine {
 
 /// Main entry point using subcommands.
 fn main() -> anyhow::Result<()> {
-    // Registers the assertion catalog so Antithesis knows which `assert_reachable!`
-    // sites exist but were never hit. A no-op outside the Antithesis environment.
-    antithesis_sdk::antithesis_init();
+    // Register the DST assertion catalog (see `dst`), so a never-hit reachability site is
+    // reported rather than passing vacuously. A no-op outside the DST environment.
+    dst::init();
 
     let cli = Cli::parse();
 
@@ -87,13 +88,10 @@ fn main() -> anyhow::Result<()> {
                 );
                 return Ok(());
             }
-            // Setup (schema build) is done and the workload is about to start. Antithesis
-            // holds fault injection until this signal, so every suite gets a clean startup
-            // and actually runs its workload rather than being killed mid-initialisation.
-            // A no-op outside the Antithesis environment.
-            antithesis_sdk::lifecycle::setup_complete(&serde_json::json!({
-                "suite": args.suite_path.display().to_string(),
-            }));
+            // Setup (schema build) is done and the workload is about to start; signal the
+            // DST harness, which holds fault injection until now so every suite gets a
+            // clean startup rather than being killed mid-initialisation.
+            dst::setup_complete(&args.suite_path.display().to_string());
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {

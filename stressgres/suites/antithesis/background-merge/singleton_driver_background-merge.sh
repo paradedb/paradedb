@@ -5,10 +5,10 @@
 
 set -Eeuo pipefail
 
-echo ""
-echo "Running Stressgres workload for background-merge.toml..."
 # Short runtime: the fuzzer branches across many short timelines, so a fast run covers more
 # fault schedules per budget.
+echo ""
+echo "Running Stressgres workload for background-merge.toml..."
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/background-merge.toml --skip-setup --runtime 100000 --log-interval-ms 10000 --reconnect-grace 3600000 --reconnect-grace-file /tmp/stressgres-reconnect-grace
 
 echo ""

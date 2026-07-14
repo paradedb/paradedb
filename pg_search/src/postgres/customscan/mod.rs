@@ -20,7 +20,7 @@
 #![allow(clippy::tabs_in_doc_comments)]
 
 use parking_lot::Mutex;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
@@ -365,6 +365,58 @@ impl CreateUpperPathsHookArgs {
                 .as_ref()
                 .expect("Args::output_rel should not be null")
         }
+    }
+
+    /// Estimate how many groups the GROUP BY will produce, so routing can send
+    /// high-cardinality aggregates to DataFusion (no bucket cap) and keep
+    /// low-cardinality ones on the faster Tantivy path.
+    ///
+    /// We cannot use `output_rel.rows`: at the `UPPERREL_GROUP_AGG` hook the
+    /// grouped relation's row estimate is not yet populated (it reads as ~0), so
+    /// an `output_rel.rows > max_buckets` check never fires. Instead we call
+    /// Postgres's own `estimate_num_groups` directly, seeded with the base
+    /// relation's post-restriction row count (`input_rel.rows`, which reflects
+    /// the `@@@` selectivity). That estimator draws `n_distinct` from
+    /// `pg_statistic`, which is the signal that actually predicts truncation.
+    ///
+    /// Returns `1.0` when there is no GROUP BY (a scalar aggregate cannot
+    /// truncate).
+    pub unsafe fn estimate_group_count(&self) -> f64 {
+        let parse = self.root().parse;
+        if parse.is_null() || (*parse).groupClause.is_null() {
+            return 1.0;
+        }
+
+        let group_exprs =
+            pg_sys::get_sortgrouplist_exprs((*parse).groupClause, (*parse).targetList);
+        if group_exprs.is_null() {
+            return 1.0;
+        }
+
+        pg_sys::estimate_num_groups(
+            self.root,
+            group_exprs,
+            self.input_rel().rows,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
+
+    /// The statically-known `LIMIT + OFFSET` of the query, or `None` when there
+    /// is no LIMIT or its value is parameterized (not known at planning time).
+    pub unsafe fn limit_plus_offset(&self) -> Option<usize> {
+        limit_offset::LimitOffset::from_parse(self.root().parse).and_then(|lo| lo.static_fetch())
+    }
+
+    /// True when the query groups by exactly one column. Tantivy's bounded top-N
+    /// pushdown is only safe for a single grouping column: with several, a nested
+    /// terms level can drop whole outer groupings before they are combined, which
+    /// a LIMIT cannot recover.
+    pub unsafe fn is_single_grouping_column(&self) -> bool {
+        let parse = self.root().parse;
+        !parse.is_null()
+            && !(*parse).groupClause.is_null()
+            && PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause).len() == 1
     }
 }
 

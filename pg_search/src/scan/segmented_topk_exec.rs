@@ -62,16 +62,14 @@
 //! where `S` is the number of segments. Pass-through rows (State 2 and NULL
 //! ordinals) are emitted immediately and are not bounded by K.
 //!
-//! **Compound sorts:** Only the primary sort column is used for ordinal
-//! pruning. When the Top K sort has tiebreaker columns (e.g.
-//! `ORDER BY val DESC, id ASC LIMIT 25`), all rows tied at the boundary
-//! ordinal are retained — the exec cannot distinguish between them without
-//! the tiebreaker, so it keeps them all for the final Top K to resolve.
-//! This is safe (never drops correct rows) but slightly less aggressive
-//! than theoretically possible when there are many duplicates.
-//! TODO(<https://github.com/paradedb/paradedb/issues/4255>): rewrite the full
-//! Top K sort expression in terms of term ordinals to handle tiebreakers
-//! natively.
+//! **Compound sorts:** every sort column is used, not just the primary. The
+//! per-segment buffer keys on the full compound `OwnedRow`, and the global
+//! threshold is published as a lexicographic filter over all sort exprs — each
+//! deferred column resolved via `ord_to_str`, non-deferred columns read
+//! directly — so `ORDER BY val DESC, id ASC LIMIT 25` breaks ties on `id`
+//! rather than retaining every row that shares the boundary `val`. Only rows
+//! tied across the *entire* sort key are conservatively retained, per the
+//! `survivors_s` bound above.
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};

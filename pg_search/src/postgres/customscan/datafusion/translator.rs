@@ -412,7 +412,7 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
 /// Lower a `JoinNode` over already-built left/right `DataFrame`s.
 ///
 /// Builds equi-join keys with [`build_equi_join_exprs`], maps the
-/// [`super::build::JoinType`] into DataFusion's `JoinType`, and dispatches
+/// `super::build::JoinType` into DataFusion's `JoinType`, and dispatches
 /// to `join_on` (when there are equi keys) or `join` (cross join). Caller
 /// is responsible for any post-join filter handling - `JoinNode::filter`
 /// is not consulted here.
@@ -476,7 +476,7 @@ fn build_null_aware_anti_join(
     Ok(DataFrame::new(session_state, plan))
 }
 
-/// Map a [`super::build::JoinType`] to DataFusion's `JoinType`. Returns
+/// Map a `super::build::JoinType` to DataFusion's `JoinType`. Returns
 /// `Err(NotImplemented)` for variants the translator does not lower -
 /// today only `UniqueOuter` / `UniqueInner`, which are Postgres-side
 /// optimizer artifacts that should never reach the DataFusion executor.

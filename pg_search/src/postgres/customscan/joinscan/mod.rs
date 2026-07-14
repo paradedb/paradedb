@@ -134,9 +134,9 @@
 //! - [`planning`]: Cost estimation, condition extraction, field collection, pathkey handling.
 //! - [`predicate`]: Transform PostgreSQL expressions to evaluable expression trees.
 //! - [`scan_state`]: Execution state and DataFusion plan building.
-//! - [`translator`]: Maps PostgreSQL expressions/columns to DataFusion expressions.
+//! - `translator`: Maps PostgreSQL expressions/columns to DataFusion expressions.
 //! - [`privdat`]: Private data serialization between planning and execution.
-//! - [`explain`]: EXPLAIN output formatting.
+//! - `explain`: EXPLAIN output formatting.
 
 pub mod build;
 pub mod planning;
@@ -516,7 +516,7 @@ impl JoinScan {
     ///
     /// Returns `Err` with a descriptive message if any activation check fails.
     /// The caller can then optionally perform join-level predicate extraction on
-    /// the returned clause before passing it to [`finalize_clause_into_path`].
+    /// the returned clause before passing it to `finalize_clause_into_path`.
     unsafe fn validate_and_build_clause(
         root: *mut pg_sys::PlannerInfo,
         plan: &RelNode,
@@ -1917,7 +1917,7 @@ fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::
     );
 }
 
-/// Walk `node` and build an [`InputVarInfo`] for every base-relation Var
+/// Walk `node` and build an `InputVarInfo` for every base-relation Var
 /// referenced, capturing type metadata from the live Var pointer so execution
 /// doesn't need catalog lookups. Uses `pull_var_clause` (same as the DISTINCT
 /// extraction path in `planning.rs`) to recurse through all wrappers.
@@ -1971,7 +1971,7 @@ unsafe fn splice_path_private_into_list(
 }
 
 impl JoinScan {
-    /// Body of [`<Self as CustomScan>::create_custom_path`] in `?`-style.
+    /// Body of `<Self as CustomScan>::create_custom_path` in `?`-style.
     /// The Ok variant returns the assembled `CustomPath` plus the alias list
     /// (for the "successful" mark) and the trailing multi-table clauses to
     /// splice onto `custom_private`. The Err variants distinguish silent

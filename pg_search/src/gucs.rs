@@ -689,15 +689,17 @@ pub fn global_enable_background_merging() -> bool {
     GLOBAL_ENABLE_BACKGROUND_MERGING.get()
 }
 
-// NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
+// NB:  MEMORY_BUDGET_NUM_BYTES_MIN comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MIN`], which is not publicly exposed
 mod limits {
     const MARGIN_IN_BYTES: usize = 1_000_000;
     // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
     // in the `memory_arena` goes below MARGIN_IN_BYTES.
     pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = 15 * MARGIN_IN_BYTES;
 
-    // We impose the memory per thread to be no greater than 4GB as that's tantivy's limit
-    pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = (4 * 1024 * 1024 * 1024) - MARGIN_IN_BYTES;
+    // We impose the memory per thread to be no greater than 1GB. Tantivy's hard limit is 4GB,
+    // but a single writer sees no meaningful throughput gains past ~1GB, so anything more is
+    // just wasted memory.
+    pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = 1024 * 1024 * 1024;
 }
 
 pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
@@ -721,7 +723,7 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
         );
     }
 
-    // clamp the per_thread_budget to the min/max values
+    // clamp the per_worker_budget to the min/max values
     let per_worker_budget = per_worker_budget.clamp(
         limits::MEMORY_BUDGET_NUM_BYTES_MIN,
         limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
@@ -730,14 +732,31 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
     NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
 }
 
-pub fn adjust_work_mem() -> NonZeroUsize {
-    let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
-    let wm_as_bytes = wm_as_bytes.clamp(
-        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
-        limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
-    );
+/// Which interpretation of the `work_mem` setting to return from [`WorkMem::get`].
+pub enum WorkMem {
+    /// The raw `work_mem` setting, in bytes.
+    Postgres,
+    /// `work_mem` clamped to the min/max budget tantivy requires.
+    Tantivy,
+}
 
-    NonZeroUsize::new(wm_as_bytes).unwrap()
+impl WorkMem {
+    pub fn get(self) -> NonZeroUsize {
+        let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+        let wm_as_bytes = match self {
+            WorkMem::Postgres => wm_as_bytes,
+            WorkMem::Tantivy => wm_as_bytes.clamp(
+                limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+                limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
+            ),
+        };
+
+        NonZeroUsize::new(wm_as_bytes).unwrap()
+    }
+
+    pub fn bytes(self) -> usize {
+        self.get().get()
+    }
 }
 
 pub fn limit_fetch_multiplier() -> f64 {
@@ -873,12 +892,14 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_adjust_work_mem() {
+    fn test_work_mem() {
         Spi::run("SET work_mem = '4MB';").unwrap();
-        assert_approx_eq!(adjust_work_mem().get(), 15 * 1_000_000, 1.0);
+        assert_approx_eq!(WorkMem::Tantivy.bytes(), 15 * 1_000_000, 1.0);
+        assert_approx_eq!(WorkMem::Postgres.bytes(), 4 * 1024 * 1024, 1.0);
 
         Spi::run("SET work_mem = '1GB';").unwrap();
-        assert_approx_eq!(adjust_work_mem().get(), 1024 * 1024 * 1024, 1.0);
+        assert_approx_eq!(WorkMem::Tantivy.bytes(), 1024 * 1024 * 1024, 1.0);
+        assert_approx_eq!(WorkMem::Postgres.bytes(), 1024 * 1024 * 1024, 1.0);
     }
 
     #[pg_test]
@@ -911,6 +932,17 @@ mod tests {
             1.0
         );
         assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(128)).is_err());
+
+        // Each worker is capped at 1GB, so raising maintenance_work_mem beyond
+        // nlaunched * 1GB does not hand any single worker more than 1GB.
+        const ONE_GB: usize = 1024 * 1024 * 1024;
+        Spi::run("SET maintenance_work_mem = '8GB';").unwrap();
+        // 1 worker: 8GB budget clamped down to the 1GB per-worker cap.
+        assert_approx_eq!(adjust_maintenance_work_mem(1).get(), ONE_GB, 1.0);
+        // 2 workers: each capped at 1GB -> 2GB total.
+        assert_approx_eq!(adjust_maintenance_work_mem(2).get(), 2 * ONE_GB, 1.0);
+        // 8 workers: 8GB / 8 = 1GB each, exactly at the cap -> 8GB total.
+        assert_approx_eq!(adjust_maintenance_work_mem(8).get(), 8 * ONE_GB, 1.0);
     }
 
     #[pg_test]

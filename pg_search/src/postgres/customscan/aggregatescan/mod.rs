@@ -1916,7 +1916,7 @@ unsafe fn group_key_to_datum(
 }
 
 /// Detects ORDER BY + LIMIT for join aggregate queries and returns a
-/// [`DataFusionTopK`] describing the sort target, direction, and K.
+/// `DataFusionTopK` describing the sort target, direction, and K.
 ///
 /// Supports two patterns:
 /// - **ORDER BY aggregate LIMIT K** (e.g., `ORDER BY COUNT(*) DESC LIMIT 5`)

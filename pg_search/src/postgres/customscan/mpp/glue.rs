@@ -345,7 +345,7 @@ pub struct MppWorkerState {
     /// Worker's MppMesh. The single `inbound_receiver` pulls frames addressed to this
     /// proc from both the DSM MPSC inbox and the in-proc self-loop channel; demux by
     /// `(sender_proc, stage_id, partition)` happens inside the handle's channel-buffer
-    /// registry. Read by the multi-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`].
+    /// registry. Read by the multi-fragment dispatcher driven by `mpp::host::exec_mpp_worker`.
     pub mesh: Arc<MppMesh>,
 }
 

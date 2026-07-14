@@ -11,7 +11,7 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.96-slim-trixie
+FROM rust:1.97-slim-trixie
 
 # Install build and runtime dependencies. Upgrade existing OS packages first so
 # we pick up the latest Debian security fixes regardless of the base layer's age.
@@ -26,6 +26,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     ca-certificates \
     postgresql-client \
     libpq5 \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user

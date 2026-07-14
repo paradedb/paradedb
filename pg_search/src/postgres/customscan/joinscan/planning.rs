@@ -236,7 +236,8 @@ pub(super) unsafe fn collect_join_sources_base_rel(
             let mut state = QualExtractState::default();
             // Extract search-capable predicates all at once. This is required
             // for score filters, which must wrap the rest of the search query.
-            if let Some(qual) = extract_quals(
+            // Fail the JoinScan if any search predicate cannot be extracted.
+            let qual = extract_quals(
                 &context,
                 rti,
                 classified.search_ri.as_ptr().cast(),
@@ -245,15 +246,11 @@ pub(super) unsafe fn collect_join_sources_base_rel(
                 false,
                 &mut state,
                 true,
-            ) {
-                let query = SearchQueryInput::from(&qual);
-                side_info = side_info.with_query(query);
-                if state.uses_our_operator {
-                    side_info = side_info.with_search_predicate();
-                }
-            } else {
-                // Fail the JoinScan if any search predicate cannot be extracted.
-                return None;
+            )?;
+            let query = SearchQueryInput::from(&qual);
+            side_info = side_info.with_query(query);
+            if state.uses_our_operator {
+                side_info = side_info.with_search_predicate();
             }
         }
     }

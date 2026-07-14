@@ -173,7 +173,7 @@ impl LinkedBytesListWriter {
         Ok(())
     }
 
-    /// Write the pending [`BlockList`] data to disk.  This must be called once, as soon as the caller
+    /// Write the pending `BlockList` data to disk.  This must be called once, as soon as the caller
     /// is positive this [`LinkedBytesListWriter`] is itself complete and fully written to disk.
     pub fn finalize_and_write(mut self) -> std::io::Result<LinkedBytesList> {
         // now that we're being finalized we can set the `last_blockno` of our metadata page
@@ -331,7 +331,7 @@ impl LinkedBytesList {
     /// no other concurrent Postgres backend would have open any block that will be returned from
     /// this function.
     ///
-    /// We take care of this, elsewhere, through our constructs like the [`PinCushion`], the [`MergeLock`],
+    /// We take care of this, elsewhere, through our constructs like the `PinCushion`, the `MergeLock`,
     /// and atomically managing the segment entries list through an atomic copy-on-write approach.
     pub fn freeable_blocks(mut self) -> impl Iterator<Item = pg_sys::BlockNumber> {
         // in addition to the list itself, we also have a secondary list of linked blocks (which

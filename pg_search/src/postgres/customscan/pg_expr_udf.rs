@@ -257,7 +257,7 @@ unsafe fn populate_slot(
 }
 
 /// Single-pass Datum→Arrow conversion: evaluate the PG expression for each row
-/// and append the result directly to an Arrow builder. No intermediate Vec<Datum>.
+/// and append the result directly to an Arrow builder. No intermediate `Vec<Datum>`.
 ///
 /// Follows the `fetch_ff_column!` pattern from `fast_fields_helper.rs`.
 ///

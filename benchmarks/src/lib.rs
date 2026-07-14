@@ -62,7 +62,7 @@ pub fn mean(data: &[f64]) -> f64 {
 /// Returns the half-width of the confidence interval for the provided confidence level
 ///
 /// The math for this comes from single-level version of what is shown in this paper:
-/// https://dl.acm.org/doi/10.1145/2555670.2464160.
+/// <https://dl.acm.org/doi/10.1145/2555670.2464160>.
 pub fn confidence_interval_half_width(data: &[f64], confidence_level: f64) -> f64 {
     assert!(!data.is_empty());
     assert!(confidence_level > 0.0);

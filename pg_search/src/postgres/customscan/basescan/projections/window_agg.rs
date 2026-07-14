@@ -331,15 +331,14 @@ unsafe fn convert_window_func_to_aggregate_type(
 
         // Extract the jsonb argument (first arg)
         let first_arg = args.get_ptr(0)?;
-        let json_value = if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
+        let const_node = nodecast!(Const, T_Const, first_arg)?;
+        let json_value = {
             if (*const_node).constisnull {
                 return None;
             }
             let jsonb_datum = (*const_node).constvalue;
             let jsonb = <pgrx::JsonB as pgrx::FromDatum>::from_datum(jsonb_datum, false)?;
             jsonb.0
-        } else {
-            return None;
         };
 
         // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
@@ -423,10 +422,9 @@ unsafe fn extract_field_name_from_aggregate_arg(
     let (var, missing) =
         if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
             parse_coalesce_expression(coalesce_node).ok()?
-        } else if let Some(var) = nodecast!(Var, T_Var, arg_node) {
-            (var, None)
         } else {
-            return None;
+            let var = nodecast!(Var, T_Var, arg_node)?;
+            (var, None)
         };
 
     // Get heaprelid from the rtable using VarContext

@@ -71,7 +71,7 @@ pub fn run(suite_runner: Arc<SuiteRunner>) -> anyhow::Result<()> {
         make_runner_view(&suite_runner, &mut job_views, &job);
     }
     mux.add_right_of(job_views, root_id)?;
-    mux.set_container_split_ratio(root_id, 0.5)?;
+    mux.set_container_split_ratio(root_id, 0.5_f32)?;
 
     cursive.add_fullscreen_layer(
         LinearLayout::vertical().child(mux).child(

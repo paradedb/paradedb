@@ -25,12 +25,22 @@ jobs:
 
       - name: Publish Docs to Mintlify
         run: |
-          # -f makes curl exit non-zero on an HTTP 4xx/5xx so a failed deploy fails the step
-          # instead of silently reporting success.
-          curl -fsS -X POST \
+          # Capture the response body and HTTP status separately so a failed deploy
+          # surfaces Mintlify's error message instead of just an opaque curl exit code.
+          http_code=$(curl -sS -o response.txt -w "%{http_code}" -X POST \
             https://api.mintlify.com/v1/project/update/${{ secrets.MINTLIFY_PROJECT_ID }} \
             -H "Authorization: Bearer ${{ secrets.MINTLIFY_API_KEY }}" \
-            -H "Content-Type: application/json"
+            -H "Content-Type: application/json")
+
+          echo "HTTP status: ${http_code}"
+          echo "Response body:"
+          cat response.txt
+
+          # Fail the step on any non-2xx response.
+          if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
+            echo "::error::Mintlify deploy failed with HTTP ${http_code}"
+            exit 1
+          fi
 
       - name: Notify Slack on Failure
         if: failure()

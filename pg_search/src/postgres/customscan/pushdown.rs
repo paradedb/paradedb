@@ -160,7 +160,7 @@ pub struct PushdownField {
 }
 
 impl PushdownField {
-    /// Given a Postgres [`pg_sys::Var`] and a [`SearchIndexSchema`], try to create a [`PushdownField`].
+    /// Given a Postgres [`pg_sys::Var`] and a `SearchIndexSchema`, try to create a [`PushdownField`].
     /// The purpose of this is to guard against the case where we mistakenly push down a field that's not indexed.
     ///
     /// Returns `Some(PushdownField)` if the field is found in the schema, `None` otherwise.

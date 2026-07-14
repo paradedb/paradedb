@@ -30,7 +30,7 @@ use pgrx::{
     PgSqlErrorCode,
 };
 
-/// The metadata stored on the [`Metadata`] page
+/// The metadata stored on the `Metadata` page
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct MetaPageData {
@@ -280,7 +280,7 @@ impl MetaPage {
     }
 
     ///
-    /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
+    /// A `LinkedItemList<SegmentMetaEntry>` containing segments which are no longer visible from the
     /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
     /// be reading them on physical replicas.
     ///

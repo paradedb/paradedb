@@ -286,6 +286,44 @@ impl SearchQueryInput {
         }
     }
 
+    pub fn is_match_all(&self) -> bool {
+        match self {
+            SearchQueryInput::All => true,
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => query.is_match_all(),
+            SearchQueryInput::FieldedQuery { query, .. } => {
+                matches!(query, crate::query::pdb_query::pdb::Query::All)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_exists(&self) -> bool {
+        match self {
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => query.is_exists(),
+            SearchQueryInput::FieldedQuery { query, .. } => {
+                matches!(query, crate::query::pdb_query::pdb::Query::Exists)
+            }
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                let clauses: Vec<_> = must
+                    .iter()
+                    .chain(should.iter())
+                    .chain(must_not.iter())
+                    .collect();
+                clauses.len() == 1 && clauses[0].is_exists()
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_full_scan_query(&self) -> bool {
         match self {
             // All by itself is a full scan
@@ -426,12 +464,7 @@ impl SearchQueryInput {
         use crate::MORE_LIKE_THIS_SELECTIVITY;
 
         match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not: _,
-                ..
-            } => {
+            SearchQueryInput::Boolean { must, should, .. } => {
                 // AND: product of children selectivities; OR: max of children selectivities.
                 let must_sel = must
                     .iter()
@@ -791,7 +824,7 @@ impl From<TermInputWire> for TermInput {
     }
 }
 
-/// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
+/// Serialize a `SearchQueryInput` node to a Postgres [`pg_sys::Const`] node, palloc'd
 /// in the current memory context.
 impl From<SearchQueryInput> for *mut pg_sys::Const {
     fn from(value: SearchQueryInput) -> Self {
@@ -1592,7 +1625,7 @@ fn value_to_json_term(
     Ok(term)
 }
 
-/// Converts a dot-separated path string (e.g. `"Top.Science.Biology"`) to a Tantivy [`Facet`].
+/// Converts a dot-separated path string (e.g. `"Top.Science.Biology"`) to a Tantivy `Facet`.
 pub(super) fn dot_path_to_facet(text: &str) -> tantivy::schema::Facet {
     tantivy::schema::Facet::from_path(text.split('.'))
 }

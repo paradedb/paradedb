@@ -19,6 +19,7 @@ pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
 deferred_wal = []
+dst = ["dep:antithesis_sdk"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
 debug-logging = [
@@ -27,6 +28,9 @@ debug-logging = [
 
 [dependencies]
 async-trait = "0.1.89"
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "full",
+], optional = true }
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
 arrow-array = "58.1.0"

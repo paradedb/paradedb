@@ -126,7 +126,7 @@ if [[ $ORMS =~ "django" ]]; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.8.0" \
+    "django-paradedb==0.10.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do
@@ -163,7 +163,7 @@ if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-    "rails-paradedb:0.8.0" \
+    "rails-paradedb:0.9.0" \
     "pg"
 
   while IFS= read -r snippet_file; do
@@ -207,7 +207,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
   echo "Installing SQLAlchemy ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "sqlalchemy-paradedb==0.6.0" \
+    "sqlalchemy-paradedb==0.8.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do
@@ -242,7 +242,7 @@ drizzle_fail_count=0
 if [[ $ORMS =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
   npm --prefix "$JAVASCRIPT_ENV_DIR" install --silent \
-    "@paradedb/drizzle-paradedb@0.1.0" \
+    "@paradedb/drizzle-paradedb@0.2.0" \
     "drizzle-orm" \
     "postgres" \
     "tsx"
@@ -284,7 +284,7 @@ if [[ $ORMS =~ "efcore" ]]; then
   echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \
-    --version 0.1.0 \
+    --version 0.1.2 \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 

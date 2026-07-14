@@ -296,7 +296,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 

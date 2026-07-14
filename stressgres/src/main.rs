@@ -20,6 +20,7 @@
 mod auto;
 mod cli;
 mod csv;
+mod dst;
 mod fault_tolerance;
 mod graph;
 mod headless;
@@ -32,6 +33,7 @@ mod tui;
 
 use crate::auto::{setup_server, ServerHandler};
 use crate::cli::{AutoArgs, Cli, Command};
+use crate::fault_tolerance::GraceWindow;
 use crate::runner::SuiteRunner;
 use crate::suite::{PgConfigStyle, PgVersion, ServerStyle, Suite, SuiteDefinition};
 use anyhow::Context;
@@ -52,6 +54,10 @@ pub struct MetricsLine {
 
 /// Main entry point using subcommands.
 fn main() -> anyhow::Result<()> {
+    // Register the DST assertion catalog (see `dst`), so a never-hit reachability site is
+    // reported rather than passing vacuously. A no-op outside the DST environment.
+    dst::init();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -60,11 +66,7 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            let suite_runner = SuiteRunner::new(
-                suite,
-                args.paused,
-                Duration::from_millis(args.reconnect_grace),
-            )?;
+            let suite_runner = SuiteRunner::new(suite, args.paused, args.grace.window(), None)?;
             tui::run(suite_runner)?;
         }
 
@@ -73,8 +75,24 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
+            // Cap startup (version probe + schema build) at one runtime's worth of time.
+            // Under fault injection the reconnect grace is set far longer than a run, so a
+            // fault straddling startup would otherwise pin the process for the whole grace
+            // window and the driver would never run to completion. If the database stays
+            // unreachable for a whole runtime we exit cleanly with no workload, so every
+            // driver reliably finishes. This is a stopgap: moving setup into an Antithesis
+            // `first_` command (which runs before any faults) removes the straddle and lets
+            // this bound go.
+            let startup_timeout =
+                Duration::from_millis(u64::try_from(args.runtime).unwrap_or(u64::MAX));
             let suite_runner =
-                SuiteRunner::new(suite, false, Duration::from_millis(args.reconnect_grace))?;
+                SuiteRunner::new(suite, false, args.grace.window(), Some(startup_timeout))?;
+            if !suite_runner.alive() {
+                eprintln!(
+                    "stressgres: database unreachable throughout startup, exiting without a workload"
+                );
+                return Ok(());
+            }
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {
@@ -98,7 +116,8 @@ fn main() -> anyhow::Result<()> {
             })?;
             // `auto` is a local-dev command with no fault injection, so fail fast
             // (grace 0) rather than tolerating transient connectivity faults.
-            let suite_runner = SuiteRunner::new(suite, false, Duration::ZERO)?;
+            let suite_runner =
+                SuiteRunner::new(suite, false, GraceWindow::fixed(Duration::ZERO), None)?;
             headless::run(
                 suite_runner,
                 args.log_path.clone(),

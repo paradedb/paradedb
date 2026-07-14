@@ -132,13 +132,13 @@ with Session(engine) as session:
 ```ruby Rails
 # Fuzzy match disjunction
 MockItem.search(:description)
-        .matching_any('runing shose', distance: 2)
+        .match_any('runing shose', distance: 2)
         .select(:id, :description)
         .limit(5)
 
 # Fuzzy match conjunction
 MockItem.search(:description)
-        .matching_all('runing shose', distance: 2)
+        .match_all('runing shose', distance: 2)
         .select(:id, :description)
         .limit(5)
 
@@ -314,7 +314,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_all("slee rann", distance: 1, prefix: true)
+        .match_all("slee rann", distance: 1, prefix: true)
         .select(:id, :description)
         .limit(5)
 ```

@@ -15,7 +15,7 @@ sleep 60
 
 echo ""
 echo "Building schema for wide-table.toml..."
-/home/app/target/release/stressgres headless /home/app/stressgres/suites/wide-table.toml --setup-only --reconnect-grace 3600000
+/home/app/target/release/stressgres headless /home/app/stressgres/suites/wide-table.toml --setup-only --reconnect-grace 200000
 
 echo ""
 echo "Schema build complete!"

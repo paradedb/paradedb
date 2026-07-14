@@ -15,7 +15,7 @@ sleep 60
 
 echo ""
 echo "Building schema for vanilla-postgres.toml..."
-/home/app/target/release/stressgres headless /home/app/stressgres/suites/vanilla-postgres.toml --setup-only --reconnect-grace 3600000
+/home/app/target/release/stressgres headless /home/app/stressgres/suites/vanilla-postgres.toml --setup-only --reconnect-grace 200000
 
 echo ""
 echo "Schema build complete!"

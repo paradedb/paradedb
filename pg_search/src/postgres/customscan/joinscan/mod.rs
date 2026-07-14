@@ -353,18 +353,49 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 /// Check whether it is safe to push LIMIT into the JoinScan plan.
 ///
 /// Returns `true` when ALL of:
-/// 1. JoinScan absorbed every base relation in the query (no outer
+/// 1. No plan node above the join consumes the full row set: window
+///    functions, set-returning functions in the target list, and
+///    GROUP BY / GROUPING SETS / HAVING all need every joined row, so a
+///    LIMIT applied inside the scan starves them (issue #5561: an
+///    unpartitioned `count(*) OVER ()` returned the LIMIT instead of
+///    the true match count). `grouping_planner` sets `limit_tuples = -1` for exactly
+///    these queries; the parse flags are checked directly because
+///    `limit_tuples == -1` also means "parameterized LIMIT", which is
+///    safe to push.
+/// 2. JoinScan absorbed every base relation in the query (no outer
 ///    relations that could add post-filters above JoinScan).
-/// 2. Every SubPlan in `baserestrictinfo` of absorbed relations was also
+/// 3. Every SubPlan in `baserestrictinfo` of absorbed relations was also
 ///    absorbed into the `RelNode` tree (Semi/Anti/LeftMark joins).
 ///    Un-absorbed SubPlans would become Postgres post-filters above
 ///    the capped output.
-/// 3. No volatile functions in `baserestrictinfo` of absorbed relations
+/// 4. No volatile functions in `baserestrictinfo` of absorbed relations
 ///    (volatile functions can never be pushed into Tantivy).
+///
+/// DISTINCT is not declined here: JoinScan absorbs and implements it
+/// (#4669). `hasAggs` queries were already declined before this point.
 unsafe fn is_limit_pushdown_safe(
     root: *mut pg_sys::PlannerInfo,
     join_clause: &JoinCSClause,
 ) -> Result<(), JoinDeclineReason> {
+    // 1. Nothing above the join may need more rows than the LIMIT keeps.
+    let parse = (*root).parse;
+    if (*parse).hasWindowFuncs {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to window functions",
+        ));
+    }
+    if (*parse).hasTargetSRFs {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to set-returning functions in the target list",
+        ));
+    }
+    if !(*parse).groupClause.is_null() || !(*parse).groupingSets.is_null() || (*root).hasHavingQual
+    {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to GROUP BY or HAVING",
+        ));
+    }
+
     let absorbed_rtis: Vec<pg_sys::Index> = join_clause
         .plan
         .sources()
@@ -372,7 +403,7 @@ unsafe fn is_limit_pushdown_safe(
         .map(|s| s.scan_info.heap_rti)
         .collect();
 
-    // 1. Did JoinScan absorb ALL base relations?
+    // 2. Did JoinScan absorb ALL base relations?
     #[cfg(feature = "pg15")]
     let all_rels = (*root).all_baserels;
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
@@ -388,7 +419,7 @@ unsafe fn is_limit_pushdown_safe(
         ));
     }
 
-    // 2. Every SubPlan in baserestrictinfo must have been absorbed.
+    // 3. Every SubPlan in baserestrictinfo must have been absorbed.
     let all_subplan_ids = collect_all_subplan_ids_from_baserestrictinfo(root, &absorbed_rtis);
     let absorbed_subplan_ids = collect_absorbed_subplan_ids(&join_clause.plan);
     for id in &all_subplan_ids {
@@ -399,7 +430,7 @@ unsafe fn is_limit_pushdown_safe(
         }
     }
 
-    // 3. No volatile functions (these can never be absorbed).
+    // 4. No volatile functions (these can never be absorbed).
     for rti in &absorbed_rtis {
         let rel = pg_sys::find_base_rel(root, *rti as i32);
         let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);

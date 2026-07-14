@@ -8,9 +8,9 @@
 
 set -Eeuo pipefail
 
+# Fail-fast timeouts so a dropped socket lands inside the reconnect-grace window.
 echo ""
 echo "Pointing publisher and subscriber at their clusters..."
-# Fail-fast timeouts so a dropped socket lands inside the reconnect-grace window.
 sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Publisher"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@logical-replication-publisher:5432/postgres?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' /home/app/stressgres/suites/logical-replication.toml
 sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Subscriber"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' /home/app/stressgres/suites/logical-replication.toml
 

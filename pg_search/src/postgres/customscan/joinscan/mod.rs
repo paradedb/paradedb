@@ -510,6 +510,17 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 }
 
+/// JoinScan's top-level LIMIT gate: a top-level query must carry a LIMIT
+/// (static or parameterized) for JoinScan to accept it, since its TopK is
+/// otherwise unbounded. Subqueries are exempt — the parent supplies the bound.
+///
+/// AggregateScan consults the same gate to decide whether to defer a
+/// DISTINCT-over-join to JoinScan, so both agree on who owns the join from the
+/// query shape.
+pub(crate) unsafe fn satisfies_top_level_limit_gate(root: *mut pg_sys::PlannerInfo) -> bool {
+    LimitOffset::from_root(root).is_some() || !(*root).parent_root.is_null()
+}
+
 impl JoinScan {
     /// Phase 1: Validate a `RelNode` plan against JoinScan activation requirements
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
@@ -549,8 +560,7 @@ impl JoinScan {
         // parameterized LIMIT is sufficient — the latter is resolved at
         // execution time from EState::es_param_list_info.
         let limit_offset = LimitOffset::from_root(root);
-        let is_subquery = !(*root).parent_root.is_null();
-        if limit_offset.is_none() && !is_subquery {
+        if !satisfies_top_level_limit_gate(root) {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: LIMIT is required for top-level queries",
             ));

@@ -24,6 +24,7 @@
 
 use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
+use super::GroupingShape;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_aggref, find_one_var_and_fieldname, VarContext};
@@ -224,8 +225,8 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
-/// Extract aggregate target list from `output_rel.reltarget.exprs` for a join
-/// aggregate query.
+/// Extract the aggregate target list for a join aggregate query from the
+/// grouping/DISTINCT output columns ([`GroupingShape::target_exprs`]).
 ///
 /// Iterates the target list and classifies each expression as either a GROUP BY
 /// column (`T_Var`) or an aggregate function (`T_Aggref`). For joins, `Var.varno`
@@ -249,9 +250,9 @@ pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    shape: GroupingShape,
 ) -> Result<JoinAggregateTargetList, String> {
-    let output_rel = args.output_rel();
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
+    let target_exprs = shape.target_exprs();
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
@@ -262,7 +263,7 @@ pub unsafe fn extract_aggregate_targetlist(
     let mut group_columns = Vec::new();
     let mut aggregates = Vec::new();
 
-    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+    for (idx, expr) in target_exprs.iter().copied().enumerate() {
         let tag = (*(expr as *mut pg_sys::Node)).type_;
 
         if tag == pg_sys::NodeTag::T_Var {
@@ -274,10 +275,19 @@ pub unsafe fn extract_aggregate_targetlist(
             let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
-                format!(
-                    "could not resolve field name for GROUP BY column (RTI={}, attno={})",
-                    rti, attno
-                )
+                // None here means the column has no fast field; report it by
+                // name (matching groupby.rs) instead of rti/attno internals.
+                let attname = pg_sys::get_attname(source.relid, attno, true);
+                if attname.is_null() {
+                    format!(
+                        "could not resolve field name for GROUP BY column (RTI={rti}, attno={attno})"
+                    )
+                } else {
+                    format!(
+                        "grouping column \"{}\" exists, but is not a fast field",
+                        std::ffi::CStr::from_ptr(attname).to_string_lossy()
+                    )
+                }
             })?;
 
             let plan_position = plan
@@ -388,9 +398,12 @@ pub unsafe fn extract_aggregate_targetlist(
                 order_by,
             });
         } else {
+            // The target is neither a plain column (Var) nor an aggregate
+            // (Aggref): a DISTINCT/GROUP BY on an expression such as
+            // `upper(col)`. Only plain columns are pushed down; the query
+            // still runs natively.
             return Err(format!(
-                "expression at index {} is neither a GROUP BY column (Var) nor an aggregate (Aggref)",
-                idx
+                "DISTINCT/GROUP BY on expressions is not pushed down, only plain columns are (target index {idx})"
             ));
         }
     }

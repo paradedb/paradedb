@@ -1678,7 +1678,7 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "category" exists, but is not a fast field (table: products)
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1716,7 +1716,7 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "category" exists, but is not a fast field (table: products)
  category | avg_price | total_count 
 ----------+-----------+-------------
  Laptops  |      1849 |           1
@@ -1943,7 +1943,7 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
-WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "category" exists, but is not a fast field (table: join)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1988,7 +1988,7 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
-WARNING:  Aggregate Scan (DataFusion) not used: could not resolve field name for GROUP BY column (RTI=1, attno=4) (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: grouping column "category" exists, but is not a fast field (table: join)
  category |        description         | avg_price | total_count 
 ----------+----------------------------+-----------+-------------
  Laptops  | Portable computing devices |      1849 |           1

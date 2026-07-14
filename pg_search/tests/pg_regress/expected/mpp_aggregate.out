@@ -135,6 +135,40 @@ LIMIT 5;
  file-102 |     5 |  9817
 (5 rows)
 
+-- SELECT DISTINCT routes through the same DataFusion aggregate path as a
+-- GROUP BY with no aggregates. No LIMIT, so JoinScan (which requires one)
+-- stays out and AggregateScan owns the dedup.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: f.title
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Group By: title
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(12 rows)
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT f.title
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+) t;
+ count 
+-------
+   200
+(1 row)
+
 -- =====================================================================
 -- Pass 2: MPP path (enable_mpp = on). Same queries, same expected results.
 --
@@ -243,6 +277,54 @@ LIMIT 5;
  file-101 |     5 |  9732
  file-102 |     5 |  9817
 (5 rows)
+
+-- DISTINCT under MPP: a GROUP BY with no aggregates, partitioned by the
+-- group key across workers. Same expected count as the serial baseline.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: f.title
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Group By: title
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec ── Tasks: t0:[p0]
+     : │ CoalescePartitionsExec
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+     :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[]
+     :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
+     :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=3
+     :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
+     :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :     │       CoalescePartitionsExec
+     :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+     :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+     :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       └──────────────────────────────────────────────────
+(27 rows)
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT f.title
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+) t;
+ count 
+-------
+   200
+(1 row)
 
 -- =====================================================================
 -- Cleanup

@@ -161,14 +161,6 @@ impl CustomScanClause<AggregateScan> for TargetList {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
-        // Check for DISTINCT - we can't handle DISTINCT queries
-        unsafe {
-            let parse = args.root().parse;
-            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return Err("Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
-            }
-        }
-
         let schema = index.schema().expect("Could not get index schema");
         let target_list =
             unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };

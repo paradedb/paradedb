@@ -66,6 +66,7 @@ WHERE contact_id = ANY(ARRAY[17969,17970,17971,17973])
 AND NOT EXISTS (
     SELECT 1 FROM contact_list cl WHERE contact_id = cl.id
 );
+WARNING:  Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  contact_id 
 ------------
       17969
@@ -80,6 +81,7 @@ WHERE contact_id = ANY(ARRAY[17969,17970,17971,17973])
 AND NOT EXISTS (
     SELECT 1 FROM contact_list cl WHERE contact_id = cl.id
 );
+WARNING:  Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  contact_id 
 ------------
       17969

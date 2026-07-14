@@ -286,6 +286,13 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    pub fn set_pathtarget(mut self, pathtarget: *mut pg_sys::PathTarget) -> Self {
+        if !pathtarget.is_null() {
+            self.custom_path_node.path.pathtarget = pathtarget;
+        }
+        self
+    }
+
     pub fn set_force_path(mut self, force: bool) -> Self {
         if force {
             self.flags.insert(Flags::Force);

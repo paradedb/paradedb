@@ -608,11 +608,11 @@ WHERE p.description @@@ 'wireless'
 (1 row)
 
 -- =============================================================================
--- TEST 13: Fallback — DISTINCT without LIMIT
+-- TEST 13: DISTINCT without LIMIT — AggregateScan owns the dedup
 -- =============================================================================
--- DISTINCT without a LIMIT clause. JoinScan requires a LIMIT to activate,
--- so this should fall back to native PG execution with the standard
--- "JoinScan not used: query must have a LIMIT clause" warning.
+-- JoinScan requires a top-level LIMIT, so it declines (emitting its
+-- "LIMIT is required" warning). AggregateScan then pushes the JOIN + DISTINCT
+-- into DataFusion rather than letting it fall back to native PG.
 EXPLAIN
 (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, s.name AS supplier_name
@@ -621,30 +621,24 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: p.name, s.name
-   ->  Sort
+   Sort Key: p.name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: p.name, s.name
-         Sort Key: p.name, s.name
-         ->  Hash Join
-               Output: p.name, s.name
-               Hash Cond: (s.id = p.supplier_id)
-               ->  Seq Scan on public.dist_suppliers s
-                     Output: s.id, s.name, s.contact_info, s.country
-               ->  Hash
-                     Output: p.name, p.supplier_id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
-                           Output: p.name, p.supplier_id
-                           Table: dist_products
-                           Index: dist_products_bm25_idx
-                           Worker Selection: Cost model
-                           Exec Method: ColumnarExecState
-                           Fast Fields: name, supplier_id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         Backend: DataFusion
+         Indexes: dist_products_bm25_idx (p), dist_suppliers_bm25_idx (s)
+         Group By: name
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[name@0 as name, name@1 as name], aggr=[]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, name@1]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- =============================================================================
 -- TEST 14: DISTINCT with search predicates on both sides
@@ -968,6 +962,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1011,6 +1006,7 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  id | name  
 ----+-------
   1 | Alice
@@ -1111,6 +1107,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1150,6 +1147,7 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans. To disable this warning: SET paradedb.check_aggregate_scan = false (table: join)
  profile_id 
 ------------
           1

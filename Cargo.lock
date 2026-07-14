@@ -5501,6 +5501,7 @@ dependencies = [
  "regex",
  "rstest",
  "rustc-hash",
+ "rustix 1.1.4",
  "serde",
  "serde_cbor",
  "serde_json",

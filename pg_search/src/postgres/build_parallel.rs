@@ -409,7 +409,7 @@ impl<'a> WorkerBuildState<'a> {
     /// the shared count of segments written across all workers, and tell the guard how many
     /// segments the whole build still has to write. On the first flush, also hand the guard the
     /// segment's on-disk size (segments are memory-budget bound, so one sample is representative).
-    fn update_disk_guard(&mut self, segment_id: SegmentId) {
+    fn on_segment_flushed(&mut self, segment_id: SegmentId) {
         let written = self.coordination.add_segments_written();
         let remaining = self.target_segment_count.saturating_sub(written);
 
@@ -619,7 +619,7 @@ unsafe extern "C-unwind" fn build_callback(
     }
 
     if let Some(segment_meta) = segment_meta {
-        build_state.update_disk_guard(segment_meta.id());
+        build_state.on_segment_flushed(segment_meta.id());
         build_state.unmerged_metas.push(segment_meta);
         build_state
             .try_merge(false)

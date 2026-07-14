@@ -42,6 +42,7 @@ parking_lot = "0.12.5"
 libc = "0.2"
 tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
+rustix = { version = "1", features = ["fs"] }
 rustc-hash = "2.1.2"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = [

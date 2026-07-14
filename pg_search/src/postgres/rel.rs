@@ -362,7 +362,7 @@ impl PgSearchRelation {
     /// tablespace. Returns `None` if the free space can't be determined.
     #[cfg(unix)]
     pub fn available_disk_bytes(&self) -> Option<u64> {
-        unsafe {
+        let path = unsafe {
             let reltablespace = (*(*self.as_ptr()).rd_rel).reltablespace;
             let spc = if reltablespace == pg_sys::InvalidOid {
                 pg_sys::MyDatabaseTableSpace
@@ -382,16 +382,13 @@ impl PgSearchRelation {
             if path.is_null() {
                 return None;
             }
-
-            let mut buf: libc::statvfs = std::mem::zeroed();
-            let rc = libc::statvfs(path, &mut buf);
+            let owned = std::ffi::CStr::from_ptr(path).to_owned();
             pg_sys::pfree(path.cast());
+            owned
+        };
 
-            if rc != 0 {
-                return None;
-            }
-            Some((buf.f_bavail as u64).saturating_mul(buf.f_frsize as u64))
-        }
+        let stat = rustix::fs::statvfs(path.as_c_str()).ok()?;
+        Some(stat.f_bavail.saturating_mul(stat.f_frsize))
     }
 
     #[cfg(not(unix))]

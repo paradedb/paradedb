@@ -358,6 +358,45 @@ impl PgSearchRelation {
         unsafe { self.0.as_ref().unwrap_unchecked().0.as_ptr() }
     }
 
+    /// Bytes available to a non-privileged process on the filesystem backing this relation's
+    /// tablespace. Returns `None` if the free space can't be determined.
+    #[cfg(unix)]
+    pub fn available_disk_bytes(&self) -> Option<u64> {
+        let path = unsafe {
+            let reltablespace = (*(*self.as_ptr()).rd_rel).reltablespace;
+            let spc = if reltablespace == pg_sys::InvalidOid {
+                pg_sys::MyDatabaseTableSpace
+            } else {
+                reltablespace
+            };
+            let db = if spc == pg_sys::GLOBALTABLESPACE_OID {
+                pg_sys::InvalidOid
+            } else {
+                pg_sys::MyDatabaseId
+            };
+
+            // GetDatabasePath returns a palloc'd path relative to the data directory, which is the
+            // backend's working directory; statvfs resolves it (and any tablespace symlink)
+            // correctly.
+            let path = pg_sys::GetDatabasePath(db, spc);
+            if path.is_null() {
+                return None;
+            }
+            let owned = std::ffi::CStr::from_ptr(path).to_owned();
+            pg_sys::pfree(path.cast());
+            owned
+        };
+
+        let stat = rustix::fs::statvfs(path.as_c_str()).ok()?;
+        Some(stat.f_bavail.saturating_mul(stat.f_frsize))
+    }
+
+    #[cfg(not(unix))]
+    pub fn available_disk_bytes(&self) -> Option<u64> {
+        // No portable way to query filesystem free space here.
+        None
+    }
+
     pub fn heap_relation(&self) -> Option<PgSearchRelation> {
         if self.rd_index.is_null() {
             None

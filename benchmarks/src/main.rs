@@ -153,16 +153,14 @@ struct RecallArgs {
     #[arg(long)]
     data_source: Option<String>,
 
-    /// Query file (stem of `queries/{query}.sql`) to measure recall for. Recall runs that exact
-    /// query for each held-out vector and compares to the ground truth. May include an index
-    /// subdirectory (e.g. `vchord/knn_top10_1pct_prefilter_on`). Defaults to the unfiltered query.
+    /// Query file (stem of `queries/{query}.sql`) to measure recall for, run for each held-out
+    /// vector. May include an index subdirectory (e.g. `foo/knn_top10_1pct`).
     #[arg(long, default_value = "knn_top10_unfiltered")]
     query: String,
 
     /// Ground-truth stem, selecting `ground_truth_{ground_truth}_{size}.parquet`. The exact top-10
-    /// depends only on the filter selectivity, not the index or its scan mode, so several query
-    /// files share one ground truth (e.g. vchord's prefilter on/off both map to `knn_top10_1pct`).
-    /// Defaults to `--query` (with any index subdirectory stripped).
+    /// depends only on filter selectivity, so query files with the same filter share one ground
+    /// truth. Defaults to `--query` with any index subdirectory stripped.
     #[arg(long)]
     ground_truth: Option<String>,
 }
@@ -552,9 +550,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Ground-truth stem: explicit --ground-truth, else the query with any index subdirectory
-    // stripped (e.g. `vchord/knn_top10_unfiltered` -> `knn_top10_unfiltered`). Filter variants that
-    // share a ground truth (vchord's prefilter on/off) pass --ground-truth explicitly.
+    // Ground-truth stem: explicit --ground-truth, else --query with any index subdirectory stripped.
     let gt_stem = args
         .ground_truth
         .clone()
@@ -701,10 +697,8 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
     }
 
-    // Locate all query paths, and sort them for stability in the output. An index may ship its own
-    // query set under `queries/{index}/` (e.g. vchord's prefilter on/off variants, which drive the
-    // ANN index in both cases and so can't share the pgvector files); fall back to the flat
-    // `queries/` dir otherwise.
+    // Locate all query paths, sorted for stable output. An index may ship its own query set under
+    // `queries/{index}/`; otherwise fall back to the flat `queries/` dir.
     let queries_dir = {
         let index_specific = format!("datasets/{}/queries/{}", args.dataset, args.index);
         if Path::new(&index_specific).is_dir() {
@@ -1289,10 +1283,9 @@ fn queries(file: &Path) -> Vec<String> {
         .split(";\n")
         .filter_map(|query| {
             // Strip line comments and flatten each statement onto one line, but keep the interior of
-            // dollar-quoted ($$...$$) blocks verbatim -- e.g. vchord's index `options`, which is TOML
-            // and needs its newlines. Splitting on `$$` alternates outside/inside segments (even =
-            // outside, odd = inside); only flatten the outside ones. Files without `$$` (all others)
-            // are a single segment and processed exactly as before.
+            // dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its
+            // newlines). Splitting on `$$` alternates outside/inside (even = outside, odd = inside);
+            // flatten only the outside. Files without `$$` are a single segment, unchanged.
             let query = query
                 .split("$$")
                 .enumerate()
@@ -1405,11 +1398,9 @@ async fn execute_query_multiple_times(
     // query
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
 
-    // Apply the query's `SET` preamble to the session up front, so operating-point GUCs are in effect
-    // for get_query_id's EXPLAIN of the bare measured query below. Most access methods fall back to a
-    // default when a GUC is unset, but vchordrq errors ("need N probes, but 0 probes provided") if
-    // vchordrq.probes is empty, so planning the SELECT without its SETs would fail. The measured runs
-    // re-apply the SETs anyway (they run the full `query`); this is idempotent.
+    // Apply the query's `SET` preamble to the session first, so operating-point GUCs are in effect for
+    // get_query_id's EXPLAIN of the bare measured query below (some access methods error at plan time
+    // when a required GUC is unset). Idempotent -- the measured runs re-apply them via the full query.
     for stmt in query.split(';') {
         let stmt = stmt.trim();
         if stmt.len() >= 4 && stmt[..4].eq_ignore_ascii_case("set ") {

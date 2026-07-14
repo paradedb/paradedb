@@ -1,12 +1,10 @@
 #!/bin/bash
 
-# Workload only. The paired first_ command built the schema; connect to it with --skip-setup
-# and run the workload. No teardown, so the schema survives for the rest of the timeline.
+# Workload only: first_ built the schema. --skip-setup, no teardown.
 
 set -Eeuo pipefail
 
-# Short runtime: the fuzzer branches across many short timelines, so a fast run covers more
-# fault schedules per budget.
+# Short runtime: more short timelines cover more fault schedules.
 echo ""
 echo "Running Stressgres workload for single-server.toml..."
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/single-server.toml --skip-setup --runtime 100000 --log-interval-ms 10000 --reconnect-grace 3600000 --reconnect-grace-file /tmp/stressgres-reconnect-grace

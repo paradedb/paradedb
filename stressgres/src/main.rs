@@ -75,9 +75,14 @@ fn main() -> anyhow::Result<()> {
             let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
                 format!("Failed to load suite file: {}", args.suite_path.display())
             })?;
-            // Cap startup at one runtime's worth of time: if we cannot even reach the
-            // database within that, this timeline has no server to test, so exit cleanly
-            // rather than riding the fault out for the whole reconnect grace.
+            // Cap startup (version probe + schema build) at one runtime's worth of time.
+            // Under fault injection the reconnect grace is set far longer than a run, so a
+            // fault straddling startup would otherwise pin the process for the whole grace
+            // window and the driver would never run to completion. If the database stays
+            // unreachable for a whole runtime we exit cleanly with no workload, so every
+            // driver reliably finishes. This is a stopgap: moving setup into an Antithesis
+            // `first_` command (which runs before any faults) removes the straddle and lets
+            // this bound go.
             let startup_timeout =
                 Duration::from_millis(u64::try_from(args.runtime).unwrap_or(u64::MAX));
             let suite_runner =
@@ -88,10 +93,6 @@ fn main() -> anyhow::Result<()> {
                 );
                 return Ok(());
             }
-            // Setup (schema build) is done and the workload is about to start; signal the
-            // DST harness, which holds fault injection until now so every suite gets a
-            // clean startup rather than being killed mid-initialisation.
-            dst::setup_complete(&args.suite_path.display().to_string());
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {

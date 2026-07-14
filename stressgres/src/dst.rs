@@ -21,26 +21,17 @@
 //! `antithesis_sdk`.
 //!
 //! The assertion wrappers are forwarding macros, not functions, so the SDK captures each
-//! assertion's location at the real call site rather than here in `dst.rs`. The lifecycle
-//! calls carry no location, so they stay plain functions.
+//! assertion's location at the real call site rather than here in `dst.rs`. [`init`] carries
+//! no location, so it stays a plain function.
 //!
 //! Stressgres links the SDK unconditionally: it is test-only tooling, and the SDK is a
 //! runtime no-op outside the DST environment, so there is no feature gate here (unlike
 //! `pg_search`, which gates its equivalent module behind `--features dst`).
 
-use serde_json::json;
-
 /// Register the assertion catalog so the harness knows which sites exist but were never
 /// hit, instead of a never-reached assertion passing vacuously. Call once at startup.
 pub fn init() {
     antithesis_sdk::antithesis_init();
-}
-
-/// Signal that setup finished and the workload is about to start. The harness holds fault
-/// injection until this fires, so every suite gets a clean startup and actually runs its
-/// workload rather than being killed mid-initialisation.
-pub fn setup_complete(suite: &str) {
-    antithesis_sdk::lifecycle::setup_complete(&json!({ "suite": suite }));
 }
 
 /// Reachability: mark that the workload retried and rode out a transient database fault.

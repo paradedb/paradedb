@@ -107,12 +107,12 @@ with Session(engine) as session:
 ```ruby Rails
 # Query against `description_simple`
 MockItem.search(:description_simple)
-        .matching_any("Sleek running shoes")
+        .match_any("Sleek running shoes")
         .select(:description, :rating, :category)
 
 # Query against `description`
 MockItem.search(:description)
-        .matching_any("Sleek running shoes")
+        .match_any("Sleek running shoes")
         .select(:description, :rating, :category)
 ```
 

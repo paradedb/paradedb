@@ -57,7 +57,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .select(:description, :rating, :category)
 ```
 
@@ -158,7 +158,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_all("running shoes")
+        .match_all("running shoes")
         .select(:description, :rating, :category)
 ```
 
@@ -276,7 +276,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes", tokenizer: ParadeDB::Tokenizer.whitespace())
+        .match_any("running shoes", tokenizer: ParadeDB::Tokenizer.whitespace())
         .select(:description, :rating, :category)
 ```
 
@@ -343,7 +343,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_all("running", "shoes")
+        .match_all("running shoes")
         .select(:description, :rating, :category)
 ```
 

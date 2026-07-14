@@ -82,8 +82,8 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shoes", boost: 2)
-        .or(MockItem.search(:category).matching_any("footwear"))
+        .match_any("shoes", boost: 2)
+        .or(MockItem.search(:category).match_any("footwear"))
         .with_score
         .select(:id, :description, :category)
         .order(search_score: :desc)
@@ -265,7 +265,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shose", distance: 2, boost: 2)
+        .match_any("shose", distance: 2, boost: 2)
         .with_score
         .select(:id, :description, :category)
         .order(search_score: :desc)
@@ -357,7 +357,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shoes", constant_score: 1)
+        .match_any("shoes", constant_score: 1)
         .with_score
         .select(:id, :description, :category)
         .order(search_score: :desc)

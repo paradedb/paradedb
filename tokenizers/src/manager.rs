@@ -59,7 +59,7 @@ pub struct SearchTokenizerFilters {
 }
 
 impl SearchTokenizerFilters {
-    /// Returns a [`SearchTokenizerFilter`] instance that effectively does not filter, or otherwise
+    /// Returns a `SearchTokenizerFilter` instance that effectively does not filter, or otherwise
     /// mutate tokens.
     ///
     /// This should be used for declaring the "key field" in an index.  It can be used for other

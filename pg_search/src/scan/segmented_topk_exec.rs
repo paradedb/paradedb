@@ -69,7 +69,7 @@
 //! the tiebreaker, so it keeps them all for the final Top K to resolve.
 //! This is safe (never drops correct rows) but slightly less aggressive
 //! than theoretically possible when there are many duplicates.
-//! TODO(https://github.com/paradedb/paradedb/issues/4255): rewrite the full
+//! TODO(<https://github.com/paradedb/paradedb/issues/4255>): rewrite the full
 //! Top K sort expression in terms of term ordinals to handle tiebreakers
 //! natively.
 

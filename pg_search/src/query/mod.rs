@@ -824,7 +824,7 @@ impl From<TermInputWire> for TermInput {
     }
 }
 
-/// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
+/// Serialize a `SearchQueryInput` node to a Postgres [`pg_sys::Const`] node, palloc'd
 /// in the current memory context.
 impl From<SearchQueryInput> for *mut pg_sys::Const {
     fn from(value: SearchQueryInput) -> Self {
@@ -1625,7 +1625,7 @@ fn value_to_json_term(
     Ok(term)
 }
 
-/// Converts a dot-separated path string (e.g. `"Top.Science.Biology"`) to a Tantivy [`Facet`].
+/// Converts a dot-separated path string (e.g. `"Top.Science.Biology"`) to a Tantivy `Facet`.
 pub(super) fn dot_path_to_facet(text: &str) -> tantivy::schema::Facet {
     tantivy::schema::Facet::from_path(text.split('.'))
 }

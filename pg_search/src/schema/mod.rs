@@ -73,7 +73,7 @@ pub enum SearchFieldType {
     /// The i16 is the scale (number of decimal places).
     Numeric64(pg_sys::Oid, i16),
     /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
-    /// The Option<i16> is the scale (number of decimal places), or None for unlimited precision.
+    /// The `Option<i16>` is the scale (number of decimal places), or None for unlimited precision.
     NumericBytes(pg_sys::Oid, Option<i16>),
 }
 

@@ -812,9 +812,10 @@ impl SuiteRunner {
         if self.setup_mode == SetupMode::Full {
             for server in &mut self.suite.all_servers() {
                 let mut teardown_job = server.teardown.clone();
-                teardown_job.destinations = vec![StatementDestination::SpecificServers(vec![
-                    server.name.clone(),
-                ])];
+                teardown_job.destinations =
+                    vec![StatementDestination::SpecificServers(vec![server
+                        .name
+                        .clone()])];
 
                 let teardown_runner = JobRunner::new(
                     self.suite.clone(),

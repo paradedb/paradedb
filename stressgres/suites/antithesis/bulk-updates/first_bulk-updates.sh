@@ -5,9 +5,9 @@
 
 set -Eeuo pipefail
 
+# Fail-fast timeouts so a dropped socket lands inside the reconnect-grace window.
 echo ""
 echo "Pointing suite at the ParadeDB cluster..."
-# Fail-fast timeouts so a dropped socket lands inside the reconnect-grace window.
 sed -i 's|\[server\.style\.Automatic\]|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' /home/app/stressgres/suites/bulk-updates.toml
 
 echo ""

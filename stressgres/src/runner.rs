@@ -350,15 +350,15 @@ fn tokio_connstr(connstr: &str) -> String {
 
 /// Which portion of the suite lifecycle a [`SuiteRunner`] executes.
 ///
-/// The schema build and the workload run in separate processes so setup stays off the fault
-/// path: a `first_` command builds the schema before fault injection begins, and a
-/// `singleton_driver_` command runs the workload against it under faults.
+/// The schema build and the workload can run in separate processes so setup stays off the
+/// fault path: one process builds the schema before fault injection begins, and another runs
+/// the workload against it under faults.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SetupMode {
-    /// Build the schema (the `setup` job) and stop: no workload, no teardown. For `first_`.
+    /// Build the schema (the `setup` job) and stop: no workload, no teardown.
     SetupOnly,
-    /// Skip the `setup` job and teardown; connect to a schema a prior `first_` built and run
-    /// the workload only. For `singleton_driver_`.
+    /// Skip the `setup` job and teardown; connect to a schema a prior setup run built and run
+    /// the workload only.
     SkipSetup,
     /// The whole lifecycle: setup, workload, teardown. For the TUI, `auto`, and local runs.
     Full,
@@ -436,8 +436,8 @@ impl SuiteRunner {
     /// Create a new SuiteRunner in the given [`SetupMode`], run whatever startup that mode
     /// needs (setup and/or the version probe), then spawn a thread per job and monitor.
     ///
-    /// No startup bound: the schema build runs in a `first_` command before fault injection,
-    /// so setup can never be pinned by a fault, and a `SkipSetup` driver does no blocking
+    /// No startup bound: the schema build runs in a separate setup process before fault
+    /// injection, so setup can never be pinned by a fault, and a `SkipSetup` driver does no blocking
     /// startup work (see the probe skip below), letting `headless::run` bound the workload by
     /// its runtime. So the process always finishes.
     pub fn new(
@@ -465,7 +465,7 @@ impl SuiteRunner {
 
         // Probe the server version (informational). Skip it under `SkipSetup`: that mode runs
         // under faults, and a blocking probe would ride the long reconnect grace before the
-        // runtime clock starts and pin the driver. Setup is fault-free (`first_`), so the probe
+        // runtime clock starts and pin the driver. Setup runs fault-free, so the probe
         // is safe under `SetupOnly` / `Full`.
         if setup_mode != SetupMode::SkipSetup {
             let default_job = Job::default();
@@ -509,8 +509,8 @@ impl SuiteRunner {
     /// Run what the [`SetupMode`] calls for: the setup job (unless `SkipSetup`), then the
     /// monitors and job threads (unless `SetupOnly`).
     fn init(&mut self) -> Result<()> {
-        // 1. Run the setup job, unless this process is running the workload against a schema
-        //    a prior `first_` command already built (`SkipSetup`).
+        // Run the setup job, unless this process is running the workload against a schema a
+        // prior setup run already built (`SkipSetup`).
         if self.setup_mode != SetupMode::SkipSetup {
             for server in self.suite.all_servers() {
                 let mut setup_job = server.setup.clone();
@@ -546,8 +546,8 @@ impl SuiteRunner {
             }
         }
 
-        // A `first_` command builds the schema and stops here; the workload runs in a
-        // separate `singleton_driver_` process.
+        // `SetupOnly` builds the schema and stops here; the workload runs later in a
+        // separate process.
         if self.setup_mode == SetupMode::SetupOnly {
             return Ok(());
         }
@@ -802,9 +802,9 @@ impl SuiteRunner {
             }
         }
 
-        // Only a `Full` run tears down. A `SkipSetup` workload connects to a schema a `first_`
-        // built and later driver runs may still use, so it leaves it in place. `SetupOnly`
-        // never reaches here; it returns before the workload starts.
+        // Only a `Full` run tears down. A `SkipSetup` workload connects to a schema that setup
+        // built in a prior run and that later runs may still use, so it leaves it in place.
+        // `SetupOnly` never reaches here; it returns before the workload starts.
         if self.setup_mode == SetupMode::Full {
             for server in &mut self.suite.all_servers() {
                 let mut teardown_job = server.teardown.clone();

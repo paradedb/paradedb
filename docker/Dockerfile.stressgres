@@ -38,10 +38,7 @@ WORKDIR /home/app
 # Copy the entire paradedb/paradedb source code
 COPY --chown=app:app . .
 
-# A single test template. Antithesis runs exactly one first_ command per timeline, so each
-# first_<suite> points its suite at the cluster and publishes that suite's workload, and the
-# one singleton_driver runs whatever was published. One suite per timeline means no two
-# suites share the paradedb-rw database (or its disk) at once.
+# Import Antithesis test drivers
 COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/paradedb/
 
 # Switch to app user

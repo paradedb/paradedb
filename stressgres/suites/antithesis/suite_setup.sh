@@ -1,12 +1,8 @@
 #!/bin/bash
 #
-# Shared setup, sourced by every first_ command in this template (and by the driver, for
-# the constants below). Antithesis runs exactly one first_ command per timeline
-# (https://antithesis.com/docs/test_templates/test_composer_reference/), so each first_
-# points its suite at the cluster, builds that suite's schema fault-free, and publishes the
-# suite's workload at WORKLOAD_LINK. The one singleton_driver then runs whatever was
-# published. One suite per timeline means no two suites ever share the paradedb-rw database
-# (or its disk) at once.
+# Shared setup for this template's first_ commands (and constants for the driver). Antithesis
+# runs exactly one first_ per timeline, so each first_ points its suite at the cluster, builds
+# the schema fault-free, and publishes the workload at WORKLOAD_LINK for the singleton_driver.
 
 set -Eeuo pipefail
 

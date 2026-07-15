@@ -76,11 +76,7 @@ struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
     nlaunched: usize,
-<<<<<<< HEAD
-=======
-    ntuples_done: usize,
     nsegments_written: usize,
->>>>>>> 07d17849c (feat: eagerly abort index build if it will not fit on disk (#5535))
 }
 
 impl ParallelStateType for WorkerCoordination {}
@@ -101,22 +97,11 @@ impl WorkerCoordination {
         let _lock = self.mutex.acquire();
         self.nlaunched
     }
-<<<<<<< HEAD
-=======
-    fn add_tuples_done(&mut self, count: usize) {
-        let _lock = self.mutex.acquire();
-        self.ntuples_done += count;
-    }
-    fn tuples_done(&mut self) -> usize {
-        let _lock = self.mutex.acquire();
-        self.ntuples_done
-    }
     fn add_segments_written(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nsegments_written += 1;
         self.nsegments_written
     }
->>>>>>> 07d17849c (feat: eagerly abort index build if it will not fit on disk (#5535))
 }
 
 /// The parallel process for setting up a parallel index build
@@ -289,12 +274,9 @@ impl<'a> BuildWorker<'a> {
                 self.config.current_xid,
                 self.config.next_xid,
                 worker_segment_target.max(1),
-<<<<<<< HEAD
-                nlaunched,
-=======
                 target_segment_count,
+                nlaunched,
                 self.coordination,
->>>>>>> 07d17849c (feat: eagerly abort index build if it will not fit on disk (#5535))
                 worker_number,
             )?;
 
@@ -320,7 +302,7 @@ impl<'a> BuildWorker<'a> {
 }
 
 /// Internal state used by each parallel build worker
-struct WorkerBuildState {
+struct WorkerBuildState<'a> {
     writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     per_row_context: PgMemoryContexts,
@@ -348,18 +330,16 @@ struct WorkerBuildState {
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
-<<<<<<< HEAD
-
-    cnt: usize,
-=======
-    local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
-    is_leader: bool,
+    //
+    // 6. shared coordination across all workers, used to report segments written to the disk guard
+    coordination: &'a mut WorkerCoordination,
     // whether the first flushed segment's on-disk size has been reported to the disk guard
     recorded_segment_bytes: bool,
->>>>>>> 07d17849c (feat: eagerly abort index build if it will not fit on disk (#5535))
+
+    cnt: usize,
 }
 
-impl WorkerBuildState {
+impl<'a> WorkerBuildState<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         heaprel: &PgSearchRelation,
@@ -368,12 +348,9 @@ impl WorkerBuildState {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
         worker_segment_target: usize,
-<<<<<<< HEAD
-        nlaunched: usize,
-=======
         target_segment_count: usize,
+        nlaunched: usize,
         coordination: &'a mut WorkerCoordination,
->>>>>>> 07d17849c (feat: eagerly abort index build if it will not fit on disk (#5535))
         worker_number: i32,
     ) -> anyhow::Result<Self> {
         // if we're making more than one segment, do an early cutoff based on doc count in case
@@ -410,22 +387,14 @@ impl WorkerBuildState {
             current_xid,
             next_xid,
             worker_segment_target,
-<<<<<<< HEAD
-            nlaunched,
-            estimated_nsegments: OnceLock::new(),
-            nmerges: Default::default(),
-            unmerged_metas: Default::default(),
-            cnt: 0,
-=======
             target_segment_count,
+            nlaunched,
             coordination,
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
-            local_tuple_done_count: 0,
-            is_leader,
             recorded_segment_bytes: false,
->>>>>>> 07d17849c (feat: eagerly abort index build if it will not fit on disk (#5535))
+            cnt: 0,
         })
     }
 

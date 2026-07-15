@@ -1,4 +1,8 @@
 #!/bin/bash
+# @paradedb-skip-check-pipefail
+#
+# Sourced library, not executed directly: every caller already runs `set -Eeuo pipefail`,
+# so this file opts out of the strict-mode lint rather than imposing it on the sourcing shell.
 #
 # Shared setup, sourced by every first_ command in this template (and by the driver, for
 # the constants below). Antithesis runs exactly one first_ command per timeline

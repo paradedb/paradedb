@@ -6,6 +6,8 @@
 # timeline.
 
 set -Eeuo pipefail
+
+# shellcheck source=stressgres/suites/antithesis/helper_lib.sh
 source "$(dirname "$(readlink -f "$0")")/helper_lib.sh"
 
 # Short runtime: the fuzzer branches across many short timelines, so a fast run covers more

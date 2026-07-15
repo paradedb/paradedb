@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Setup for the logical-replication suite; runs before fault injection begins. See suite_setup.sh.
+
 set -Eeuo pipefail
 
 # shellcheck source=stressgres/suites/antithesis/suite_setup.sh

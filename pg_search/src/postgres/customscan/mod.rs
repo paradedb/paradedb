@@ -418,6 +418,33 @@ impl CreateUpperPathsHookArgs {
             && !(*parse).groupClause.is_null()
             && PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause).len() == 1
     }
+
+    /// True when the query's `ORDER BY` sorts by the single grouping key itself
+    /// (e.g. `GROUP BY cat ORDER BY cat`).
+    ///
+    /// Tantivy's bounded top-N pushdown only returns exact counts for a
+    /// key-ordered prefix. With `segment_size` capped at `max_buckets`, a group
+    /// among the first K keys is retained in every segment — at most K-1 keys
+    /// can precede it anywhere — so its count is complete. A count-ordered or
+    /// unordered `LIMIT` gives only an approximate prefix once distinct groups
+    /// exceed the cap: a high-total group thinly spread across segments can be
+    /// dropped from each segment's capped bucket list before the merge. Routing
+    /// therefore only keeps the key-ordered case on Tantivy.
+    pub unsafe fn orders_by_grouping_key(&self) -> bool {
+        let parse = self.root().parse;
+        if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
+            return false;
+        }
+        let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+        let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+        if sort_clauses.len() != 1 || group_clauses.len() != 1 {
+            return false;
+        }
+        match (sort_clauses.get_ptr(0), group_clauses.get_ptr(0)) {
+            (Some(sort), Some(group)) => (*sort).tleSortGroupRef == (*group).tleSortGroupRef,
+            _ => false,
+        }
+    }
 }
 
 /// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more

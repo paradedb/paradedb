@@ -205,12 +205,16 @@ impl CustomScan for AggregateScan {
                     // If the estimated number of groups exceeds Tantivy's bucket
                     // limit, fall back to DataFusion which has no such limit;
                     // Tantivy would otherwise silently truncate the GROUP BY at the
-                    // cap. A single-column GROUP BY bounded by a LIMIT within the
-                    // cap is exempt — Tantivy answers it correctly and faster via
-                    // its bounded top-N pushdown.
+                    // cap. A single-column GROUP BY that is key-ordered and bounded
+                    // by a LIMIT within the cap is exempt — Tantivy answers it
+                    // correctly and faster via its bounded top-N pushdown. The
+                    // ORDER BY on the grouping key is required: only a key-ordered
+                    // prefix has exact counts past the cap; an unordered or
+                    // count-ordered LIMIT would silently return approximate counts.
                     let max_buckets = gucs::max_term_agg_buckets() as f64;
                     let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
                     let bounded_on_tantivy = builder.args().is_single_grouping_column()
+                        && builder.args().orders_by_grouping_key()
                         && builder
                             .args()
                             .limit_plus_offset()

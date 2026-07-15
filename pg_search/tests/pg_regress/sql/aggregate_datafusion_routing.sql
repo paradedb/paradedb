@@ -36,10 +36,30 @@ SELECT COUNT(*) AS groups FROM (
     SELECT cat FROM routing_test WHERE id @@@ pdb.all() GROUP BY cat
 ) s;
 
--- Single column bounded by LIMIT+OFFSET within the cap: stays on Tantivy.
+-- Single column, key-ordered, bounded by LIMIT+OFFSET within the cap: stays on
+-- Tantivy via the bounded top-N pushdown.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
 GROUP BY cat ORDER BY cat LIMIT 5 OFFSET 3;
+
+-- ...and that Tantivy-bounded path returns exactly the requested key-ordered
+-- window with exact counts (each cat has 2000 rows), never a truncated result.
+SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
+GROUP BY cat ORDER BY cat LIMIT 5 OFFSET 3;
+
+-- Single column bounded by LIMIT within the cap but WITHOUT ORDER BY on the key:
+-- the bounded prefix would be count-ordered and approximate once distinct groups
+-- exceed the cap, so this must route to DataFusion rather than stay on Tantivy.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY cat LIMIT 5;
+
+-- ...and every group it returns carries its exact count (2000), never an
+-- approximate or truncated one.
+SELECT COUNT(*) AS returned_groups, MIN(cnt) AS min_count, MAX(cnt) AS max_count
+FROM (
+    SELECT cat, COUNT(*) AS cnt FROM routing_test WHERE id @@@ pdb.all()
+    GROUP BY cat LIMIT 5
+) s;
 
 -- LIMIT+OFFSET beyond the cap: bounded pushdown unsafe, so DataFusion.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

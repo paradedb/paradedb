@@ -277,7 +277,7 @@ impl SegmentedTopKExec {
                         ))
                     })?;
                     let mvcc = rebuild_mvcc(
-                        LookupRebuildContext::Worker {
+                        LookupRebuildContext {
                             non_partitioning_segment_ids,
                             parallel_state,
                         },

@@ -31,7 +31,7 @@ SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY cat;
    Group By: cat
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+     : AggregateExec: mode=Single, gby=[cat@0 as cat], aggr=[agg_0]
      :   CooperativeExec
      :     PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
@@ -90,7 +90,7 @@ SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY cat LIMIT
          Group By: cat
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+           : AggregateExec: mode=Single, gby=[cat@0 as cat], aggr=[agg_0]
            :   CooperativeExec
            :     PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
@@ -123,7 +123,7 @@ GROUP BY cat ORDER BY cat LIMIT 8 OFFSET 5;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=13), expr=[cat@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
+                 :   AggregateExec: mode=Single, gby=[cat@0 as cat], aggr=[agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (13 rows)
@@ -132,8 +132,8 @@ GROUP BY cat ORDER BY cat LIMIT 8 OFFSET 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT cat, sub, COUNT(*) FROM routing_test WHERE id @@@ pdb.all()
 GROUP BY cat, sub ORDER BY cat, sub LIMIT 5;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: cat, sub
@@ -143,7 +143,7 @@ GROUP BY cat, sub ORDER BY cat, sub LIMIT 5;
                Group By: cat, sub
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
+                 : AggregateExec: mode=Single, gby=[cat@0 as cat, sub@1 as sub], aggr=[agg_0]
                  :   CooperativeExec
                  :     PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (12 rows)

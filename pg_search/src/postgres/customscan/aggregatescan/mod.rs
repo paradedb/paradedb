@@ -94,11 +94,6 @@ use crate::postgres::customscan::exec::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-<<<<<<< HEAD
-use crate::postgres::customscan::limit_offset::LimitOffset;
-=======
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
->>>>>>> 349b48dca (fix: `GROUP BY` uses the correct cardinality estimate to route between Tantivy/Datafusion (#5569))
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};

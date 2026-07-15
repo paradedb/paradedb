@@ -21,8 +21,8 @@ SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating;
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Sort
    Sort Key: rating
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -31,7 +31,7 @@ ORDER BY rating;
          Group By: rating
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
+           : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[agg_0]
            :   CooperativeExec
            :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (11 rows)
@@ -55,7 +55,7 @@ LIMIT 5 OFFSET 6;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=11), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
+                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[agg_0]
                  :     CooperativeExec
                  :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
 (13 rows)
@@ -67,8 +67,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating, id
@@ -78,7 +78,7 @@ LIMIT 5 OFFSET 5;
                Group By: id, rating
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[rating@1 as rating, id@0 as id], aggr=[count(1) as agg_0]
+                 : AggregateExec: mode=Single, gby=[rating@1 as rating, id@0 as id], aggr=[agg_0]
                  :   CooperativeExec
                  :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (12 rows)

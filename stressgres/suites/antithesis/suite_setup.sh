@@ -1,8 +1,4 @@
 #!/bin/bash
-# @paradedb-skip-check-pipefail
-#
-# Sourced library, not executed directly: every caller already runs `set -Eeuo pipefail`,
-# so this file opts out of the strict-mode lint rather than imposing it on the sourcing shell.
 #
 # Shared setup, sourced by every first_ command in this template (and by the driver, for
 # the constants below). Antithesis runs exactly one first_ command per timeline
@@ -11,6 +7,10 @@
 # suite's workload at WORKLOAD_LINK. The one singleton_driver then runs whatever was
 # published. One suite per timeline means no two suites ever share the paradedb-rw database
 # (or its disk) at once.
+
+# Every caller already runs this; set it here too so the lint's strict-mode rule is
+# satisfied and the library holds under `source` on its own.
+set -Eeuo pipefail
 
 SUITE_DIR=/home/app/stressgres/suites
 STRESSGRES=/home/app/target/release/stressgres

@@ -102,7 +102,9 @@ pub fn aggregation_results_iter(
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an
-    // incomplete GROUP BY. Fail loudly instead.
+    // incomplete GROUP BY. Fail loudly instead. This is an interim guard until we
+    // route on cost between Tantivy and DataFusion; see
+    // https://github.com/paradedb/paradedb/issues/5565.
     if !truncation_recoverable && result.any_terms_truncated(bucket_limit as u64) {
         let on_fields = if grouping_fields.is_empty() {
             String::new()

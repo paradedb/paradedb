@@ -3,16 +3,10 @@ title: 0.24.3
 noindex: true
 ---
 
-## New Features 🎉
-
-- Eagerly abort an index build when it will not fit on disk, failing fast instead of exhausting disk space.
-
-## Performance Improvements 🚀
-
-- Cap index build worker memory at 1GB to reduce peak memory usage during index creation.
-
 ## Stability Improvements 💪
 
+- Eagerly abort an index build when it will not fit on disk, failing fast instead of exhausting disk space.
+- Cap index build worker memory at 1GB to reduce peak memory usage during index creation.
 - Bound sequential scan memory usage by spilling to a `BufFile`.
 - Use the correct cardinality estimate when routing `GROUP BY` between Tantivy and DataFusion.
 - Return an error instead of silently returning incomplete results when Tantivy truncates results.

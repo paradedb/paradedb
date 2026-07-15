@@ -38,18 +38,11 @@ WORKDIR /home/app
 # Copy the entire paradedb/paradedb source code
 COPY --chown=app:app . .
 
-# One test template per suite: each subdirectory under /opt/antithesis/test/v1 is a separate
-# template, and commands from two templates never share a timeline. So each suite's
-# first_/singleton_driver_ pair is isolated and no two suites share the paradedb-rw database
-# (or its disk) at once.
-
-COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/
-# The recovery-liveness "anytime" command is shared: it pokes the reconnect-grace file every
-# stressgres process reads, so it must exist in each template directory.
-RUN for d in /opt/antithesis/test/v1/*/; do \
-        cp /opt/antithesis/test/v1/anytime_recovery_liveness.sh "$d"; \
-    done && \
-    rm -f /opt/antithesis/test/v1/anytime_recovery_liveness.sh
+# A single test template. Antithesis runs exactly one first_ command per timeline, so each
+# first_<suite> points its suite at the cluster and publishes that suite's workload, and the
+# one singleton_driver runs whatever was published. One suite per timeline means no two
+# suites share the paradedb-rw database (or its disk) at once.
+COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/paradedb/
 
 # Switch to app user
 USER app

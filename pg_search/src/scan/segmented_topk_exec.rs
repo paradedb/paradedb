@@ -75,6 +75,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::tantivy_lookup_exec::{open_rebuilt_ffhelper, rebuild_mvcc, LookupRebuildContext};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
 };
@@ -103,6 +104,10 @@ use tantivy::{DocId, SegmentOrdinal};
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
     pub canonical: CanonicalColumn,
+    /// How a dispatched fragment rebuilds the fast-field helper when the column's scan is not
+    /// in its decoded subtree (the top-k above a network boundary).
+    #[serde(default)]
+    pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
 }
 
 pub struct SegmentedTopKExec {
@@ -243,6 +248,8 @@ impl SegmentedTopKExec {
         input: Arc<dyn ExecutionPlan>,
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctx: &TaskContext,
+        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (sort_bytes, deferred_columns, k): (Vec<Vec<u8>>, Vec<DeferredSortColumn>, usize) =
             serde_json::from_slice(buf).map_err(|e| {
@@ -251,17 +258,34 @@ impl SegmentedTopKExec {
         // The deferred sort columns all resolve against one index (the sorted relation), and
         // `ff_index` is relative to that index's fast-field list. A join leaves the other
         // index's scan in the same subtree, so pick the helper by `indexrelid` instead of
-        // grabbing whichever scan comes first.
+        // grabbing whichever scan comes first. When that scan is behind a network boundary
+        // (no helper in the subtree), rebuild one over the same segment view the scan's
+        // reader opens, so segment ordering matches the ordinals the producers packed.
         let ffhelper = match deferred_columns.first() {
-            Some(first) => ffhelpers
-                .get(&first.canonical.indexrelid)
-                .cloned()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "SegmentedTopKExec dispatch: no ffhelper for indexrelid {}",
-                        first.canonical.indexrelid
-                    ))
-                })?,
+            Some(first) => match ffhelpers.get(&first.canonical.indexrelid).cloned() {
+                Some(helper) => helper,
+                None => {
+                    let entries: Vec<_> = deferred_columns
+                        .iter()
+                        .filter_map(|d| d.rebuild.as_ref().map(|rb| (d.canonical.ff_index, rb)))
+                        .collect();
+                    let (_, first_rb) = entries.first().ok_or_else(|| {
+                        DataFusionError::Internal(format!(
+                            "SegmentedTopKExec dispatch: no ffhelper for indexrelid {} and no \
+                             rebuild info",
+                            first.canonical.indexrelid
+                        ))
+                    })?;
+                    let mvcc = rebuild_mvcc(
+                        LookupRebuildContext {
+                            non_partitioning_segment_ids,
+                            parallel_state,
+                        },
+                        first_rb,
+                    )?;
+                    open_rebuilt_ffhelper(first.canonical.indexrelid, &entries, mvcc)?
+                }
+            },
             None => ffhelpers
                 .into_values()
                 .next()
@@ -1562,7 +1586,8 @@ mod tests {
                     canonical: crate::index::fast_fields_helper::CanonicalColumn {
                         indexrelid: index_oid.to_u32(),
                         ff_index: 0,
-                    }
+                    },
+                    rebuild: None,
                 }
             ];
 

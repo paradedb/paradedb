@@ -64,14 +64,14 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
     if let Some(vis_exec) = plan.downcast_ref::<VisibilityFilterExec>() {
         for &(plan_pos, _) in vis_exec.plan_pos_oids() {
-            let ffhelper =
-                find_ffhelper_for_plan_position(plan.as_ref(), plan_pos).ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "VisibilityCtidResolverRule: no PgSearchScanPlan found \
+            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
+                .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
                      for deferred ctid plan_position {plan_pos}"
-                    ))
-                })?;
-            vis_exec.set_ctid_resolver(plan_pos, ffhelper);
+                ))
+            })?;
+            vis_exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
 
@@ -82,14 +82,14 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
 }
 
 /// Search the subtree for a PgSearchScanPlan whose deferred ctid metadata matches
-/// the given plan position. Returns its FFHelper if found.
+/// the given plan position. Returns its index relid and FFHelper if found.
 fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
     plan_position: usize,
-) -> Option<Arc<FFHelper>> {
+) -> Option<(u32, Arc<FFHelper>)> {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         if scan.deferred_ctid_plan_position() == Some(plan_position) {
-            return scan.ffhelper();
+            return scan.ffhelper().map(|ff| (scan.indexrelid, ff));
         }
     }
 
@@ -133,7 +133,7 @@ mod tests {
             Some(7),
         );
 
-        let found = find_ffhelper_for_plan_position(&scan, 7)
+        let (_, found) = find_ffhelper_for_plan_position(&scan, 7)
             .expect("matching plan_position should find ffhelper");
         assert!(Arc::ptr_eq(&found, &ffhelper));
         assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());

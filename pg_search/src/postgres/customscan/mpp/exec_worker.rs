@@ -36,8 +36,7 @@ use std::sync::Arc;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
-    DistributedConfig, DistributedExec, DistributedExt, DistributedTaskContext,
-    SessionStateBuilderExt,
+    DistributedConfig, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
 };
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
@@ -48,7 +47,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
     collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
     InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, MppSender,
-    ShmMqWorkerTransport,
+    ShmChannelResolver,
 };
 use datafusion_distributed::PartitionSink;
 
@@ -158,7 +157,7 @@ pub(crate) fn build_mpp_session_context(
     // opens a WorkerConnection, so the fork's default transport sits unused.
     if let Some(mesh) = mesh {
         state_builder =
-            state_builder.with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh));
+            state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
         // Broadcast-subtree cap. Chain order matters: this has to come before the leaf
@@ -168,9 +167,6 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // No `with_distributed_user_codec(...)`: the leader serializes per-stage subplans through
-        // a combined codec built explicitly in `scan::physical_codec`, and each worker decodes
-        // the same way. Nothing drives the session's user-codec slot.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }
@@ -453,27 +449,12 @@ pub(crate) fn run_mpp_worker(
                     .with_runtime(build_runtime_env(memory_pool)),
             );
 
-            // Wrap the fragment's plan in a fresh `DistributedExec` and run `prepare_in_process_plan`
-            // to convert any nested boundaries' input stages from `Stage::Local` to
-            // `Stage::Remote`. Without this, a nested `NetworkShuffleExec` /
-            // `NetworkBroadcastExec` hitting `LocalStage::execute` errors when its task count
-            // exceeds 1; with the conversion, those boundaries dispatch through
-            // `ShmMqWorkerTransport` exactly like outer boundaries.
-            let plan = {
-                let dist = Arc::new(DistributedExec::new(Arc::clone(frag_plan)));
-                match dist.prepare_in_process_plan(&task_ctx) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return Err(datafusion::common::DataFusionError::Internal(format!(
-                            "mpp worker: prepare_in_process_plan failed for fragment \
-                             (stage_id={}, task_idx={}): {e}",
-                            fragment.stage_id, fragment.task_idx
-                        )));
-                    }
-                }
-            };
+            // The fragment arrives ready-to-run: the leader serialized it with nested stages
+            // already `Remote`, so its boundary leaves read the mesh through the session's
+            // `ShmChannelResolver`. Nothing here converts or dispatches.
+            let plan = Arc::clone(frag_plan);
             // Kept for the post-run metrics frame: the executed nodes (and their metrics)
-            // live in this prepared plan.
+            // live in this plan.
             executed_fragments.push((
                 fragment.stage_id,
                 fragment.task_idx,

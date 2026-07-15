@@ -244,6 +244,7 @@ fn try_inject_below_lookup(
                                 crate::scan::segmented_topk_exec::DeferredSortColumn {
                                     sort_col_idx: physical_idx,
                                     canonical: field.canonical.clone(),
+                                    rebuild: field.rebuild.clone(),
                                 },
                             );
                         }

@@ -735,6 +735,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         display_name: deferred.name.clone(),
                         is_bytes: deferred.is_bytes,
                         canonical: deferred.canonical.clone(),
+                        rebuild: deferred.rebuild.clone(),
                     },
                 );
             }
@@ -769,4 +770,37 @@ pub struct DeferredField {
     pub name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
+    /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing
+    /// behavior of collecting the helper from the plan subtree.
+    #[serde(default)]
+    pub rebuild: Option<DeferredLookupRebuild>,
+}
+
+/// Everything a worker needs to rebuild the fast-field reader for a deferred column when the
+/// scan that would normally supply it lives in a different plan fragment: the registered field
+/// name/type at `canonical.ff_index`, and which segment view to open.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeferredLookupRebuild {
+    pub field_name: String,
+    pub field_type: crate::schema::SearchFieldType,
+    /// The source's non-partitioning index, resolving the canonical segment set every worker
+    /// replicates. `None` means the partitioning source: its full segment list lives in the
+    /// worker's `ParallelScanState` (only the scan's runtime claiming divides it, so a reader
+    /// over the full list sees every address any producer packed).
+    pub np_source_idx: Option<usize>,
+}
+
+// `SearchFieldType` has no ordering; (name, np index) is enough for the opportunistic
+// plan-ordering these impls serve.
+impl PartialOrd for DeferredLookupRebuild {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeferredLookupRebuild {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.field_name, self.np_source_idx).cmp(&(&other.field_name, other.np_source_idx))
+    }
 }

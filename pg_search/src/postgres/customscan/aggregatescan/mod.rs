@@ -44,7 +44,9 @@ use crate::postgres::catalog::is_ltree_oid;
 
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
+use datafusion_distributed::{
+    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
+};
 
 use datafusion_distributed::shm::MppMesh;
 
@@ -1606,15 +1608,11 @@ impl AggregateScan {
                         &physical_plan,
                     ) {
                         Some(leader) => {
-                            // Workers are attaching and draining after the commit; ship each
-                            // fragment's plan frame now, before anything pulls from the mesh.
-                            if let Err(e) =
-                                crate::postgres::customscan::mpp::glue::deliver_set_plans(&leader)
-                            {
-                                pgrx::error!("mpp aggregate: plan delivery failed: {e}");
-                            }
+                            let source =
+                                crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx =
-                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)));
+                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                                    .with_distributed_dispatch_plan_source(source);
                             df_state.mpp = MppLifecycle::Launched(leader);
                             (exec_ctx, physical_plan)
                         }

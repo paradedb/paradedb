@@ -508,8 +508,7 @@ type OrdsBySegment = Vec<Vec<(usize, Option<TermOrdinal>)>>;
 
 /// Resolves State 0 (packed doc addresses) to term ordinals, grouped by segment.
 ///
-/// Union states: 0 = packed (segment_ord, doc_id), 1 = pre-resolved (segment_ord, term_ord),
-/// 2 = already-materialized string/bytes.
+/// Union states: 0 = packed (segment_ord, doc_id), 1 = pre-resolved (segment_ord, term_ord).
 ///
 /// Returns the same shape as State 1: a vector indexed by segment ordinal,
 /// of `(row_index, Option<TermOrdinal>)` pair vectors.
@@ -675,8 +674,8 @@ fn decode_term_ordinals(
 
 /// Materializes deferred union values into their original text or bytes representation.
 ///
-/// This function converts a 3-way `UnionArray` (containing either a packed `DocAddress`,
-/// `TermOrdinal`s, or already-materialized strings) into an Arrow `ArrayRef` matching the
+/// This function converts a 2-way `UnionArray` (containing either a packed `DocAddress`
+/// or `TermOrdinal`s) into an Arrow `ArrayRef` matching the
 /// requested String or Binary view array type. To maximize efficiency, it groups requests
 /// by segment, sorts them for sequential dictionary access, fetches materialized columns
 /// per segment, and then uses Arrow's `interleave` to reconstruct the data in the
@@ -696,12 +695,10 @@ fn materialize_deferred_column(
 
     let mut state_0_rows: Vec<usize> = Vec::new();
     let mut state_1_rows: Vec<usize> = Vec::new();
-    let mut state_2_rows: Vec<usize> = Vec::new();
     for row in 0..num_rows {
         match type_ids[row] {
             0 => state_0_rows.push(row),
             1 => state_1_rows.push(row),
-            2 => state_2_rows.push(row),
             _ => unreachable!("Invalid Union State"),
         }
     }
@@ -733,16 +730,6 @@ fn materialize_deferred_column(
         &mut indices,
     )?;
 
-    // Step 3. Map pre-materialized rows (State 2) directly from the compact child.
-    if !state_2_rows.is_empty() {
-        let materialized_child = union_array.child(2);
-        segment_arrays.push(materialized_child.clone());
-        let array_idx = segment_arrays.len() - 1;
-        for &row_idx in &state_2_rows {
-            indices[row_idx] = (array_idx, offsets[row_idx] as usize);
-        }
-    }
-
     if segment_arrays.is_empty() {
         // All rows were somehow unhandled — return a null array of the right type.
         return Ok(new_null_array(
@@ -755,7 +742,7 @@ fn materialize_deferred_column(
         ));
     }
 
-    // Step 4. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
+    // Step 3. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
     // segment arrays into the final array matching the original row order.
     let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
         segment_arrays.iter().map(|a| a.as_ref()).collect();

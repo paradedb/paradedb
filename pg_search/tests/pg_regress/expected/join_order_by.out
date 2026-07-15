@@ -360,8 +360,8 @@ LIMIT 10;
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_input=8.25 K, rows_output=10, segments_seen=2]
-           :       VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=8.25 K, output_bytes=235.4 KB, output_batches=2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, val@4], metrics=[output_rows=8.25 K, output_bytes=362.5 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.25 K, build_mem_used=400.0 K, avg_fanout=100% (8.25 K/8.25 K), probe_hit_rate=100% (8.25 K/8.25 K)]
+           :       VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=8.25 K, output_bytes=234.5 KB, output_batches=2]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, val@4], metrics=[output_rows=8.25 K, output_bytes=361.6 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.25 K, build_mem_used=400.0 K, avg_fanout=100% (8.25 K/8.25 K), probe_hit_rate=100% (8.25 K/8.25 K)]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :           CooperativeExec
@@ -474,8 +474,8 @@ LIMIT 25;
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :   TantivyLookupExec: decode=[val], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, metrics=[rows_input=8.48 K, rows_output=25, segments_seen=1]
-           :       VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=8.48 K, output_bytes=376.4 KB, output_batches=2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4], metrics=[output_rows=8.48 K, output_bytes=499.9 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.48 K, build_mem_used=400.0 K, avg_fanout=100% (8.48 K/8.48 K), probe_hit_rate=100% (8.48 K/8.48 K)]
+           :       VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=8.48 K, output_bytes=371.9 KB, output_batches=2]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4], metrics=[output_rows=8.48 K, output_bytes=495.3 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.48 K, build_mem_used=400.0 K, avg_fanout=100% (8.48 K/8.48 K), probe_hit_rate=100% (8.48 K/8.48 K)]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :           CooperativeExec

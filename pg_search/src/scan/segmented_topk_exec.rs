@@ -21,13 +21,12 @@
 //! how this node fits into the overall physical plan and pruning pipeline.
 //!
 //! `SegmentedTopKExec` sits between `TantivyLookupExec` and its child in the
-//! physical plan. It operates on the 3-way deferred `UnionArray` columns emitted
+//! physical plan. It operates on the 2-way deferred `UnionArray` columns emitted
 //! by late materialization:
 //!   - State 0 (doc_address): unpacks `(segment_ord, doc_id)` and bulk-fetches
 //!     term ordinals via `FFHelper`.
 //!   - State 1 (term_ordinals): uses ordinals directly (already resolved by
 //!     pre-filter memoization).
-//!   - State 2 (materialized): already-decoded strings/bytes — always kept.
 //!
 //! For States 0 and 1, a per-segment buffer (a `Vec` with capacity 2 * K) and
 //! QuickSelect retain only the top K rows per segment. All batches are
@@ -59,7 +58,7 @@
 //!
 //!   sum_s(survivors_s) <= K * S  (when no boundary ties)
 //!
-//! where `S` is the number of segments. Pass-through rows (State 2 and NULL
+//! where `S` is the number of segments. Pass-through rows (NULL
 //! ordinals) are emitted immediately and are not bounded by K.
 //!
 //! **Compound sorts:** every sort column is used, not just the primary. The
@@ -532,7 +531,7 @@ struct SegmentedTopKState {
     /// Keeps track of the buffered rows for compaction.
     /// (batch_idx, row_idx, seg_ord, row_data)
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
-    /// Buffered pass-through rows (State 2 and NULL ordinals) that bypass
+    /// Buffered pass-through rows (NULL ordinals) that bypass
     /// ordinal comparison. These are included in the final sort + limit.
     pass_through_rows: Vec<(usize, usize)>,
 
@@ -552,7 +551,7 @@ struct SegmentedTopKState {
     rows_input: Count,
     rows_output: Count,
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
-    /// Segments with only State 2 (materialized) or only NULLs are not counted.
+    /// Segments with only NULLs are not counted.
     segments_seen: Count,
 }
 
@@ -569,7 +568,7 @@ impl SegmentedTopKState {
 
     /// Ingest a single batch: extract ordinals, update per-segment buffers,
     /// and publish thresholds. The batch is buffered for the final emission
-    /// phase. Pass-through rows (State 2 and NULL ordinals) are buffered
+    /// phase. Pass-through rows (NULL ordinals) are buffered
     /// in `pass_through_rows` for the final sort + limit.
     fn collect_batch(&mut self, batch: &RecordBatch, batch_idx: usize) -> Result<()> {
         let num_rows = batch.num_rows();
@@ -655,7 +654,7 @@ impl SegmentedTopKState {
 
         self.publish_global_threshold()?;
 
-        // Buffer pass-through rows (State 2 + NULL ordinals) for the final sort.
+        // Buffer pass-through rows (NULL ordinals) for the final sort.
         for (row_idx, &is_pt) in pass_through.iter().enumerate() {
             if is_pt {
                 self.pass_through_rows.push((batch_idx, row_idx));
@@ -666,7 +665,7 @@ impl SegmentedTopKState {
     }
 
     /// Helper to extract term ordinals from a deferred UnionArray.
-    /// Mutates `pass_through` for rows that contain State 2 or NULLs, and populates `row_to_seg` mapping.
+    /// Mutates `pass_through` for rows that contain NULLs, and populates `row_to_seg` mapping.
     fn extract_deferred_ordinals(
         &self,
         batch: &RecordBatch,
@@ -697,7 +696,6 @@ impl SegmentedTopKState {
             match type_ids[row_idx] {
                 0 => state0_rows.push(row_idx),
                 1 => state1_rows.push(row_idx),
-                2 => pass_through[row_idx] = true,
                 _ => unreachable!("Invalid Union state"),
             }
         }
@@ -1303,33 +1301,8 @@ impl SegmentedTopKState {
                             ScalarValue::Utf8View(None)
                         }
                     } else {
-                        // Pass-through row: extract materialized value from
-                        // UnionArray State 2 child.
-                        let batch = &self.batches[*batch_idx];
-                        let union_col = batch
-                            .column(deferred.sort_col_idx)
-                            .as_any()
-                            .downcast_ref::<UnionArray>();
-                        if let Some(union_arr) = union_col {
-                            let type_ids = union_arr.type_ids();
-                            let offsets = union_arr.offsets();
-                            if let Some(offsets) = offsets {
-                                if type_ids[*row_idx] == 2 {
-                                    // State 2: materialized child
-                                    let child = union_arr.child(2);
-                                    let ci = offsets[*row_idx] as usize;
-                                    ScalarValue::try_from_array(child, ci)
-                                        .unwrap_or(ScalarValue::Utf8View(None))
-                                } else {
-                                    // NULL ordinal pass-through
-                                    ScalarValue::Utf8View(None)
-                                }
-                            } else {
-                                ScalarValue::Utf8View(None)
-                            }
-                        } else {
-                            ScalarValue::Utf8View(None)
-                        }
+                        // NULL ordinal pass-through
+                        ScalarValue::Utf8View(None)
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.
@@ -1509,7 +1482,7 @@ mod tests {
         ));
 
         let schema = Arc::new(Schema::new(vec![
-            Field::new("sort_col", deferred_union_data_type(false), true),
+            Field::new("sort_col", deferred_union_data_type(), true),
             Field::new("id", arrow_schema::DataType::Int64, true),
         ]));
 
@@ -1551,7 +1524,7 @@ mod tests {
                     continue;
                 }
 
-                let name_array = build_state_doc_address(seg_ord as u32, &doc_ids, false);
+                let name_array = build_state_doc_address(seg_ord as u32, &doc_ids);
                 let mut id_builder = arrow_array::builder::Int64Builder::with_capacity(doc_ids.len());
 
                 for doc_id in &doc_ids {

@@ -668,8 +668,8 @@ LIMIT 5;
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
            :   TantivyLookupExec: decode=[title], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
            :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, metrics=[rows_input=14.42 K, rows_output=5, segments_seen=2]
-           :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=14.42 K, output_bytes=802.8 KB, output_batches=2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=14.42 K, output_bytes=833.6 KB, output_batches=2, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.42 K, build_mem_used=228, avg_fanout=100% (14.42 K/14.42 K), probe_hit_rate=55.81% (14.42 K/25.83 K)]
+           :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=14.42 K, output_bytes=577.5 KB, output_batches=2]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=14.42 K, output_bytes=608.2 KB, output_batches=2, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.42 K, build_mem_used=228, avg_fanout=100% (14.42 K/14.42 K), probe_hit_rate=55.81% (14.42 K/25.83 K)]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :           CooperativeExec

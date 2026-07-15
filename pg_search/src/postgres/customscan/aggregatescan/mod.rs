@@ -90,7 +90,6 @@ use crate::postgres::customscan::exec::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -206,17 +205,27 @@ impl CustomScan for AggregateScan {
         match input_rel.reloptkind {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
                 let use_datafusion = unsafe {
-                    // If the estimated number of groups exceeds Tantivy's bucket limit,
-                    // fall back to DataFusion which has no such limit.
-                    let estimated_groups = builder.args().output_rel().rows;
+                    // If the estimated number of groups exceeds Tantivy's bucket
+                    // limit, fall back to DataFusion which has no such limit;
+                    // Tantivy would otherwise silently truncate the GROUP BY at the
+                    // cap. A single-column GROUP BY that is key-ordered and bounded
+                    // by a LIMIT within the cap is exempt — Tantivy answers it
+                    // correctly and faster via its bounded top-N pushdown. The
+                    // ORDER BY on the grouping key is required: only a key-ordered
+                    // prefix has exact counts past the cap; an unordered or
+                    // count-ordered LIMIT would silently return approximate counts.
                     let max_buckets = gucs::max_term_agg_buckets() as f64;
-                    if estimated_groups > max_buckets {
-                        true
-                    } else {
+                    let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
+                    let bounded_on_tantivy = builder.args().is_single_grouping_column()
+                        && builder.args().orders_by_grouping_key()
+                        && builder
+                            .args()
+                            .limit_plus_offset()
+                            .is_some_and(|fetch| fetch as f64 <= max_buckets);
+                    (exceeds_cap && !bounded_on_tantivy)
                         // ORDER BY aggregate + LIMIT: route to DataFusion which has
                         // no bucket cap and provides native TopK via SortExec(fetch=K).
-                        build::has_aggregate_orderby_with_limit(builder.args())
-                    }
+                        || build::has_aggregate_orderby_with_limit(builder.args())
                 };
                 if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
@@ -1974,9 +1983,7 @@ unsafe fn detect_join_aggregate_topk(
     // Must have a LIMIT for TopK to matter. We require a STATIC value here
     // because DataFusion's TopK rule needs a concrete K at planning time.
     // Parameterized LIMIT is left as a regular sort+limit pipeline.
-    let limit_offset = LimitOffset::from_parse(parse)?;
-    let static_fetch = limit_offset.static_fetch()?;
-    let k = static_fetch;
+    let k = args.limit_plus_offset()?;
 
     // Only single sort clause for TopK
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);

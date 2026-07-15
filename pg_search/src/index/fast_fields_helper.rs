@@ -408,12 +408,8 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, field_type) => {
-                let is_bytes = matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                );
-                crate::scan::deferred_encode::deferred_union_data_type(is_bytes)
+            WhichFastField::Deferred(_, _field_type) => {
+                crate::scan::deferred_encode::deferred_union_data_type()
             }
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
         }

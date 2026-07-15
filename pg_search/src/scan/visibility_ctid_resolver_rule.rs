@@ -86,14 +86,14 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
     // owns ctid resolution for the same plan positions.
     if let Some(stk) = plan.downcast_ref::<SegmentedTopKExec>() {
         for &(plan_pos, _) in stk.plan_pos_oids() {
-            let (_, ffhelper) =
-                find_ffhelper_for_plan_position(plan.as_ref(), plan_pos).ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "VisibilityCtidResolverRule: no PgSearchScanPlan found \
+            let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
+                .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "VisibilityCtidResolverRule: no PgSearchScanPlan found \
                          for SegmentedTopKExec deferred ctid plan_position {plan_pos}"
-                    ))
-                })?;
-            stk.set_ctid_resolver(plan_pos, ffhelper);
+                ))
+            })?;
+            stk.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
 
@@ -253,6 +253,6 @@ mod tests {
         assert_eq!(pos_oids[0].0, plan_pos, "plan_position should match");
 
         // Wire a resolver and verify no panic.
-        stk.set_ctid_resolver(plan_pos, ffhelper_scan);
+        stk.set_ctid_resolver(plan_pos, 0, ffhelper_scan);
     }
 }

@@ -229,8 +229,10 @@ fn try_inject_below_lookup(
                 // absorb it: SegmentedTopKExec will own MVCC visibility checking and the
                 // VFExec node is removed from the plan, so dead rows never inflate the
                 // pushed-down threshold. VFExec preserves schema, so `input_schema` above
-                // is unchanged. Only inner-join plans land here; semi/anti VFExec is inside
-                // the join and is not a direct child of TantivyLookupExec.
+                // is unchanged. Per `VisibilityFilterOptimizerRule`, a VFExec appears
+                // here for inner joins and for the preserved sides of any join type
+                // (e.g. Left, LeftSemi, LeftAnti); the null-supplying sides are forced
+                // to be checked inside the join, so they won't be absorbed here.
                 let (absorbed_visibility, stk_input) =
                     if let Some(vis_exec) = lookup_child.downcast_ref::<VisibilityFilterExec>() {
                         (

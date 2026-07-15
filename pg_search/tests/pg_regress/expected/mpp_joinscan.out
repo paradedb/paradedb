@@ -158,7 +158,20 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-ERROR:  mpp worker: fragment dispatch failed: Execution error: SegmentedTopKExec: no ctid resolver wired for plan_position 1. VisibilityCtidResolverRule must run before execute.
+  title  | size_bytes 
+---------+------------
+ file-1  |        616
+ file-1  |       1312
+ file-1  |       2008
+ file-1  |       2704
+ file-1  |       3400
+ file-10 |        153
+ file-10 |       1465
+ file-10 |       2161
+ file-10 |       2857
+ file-10 |       3553
+(10 rows)
+
 -- =====================================================================
 -- Pass 3: worker metrics reach the leader's EXPLAIN ANALYZE display.
 -- Asserts presence, not content: how many workers launch and how they
@@ -181,7 +194,11 @@ FROM mpp_explain_analyze_lines(
    LIMIT 10'
 ) AS line
 WHERE line LIKE '%output_rows%';
-ERROR:  mpp worker: fragment dispatch failed: Execution error: SegmentedTopKExec: no ctid resolver wired for plan_position 1. VisibilityCtidResolverRule must run before execute.
+ worker_metrics_shown 
+----------------------
+ t
+(1 row)
+
 DROP FUNCTION mpp_explain_analyze_lines(text);
 -- =====================================================================
 -- Pass 4: MPP with heap filter
@@ -236,7 +253,20 @@ WHERE f.content @@@ 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-ERROR:  mpp worker: fragment dispatch failed: Execution error: SegmentedTopKExec: no ctid resolver wired for plan_position 1. VisibilityCtidResolverRule must run before execute.
+  title   | size_bytes 
+----------+------------
+ file-10  |        153
+ file-10  |       1465
+ file-10  |       2161
+ file-10  |       2857
+ file-10  |       3553
+ file-100 |        291
+ file-100 |        987
+ file-100 |       1683
+ file-100 |       2995
+ file-100 |       3691
+(10 rows)
+
 -- =====================================================================
 -- Pass 5: Serial fallback check
 --

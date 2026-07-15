@@ -29,7 +29,7 @@
 //! Under fault injection the grace should be set larger than the run itself, so a connectivity
 //! fault can never fail the run: Antithesis searches for the fault schedule that breaks
 //! us, so any window shorter than the run is one it can outlast. Liveness is instead
-//! asserted from the outside: the `anytime_recovery_liveness` test command heals every
+//! asserted from the outside: the suites' recovery-liveness command heals every
 //! fault, then narrows the [`GraceWindow`] via its poke file to a window that *can*
 //! expire. See `stressgres/suites/antithesis/`.
 //!

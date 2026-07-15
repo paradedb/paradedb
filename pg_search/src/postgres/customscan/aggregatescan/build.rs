@@ -318,6 +318,12 @@ impl AggregateCSClause {
         !self.targetlist.grouping_columns().is_empty()
     }
 
+    /// The statically-known `LIMIT + OFFSET`, or `None` when there is no LIMIT or
+    /// its value is parameterized.
+    pub fn static_fetch(&self) -> Option<usize> {
+        self.limit_offset.as_ref().and_then(|lo| lo.static_fetch())
+    }
+
     pub fn index_created_by_version(&self) -> Option<Version> {
         self.index_created_by_version
     }

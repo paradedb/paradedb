@@ -21,15 +21,20 @@ SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating;
-                                                      QUERY PLAN                                                       
------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on products
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-     Applies to Aggregates: COUNT(*)
-     Group By: rating
-     Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
-(6 rows)
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: rating
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: rating
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(11 rows)
 
 -- Limit + offset exceeds max_term_agg_buckets
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -38,18 +43,22 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
-                                                         QUERY PLAN                                                          
------------------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Aggregate Scan) on products
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
-           Applies to Aggregates: COUNT(*)
-           Group By: rating
-           Limit: 5
-           Offset: 6
-           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
-(9 rows)
+   ->  Sort
+         Sort Key: rating
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: products_idx (products)
+               Group By: rating
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=11), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+(13 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -58,23 +67,21 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
-                            QUERY PLAN                             
--------------------------------------------------------------------
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating, id
-         ->  HashAggregate
-               Group Key: id
-               ->  Custom Scan (ParadeDB Base Scan) on products
-                     Table: products
-                     Index: products_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: id, rating
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: products_idx (products)
+               Group By: id, rating
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[rating@1 as rating, id@0 as id], aggr=[count(1) as agg_0]
+                 :   CooperativeExec
+                 :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(12 rows)
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

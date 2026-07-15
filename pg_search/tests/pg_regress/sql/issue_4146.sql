@@ -1,5 +1,10 @@
 \i common/docs_setup.sql
 
+-- Deferring DISTINCT columns through doc addresses deepens this join plan enough
+-- that serializing it overflows the 2MB default stack in debug builds. The real
+-- fix is bounding that recursion in the plan serialization path; until it lands,
+-- give the session headroom.
+SET max_stack_depth = '6MB';
 SET paradedb.enable_join_custom_scan TO on;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

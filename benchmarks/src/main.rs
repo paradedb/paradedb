@@ -153,11 +153,16 @@ struct RecallArgs {
     #[arg(long)]
     data_source: Option<String>,
 
-    /// Query file (stem of `queries/{query}.sql`) to measure recall for. Recall runs that exact
-    /// query for each held-out vector and compares to `ground_truth_{query}_{size}.parquet`.
-    /// Defaults to the unfiltered query.
+    /// Query file (stem of `queries/{query}.sql`) to measure recall for, run for each held-out
+    /// vector. May include an index subdirectory (e.g. `foo/knn_top10_1pct`).
     #[arg(long, default_value = "knn_top10_unfiltered")]
     query: String,
+
+    /// Ground-truth stem, selecting `ground_truth_{ground_truth}_{size}.parquet`. The exact top-10
+    /// depends only on filter selectivity, so query files with the same filter share one ground
+    /// truth. Defaults to `--query` with any index subdirectory stripped.
+    #[arg(long)]
+    ground_truth: Option<String>,
 }
 
 #[tokio::main]
@@ -545,6 +550,12 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         );
     }
 
+    // Ground-truth stem: explicit --ground-truth, else --query with any index subdirectory stripped.
+    let gt_stem = args
+        .ground_truth
+        .clone()
+        .unwrap_or_else(|| args.query.rsplit('/').next().unwrap().to_string());
+
     // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
     // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
     let mut fixtures = vec![
@@ -556,7 +567,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             "recall_gt",
             format!(
                 "{base}/queries/ground_truth_{}_{}.parquet",
-                args.query, args.size
+                gt_stem, args.size
             ),
         ),
     ];
@@ -686,8 +697,16 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
     }
 
-    // Locate all query paths, and sort them for stability in the output.
-    let queries_dir = format!("datasets/{}/queries", args.dataset);
+    // Locate all query paths, sorted for stable output. An index may ship its own query set under
+    // `queries/{index}/`; otherwise fall back to the flat `queries/` dir.
+    let queries_dir = {
+        let index_specific = format!("datasets/{}/queries/{}", args.dataset, args.index);
+        if Path::new(&index_specific).is_dir() {
+            index_specific
+        } else {
+            format!("datasets/{}/queries", args.dataset)
+        }
+    };
     let query_paths: anyhow::Result<Vec<Option<_>>> = std::fs::read_dir(queries_dir)
         .with_context(|| "Failed to read queries directory")?
         .map(|entry| {
@@ -1263,12 +1282,25 @@ fn queries(file: &Path) -> Vec<String> {
     content
         .split(";\n")
         .filter_map(|query| {
+            // Strip line comments and flatten each statement onto one line, but keep the interior of
+            // dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its
+            // newlines). Splitting on `$$` alternates outside/inside (even = outside, odd = inside);
+            // flatten only the outside. Files without `$$` are a single segment, unchanged.
             let query = query
-                .trim()
-                .split('\n')
-                .map(|line| line.split("--").next().unwrap().trim())
+                .split("$$")
+                .enumerate()
+                .map(|(i, seg)| {
+                    if i % 2 == 1 {
+                        seg.to_owned()
+                    } else {
+                        seg.split('\n')
+                            .map(|line| line.split("--").next().unwrap().trim())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    }
+                })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join("$$")
                 .trim()
                 .to_owned();
             if query.is_empty() {
@@ -1365,6 +1397,19 @@ async fn execute_query_multiple_times(
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
+
+    // Apply the query's `SET` preamble to the session first, so operating-point GUCs are in effect for
+    // get_query_id's EXPLAIN of the bare measured query below (some access methods error at plan time
+    // when a required GUC is unset). Idempotent -- the measured runs re-apply them via the full query.
+    for stmt in query.split(';') {
+        let stmt = stmt.trim();
+        if stmt.len() >= 4 && stmt[..4].eq_ignore_ascii_case("set ") {
+            sqlx::raw_sql(&format!("{stmt};"))
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
+        }
+    }
 
     let query_id = get_query_id(measured_query, &mut conn).await?;
     let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");

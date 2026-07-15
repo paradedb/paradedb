@@ -133,11 +133,12 @@ pub struct MppLeaderState {
     /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
     /// The scan state's own drop runs after detach and must find this empty.
     pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
-    /// Plans for [`deliver_set_plans`], which runs at exec time when the launched workers are
-    /// draining their inboxes. Sending from the init callback instead could fill a small ring
-    /// with no drainer behind it and wedge the leader. Kept (not drained) so a parallel rescan
-    /// can re-deliver to relaunched workers, the frame analog of the plan blob persisting in
-    /// DSM. Mutex because the exec hook only sees a shared borrow of the scan state.
+    /// The producer-stage subplans serialized from the leader's own execution plan, for
+    /// [`deliver_set_plans`], which runs at exec time when the launched workers are draining
+    /// their inboxes. Sending from the init callback instead could fill a small ring with no
+    /// drainer behind it and wedge the leader. Kept (not drained) so a parallel rescan can
+    /// re-deliver to relaunched workers, the frame analog of the plan blob persisting in DSM.
+    /// Mutex because the exec hook only sees a shared borrow of the scan state.
     pub stage_plans: std::sync::Mutex<Vec<StagePlan>>,
     /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
     /// path before workers relaunch.

@@ -187,7 +187,11 @@ jobs:
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev
+        run: |
+          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libeigen3-dev libomp-dev libopenblas-dev
+          # See test-pg_search.yml for context.
+          echo "LIBOMP_INCLUDE_DIR=$(find /usr/lib/llvm-* -name omp.h -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
+          echo "LIBOMP_LIB_DIR=$(find /usr/lib/llvm-* -name 'libomp.so' -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

@@ -1606,7 +1606,8 @@ impl CustomScan for BaseScan {
 
                         let needs_special_projection = state.custom_state().need_scores()
                             || state.custom_state().need_snippets()
-                            || state.custom_state().window_aggregate_results.is_some();
+                            || state.custom_state().window_aggregate_results.is_some()
+                            || state.custom_state().vector_distance_placeholder;
 
                         if !needs_special_projection {
                             //
@@ -1835,6 +1836,25 @@ fn validate_topk_expectation(
             "Ensure ORDER BY columns are indexed. Numeric columns are fast by default. \
                  For string columns, use pdb.literal tokenizer"
                 .to_string(),
+        ),
+        PathKeyInfo::Unusable(UnusableReason::VectorMetricMismatch {
+            field_metric,
+            op_metric,
+        }) => (
+            format!(
+                "ORDER BY uses the {} ({:?}) operator but the index attribute was built with \
+                 the {} opclass ({:?})",
+                op_metric.operator(),
+                op_metric,
+                field_metric.opclass_name(),
+                field_metric,
+            ),
+            format!(
+                "Either change the ORDER BY operator to {} (matching the index opclass), \
+                 or rebuild the index with the {} opclass on the vector column.",
+                field_metric.operator(),
+                op_metric.opclass_name(),
+            ),
         ),
         PathKeyInfo::Unusable(UnusableReason::UnsafeCollation) => (
             "ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index"
@@ -2111,8 +2131,18 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
     let has_window_aggs = !state.custom_state().window_aggregates.is_empty();
+    // A TopK scan that orders by `embedding <-> query` also needs the special
+    // projection: it lets us blank the junk distance column (see
+    // `inject_vector_distance_placeholders`) and skip the per-row
+    // `l2_distance` + `detoast_attr`. We only consider TopK here because that
+    // is the only exec method that provides the vector ordering itself; in any
+    // other plan a Sort consumes the distance column and we must leave it be.
+    let is_topk = matches!(
+        state.custom_state().exec_method_type,
+        crate::postgres::customscan::builders::custom_path::ExecMethodType::TopK { .. }
+    );
 
-    if !need_scores && !need_snippets && !has_window_aggs {
+    if !need_scores && !need_snippets && !has_window_aggs && !is_topk {
         // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
     }
@@ -2141,10 +2171,70 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         (targetlist, HashMap::default())
     };
 
+    // Blank out the junk vector-distance ORDER BY column. When the ORDER BY is
+    // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist as
+    // a junk column and evaluates it per output row — triggering `detoast_attr`
+    // on the TOAST'd heap vector (~27 % of query time at LIMIT 100). The TopK
+    // scan already produced the rows in order, so the column's value is unused
+    // and junk-stripped; replacing it with a NULL Const skips the recompute.
+    // Only safe for TopK (it owns the ordering); other plans Sort by it.
+    let vector_distance_placeholder = is_topk && inject_vector_distance_placeholders(targetlist);
+
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
     state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
+    state.custom_state_mut().vector_distance_placeholder = vector_distance_placeholder;
+}
+
+/// Replace every *junk* top-level pgvector distance `OpExpr`
+/// (e.g. `embedding <-> q`) in `targetlist` with a NULL `Const(float8)`,
+/// mutating the `TargetEntry`'s `expr` in place. Returns `true` if at least one
+/// entry was replaced.
+///
+/// A junk distance column only exists to carry the ORDER BY key; with a TopK
+/// scan the rows already arrive ordered and the column is junk-stripped from
+/// the result, so its value is never observed. Blanking it to NULL lets
+/// `ExecProject` skip `l2_distance(embedding, q)` and the heap-vector detoast.
+///
+/// Two deliberate restrictions:
+/// * `resjunk` only — a SELECT-ed `vec <-> q` must be computed exactly; the
+///   TopK score is an approximate, squared/normalized ordering key, not the
+///   pgvector distance.
+/// * the caller invokes this only for TopK scans — any other plan has a Sort
+///   that consumes the distance value, so it cannot be blanked.
+///
+/// This does NOT use `expression_tree_mutator`: that deep-copies every node it
+/// visits, which would orphan the score/snippet/window `Const` pointers already
+/// collected for this targetlist. The ORDER BY key is always a top-level
+/// `TargetEntry` expr, so an in-place per-entry rewrite is sufficient.
+unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> bool {
+    use crate::postgres::customscan::orderby::metric_for_opoid;
+
+    let mut replaced = false;
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    for te in tlist.iter_ptr() {
+        if te.is_null() || !(*te).resjunk {
+            continue;
+        }
+        let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>()) else {
+            continue;
+        };
+        if metric_for_opoid((*opexpr).opno).is_some() {
+            let const_node = pg_sys::makeConst(
+                pg_sys::FLOAT8OID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<f64>() as _,
+                pg_sys::Datum::null(),
+                true,
+                true,
+            );
+            (*te).expr = const_node.cast();
+            replaced = true;
+        }
+    }
+    replaced
 }
 
 /// Inject placeholder Const nodes for window aggregates at execution time

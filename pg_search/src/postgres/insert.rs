@@ -46,10 +46,7 @@ pub struct InsertModeImmutable {
 
 impl InsertModeImmutable {
     fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
-        let config = IndexWriterConfig {
-            memory_budget: WorkMem::Tantivy.get(),
-            max_docs_per_segment: None,
-        };
+        let config = IndexWriterConfig::new(WorkMem::Tantivy.get());
         let writer = SerialIndexWriter::with_mvcc(
             indexrel,
             MvccSatisfies::Mergeable,

@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::operator::keyset::KeySet;
@@ -50,6 +50,8 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::{ProbeStats, ProbeTermination};
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -58,6 +60,81 @@ use tantivy::{
 /// The maximum number of sort-features/`OrderByInfo`s supported for
 /// `SearchIndexReader::search_top_k_in_segments`.
 pub const MAX_TOPK_FEATURES: usize = 5;
+
+/// Aggregate the per-segment IVF [`ProbeStats`] of one vector query into a
+/// single parseable `probe_stats …` line. Scalars sum across segments;
+/// `termination` is tallied per variant (so a `Ceiling` on any segment stays
+/// visible). The summed line preserves the per-segment invariant
+/// `visited == pruned_filter + pruned_dead + pruned_seen + scored`.
+///
+/// Line-grammar note: tantivy's `ProbeStats::centroids_ranked` is surfaced
+/// as `router_scored=`, NOT `centroids_ranked=`. The field's semantics
+/// changed when query routing moved to beam search over the persisted RNG
+/// (it now counts centroids the router actually scored — the beam's visit
+/// set, or all of them on the linear fallback — where it used to always be
+/// the full centroid count). The rename makes stale downstream parsers
+/// break loudly instead of silently misreading the new number.
+///
+/// The two trailing compound tokens reuse `termination=`'s `key:N` comma
+/// style and sit at the end of the line so prefix parsers are unaffected.
+/// They always print, zeros included — the grammar is constant-shape.
+/// `postings=` buckets probed IVF clusters by posting-fetch mode (one bulk
+/// whole-cluster read / one stride-sized read per surviving row / skipped
+/// outright when the gate pre-pass leaves zero survivors); the three
+/// buckets partition the probed clusters, so `bulk + row + skipped ==
+/// clusters_probed` — asserted in the unit tests. `exact=` counts
+/// flat-path ranged reads (`chunked` covered a run of ≥2 surviving rows,
+/// `single` exactly one). At 0% selectivity the empty-filter short-circuit
+/// returns before the probe loop, so every posting counter is zero by
+/// design and the partition invariant holds trivially (0 == 0 clusters
+/// probed).
+fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
+    let mut visited = 0usize;
+    let mut pruned_filter = 0usize;
+    let mut pruned_dead = 0usize;
+    let mut pruned_seen = 0usize;
+    let mut scored = 0usize;
+    let mut clusters_probed = 0usize;
+    let mut router_scored = 0usize;
+    let mut min_candidates = 0usize;
+    let (mut ceiling, mut gate, mut exhausted) = (0usize, 0usize, 0usize);
+    let (mut postings_bulk, mut postings_row, mut postings_skipped) = (0usize, 0usize, 0usize);
+    let (mut exact_chunked, mut exact_single) = (0usize, 0usize);
+    for s in per_segment {
+        visited += s.vectors_visited;
+        pruned_filter += s.pruned_filter;
+        pruned_dead += s.pruned_dead;
+        pruned_seen += s.pruned_seen;
+        scored += s.candidates_scored;
+        clusters_probed += s.probed_clusters.len();
+        router_scored += s.centroids_ranked;
+        min_candidates += s.min_candidates;
+        match s.termination {
+            ProbeTermination::Ceiling => ceiling += 1,
+            ProbeTermination::Gate => gate += 1,
+            ProbeTermination::Exhausted => exhausted += 1,
+        }
+        postings_bulk += s.postings_bulk;
+        postings_row += s.postings_row;
+        postings_skipped += s.postings_skipped;
+        exact_chunked += s.exact_reads_chunked;
+        exact_single += s.exact_reads_single;
+    }
+    format!(
+        "probe_stats visited={visited} pruned_filter={pruned_filter} \
+         pruned_dead={pruned_dead} pruned_seen={pruned_seen} scored={scored} \
+         clusters_probed={clusters_probed} router_scored={router_scored} \
+         min_candidates={min_candidates} termination=ceiling:{ceiling},gate:{gate},exhausted:{exhausted} \
+         postings=bulk:{postings_bulk},row:{postings_row},skipped:{postings_skipped} \
+         exact=chunked:{exact_chunked},single:{exact_single}"
+    )
+}
+
+/// Emit the aggregated probe stats as one NOTICE. Only called when
+/// `paradedb.log_probe_stats` is on (off by default, zero-cost when off).
+fn emit_probe_stats_notice(per_segment: &[ProbeStats]) {
+    pgrx::notice!("{}", format_probe_stats(per_segment));
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct DocsEstimate {
@@ -936,6 +1013,49 @@ impl SearchIndexReader {
                 feature: OrderByFeature::NullTest { .. },
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+            OrderByInfo {
+                feature:
+                    OrderByFeature::VectorDistance {
+                        name, query_vector, ..
+                    },
+                ..
+            } => {
+                let only_score_feature =
+                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
+                if !(erased_features.is_empty() || only_score_feature) {
+                    panic!("secondary ORDER BY fields are not supported for vector distance");
+                }
+                let field = self
+                    .schema
+                    .search_field(name)
+                    .expect("vector field should exist in index schema");
+                let tantivy_field = field.field();
+                let collector = TopDocs::with_limit(n)
+                    .and_offset(offset)
+                    .order_by_similarity(tantivy_field, query_vector.clone())
+                    .with_adaptive_params(AdaptiveProbeParams {
+                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                        max_probe_count: crate::gucs::vector_cluster_max_probes(),
+                        ..Default::default()
+                    });
+                // Probe-stats NOTICE (GUC `paradedb.log_probe_stats`, off by
+                // default, zero-cost when off). The collector pushes one
+                // ProbeStats per segment into the sink; we aggregate the scalars
+                // and tally `termination`, then emit a single line. This vector
+                // search runs once per scan, so the NOTICE is once per query.
+                let probe_stats_sink =
+                    crate::gucs::log_probe_stats().then(|| Arc::new(Mutex::new(Vec::new())));
+                let collector = match &probe_stats_sink {
+                    Some(sink) => collector.with_probe_stats_sink(Arc::clone(sink)),
+                    None => collector,
+                };
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
+                if let Some(sink) = probe_stats_sink {
+                    emit_probe_stats_notice(&sink.lock().unwrap());
+                }
+                TopKSearchResults::new_for_score(top_docs, aggregation_results)
+            }
         }
     }
 
@@ -1440,6 +1560,13 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::VectorDistance { .. },
+                    ..
+                } => {
+                    // Vector distance cannot be a secondary sort key
+                    unimplemented!("Vector distance ORDER BY can only be the primary sort key")
+                }
             }
         }
 
@@ -1575,5 +1702,96 @@ impl ErasedFeatures {
             OwnedValue::Null => None,
             _ => panic!("expected a f64 for the score"),
         })
+    }
+}
+
+#[cfg(test)]
+mod probe_stats_tests {
+    use super::*;
+
+    fn seg(termination: ProbeTermination) -> ProbeStats {
+        // visited (25) == pruned_filter(5) + pruned_dead(2) + pruned_seen(8) + scored(10);
+        // postings bulk(1) + row(1) + skipped(1) == probed_clusters.len() (3).
+        ProbeStats {
+            probed_clusters: vec![0, 1, 2],
+            candidates_scored: 10,
+            vectors_visited: 25,
+            pruned_filter: 5,
+            pruned_dead: 2,
+            pruned_seen: 8,
+            postings_bulk: 1,
+            postings_row: 1,
+            postings_skipped: 1,
+            exact_reads_chunked: 0,
+            exact_reads_single: 0,
+            centroids_ranked: 9,
+            min_candidates: 16,
+            termination,
+        }
+    }
+
+    /// Pull `key=N` off the formatted line.
+    fn scalar(line: &str, key: &str) -> usize {
+        let tail = line.split(&format!("{key}=")).nth(1).unwrap();
+        tail.split(' ').next().unwrap().parse().unwrap()
+    }
+
+    /// Pull `sub:N` out of a `key=a:N,b:N,…` compound token.
+    fn compound(line: &str, key: &str, sub: &str) -> usize {
+        let tail = line.split(&format!("{key}=")).nth(1).unwrap();
+        let token = tail.split(' ').next().unwrap();
+        let entry = token
+            .split(',')
+            .find(|e| e.starts_with(&format!("{sub}:")))
+            .unwrap();
+        entry.split(':').nth(1).unwrap().parse().unwrap()
+    }
+
+    #[test]
+    fn format_probe_stats_sums_scalars_and_tallies_termination() {
+        let line =
+            format_probe_stats(&[seg(ProbeTermination::Gate), seg(ProbeTermination::Ceiling)]);
+        // Scalars summed; termination tallied per variant; summed invariant
+        // holds (visited 50 == 10+4+16+20).
+        assert_eq!(
+            line,
+            "probe_stats visited=50 pruned_filter=10 pruned_dead=4 pruned_seen=16 scored=20 clusters_probed=6 router_scored=18 min_candidates=32 termination=ceiling:1,gate:1,exhausted:0 postings=bulk:2,row:2,skipped:2 exact=chunked:0,single:0"
+        );
+    }
+
+    #[test]
+    fn format_probe_stats_empty() {
+        assert_eq!(
+            format_probe_stats(&[]),
+            "probe_stats visited=0 pruned_filter=0 pruned_dead=0 pruned_seen=0 scored=0 clusters_probed=0 router_scored=0 min_candidates=0 termination=ceiling:0,gate:0,exhausted:0 postings=bulk:0,row:0,skipped:0 exact=chunked:0,single:0"
+        );
+    }
+
+    /// The two trailing compound tokens: `postings=` sums the per-segment
+    /// fetch-mode buckets, `exact=` the flat-path read shapes, and the
+    /// emitted line upholds the partition invariant `bulk + row + skipped
+    /// == clusters_probed` (an IVF segment's buckets partition its probed
+    /// clusters; a flat segment contributes zero to all four sides).
+    #[test]
+    fn format_probe_stats_posting_and_exact_tokens() {
+        // One IVF-shaped segment plus one flat-shaped segment, which fills
+        // only the `exact_reads_*` counters (everything else default).
+        let flat = ProbeStats {
+            exact_reads_chunked: 4,
+            exact_reads_single: 7,
+            ..Default::default()
+        };
+        let line = format_probe_stats(&[seg(ProbeTermination::Exhausted), flat]);
+        assert_eq!(
+            line,
+            "probe_stats visited=25 pruned_filter=5 pruned_dead=2 pruned_seen=8 scored=10 clusters_probed=3 router_scored=9 min_candidates=16 termination=ceiling:0,gate:0,exhausted:2 postings=bulk:1,row:1,skipped:1 exact=chunked:4,single:7"
+        );
+        // Partition invariant, parsed back off the emitted line.
+        assert_eq!(
+            compound(&line, "postings", "bulk")
+                + compound(&line, "postings", "row")
+                + compound(&line, "postings", "skipped"),
+            scalar(&line, "clusters_probed"),
+        );
     }
 }

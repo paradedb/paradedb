@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::merge_policy::LayeredMergePolicy;
-use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
@@ -257,8 +256,8 @@ pub unsafe fn do_merge(
     let (needs_background_merge, largest_layer_size) =
         if layer_sizes.user_configured_background_layers() {
             let combined_layers = layer_sizes.combined();
-            let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
-            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+            let merger = SearchIndexMerger::open(index)?;
+            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers, Some(index));
 
             background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
             let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
@@ -283,7 +282,7 @@ pub unsafe fn do_merge(
         } else {
             foreground_layer_sizes
         };
-        let foreground_merge_policy = LayeredMergePolicy::new(foreground_layer_sizes);
+        let foreground_merge_policy = LayeredMergePolicy::new(foreground_layer_sizes, Some(index));
         merge_index(
             index,
             foreground_merge_policy,
@@ -374,7 +373,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let metadata = MetaPage::open(&index);
 
         let layer_sizes = IndexLayerSizes::from(&index);
-        let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
+        let merge_policy = LayeredMergePolicy::new(layer_sizes.combined(), Some(&index));
 
         let cleanup_lock = metadata.cleanup_lock_shared();
         // this ensures there's only one merge running at a time for the given index,
@@ -423,8 +422,7 @@ unsafe fn merge_index(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
-    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
-        .expect("should be able to open merger");
+    let merger = SearchIndexMerger::open(indexrel).expect("should be able to open merger");
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
@@ -531,7 +529,7 @@ pub unsafe fn garbage_collect_index(
     free_entries(indexrel, entries, current_xid);
 }
 
-/// Chase down all the files in a segment and return them to the FSM
+/// Chase down all the files in a segment and return them to the FSM.
 pub fn free_entries(
     indexrel: &PgSearchRelation,
     freeable_entries: Vec<SegmentMetaEntry>,

@@ -29,7 +29,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::pdb_query::pdb as pdb_query;
 use crate::query::SearchQueryInput;
-use crate::schema::IndexRecordOption;
+use crate::schema::{IndexRecordOption, SearchFieldType};
 use anyhow::Result;
 use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
@@ -302,6 +302,14 @@ fn index_info(
             name!(fieldnorms_bytes, Option<AnyNumeric>),
             name!(store_bytes, Option<AnyNumeric>),
             name!(deletes_bytes, Option<AnyNumeric>),
+            name!(vector_field, Option<String>),
+            name!(vector_format, Option<String>),
+            name!(vector_num_vectors, Option<AnyNumeric>),
+            name!(vector_num_centroids, Option<AnyNumeric>),
+            name!(vector_min_cluster_size, Option<AnyNumeric>),
+            name!(vector_max_cluster_size, Option<AnyNumeric>),
+            name!(vector_avg_cluster_size, Option<f64>),
+            name!(vector_empty_clusters, Option<AnyNumeric>),
         ),
     >,
 > {
@@ -324,6 +332,32 @@ fn index_info(
         if !index.is_usable() {
             continue;
         }
+        let vector_info_by_segment = {
+            let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+            let vector_field = search_reader
+                .schema()
+                .fields()
+                .find_map(|(field, field_entry)| {
+                    let field_name: FieldName = field_entry.name().into();
+                    matches!(
+                        search_reader.schema().get_field_type(field_entry.name()),
+                        Some(SearchFieldType::Vector(..))
+                    )
+                    .then_some((field, field_name.to_string()))
+                });
+            let mut vector_info_by_segment = HashMap::default();
+            if let Some((field, field_name)) = vector_field {
+                for segment_reader in search_reader.segment_readers() {
+                    if let Some(vector_info) = segment_reader.vector_index(field)?.info() {
+                        vector_info_by_segment.insert(
+                            segment_reader.segment_id(),
+                            (field_name.clone(), vector_info),
+                        );
+                    }
+                }
+            }
+            vector_info_by_segment
+        };
 
         // open the specified index
         let mut segment_components = MetaPage::open(&index).segment_metas();
@@ -335,6 +369,9 @@ fn index_info(
             }
             match entry.content {
                 SegmentMetaEntryContent::Immutable(content) => {
+                    let vector_info = vector_info_by_segment.get(&entry.segment_id());
+                    let cluster_stats =
+                        vector_info.and_then(|(_, vector_info)| vector_info.cluster_stats.as_ref());
                     results.push((
                         index.name().to_owned(),
                         unsafe { entry.visible() },
@@ -354,6 +391,22 @@ fn index_info(
                         content
                             .delete
                             .map(|file| file.file_entry.total_bytes.into()),
+                        vector_info.map(|(field_name, _)| field_name.clone()),
+                        vector_info.map(|(_, vector_info)| {
+                            match vector_info.format {
+                                tantivy::vector::VectorStorageFormat::Flat => "flat",
+                                tantivy::vector::VectorStorageFormat::Ivf => "ivf",
+                            }
+                            .to_string()
+                        }),
+                        vector_info.map(|(_, vector_info)| vector_info.num_vectors.into()),
+                        vector_info
+                            .and_then(|(_, vector_info)| vector_info.num_centroids)
+                            .map(Into::into),
+                        cluster_stats.map(|stats| stats.min_cluster_size.into()),
+                        cluster_stats.map(|stats| stats.max_cluster_size.into()),
+                        cluster_stats.map(|stats| stats.avg_cluster_size),
+                        cluster_stats.map(|stats| stats.empty_clusters.into()),
                     ));
                 }
                 SegmentMetaEntryContent::Mutable(_) => {
@@ -374,6 +427,14 @@ fn index_info(
                         None,
                         None,
                         None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
                     ));
                 }
             }
@@ -381,6 +442,72 @@ fn index_info(
     }
 
     Ok(TableIterator::new(results))
+}
+
+/// Returns the raw per-cluster IVF posting-list sizes for `index`, one row per
+/// cluster per segment. Read-only companion to [`index_info`]: where that
+/// collapses the per-cluster distribution into min/max/avg, this surfaces the
+/// full array so tooling can plot the real cluster-size distribution. Reuses
+/// `index_info`'s vector-field resolution and segment iteration verbatim.
+/// Segments without an IVF vector field contribute no rows.
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn ivf_cluster_sizes(
+    index: PgRelation,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(segno, String),
+            name!(field, String),
+            name!(cluster_ord, i32),
+            name!(size, i64),
+        ),
+    >,
+> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function (read-only,
+    // AccessShareLock) so it is not dropped or altered while we read it —
+    // identical to `index_info`.
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index_kind = IndexKind::for_index(index.clone())?;
+    if !index.is_usable() {
+        return Ok(TableIterator::new(Vec::new()));
+    }
+
+    let mut rows = Vec::new();
+    for index in index_kind.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let vector_field = search_reader
+            .schema()
+            .fields()
+            .find_map(|(field, field_entry)| {
+                let field_name: FieldName = field_entry.name().into();
+                matches!(
+                    search_reader.schema().get_field_type(field_entry.name()),
+                    Some(SearchFieldType::Vector(..))
+                )
+                .then_some((field, field_name.to_string()))
+            });
+        let Some((field, field_name)) = vector_field else {
+            continue;
+        };
+        for segment_reader in search_reader.segment_readers() {
+            let Some(sizes) = segment_reader.vector_index(field)?.cluster_sizes() else {
+                continue;
+            };
+            let segno = segment_reader.segment_id().short_uuid_string();
+            for (i, size) in sizes.into_iter().enumerate() {
+                rows.push((segno.clone(), field_name.clone(), i as i32, size as i64));
+            }
+        }
+    }
+
+    Ok(TableIterator::new(rows))
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

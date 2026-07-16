@@ -42,6 +42,11 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// When `true`, a vector (IVF) ORDER BY scan emits one `probe_stats …` NOTICE
+/// per query with the aggregated probe-loop counters. Off by default and
+/// zero-cost when off (no `ProbeStats` is collected).
+static LOG_PROBE_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
 static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -219,6 +224,38 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
+/// Absolute per-segment cap on the number of IVF clusters probed by a
+/// vector ORDER BY query, clamped at query time to the segment's
+/// cluster count (segments with fewer clusters scan exhaustively).
+/// Mirrors SPANN's absolute posting-list budget and the `nprobe`
+/// mental model pgvector users bring. Default 128: SPANN Fig. 2 shows
+/// 99% of SIFT1M queries reach perfect recall@1 within 114 postings.
+static VECTOR_CLUSTER_MAX_PROBES: GucSetting<i32> = GucSetting::<i32>::new(128);
+
+pub fn vector_cluster_max_probes() -> usize {
+    VECTOR_CLUSTER_MAX_PROBES.get() as usize
+}
+
+/// SPANN-style query-time pruning factor (ε₂) used by tantivy's
+/// `AdaptiveProbeParams`. A cluster `c` is probed iff its per-metric
+/// distance ratio stays within `(1 + epsilon)` of the best centroid:
+/// L2 gates on squared distance (`d² <= (1 + ε) * d²_min`), cosine on
+/// the angular ratio (`(1 - cos) <= (1 + ε) * (1 - cos_best)`), and
+/// raw dot-product — which has no natural distance ratio — gets a
+/// linear similarity band where the probe ceiling effectively governs.
+/// `0` stops as soon as the `min_candidates` floor is met; higher
+/// values widen the probe radius (better recall, more latency).
+/// Default `7.0` is SPANN's recall@10-tuned ε₂ (the paper uses 0.6
+/// for recall@1; SPTAG ships `MaxDistRatio = 8.0`, i.e. `1 + 7.0`).
+/// Values tuned against the old formulation (e.g. the previous `1.0`
+/// default) do not transfer — cosine previously gated on a different
+/// quantity — re-benchmark.
+static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(7.0);
+
+pub fn vector_cluster_probe_epsilon() -> f32 {
+    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
+}
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -257,6 +294,17 @@ pub fn init() {
         c"Enable ParadeDB's experimental join custom scan",
         c"Enable ParadeDB's experimental join custom scan. Default is false.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.log_probe_stats",
+        c"Emit a NOTICE with IVF probe-loop counters per vector query",
+        c"When on, a vector (IVF) ORDER BY scan emits one `probe_stats ...` NOTICE per query \
+          with the aggregated probe counters (visited/pruned/scored/clusters/termination). \
+          Off by default and zero-cost when off.",
+        &LOG_PROBE_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -411,6 +459,28 @@ pub fn init() {
         c"Enable recursive estimates in EXPLAIN VERBOSE",
         c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
         &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_cluster_max_probes",
+        c"Per-segment IVF cluster probe ceiling for vector ORDER BY queries",
+        c"Absolute cap on the number of IVF clusters probed per segment on a vector ORDER BY query, clamped to the segment's cluster count (segments with fewer clusters scan all of them). Mirrors SPANN's absolute posting-list budget and pgvector's nprobe. Lower values reduce latency at the cost of recall.",
+        &VECTOR_CLUSTER_MAX_PROBES,
+        1,
+        65536,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_probe_epsilon",
+        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
+        c"Distance-ratio gate on how far past the best centroid the IVF probe loop continues, on the metric's own distance: L2 probes cluster c while d(q,c)^2 <= (1 + epsilon) * d(q,c_best)^2; cosine while (1 - cos(q,c)) <= (1 + epsilon) * (1 - cos(q,c_best)); raw dot-product has no distance ratio, so the probe ceiling (paradedb.vector_cluster_max_probes) effectively governs. 0 stops as soon as the candidate floor is met; larger values widen the probe radius for better recall at higher latency. SPANN uses 0.6 (recall@1) to 7.0 (recall@10); SPTAG ships MaxDistRatio = 8.0 = 1 + 7.0. Values tuned against the old formulation (e.g. the previous default of 1.0) do not transfer, especially for cosine — re-benchmark.",
+        &VECTOR_CLUSTER_PROBE_EPSILON,
+        0.0,
+        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -635,6 +705,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn log_probe_stats() -> bool {
+    LOG_PROBE_STATS.get()
 }
 
 pub fn check_aggregate_scan() -> bool {

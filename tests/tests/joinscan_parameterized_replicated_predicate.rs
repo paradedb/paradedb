@@ -33,7 +33,7 @@ fn assert_parallel_joinscan_plan(conn: &mut sqlx::PgConnection, query: &str) {
 
 fn setup_parameterized_joinscan_schema(conn: &mut sqlx::PgConnection) {
     r#"
-    CREATE EXTENSION IF NOT EXISTS pg_search;
+    CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
     DROP TABLE IF EXISTS js_param_values CASCADE;
     DROP TABLE IF EXISTS js_param_items CASCADE;

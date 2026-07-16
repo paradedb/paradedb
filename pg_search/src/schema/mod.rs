@@ -22,13 +22,14 @@ pub mod range;
 use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
+use crate::vector::metric::VectorMetric;
 pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
@@ -75,6 +76,9 @@ pub enum SearchFieldType {
     /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
     /// The `Option<i16>` is the scale (number of decimal places), or None for unlimited precision.
     NumericBytes(pg_sys::Oid, Option<i16>),
+    /// Dense vector field (pgvector type). The usize is the number of dimensions,
+    /// and `VectorMetric` is the distance metric (default L2).
+    Vector(pg_sys::Oid, usize, VectorMetric),
 }
 
 impl SearchFieldType {
@@ -107,6 +111,7 @@ impl SearchFieldType {
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
             SearchFieldType::Range(_) => SearchFieldConfig::default_range(),
+            SearchFieldType::Vector(_, dims, _) => SearchFieldConfig::default_vector(*dims),
         }
     }
 
@@ -126,6 +131,7 @@ impl SearchFieldType {
             SearchFieldType::Range(oid) => *oid,
             SearchFieldType::Numeric64(oid, _) => *oid,
             SearchFieldType::NumericBytes(oid, _) => *oid,
+            SearchFieldType::Vector(oid, _, _) => *oid,
         }
         .into()
     }
@@ -193,6 +199,9 @@ impl SearchFieldType {
 
             // NumericBytes is stored as BinaryView
             SearchFieldType::NumericBytes(..) => arrow_schema::DataType::BinaryView,
+
+            // Vector is not stored in Arrow columnar format
+            SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
         }
     }
 }
@@ -337,6 +346,20 @@ impl SearchFieldType {
             PgOid::Custom(tokenizer_oid) if type_is_tokenizer(*tokenizer_oid) => Ok(
                 SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
             ),
+
+            PgOid::Custom(custom) if is_pgvector_oid(*custom) => {
+                // Metric defaults to L2 here; the real value comes from
+                // the index attribute's opclass and is patched in by
+                // `extract_field_attributes` once we know which index
+                // column owns the field. Callers that build a
+                // SearchFieldType outside an index (rare) get L2.
+                let dims = if typmod > 0 { typmod as usize } else { 0 };
+                Ok(SearchFieldType::Vector(
+                    *custom,
+                    dims,
+                    VectorMetric::default(),
+                ))
+            }
 
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
@@ -488,6 +511,16 @@ impl SearchIndexSchema {
 
     pub fn fields(&self) -> impl Iterator<Item = (Field, &FieldEntry)> {
         self.schema.fields()
+    }
+
+    pub fn has_vector_field(&self) -> bool {
+        self.fields().any(|(_, field_entry)| {
+            let field_name: FieldName = field_entry.name().into();
+            matches!(
+                self.bm25_options.get_field_type(&field_name),
+                Some(SearchFieldType::Vector(..))
+            )
+        })
     }
 
     /// A lookup from a Postgres column name to search fields that have

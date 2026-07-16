@@ -39,10 +39,10 @@ pub struct ReconnectGraceArgs {
     /// Path to a file whose contents (a count of milliseconds) override
     /// `--reconnect-grace` for as long as it exists, re-read on every failed attempt.
     ///
-    /// This is how an external supervisor narrows the window at runtime. Under Antithesis
-    /// the `anytime_recovery_liveness` command heals every fault and then writes a shorter
-    /// window here, so the run fails only if the database was provably reachable and the
-    /// workload still could not make progress.
+    /// This is how an external supervisor narrows the window at runtime: it heals every fault
+    /// and then writes a shorter window here, so the run fails only if the database was provably
+    /// reachable and the workload still could not make progress. The Antithesis suites drive
+    /// this from their recovery-liveness command; see `stressgres/suites/antithesis/`.
     #[arg(long)]
     pub reconnect_grace_file: Option<PathBuf>,
 }
@@ -122,6 +122,14 @@ pub struct HeadlessArgs {
     /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
     #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
+    /// Build the schema (run the `setup` job) and exit, running no workload. Lets a caller
+    /// build the schema up front, before any fault injection begins.
+    #[arg(long, conflicts_with = "skip_setup")]
+    pub setup_only: bool,
+    /// Skip the `setup` job and teardown; connect to a schema a prior setup run built and run
+    /// the workload only.
+    #[arg(long)]
+    pub skip_setup: bool,
     #[command(flatten)]
     pub grace: ReconnectGraceArgs,
 }

@@ -17,8 +17,8 @@
 
 //! Tolerance for transient database connectivity faults.
 //!
-//! Under Antithesis the `paradedb` container is stopped, killed, and network-
-//! partitioned mid-run. This module classifies an error as either a *transient*
+//! Under deterministic simulation testing the `paradedb` container is stopped, killed, and
+//! network-partitioned mid-run. This module classifies an error as either a *transient*
 //! connectivity fault (which the workload should ride out by reconnecting) or a
 //! *real* logical/SQL error (which must surface), and provides [`tolerate_transient`]
 //! to retry an operation through transient faults for a bounded grace window.
@@ -27,13 +27,13 @@
 //! unless a caller opts in with `--reconnect-grace`.
 //!
 //! Under fault injection the grace should be set larger than the run itself, so a connectivity
-//! fault can never fail the run: Antithesis searches for the fault schedule that breaks
+//! fault can never fail the run: the DST harness searches for the fault schedule that breaks
 //! us, so any window shorter than the run is one it can outlast. Liveness is instead
-//! asserted from the outside: the `anytime_recovery_liveness` test command heals every
+//! asserted from the outside: the suites' recovery-liveness command heals every
 //! fault, then narrows the [`GraceWindow`] via its poke file to a window that *can*
 //! expire. See `stressgres/suites/antithesis/`.
 //!
-//! When a non-zero grace is enabled, bug detection is expected to come from Antithesis
+//! When a non-zero grace is enabled, bug detection is expected to come from the DST harness's
 //! properties / postgres-side checks, not from stressgres exit codes.
 
 use anyhow::Result;

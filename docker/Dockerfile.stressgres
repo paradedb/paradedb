@@ -38,9 +38,8 @@ WORKDIR /home/app
 # Copy the entire paradedb/paradedb source code
 COPY --chown=app:app . .
 
-# Configure Antithesis test singletons
-RUN mkdir -p /opt/antithesis/test/v1/quickstart
-COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/quickstart/
+# Import Antithesis test drivers
+COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/paradedb/
 
 # Switch to app user
 USER app

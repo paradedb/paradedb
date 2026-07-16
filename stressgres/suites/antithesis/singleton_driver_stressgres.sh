@@ -7,8 +7,8 @@
 
 set -Eeuo pipefail
 
-# shellcheck source=stressgres/suites/antithesis/suite_setup.sh
-source "$(dirname "$(readlink -f "$0")")/suite_setup.sh"
+# shellcheck source=stressgres/suites/antithesis/helper_suite_setup.sh
+source "$(dirname "$(readlink -f "$0")")/helper_suite_setup.sh"
 
 # Short runtime: the fuzzer branches across many short timelines, so a fast run covers more
 # fault schedules per budget. reconnect-grace > runtime, so connectivity faults never fail

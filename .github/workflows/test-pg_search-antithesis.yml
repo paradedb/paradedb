@@ -285,10 +285,7 @@ jobs:
         with:
           ref: ${{ env.COMMIT_SHA }}
 
-      # The workload image and the run's `antithesis.source` are named after the repository,
-      # so a fork or downstream repo builds, pushes and triggers against its own image
-      # rather than this one. $GITHUB_REPOSITORY is `owner/name` and is set for every
-      # trigger, including `schedule`, whose event payload is empty.
+      # The workload image and the run's `antithesis.source` are named after the repository
       - name: Resolve Registry Image Name From Repository
         run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
 

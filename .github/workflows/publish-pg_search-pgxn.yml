@@ -17,7 +17,11 @@ jobs:
   publish-pg_search-pgxn:
     name: Publish pg_search to PGXN
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref, '-rc.') }}
+    # PGXN distributes the AGPL community extension, so this only runs on
+    # paradedb/paradedb. The repository guard lets paradedb/paradedb-enterprise
+    # carry this file unchanged (the job is skipped there) instead of deleting it,
+    # which keeps the two repos from drifting. See also test-pg_search-antithesis.yml.
+    if: ${{ !contains(github.ref, '-rc.') && github.repository == 'paradedb/paradedb' }}
     container: pgxn/pgxn-tools
 
     steps:

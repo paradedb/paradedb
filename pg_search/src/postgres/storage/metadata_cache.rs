@@ -36,9 +36,9 @@
 //!   misses the cache even if the callback was somehow not delivered.
 //!
 //! The `ambulkdelete_epoch` metapage field is deliberately NOT served from this cache: it is
-//! mutated by every `ambulkdelete()`.  [`MetaPage`] instances constructed from cached data
+//! mutated by every `ambulkdelete()`.  `MetaPage` instances constructed from cached data
 //! refuse to answer `ambulkdelete_epoch()` — callers that need the epoch must use
-//! [`MetaPage::open`].
+//! `MetaPage::open`.
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPageData;

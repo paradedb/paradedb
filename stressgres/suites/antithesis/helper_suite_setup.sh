@@ -18,12 +18,27 @@ rewrite_single() {
   sed -i 's|\[server\.style\.Automatic\]|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
 }
 
-# Point a logical-replication suite's publisher at the vanilla Postgres pod (an upstream
-# primary we do not control) and its subscriber at paradedb-rw (the CNPG primary, has
-# pg_search).
-rewrite_pub_sub() {
+# Point a suite's publisher at the vanilla Postgres pod (an upstream primary we do not
+# control).
+rewrite_publisher() {
   sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Publisher"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@logical-replication-publisher:5432/postgres?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
+}
+
+# Point a suite's subscriber at paradedb-rw (the CNPG primary, has pg_search).
+rewrite_subscriber() {
   sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "Subscriber"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
+}
+
+# Point a suite's WAL receiver at paradedb-ro, the CNPG read-only service. Enterprise runs a
+# 3-instance cluster, so paradedb-ro routes to a standby streaming from paradedb-rw.
+rewrite_wal_receiver() {
+  sed -i -z 's|\[server\.style\.Automatic\]\npostgresql_conf = "WalReceiver"|[server.style.With]\nconnection_string = "postgresql://postgres:antithesis-super-secret-password@paradedb-ro:5432/paradedb?connect_timeout=5\&keepalives=1\&keepalives_idle=5\&keepalives_interval=2\&keepalives_count=3\&tcp_user_timeout=15"|' "$1"
+}
+
+# Point a logical-replication suite at its publisher and subscriber.
+rewrite_pub_sub() {
+  rewrite_publisher  "$1"
+  rewrite_subscriber "$1"
 }
 
 # vanilla-postgres.toml hardcodes a localhost connection string rather than
@@ -40,10 +55,14 @@ setup() {
 
   echo ""
   echo "Pointing ${toml} at its cluster(s)..."
+  # A _phys topology adds a physical replica streaming from paradedb-rw: sub_phys is that
+  # WAL sender/receiver pair on its own, pub_sub_phys hangs it off a logical subscriber.
   case "${topology}" in
-    single)  rewrite_single  "${path}" ;;
-    pub_sub) rewrite_pub_sub "${path}" ;;
-    vanilla) rewrite_vanilla "${path}" ;;
+    single)       rewrite_single     "${path}" ;;
+    pub_sub)      rewrite_pub_sub    "${path}" ;;
+    vanilla)      rewrite_vanilla    "${path}" ;;
+    sub_phys)     rewrite_subscriber "${path}"; rewrite_wal_receiver "${path}" ;;
+    pub_sub_phys) rewrite_pub_sub    "${path}"; rewrite_wal_receiver "${path}" ;;
     *) echo "unknown topology: ${topology}" >&2; exit 1 ;;
   esac
 

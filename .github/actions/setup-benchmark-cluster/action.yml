@@ -98,12 +98,20 @@ runs:
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track_planning = on;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track = top ;"
 
+    # pgvector must be installed before pg_search is created: pg_search's control lists
+    # `requires = 'vector'`, so creating it needs the `vector` extension available (the cohere
+    # dataset's heap also has a pgvector `vector` column). Harmless for datasets that don't use it.
+    - name: Install pgvector
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector
+
     - name: Install pg_search
       shell: bash
       working-directory: pg_search/
       run: |
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
-        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+        # CASCADE also auto-creates the required `vector` extension (already installed above).
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
 
     - name: Restart Postgres
@@ -116,12 +124,6 @@ runs:
     - name: Install pgBackRest
       shell: bash
       run: sudo apt-get update && sudo apt-get install -y pgbackrest
-
-    # Required by the "cohere" dataset, whose heap has a pgvector `vector` column. Harmless for
-    # datasets that don't use it (installs the extension binary; CREATE EXTENSION happens at load).
-    - name: Install pgvector
-      shell: bash
-      run: sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector
 
     # VectorChord (vchordrq) binary for the "cohere / vchord" index variant. Installs the extension
     # only; it depends on pgvector's `vector` type (installed above). CREATE EXTENSION happens at

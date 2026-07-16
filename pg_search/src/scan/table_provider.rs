@@ -30,17 +30,20 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{
+    build_arrow_schema, CanonicalColumn, FFHelper, WhichFastField,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
+use crate::scan::deferred_encode::DeferMode;
+use crate::scan::execution_plan::{PgSearchScanPlan, ScanState, ScannerConfig};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
-use crate::scan::late_materialization::DeferredField;
+use crate::scan::late_materialization::{DeferredField, DeferredLookupRebuild};
 use crate::scan::range_partitioning::RangePartitioningSample;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,7 +224,8 @@ impl PgSearchTableProvider {
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
                     let cloned_name = name.clone();
                     let cloned_type = *field_type;
-                    *wff = WhichFastField::Deferred(cloned_name, cloned_type);
+                    *wff =
+                        WhichFastField::Deferred(cloned_name, cloned_type, DeferMode::DocAddress);
                 }
             }
         }
@@ -292,7 +296,7 @@ impl PgSearchTableProvider {
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
         for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, field_type) = wff {
+            if let WhichFastField::Deferred(name, field_type, _) = wff {
                 let is_bytes = matches!(
                     field_type.arrow_data_type(),
                     arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
@@ -307,7 +311,7 @@ impl PgSearchTableProvider {
                     // Resolvable from any fragment: reads the segment list from
                     // the worker's `ParallelScanState` (claiming only divides the scan, not a
                     // reader opened over the whole list).
-                    rebuild: Some(crate::scan::late_materialization::DeferredLookupRebuild {
+                    rebuild: Some(DeferredLookupRebuild {
                         field_name: name.clone(),
                         field_type: *field_type,
                         source_idx: self.source_idx,
@@ -321,7 +325,7 @@ impl PgSearchTableProvider {
     fn get_schema(&self) -> SchemaRef {
         if self.late_materialization_active.load(Ordering::Relaxed) {
             self.late_materialization_schema
-                .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
+                .get_or_init(|| build_arrow_schema(&self.fields))
                 .clone()
         } else {
             self.schema
@@ -330,14 +334,14 @@ impl PgSearchTableProvider {
                         .fields
                         .iter()
                         .map(|wff| {
-                            if let WhichFastField::Deferred(name, ty) = wff {
+                            if let WhichFastField::Deferred(name, ty, _) = wff {
                                 WhichFastField::Named(name.clone(), *ty)
                             } else {
                                 wff.clone()
                             }
                         })
                         .collect();
-                    crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
+                    build_arrow_schema(&logical_fields)
                 })
                 .clone()
         }
@@ -346,21 +350,23 @@ impl PgSearchTableProvider {
     fn projected_fields_and_schema(
         &self,
         projection: Option<&Vec<usize>>,
-    ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
-        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
-            self.fields.clone()
-        } else {
-            self.fields
-                .iter()
-                .map(|wff| {
-                    if let WhichFastField::Deferred(name, ty) = wff {
-                        WhichFastField::Named(name.clone(), *ty)
-                    } else {
-                        wff.clone()
-                    }
-                })
-                .collect()
-        };
+    ) -> Result<(Vec<(usize, WhichFastField)>, SchemaRef)> {
+        let active_fields: Vec<(usize, WhichFastField)> =
+            if self.late_materialization_active.load(Ordering::Relaxed) {
+                self.fields.clone().into_iter().enumerate().collect()
+            } else {
+                self.fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, wff)| {
+                        if let WhichFastField::Deferred(name, ty, _) = wff {
+                            (i, WhichFastField::Named(name.clone(), *ty))
+                        } else {
+                            (i, wff.clone())
+                        }
+                    })
+                    .collect()
+            };
 
         let schema = self.get_schema();
         match projection {
@@ -474,8 +480,8 @@ impl PgSearchTableProvider {
         &self,
         parallel_state: Option<*mut ParallelScanState>,
         reader: &SearchIndexReader,
-        which_fast_fields: Vec<WhichFastField>,
-        ffhelper: FFHelper,
+        which_fast_fields: Vec<(usize, WhichFastField)>,
+        ffhelper: Arc<FFHelper>,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         schema: SchemaRef,
@@ -484,8 +490,7 @@ impl PgSearchTableProvider {
         source_idx: Option<usize>,
         partition_count: usize,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let ffhelper = Arc::new(ffhelper);
-        let scanner_config = crate::scan::execution_plan::ScannerConfig {
+        let scanner_config = ScannerConfig {
             which_fast_fields: which_fast_fields.clone(),
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
@@ -644,7 +649,7 @@ impl PgSearchTableProvider {
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
-        let ffhelper = FFHelper::with_fields(&reader, &projected_fields);
+        let ffhelper = Arc::new(FFHelper::with_fields(&reader, &self.fields));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 

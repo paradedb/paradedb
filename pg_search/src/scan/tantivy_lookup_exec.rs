@@ -6,7 +6,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
-use crate::api::HashSet;
+use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::{
     for_each_segment, ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
     NULL_TERM_ORDINAL,
@@ -66,8 +66,6 @@ impl PhysicalDeferredField {
         }
     }
 }
-
-use crate::api::HashMap;
 
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
@@ -150,7 +148,7 @@ impl TantivyLookupExec {
         self.ffhelpers.get(&indexrelid)
     }
 
-    pub fn ffhelpers(&self) -> &crate::api::HashMap<u32, Arc<FFHelper>> {
+    pub fn ffhelpers(&self) -> &HashMap<u32, Arc<FFHelper>> {
         &self.ffhelpers
     }
 

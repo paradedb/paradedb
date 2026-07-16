@@ -122,9 +122,10 @@ const MINIMUM_VISIBILITY_CHECK_SIZE: usize = 8192;
 
 /// The serializable "recipe" for rebuilding [`AbsorbedVisibilityData`] on a dispatched
 /// worker: `(plan_position, heap OID)` pairs plus table names. `None` when the plan carries
-/// no absorbed visibility. The live ctid resolvers (FFHelpers) are not part of the recipe;
-/// they are re-wired from the decoded subtree in `decode_for_dispatch`.
-type VisibilityRecipe = Option<(Vec<(usize, pg_sys::Oid)>, Vec<String>)>;
+/// no absorbed visibility./// The live ctid resolvers (FFHelpers) are not part of the recipe;
+/// they are re-wired from the decoded subtree in `decode_for_dispatch`,
+/// or rebuilt if the scan sits behind a network boundary.
+type VisibilityRecipe = Option<(Vec<(usize, pg_sys::Oid)>, Vec<String>, Vec<(usize, u32)>)>;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DeferredSortColumn {
@@ -135,6 +136,9 @@ pub struct DeferredSortColumn {
     #[serde(default)]
     pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
 }
+
+/// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
+type CtidResolver = (u32, Arc<FFHelper>);
 
 /// Visibility data absorbed from a `VisibilityFilterExec` during the `SegmentedTopKRule`
 /// optimization pass.
@@ -148,7 +152,7 @@ pub struct AbsorbedVisibilityData {
     table_names: Vec<String>,
     /// Per-plan_position FFHelpers for resolving packed DocAddresses to real ctids.
     /// Wired by `VisibilityCtidResolverRule` after plan construction.
-    ctid_resolvers: Mutex<Vec<Option<Arc<FFHelper>>>>,
+    ctid_resolvers: Mutex<Vec<Option<CtidResolver>>>,
 }
 
 impl std::fmt::Debug for AbsorbedVisibilityData {
@@ -178,7 +182,7 @@ impl AbsorbedVisibilityData {
         &self.plan_pos_oids
     }
 
-    pub fn set_ctid_resolver(&self, plan_pos: usize, ffhelper: Arc<FFHelper>) {
+    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
         let mut resolvers = self
             .ctid_resolvers
             .lock()
@@ -186,7 +190,7 @@ impl AbsorbedVisibilityData {
         if plan_pos >= resolvers.len() {
             resolvers.resize(plan_pos + 1, None);
         }
-        resolvers[plan_pos] = Some(ffhelper);
+        resolvers[plan_pos] = Some((indexrelid, ffhelper));
     }
 }
 
@@ -282,9 +286,9 @@ impl SegmentedTopKExec {
 
     /// Wire an FFHelper for resolving packed DocAddresses to real ctids for
     /// the given plan_position. Called by `VisibilityCtidResolverRule`.
-    pub fn set_ctid_resolver(&self, plan_pos: usize, ffhelper: Arc<FFHelper>) {
+    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
         if let Some(vd) = &self.visibility_data {
-            vd.set_ctid_resolver(plan_pos, ffhelper);
+            vd.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
 
@@ -348,10 +352,21 @@ impl SegmentedTopKExec {
         // Without this, a worker would decode visibility_data: None and silently skip
         // visibility (returning dead rows), since absorption already removed the VFExec on
         // the leader and workers do not re-run the optimizer rule.
-        let visibility_recipe: VisibilityRecipe = self
-            .visibility_data
-            .as_ref()
-            .map(|vd| (vd.plan_pos_oids.clone(), vd.table_names.clone()));
+        let visibility_recipe: VisibilityRecipe = self.visibility_data.as_ref().map(|vd| {
+            let resolver_indexes: Vec<(usize, u32)> = vd
+                .ctid_resolvers
+                .lock()
+                .expect("ctid_resolvers lock poisoned")
+                .iter()
+                .enumerate()
+                .filter_map(|(pos, r)| r.as_ref().map(|(relid, _)| (pos, *relid)))
+                .collect();
+            (
+                vd.plan_pos_oids.clone(),
+                vd.table_names.clone(),
+                resolver_indexes,
+            )
+        });
         let payload = (
             sort_bytes,
             self.deferred_columns.clone(),
@@ -363,13 +378,15 @@ impl SegmentedTopKExec {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
-        ctid_resolvers: Vec<(usize, Arc<FFHelper>)>,
+        ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
         non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (sort_bytes, deferred_columns, k, visibility_recipe): (
@@ -447,13 +464,33 @@ impl SegmentedTopKExec {
         // would make the worker skip visibility and return dead rows. The VisibilityChecker
         // itself is built later at execute() time from GetActiveSnapshot(), so no snapshot
         // travels (the worker's active snapshot is already the leader's MVCC view).
-        let visibility_data = visibility_recipe.map(|(plan_pos_oids, table_names)| {
-            let vd = AbsorbedVisibilityData::new(plan_pos_oids, table_names);
-            for (plan_pos, resolver) in &ctid_resolvers {
-                vd.set_ctid_resolver(*plan_pos, Arc::clone(resolver));
+        let visibility_data = match visibility_recipe {
+            Some((plan_pos_oids, table_names, resolver_indexes)) => {
+                let vd = AbsorbedVisibilityData::new(plan_pos_oids, table_names);
+                for (plan_pos, indexrelid, resolver) in &ctid_resolvers {
+                    vd.set_ctid_resolver(*plan_pos, *indexrelid, Arc::clone(resolver));
+                }
+                for (plan_pos, indexrelid) in resolver_indexes {
+                    if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
+                        continue;
+                    }
+                    let ids = index_segment_ids.get(plan_pos).cloned().ok_or_else(|| {
+                        DataFusionError::Internal(format!(
+                            "SegmentedTopKExec dispatch: missing canonical segment ids for \
+                             plan_position {plan_pos}"
+                        ))
+                    })?;
+                    let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
+                        indexrelid,
+                        &[],
+                        crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
+                    )?;
+                    vd.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+                }
+                Some(Arc::new(vd))
             }
-            Arc::new(vd)
-        });
+            None => None,
+        };
         Ok(Arc::new(SegmentedTopKExec::new(
             input,
             sort_exprs,
@@ -606,17 +643,16 @@ impl ExecutionPlan for SegmentedTopKExec {
                 })?;
                 let heaprel = PgSearchRelation::open(heap_oid);
                 let checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                let resolver =
-                    resolvers
-                        .get(plan_pos)
-                        .and_then(|r| r.clone())
-                        .ok_or_else(|| {
-                            DataFusionError::Execution(format!(
-                                "SegmentedTopKExec: no ctid resolver wired for \
+                let resolver = resolvers
+                    .get(plan_pos)
+                    .and_then(|r| r.as_ref().map(|(_, ff)| Arc::clone(ff)))
+                    .ok_or_else(|| {
+                        DataFusionError::Execution(format!(
+                            "SegmentedTopKExec: no ctid resolver wired for \
                                  plan_position {plan_pos}. \
                                  VisibilityCtidResolverRule must run before execute."
-                            ))
-                        })?;
+                        ))
+                    })?;
                 entries.push(StkVisibilityEntry {
                     col_idx,
                     checker,
@@ -1007,7 +1043,6 @@ impl SegmentedTopKState {
                 }
             }
         }
-
 
         Ok(())
     }

@@ -46,3 +46,8 @@ vchord_probes_10pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 100
 vchord_probes_10pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 10000000 THEN 300 ELSE greatest(1, round(0.04 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 vchord_probes_1pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 vchord_probes_1pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
+
+pg_search_epsilon = "7"
+pg_search_probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 40 WHEN 10000000 THEN 110 ELSE greatest(1, round(40 * power({{ dataset_size }} / 1000000.0, 0.44))::int) END"
+pg_search_probes_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 88 WHEN 10000000 THEN 350 ELSE greatest(1, round(88 * power({{ dataset_size }} / 1000000.0, 0.60))::int) END"
+pg_search_probes_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 240 WHEN 10000000 THEN 720 ELSE greatest(1, round(240 * power({{ dataset_size }} / 1000000.0, 0.48))::int) END"

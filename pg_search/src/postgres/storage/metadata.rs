@@ -31,7 +31,7 @@ use pgrx::{
     PgSqlErrorCode,
 };
 
-/// The metadata stored on the [`Metadata`] page
+/// The metadata stored on the `Metadata` page
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct MetaPageData {
@@ -314,7 +314,7 @@ impl MetaPage {
     }
 
     ///
-    /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
+    /// A `LinkedItemList<SegmentMetaEntry>` containing segments which are no longer visible from the
     /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
     /// be reading them on physical replicas.
     ///
@@ -487,6 +487,12 @@ mod tests {
             env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
         );
         assert_eq!(stamped, expected);
+
+        // The UDF should surface the same version.
+        let via_udf: String = Spi::get_one("SELECT paradedb.index_created_by('t_idx')")
+            .expect("spi should succeed")
+            .unwrap();
+        assert_eq!(via_udf, stamped.to_string());
     }
 
     #[pg_test]

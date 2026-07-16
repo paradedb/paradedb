@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
+use crate::gucs::WorkMem;
 
 use crate::aggregate::{execute_aggregate, scrub_missing_sentinel_value, AggregateRequest};
 use crate::api::version::VersionInfo;
@@ -70,19 +71,58 @@ pub fn aggregation_results_iter(
     // Use the GUC for term aggregation bucket limits (single source of truth).
     let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
     let mvcc_enabled = aggregate_clause.mvcc_enabled();
+    let grouping_fields: Vec<String> = aggregate_clause
+        .grouping_columns()
+        .into_iter()
+        .map(|column| column.field_name)
+        .collect();
+    // Routing (see create_custom_path) sends high-cardinality GROUP BYs to
+    // DataFusion using an estimate, but a stale/wrong estimate can still land an
+    // over-cap query here. Truncation at the cap is only recoverable for a single
+    // grouping column bounded by a static LIMIT+OFFSET within the cap: the ordered
+    // prefix Tantivy returns covers the requested window. Otherwise a dropped
+    // group is silent data loss, so we error instead.
+    let truncation_recoverable = grouping_fields.len() == 1
+        && aggregate_clause
+            .static_fetch()
+            .is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
 
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
         mvcc_enabled,
-        gucs::adjust_work_mem().get().try_into().unwrap(),
+        WorkMem::Tantivy.bytes().try_into().unwrap(),
         bucket_limit,
         expr_context,
         planstate,
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
+
+    // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
+    // `sum_other_doc_count` rather than erroring, which would silently return an
+    // incomplete GROUP BY. Fail loudly instead. This is an interim guard until we
+    // route on cost between Tantivy and DataFusion; see
+    // https://github.com/paradedb/paradedb/issues/5565.
+    if !truncation_recoverable && result.any_terms_truncated(bucket_limit as u64) {
+        let on_fields = if grouping_fields.is_empty() {
+            String::new()
+        } else {
+            let names = grouping_fields
+                .iter()
+                .map(|field| format!("\"{field}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" on {names}")
+        };
+        pgrx::error!(
+            "GROUP BY{on_fields} produced more than paradedb.max_term_agg_buckets ({bucket_limit}) \
+             groups; returning the result would silently drop groups. Raise \
+             paradedb.max_term_agg_buckets to cover the group cardinality, or add a LIMIT to bound \
+             the result."
+        );
+    }
 
     if result.is_empty() {
         if state.custom_state().aggregate_clause.has_groupby() {
@@ -269,6 +309,39 @@ pub fn aggregate_result_to_datum(
 }
 
 impl AggregationResults {
+    /// True when a terms (GROUP BY) aggregation was truncated at the
+    /// `max_term_agg_buckets` cap: a bucket list filled to the cap with a
+    /// non-zero `sum_other_doc_count` (dropped groups). A smaller user LIMIT
+    /// leaves `buckets.len() < max_buckets`, so it does not count. Tantivy folds
+    /// the dropped groups into `sum_other_doc_count` rather than erroring, so the
+    /// caller must reject the result to avoid silently returning an incomplete
+    /// GROUP BY.
+    fn any_terms_truncated(&self, max_buckets: u64) -> bool {
+        fn walk<'a>(
+            mut results: impl Iterator<Item = &'a TantivyAggregationResult>,
+            max_buckets: u64,
+        ) -> bool {
+            results.any(|result| match result {
+                TantivyAggregationResult::BucketResult(BucketResult::Terms {
+                    buckets,
+                    sum_other_doc_count,
+                    ..
+                }) => {
+                    (*sum_other_doc_count > 0 && buckets.len() as u64 >= max_buckets)
+                        || buckets
+                            .iter()
+                            .any(|bucket| walk(bucket.sub_aggregation.0.values(), max_buckets))
+                }
+                TantivyAggregationResult::BucketResult(BucketResult::Filter(filter)) => {
+                    walk(filter.sub_aggregations.0.values(), max_buckets)
+                }
+                _ => false,
+            })
+        }
+
+        max_buckets != 0 && walk(self.0.values(), max_buckets)
+    }
+
     pub fn is_empty(&self) -> bool {
         // we should return an empty result set if either the Aggregations JSON is empty,
         // or if the top-level `_doc_count` is `0.0` (i.e. zero documents were matched)

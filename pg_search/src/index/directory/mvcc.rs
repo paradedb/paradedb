@@ -57,7 +57,7 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
-/// Describes how a [`MvccDirectory`] should resolve segment visibility.  Note that
+/// Describes how a `MvccDirectory` should resolve segment visibility.  Note that
 /// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
 /// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
 /// an index has many (thousands!) of segments.
@@ -450,7 +450,7 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a list of all segment components to Tantivy,
-    /// identified by <uuid>.<ext> PathBufs
+    /// identified by `<uuid>.<ext>` PathBufs
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         unsafe {
             Ok(MetaPage::open(&self.indexrel)

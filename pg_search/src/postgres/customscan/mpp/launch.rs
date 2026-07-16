@@ -23,10 +23,16 @@
 //! serial fallback instead of the hang it used to be when PG's Gather decided the count.
 //!
 //! The MPP DSM region rides as builder `ParallelState` entries instead of a hand-laid coordinate:
-//! a zeroed byte blob for the ring mesh (`shm::dsm_region_bytes`), a zeroed byte blob for the
+//! a reserve-only region for the ring mesh (`shm::dsm_region_bytes`), a zeroed byte blob for the
 //! `ParallelScanState`, plus the partitioning-source index and a go flag. The leader initializes
 //! the mesh and populates the scan state in place between `build()` and worker attach; workers
 //! reconstruct their `MppWorkerInputs` from the same entries, with no PG plan node in reach.
+//!
+//! The launch is split around the leader's planning pass: [`launch_mpp_prepare`] builds the DSM
+//! and spawns the workers parked on the go flag, so worker process startup overlaps the
+//! leader's planning; [`launch_mpp_commit`] derives the dispatch payload from the leader's plan
+//! and releases them. One plan serves both dispatch and the leader's own execution, and every
+//! planning fallback aborts the parked workers before they touch the mesh.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -45,7 +51,9 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregat
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, SessionContextProfile,
 };
-use crate::postgres::customscan::mpp::dispatch::{build_dispatch_payload, dispatch_plan_capacity};
+use crate::postgres::customscan::mpp::dispatch::{
+    dispatch_payload_from_plan, dispatch_plan_capacity,
+};
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, producer_worker_count, worker_setup, MppLeaderState,
@@ -69,10 +77,12 @@ const GO_ABORT: u32 = 2;
 /// `shm_mq_create` has room for its header.
 const MPP_MQ_SIZE: usize = 1024;
 
-/// The builder process carrying the MPP DSM entries. The two byte blobs are handed over zeroed;
-/// the leader initializes them in place after the DSM is mapped.
+/// The builder process carrying the MPP DSM entries. The mesh region is reserve-only: at the
+/// default queue size it is hundreds of megabytes, and `shm::leader_setup` writes every header
+/// and ring slot it reads, so materializing (zeroing, copying) a host-side buffer of that size
+/// per query would buy nothing. The scan state is a small zeroed blob populated in place.
 struct MppParallelProcess {
-    mesh_region: Vec<u8>,
+    mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
     go: u32,
     partitioning_source_idx: u64,
@@ -100,7 +110,7 @@ unsafe fn go_flag(sm: &ParallelStateManager) -> &'static AtomicU32 {
 }
 
 /// AggregateScan worker entry point. PG resolves this symbol by name (passed to
-/// `ParallelProcessBuilder::build`), so the name must match the string in [`launch_mpp_aggregate`].
+/// `ParallelProcessBuilder::build`), so the name must match the string in [`prepare_mpp_aggregate`].
 #[no_mangle]
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
@@ -114,7 +124,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
 }
 
 /// JoinScan worker entry point. PG resolves this symbol by name; it must match the string in
-/// [`launch_mpp_join`].
+/// [`prepare_mpp_join`].
 #[no_mangle]
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
@@ -132,13 +142,20 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
 /// per-shape serial session context used only for plan deserialization.
 fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> SessionContext) {
     let go = unsafe { go_flag(&state_manager) };
+    // The wait spans the leader's planning pass, so back off to sleeping after a burst of
+    // yields; spinning here would steal cores from the planner.
+    let mut spins = 0u32;
     loop {
         check_for_interrupts!();
         match go.load(Ordering::Acquire) {
             GO_RUN => break,
             // Short launch: the leader ran the query serially. Exit before touching the mesh.
             GO_ABORT => return,
-            _ => std::thread::yield_now(),
+            _ if spins < 1000 => {
+                spins += 1;
+                std::thread::yield_now();
+            }
+            _ => unsafe { pg_sys::pg_usleep(100) },
         }
     }
 
@@ -188,21 +205,112 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     run_mpp_worker(inputs, seed_ctx(), &runtime);
 }
 
-/// Launch the producer workers and return the leader's mesh state, or `None` to run serially.
-///
-/// `None` covers every fallback that must not deploy MPP: DSM too large, or the machine couldn't
-/// give us the full producer set. A `pgrx::error!` is reserved for setup that already committed a
-/// launched worker to the mesh, where a silent serial fallback would hide a real bug.
-fn launch_mpp(
-    plan_bytes: Vec<u8>,
+/// DSM prepared for an MPP launch, before the leader has planned. The workers are already
+/// spawned but parked on the go flag: their process startup (library load, backend init)
+/// overlaps the leader's planning pass, while the go flag keeps them off the mesh until the
+/// payload exists. The leader plans against `scan_ptr`, then hands the physical plan to
+/// [`launch_mpp_commit`].
+pub struct MppLaunchPrep {
+    attach: crate::parallel_worker::builder::ParallelProcessAttach,
+    pub scan_ptr: *mut ParallelScanState,
+    pub non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>>,
+    producer_count: u32,
+    payload_capacity: usize,
+}
+
+/// Where MPP sits in a scan's launch lifecycle. Every transition consumes the previous stage,
+/// so a scan is in exactly one stage at a time; a single field keeps the impossible
+/// combinations (prepared and launched at once, say) unrepresentable. Held only by the leader;
+/// builder-launched workers reconstruct their state from DSM and never carry this.
+#[derive(Default)]
+pub enum MppLifecycle {
+    /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
+    /// teardown already reclaimed the leader state.
+    #[default]
+    Inactive,
+    /// Serialized logical-plan bytes, stashed at begin time. Prepare uses their length to size
+    /// the DSM payload region before the physical plan exists.
+    PlanBytes(Vec<u8>),
+    /// The DSM is built and the producer workers are spawned, parked on the go flag while the
+    /// leader plans.
+    Prepared(MppLaunchPrep),
+    /// The workers are running dispatched fragments; carries the leader's mesh and finish
+    /// handles until teardown.
+    Launched(MppLeaderState),
+}
+
+impl MppLifecycle {
+    /// Consume the stashed plan bytes. Leaves `Inactive`, so a prepare fallback reads as the
+    /// serial path from then on.
+    pub fn take_plan_bytes(&mut self) -> Option<Vec<u8>> {
+        match std::mem::take(self) {
+            MppLifecycle::PlanBytes(bytes) => Some(bytes),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    /// Consume the prepared launch. Leaves `Inactive`; [`launch_mpp_commit`] decides whether
+    /// the scan moves to `Launched` or stays serial.
+    pub fn take_prep(&mut self) -> Option<MppLaunchPrep> {
+        match std::mem::take(self) {
+            MppLifecycle::Prepared(prep) => Some(prep),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    /// Consume the leader state at teardown, leaving `Inactive`.
+    pub fn take_leader(&mut self) -> Option<MppLeaderState> {
+        match std::mem::take(self) {
+            MppLifecycle::Launched(leader) => Some(leader),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    pub fn leader(&self) -> Option<&MppLeaderState> {
+        match self {
+            MppLifecycle::Launched(leader) => Some(leader),
+            _ => None,
+        }
+    }
+
+    pub fn leader_mut(&mut self) -> Option<&mut MppLeaderState> {
+        match self {
+            MppLifecycle::Launched(leader) => Some(leader),
+            _ => None,
+        }
+    }
+
+    pub fn is_prepared(&self) -> bool {
+        matches!(self, MppLifecycle::Prepared(_))
+    }
+
+    pub fn is_launched(&self) -> bool {
+        matches!(self, MppLifecycle::Launched(_))
+    }
+}
+
+/// Build the MPP DSM (mesh region, `ParallelScanState`, go flag) and spawn the workers parked
+/// on the go flag. `None` covers the fallbacks that must not deploy MPP: DSM too large, or no
+/// parallel context available.
+fn launch_mpp_prepare(
+    plan_bytes_len: usize,
     args: ParallelScanArgs,
     partitioning_source_idx: usize,
-    seed_for_dispatch: SessionContext,
     worker_entrypoint: &'static str,
-) -> Option<MppLeaderState> {
+) -> Option<MppLaunchPrep> {
     let producer_count = producer_worker_count();
+    let payload_capacity = dispatch_plan_capacity(plan_bytes_len);
 
-    let region_bytes = match estimate_dsm_size(dispatch_plan_capacity(plan_bytes.len())) {
+    let region_bytes = match estimate_dsm_size(payload_capacity) {
         Ok(sz) => sz,
         Err(e) => {
             pgrx::warning!("mpp: estimate_dsm failed: {e}; running serially");
@@ -218,7 +326,12 @@ fn launch_mpp(
     );
 
     let process = MppParallelProcess {
-        mesh_region: vec![0u8; region_bytes],
+        // SAFETY: workers can only read the region back as `u8`, and they hold on the go
+        // flag until `leader_setup` has written every ring header, so nothing reads the
+        // reserved bytes before their first writer.
+        mesh_region: unsafe {
+            crate::parallel_worker::UninitializedBytesParallelState::new(region_bytes)
+        },
         scan_state: vec![0u8; scan_size],
         go: GO_WAIT,
         partitioning_source_idx: partitioning_source_idx as u64,
@@ -233,7 +346,8 @@ fn launch_mpp(
     )?;
 
     // Populate the ParallelScanState in place while the DSM is mapped and the leader still holds
-    // the source manifests `args` borrows. Done before launch so workers find it initialized.
+    // the source manifests `args` borrows. Done before planning so the leader's plan (the same
+    // one the dispatch payload is derived from) binds to the shared state the workers will use.
     let scan_ptr = match launcher.state_manager().slice_mut::<u8>(SCAN_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),
@@ -241,21 +355,45 @@ fn launch_mpp(
     unsafe { (*scan_ptr).create_and_populate(args) };
     let non_partitioning_segments = unsafe { (*scan_ptr).non_partitioning_segment_ids() };
 
-    // Build the per-stage subplans once. A failure here is a hard error, matching the pre-cutover
-    // path: a serial fallback on a serialization gap would hide a codec bug behind a slow plan.
-    let (payload, stage_plans) = match build_dispatch_payload(
-        &plan_bytes,
-        seed_for_dispatch,
-        producer_count,
-        &non_partitioning_segments,
-    ) {
-        Ok(p) => p,
-        Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
-    };
-
-    // Spawn the workers. They block on the go flag before attaching, so a short launch is aborted
-    // without any worker reaching the mesh.
+    // Spawn the workers before the leader plans: their process startup overlaps the planning
+    // pass, and the go flag keeps them off the mesh until the payload is written.
     let attach = launcher.launch()?;
+
+    Some(MppLaunchPrep {
+        attach,
+        scan_ptr,
+        non_partitioning_segments,
+        producer_count,
+        payload_capacity,
+    })
+}
+
+/// Serialize the leader's plan into the dispatch payload, release the workers, and return the
+/// leader's mesh state, or `None` to run serially (the machine couldn't give us the full
+/// producer set, or the plan has nothing to distribute). A `pgrx::error!` is reserved for setup
+/// that already committed a launched worker to the mesh, where a silent serial fallback would
+/// hide a real bug.
+pub fn launch_mpp_commit(
+    prep: MppLaunchPrep,
+    physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+) -> Option<MppLeaderState> {
+    let MppLaunchPrep {
+        attach,
+        scan_ptr,
+        non_partitioning_segments: _,
+        producer_count,
+        payload_capacity,
+    } = prep;
+
+    // Derive the per-stage subplans from the plan the leader itself will execute. A failure
+    // here is a hard error: a serialization gap is a codec bug, and the parked workers die
+    // with the transaction.
+    let (payload, stage_count) =
+        match dispatch_payload_from_plan(physical, producer_count, payload_capacity) {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
+        };
+
     let finish = attach.wait_for_attach()?;
     let launched = finish.launched_workers() as u32;
 
@@ -273,13 +411,22 @@ fn launch_mpp(
         return None;
     }
 
+    // A plan with no producer stages has nothing to distribute; the workers would only exit
+    // with no fragments while the leader runs a plan whose per-source scans aren't executable
+    // without a worker's state. Release the workers and let the caller replan serially.
+    if stage_count == 0 {
+        go.store(GO_ABORT, Ordering::Release);
+        finish.wait_for_finish();
+        return None;
+    }
+
     // Initialize the leader's rings now that we're committed to the parallel path. After launch on
     // purpose: the serial fallbacks above never create the DSM-backed control senders.
     let mesh_ptr = match finish.state_manager().slice_mut::<u8>(MESH_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp: mesh region missing"),
     };
-    let mut leader = match unsafe { leader_setup(mesh_ptr, payload, stage_plans) } {
+    let mut leader = match unsafe { leader_setup(mesh_ptr, payload) } {
         Ok(l) => l,
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };
@@ -292,32 +439,30 @@ fn launch_mpp(
     Some(leader)
 }
 
-/// AggregateScan launch entry: aggregate seed context + aggregate worker symbol.
-pub fn launch_mpp_aggregate(
-    plan_bytes: Vec<u8>,
+/// AggregateScan prepare entry: aggregate worker symbol.
+pub fn prepare_mpp_aggregate(
+    plan_bytes_len: usize,
     args: ParallelScanArgs,
     partitioning_source_idx: usize,
-) -> Option<MppLeaderState> {
-    launch_mpp(
-        plan_bytes,
+) -> Option<MppLaunchPrep> {
+    launch_mpp_prepare(
+        plan_bytes_len,
         args,
         partitioning_source_idx,
-        create_aggregate_session_context(),
         "mpp_launched_worker_agg",
     )
 }
 
-/// JoinScan launch entry: join seed context + join worker symbol.
-pub fn launch_mpp_join(
-    plan_bytes: Vec<u8>,
+/// JoinScan prepare entry: join worker symbol.
+pub fn prepare_mpp_join(
+    plan_bytes_len: usize,
     args: ParallelScanArgs,
     partitioning_source_idx: usize,
-) -> Option<MppLeaderState> {
-    launch_mpp(
-        plan_bytes,
+) -> Option<MppLaunchPrep> {
+    launch_mpp_prepare(
+        plan_bytes_len,
         args,
         partitioning_source_idx,
-        create_datafusion_session_context(SessionContextProfile::Join),
         "mpp_launched_worker_join",
     )
 }

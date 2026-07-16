@@ -19,6 +19,7 @@
 mod aggregate;
 mod api;
 mod bootstrap;
+mod dst;
 mod index;
 mod postgres;
 mod query;
@@ -121,6 +122,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     if !pg_sys::process_shared_preload_libraries_in_progress {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }
+
+    // Register the DST assertion catalog for this process (a no-op outside `--features dst`)
+    crate::dst::init();
 
     postgres::options::init();
     gucs::init();

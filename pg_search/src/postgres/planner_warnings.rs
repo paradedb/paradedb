@@ -15,10 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
+use std::thread::LocalKey;
+
+use pgrx::pg_sys;
 
 use crate::api::HashMap;
+use crate::postgres::customscan::aggregatescan::AggregateScan;
+use crate::postgres::customscan::joinscan::JoinScan;
+use crate::postgres::customscan::CustomScan;
 
 #[derive(Default)]
 pub struct WarningData {
@@ -229,4 +235,79 @@ pub fn emit_planner_warnings() {
             }
         }
     });
+}
+
+//
+// Per-statement execution-time warnings.
+//
+// Unlike the planner warnings above, which are batched and flushed at the end of planning, these
+// fire during execution and dedup against the currently-executing statement so a warning raised
+// from many search-operator predicate nodes surfaces just once.
+//
+
+type StatementId = pg_sys::TimestampTz;
+
+const NEVER: StatementId = pg_sys::TimestampTz::MIN;
+
+thread_local! {
+    static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+    static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+}
+
+fn current_statement_id() -> StatementId {
+    unsafe { pg_sys::GetCurrentStatementStartTimestamp() }
+}
+
+fn warn_once_per_statement(warned_at: &'static LocalKey<Cell<StatementId>>, message: &str) {
+    let stmt_id = current_statement_id();
+    if warned_at.with(|last| last.replace(stmt_id)) != stmt_id {
+        pgrx::warning!("{message}");
+    }
+}
+
+/// Whether the planner already warned (this statement) that a join or aggregate scan wasn't used.
+/// Those warnings name a concrete alternative, so the sequential-scan/spill warnings below would
+/// just be noise next to them. The planner state is populated during planning and only cleared at
+/// the start of the next planning cycle, so it is still readable while the plan executes.
+fn superseded_by_scan_warning() -> bool {
+    let categories = [
+        JoinScan::NAME.to_str().expect("scan NAME is valid UTF-8"),
+        AggregateScan::NAME
+            .to_str()
+            .expect("scan NAME is valid UTF-8"),
+    ];
+    PLANNER_STATE.with(|state| {
+        let state = state.borrow();
+        categories.iter().any(|cat| {
+            state
+                .warnings
+                .get(*cat)
+                .is_some_and(|msgs| !msgs.is_empty())
+        })
+    })
+}
+
+/// Warn (once per statement) that a search-operator predicate is being applied as a per-row filter
+/// over a sequential scan rather than via the index.
+pub fn warn_sequential_scan() {
+    if superseded_by_scan_warning() {
+        return;
+    }
+    warn_once_per_statement(
+        &WARNED_SEQ_SCAN_AT,
+        "the table is being sequentially scanned for this query, so performance may be slow\n\
+         if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose",
+    );
+}
+
+/// Warn (once per statement) that the materialized filter match set exceeded `work_mem` and
+/// spilled to a temporary file.
+pub fn warn_filter_spilled() {
+    if superseded_by_scan_warning() {
+        return;
+    }
+    warn_once_per_statement(
+        &WARNED_SPILLED_AT,
+        "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded",
+    );
 }

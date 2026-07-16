@@ -83,7 +83,7 @@ impl RelationBufferAccess {
         &self.rel
     }
 
-    /// Return one [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys:Buffer`].  This buffer
+    /// Return one [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys::Buffer`].  This buffer
     /// is guaranteed to be "new" in that it was created by extending the relation
     ///
     /// The [`pg_sys::Page`] representation has not been initialized.  The caller must do this.
@@ -94,7 +94,7 @@ impl RelationBufferAccess {
         )
     }
 
-    /// Return an iterator of [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys:Buffer`]s.  The buffers
+    /// Return an iterator of [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys::Buffer`]s.  The buffers
     /// are pinned _a priori_ but are locked during iteration.
     ///
     /// These buffers are guaranteed to be "new" in that they were created by extending the relation.

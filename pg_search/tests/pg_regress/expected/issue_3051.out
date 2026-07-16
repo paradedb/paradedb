@@ -10,6 +10,8 @@ CALL paradedb.create_bm25_test_table(
 );
 CREATE INDEX on mock_items USING bm25 (id, description, rating, category, metadata) WITH (key_field='id', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
 SELECT id, description @@@ 'shoes' FROM mock_items ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id | ?column? 
 ----+----------
   1 | f

@@ -1890,14 +1890,14 @@ fn validate_topk_expectation(
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`ColumnarExecState`] when there are a mix of string and numeric fast fields.
+/// We support `ColumnarExecState` when there are a mix of string and numeric fast fields.
 ///
 /// If we have failed to extract all relevant information at planning time, then the fast-field
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
 /// `assign_exec_method` and `compute_exec_which_fast_fields`.
 ///
 /// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
-/// these specialized [`ExecMethod`]s.
+/// these specialized `ExecMethod`s.
 ///
 fn choose_exec_method(
     privdata: &PrivateData,

@@ -165,7 +165,7 @@ impl From<PgItem> for MutableSegmentEntry {
     }
 }
 
-/// Prior to https://github.com/paradedb/paradedb/pull/2487, the field storing this tag contained
+/// Prior to <https://github.com/paradedb/paradedb/pull/2487>, the field storing this tag contained
 /// either A. FrozenTransactionId, or B. GetCurrentTransactionId(). After #2487 and before #3203,
 /// the field contained `InvalidTransactionId`. We treat all such tags as representing an
 /// `Immutable` segment in `impl From<u32> for Self`.

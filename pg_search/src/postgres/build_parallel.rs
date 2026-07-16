@@ -19,7 +19,7 @@ use crate::api::version::Version;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
-    IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+    DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -36,6 +36,7 @@ use crate::postgres::ps_status::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
 };
@@ -48,6 +49,7 @@ use pgrx::{
 use std::num::NonZeroUsize;
 use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
+use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 const TUPLES_DONE_BATCH_SIZE: usize = 5;
@@ -76,6 +78,7 @@ struct WorkerCoordination {
     nstarted: usize,
     nlaunched: usize,
     ntuples_done: usize,
+    nsegments_written: usize,
 }
 
 impl ParallelStateType for WorkerCoordination {}
@@ -103,6 +106,11 @@ impl WorkerCoordination {
     fn tuples_done(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.ntuples_done
+    }
+    fn add_segments_written(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nsegments_written += 1;
+        self.nsegments_written
     }
 }
 
@@ -276,6 +284,7 @@ impl<'a> BuildWorker<'a> {
                 self.config.current_xid,
                 self.config.next_xid,
                 worker_segment_target.max(1),
+                target_segment_count,
                 self.coordination,
                 worker_number,
                 is_leader,
@@ -320,6 +329,9 @@ struct WorkerBuildState<'a> {
     // 2. how many segments is this worker supposed to make? (assigned by the leader)
     worker_segment_target: usize,
     //
+    // 2b. how many segments are all workers together supposed to make?
+    target_segment_count: usize,
+    //
     // 3. how many merges has this worker done so far? (incrementing counter)
     nmerges: usize,
     //
@@ -330,6 +342,8 @@ struct WorkerBuildState<'a> {
     unmerged_metas: Vec<SegmentMeta>,
     local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
     is_leader: bool,
+    // whether the first flushed segment's on-disk size has been reported to the disk guard
+    recorded_segment_bytes: bool,
 }
 
 impl<'a> WorkerBuildState<'a> {
@@ -341,6 +355,7 @@ impl<'a> WorkerBuildState<'a> {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
         worker_segment_target: usize,
+        target_segment_count: usize,
         coordination: &'a mut WorkerCoordination,
         worker_number: i32,
         is_leader: bool,
@@ -360,7 +375,12 @@ impl<'a> WorkerBuildState<'a> {
             memory_budget: per_worker_memory_budget,
             max_docs_per_segment,
         };
-        let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
+        // Abort the build early if it is projected not to fit on the tablespace volume.
+        let disk_guard = indexrel
+            .is_create_index()
+            .then(|| DiskSpaceGuard::new(indexrel));
+        let writer =
+            SerialIndexWriter::open(indexrel, config, worker_number)?.with_disk_guard(disk_guard);
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
         let created_by_version = indexrel.created_by_version();
@@ -374,13 +394,46 @@ impl<'a> WorkerBuildState<'a> {
             current_xid,
             next_xid,
             worker_segment_target,
+            target_segment_count,
             coordination,
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
             local_tuple_done_count: 0,
             is_leader,
+            recorded_segment_bytes: false,
         })
+    }
+
+    /// After this worker flushes a segment, refresh its disk guard with a build-wide view: bump
+    /// the shared count of segments written across all workers, and tell the guard how many
+    /// segments the whole build still has to write. On the first flush, also hand the guard the
+    /// segment's on-disk size (segments are memory-budget bound, so one sample is representative).
+    fn on_segment_flushed(&mut self, segment_id: SegmentId) {
+        let written = self.coordination.add_segments_written();
+        let remaining = self.target_segment_count.saturating_sub(written);
+
+        let mut segment_bytes = None;
+        if !self.recorded_segment_bytes {
+            unsafe {
+                MetaPage::open(&self.indexrel)
+                    .segment_metas()
+                    .for_each(|_, entry| {
+                        if entry.segment_id() == segment_id {
+                            segment_bytes = Some(entry.byte_size());
+                        }
+                    });
+            }
+            self.recorded_segment_bytes = segment_bytes.is_some();
+        }
+
+        let Some(writer) = self.writer.as_mut() else {
+            return;
+        };
+        writer.set_remaining_segments(remaining);
+        if let Some(bytes) = segment_bytes {
+            writer.set_segment_byte_size(bytes);
+        }
     }
 
     fn commit(&mut self) -> anyhow::Result<()> {
@@ -566,6 +619,7 @@ unsafe extern "C-unwind" fn build_callback(
     }
 
     if let Some(segment_meta) = segment_meta {
+        build_state.on_segment_flushed(segment_meta.id());
         build_state.unmerged_metas.push(segment_meta);
         build_state
             .try_merge(false)

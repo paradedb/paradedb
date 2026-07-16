@@ -433,41 +433,24 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                // Determine which union state to emit for the deferred column:
-                // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
-                // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
-                // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
+                // When resolving the data block, we build a 2-state UnionArray:
+                // 0. None -> We just have doc ids. Emit State 0 (Doc Address).
+                // 1. Some(UInt64) -> The pre-filter already resolved term ordinals. Emit State 1.
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),
-                WhichFastField::Deferred(_, field_type) => {
-                    let is_bytes = matches!(
-                        field_type.arrow_data_type(),
-                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                    );
-                    use arrow_schema::DataType;
-
-                    match &memoized_columns[ff_index] {
-                        Some(col_array) if col_array.data_type() == &DataType::UInt64 => {
-                            Some(crate::scan::deferred_encode::build_state_term_ordinals(
-                                segment_ord,
-                                col_array.clone(),
-                                is_bytes,
-                            ))
-                        }
-                        Some(col_array) => {
-                            Some(crate::scan::deferred_encode::build_state_hydrated(
-                                col_array.clone(),
-                                is_bytes,
-                            ))
-                        }
-                        None => Some(crate::scan::deferred_encode::build_state_doc_address(
+                WhichFastField::Deferred(_, _field_type) => match &memoized_columns[ff_index] {
+                    Some(col_array) => {
+                        Some(crate::scan::deferred_encode::build_state_term_ordinals(
                             segment_ord,
-                            &ids,
-                            is_bytes,
-                        )),
+                            col_array.clone(),
+                        ))
                     }
-                }
+                    None => Some(crate::scan::deferred_encode::build_state_doc_address(
+                        segment_ord,
+                        &ids,
+                    )),
+                },
             })
             .collect();
 

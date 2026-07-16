@@ -393,6 +393,15 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 next_xid,
             )
         }))
+        // A crash here dies in this background worker: it never reaches a client
+        // connection, and Postgres logs only to the container's stdout, so nothing
+        // outside would fail on it. Report it to the DST harness before rethrowing so the
+        // fuzzer's run fails instead of silently passing. Rethrowing preserves the
+        // existing behaviour (Postgres logs the error and the worker exits).
+        .catch_others(|caught| {
+            crate::dst::report_merge_crash!(&caught);
+            caught.rethrow()
+        })
         .execute();
     })
 }

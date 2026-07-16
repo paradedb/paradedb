@@ -362,10 +362,17 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
 
     match profile {
         SessionContextProfile::Join => {
+            use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
             builder = builder
                 .with_physical_optimizer_rule(Arc::new(
                     crate::scan::segmented_topk_rule::SegmentedTopKRule,
                 ))
+                // SegmentedTopKRule absorbs VisibilityFilterExec and creates a fresh
+                // AbsorbedVisibilityData with empty ctid resolvers.  We must run
+                // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
+                // that it wires resolvers into the STK node rather than the (now-removed)
+                // VisibilityFilterExec node.
+                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
                 .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
         }
         SessionContextProfile::Aggregate => {

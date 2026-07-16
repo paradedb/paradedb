@@ -832,6 +832,10 @@ impl VisibilityFilterExec {
         }
         Ok(Arc::new(exec))
     }
+
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
+    }
 }
 
 impl DisplayAs for VisibilityFilterExec {
@@ -1016,7 +1020,7 @@ impl ExecutionPlan for VisibilityFilterExec {
 
 /// Reusable buffers for per-segment ctid materialization.
 #[derive(Default)]
-struct DeferredCtidMaterializationState {
+pub(crate) struct DeferredCtidMaterializationState {
     resolved_ctids: Vec<Option<u64>>,
     segment_doc_ids: Vec<DocId>,
     segment_ctids: Vec<Option<u64>>,
@@ -1026,7 +1030,7 @@ struct DeferredCtidMaterializationState {
 ///
 /// Each packed value encodes (segment_ord, doc_id). The FFHelper's ctid()
 /// column is used to look up the real ctid for each document.
-fn materialize_deferred_ctid(
+pub(crate) fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
     state: &mut DeferredCtidMaterializationState,

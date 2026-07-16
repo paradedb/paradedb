@@ -55,7 +55,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -63,7 +63,8 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
+    extract_pathkey_styles_with_sortability_check, query_orders_by_vector_distance, PathKeyInfo,
+    UnusableReason,
 };
 use crate::postgres::customscan::parallel::{
     compute_nworkers, list_segment_ids, max_useful_workers, RowEstimate,
@@ -607,17 +608,30 @@ impl CustomScan for BaseScan {
         let paths = (|| unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
             let rel = builder.args().rel;
+            let rti = builder.args().rti;
+            let root = builder.args().root;
 
             // Check if the query has window aggregates (pdb.agg() or window_agg())
-            let has_window_aggs = query_has_window_agg_functions(builder.args().root);
+            let has_window_aggs = query_has_window_agg_functions(root);
 
-            if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
-                // this relation has no restrictions (WHERE clause predicates) and no window aggregates,
-                // so there's no need for us to do anything
+            // A `LIMIT`ed `ORDER BY <vector-distance>` on this relation (e.g.
+            // `ORDER BY emb <=> '[...]' LIMIT k`) can drive the bm25 index as a vector
+            // TopK even without a `@@@` predicate: we treat the ordering itself as the
+            // justification and run the scan over an implicit match-all query. Requires a
+            // LIMIT (otherwise it's a full sort, no better than a seqscan) and is confirmed
+            // against the index's opclass in `pullup_topk_pathkeys` below.
+            let has_limit = !(*root).parse.is_null() && !(*(*root).parse).limitCount.is_null();
+            let wants_vector_orderby = has_limit && query_orders_by_vector_distance(root, rti);
+
+            if matches!(ri_type, RestrictInfoType::None)
+                && !has_window_aggs
+                && !wants_vector_orderby
+            {
+                // this relation has no restrictions (WHERE clause predicates), no window
+                // aggregates, and no vector ORDER BY, so there's no need for us to do anything
                 return None;
             }
 
-            let rti = builder.args().rti;
             let (table, bm25_index) = {
                 let rte = builder.args().rte();
 
@@ -639,8 +653,6 @@ impl CustomScan for BaseScan {
 
                 (table, bm25_index)
             };
-
-            let root = builder.args().root;
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
@@ -666,13 +678,18 @@ impl CustomScan for BaseScan {
                 is_select,
             );
 
-            // If we have window aggregates but no quals, we must still create the custom path
-            // because pdb.agg() can only be executed by our custom scan
+            // Whether qual extraction found something the scan is justified by on its own
+            // (a `@@@` predicate). When it did not, the scan may still be justified by
+            // window aggregates or a vector ORDER BY, both of which run over Qual::All.
+            let has_extracted_quals = quals.is_some();
+
+            // If we have window aggregates or a vector ORDER BY but no quals, we must still
+            // create the custom path (pdb.agg() can only run in our scan, and a vector TopK
+            // scans an implicit match-all query).
             let quals = if let Some(q) = quals {
                 q
-            } else if has_window_aggs {
-                // We have window aggregates but couldn't extract quals.
-                // This can happen in two cases:
+            } else if has_window_aggs || wants_vector_orderby {
+                // No extractable quals. This can happen in two cases:
                 // 1. No WHERE clause at all -> safe to use Qual::All
                 // 2. WHERE clause exists but couldn't be extracted:
                 //    a. filter_pushdown enabled -> HeapExpr was created during extraction, safe to use Qual::All
@@ -694,7 +711,7 @@ impl CustomScan for BaseScan {
                 //   and will be evaluated by PostgreSQL's executor after we return results
                 Qual::All
             } else {
-                // No quals and no window aggregates - we can't help
+                // No quals, no window aggregates, no vector ORDER BY - we can't help
                 return None;
             };
 
@@ -724,6 +741,21 @@ impl CustomScan for BaseScan {
             let index_expressions = bm25_index.index_expressions();
             let topk_pathkey_info =
                 pullup_topk_pathkeys(rti, &schema, root, Some(&index_expressions));
+
+            // If the only thing justifying this scan is a vector ORDER BY (no `@@@`
+            // predicate, no window aggregates), bail unless that ORDER BY actually resolves
+            // to a vector TopK on this index (matching opclass on an indexed vector field).
+            // Otherwise we'd emit a match-all scan that a plain seqscan+sort beats.
+            if wants_vector_orderby && !has_window_aggs && !has_extracted_quals {
+                let is_vector_topk = topk_pathkey_info.pathkeys().is_some_and(|styles| {
+                    styles
+                        .iter()
+                        .any(|style| matches!(style, OrderByStyle::VectorDistance { .. }))
+                });
+                if !is_vector_topk {
+                    return None;
+                }
+            }
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;

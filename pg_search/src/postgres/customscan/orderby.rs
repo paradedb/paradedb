@@ -429,7 +429,7 @@ unsafe fn extract_funcexpr_from_placeholder(
 /// Returns true if:
 /// 1. varno matches rti (exact match)
 /// 2. varno is the parent of rti (partitioned/inheritance case)
-unsafe fn is_varno_valid_for_relation(
+pub(crate) unsafe fn is_varno_valid_for_relation(
     root: *mut pg_sys::PlannerInfo,
     varno: pg_sys::Index,
     current_rti: pg_sys::Index,
@@ -449,6 +449,53 @@ unsafe fn is_varno_valid_for_relation(
         }
     }
 
+    false
+}
+
+/// Cheap (no index open) detection of whether the query's `ORDER BY` includes a
+/// vector-distance operator (`<->`/`<=>`/`<#>`) applied to a `Var` on relation
+/// `rti`. Used to decide, before opening the bm25 index, whether a bare
+/// `ORDER BY <vector>` with no `@@@` predicate should still justify a custom
+/// scan. Conservative: a false negative just falls back to a regular sort, and
+/// the authoritative opclass/indexed-field validation still happens in
+/// `pullup_topk_pathkeys` after the index is opened.
+pub(crate) unsafe fn query_orders_by_vector_distance(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> bool {
+    if root.is_null() || (*root).query_pathkeys.is_null() {
+        return false;
+    }
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    for pathkey in pathkeys.iter_ptr() {
+        let equivclass = (*pathkey).pk_eclass;
+        if equivclass.is_null() {
+            continue;
+        }
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        for member in members.iter_ptr() {
+            let mut expr = (*member).em_expr.cast::<pg_sys::Node>();
+            // Vector-distance sorts arrive as a bare OpExpr; unwrap a PlaceHolderVar
+            // wrapper (as `extract_pathkey_styles` does) to reach it.
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+                expr = (*phv).phexpr.cast();
+            }
+            let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, expr) else {
+                continue;
+            };
+            if metric_for_opoid((*opexpr).opno).is_none() {
+                continue;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+            for arg in args.iter_ptr() {
+                if let Some(var) = nodecast!(Var, T_Var, arg) {
+                    if is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
     false
 }
 

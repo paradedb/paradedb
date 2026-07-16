@@ -47,27 +47,30 @@ vchord_probes_10pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 1000
 vchord_probes_1pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 vchord_probes_1pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 
-# pgvectorscale (StreamingDiskANN, plain/uncompressed index -- see indexes/diskann.sql) operating
-# points.
-#   query_search_list_size -- the recall lever (default 100): candidates the graph search keeps in
-#     its beam. Recall rises monotonically with it, QPS falls. With plain storage the beam holds
-#     full-precision vectors, so its ordering is already exact -- widening the beam is what surfaces
-#     the true top-10 (there is no compression error for rescoring to correct).
-#   query_rescore -- exact-distance rescoring of the top candidates (default 50). A near-no-op under
-#     plain storage (distances are already exact); kept small.
+# pgvectorscale (StreamingDiskANN, default SBQ-compressed index -- see indexes/pgvectorscale.sql)
+# operating points. Two query-time GUCs, both tuned per filter:
+#   query_rescore -- the DOMINANT recall lever here (default 50, hard max 1000): how many of the
+#     beam's candidates get re-scored with the exact (uncompressed) distance. Because the index is
+#     1-bit SBQ, the graph's own ordering is coarse, so recall is set almost entirely by how many
+#     candidates are exact-rescored, NOT by how wide the beam is. Measured on the 1M set (search_list
+#     _size=100): rescore 50 -> 0.84, 100 -> 0.91, 200 -> 0.95, 400 -> 0.97, 800 -> 0.99.
+#   query_search_list_size -- the graph-search beam width (default 100). For UNFILTERED it barely
+#     moves recall (rescore does the work). For FILTERED it matters for a different reason: post-
+#     filtering keeps only ~10%/1% of the beam, so the beam must be wide enough to still surface 10
+#     rows that pass the tsvector predicate -- hence unfiltered << 10pct < 1pct.
 # Filtered search is post-filter streaming (no prefilter GUC): the diskann scan streams beam
-# candidates and the tsvector predicate filters them, so a stricter filter needs a wider
-# search_list_size to still surface 10 matches -- hence unfiltered < 10pct < 1pct.
+# candidates and the predicate filters them.
 #
-# VALUES ARE A STARTING ESTIMATE, NOT YET MEASURED. A local sweep quantified the DEFAULT SBQ-
-# compressed index (unfiltered reaches 0.95 via query_rescore ~200; filtered plateaus at ~0.88
-# (10pct) / ~0.67 (1pct) because diskann.query_rescore caps at 1000 and post-filtering keeps only a
-# small fraction of those). That cap is why this index uses plain storage instead. The plain-storage
-# build is slow and did not finish locally, so the sizes below are extrapolated from the SBQ sweep +
-# DiskANN behaviour (unfiltered needs only a modest beam; each ~10x stricter filter needs a markedly
-# wider one). CONFIRM AND ADJUST from the CI recall step, which reports measured recall@10 -- same
-# tuning loop as the other indexes. 10m arms scale the 1m sizes up for the deeper graph.
-pgvectorscale_query_rescore = "50"
-pgvectorscale_search_list_size_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 150 WHEN 10000000 THEN 250 ELSE 100 END"
-pgvectorscale_search_list_size_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 400 WHEN 10000000 THEN 700 ELSE 100 END"
-pgvectorscale_search_list_size_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 1500 WHEN 10000000 THEN 3000 ELSE 100 END"
+# TUNED TO BEST-ACHIEVABLE RECALL (measured on the 1M SBQ index), not to a fixed 0.95:
+#   unfiltered -> ~0.96 (clears 0.95).  10pct -> ~0.88 (its ceiling; rescore is already maxed at
+#   1000).  1pct -> ~0.67 (its ceiling). The filtered arms CANNOT reach 0.95 under SBQ -- post-
+#   filtering starves the <=1000 exact-rescored candidates -- so they run at their max instead (that
+#   is the accepted trade-off for using the default compressed build). CONFIRM from the CI recall
+#   step, which reports measured recall@10. 10m arms scale the 1m values up for the deeper/larger
+#   graph (rescore stays pinned at the 1000 max on the filtered arms).
+pgvectorscale_search_list_size_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 100 WHEN 10000000 THEN 150 ELSE 100 END"
+pgvectorscale_search_list_size_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 1000 WHEN 10000000 THEN 2000 ELSE 100 END"
+pgvectorscale_search_list_size_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 2000 WHEN 10000000 THEN 4000 ELSE 100 END"
+pgvectorscale_query_rescore_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 250 WHEN 10000000 THEN 400 ELSE 100 END"
+pgvectorscale_query_rescore_10pct = "1000"
+pgvectorscale_query_rescore_1pct = "1000"

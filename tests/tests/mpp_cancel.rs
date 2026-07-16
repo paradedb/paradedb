@@ -30,7 +30,7 @@ use tests::fixtures::*;
 use tokio::time::sleep;
 
 const SETUP_SQL: &str = r#"
-CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
 CREATE TABLE mpp_sig_files (id SERIAL PRIMARY KEY, title TEXT, content TEXT);
 CREATE TABLE mpp_sig_pages (id SERIAL PRIMARY KEY, file_id INTEGER, page_text TEXT);
@@ -148,7 +148,7 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
     // failure on this connection.
     let mut witness = database.connection().await;
     witness
-        .execute("CREATE EXTENSION IF NOT EXISTS pg_search;")
+        .execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
         .await?;
     assert_cluster_alive(&mut witness).await?;
 

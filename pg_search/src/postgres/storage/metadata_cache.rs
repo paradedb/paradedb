@@ -17,7 +17,7 @@
 
 //! A backend-local cache of write-once BM25 index metadata.
 //!
-//! Opening a [`SearchIndexReader`] re-reads the metapage (block 0), the schema chain, and the
+//! Opening a `SearchIndexReader` re-reads the metapage (block 0), the schema chain, and the
 //! settings chain through the Postgres buffer manager on every query, and re-deserializes the
 //! schema/settings JSON each time.  All of that data is write-once: the schema and settings
 //! chains are only ever written when empty (see `save_schema`/`save_settings`), and the

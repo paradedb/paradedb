@@ -388,6 +388,13 @@ pub enum OrderByFeature {
         /// `EState.es_param_list_info` and writes the floats into `query_vector`.
         #[serde(default)]
         query_vector_param_id: Option<i32>,
+        /// `Some(node_string)` when the query vector is a non-`Var`, non-volatile
+        /// operand expression (e.g. `current_setting('cohere.qvec')::vector`),
+        /// serialized via `nodeToString` at planning time. At execution time the
+        /// basescan deserializes it, evaluates it once, and writes the floats
+        /// into `query_vector`. Mutually exclusive with `query_vector_param_id`.
+        #[serde(default)]
+        query_vector_expr: Option<String>,
         /// Metric implied by the operator that drove this ORDER BY
         /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct). Drives
         /// EXPLAIN output and whether the resolved query vector is
@@ -457,25 +464,56 @@ impl OrderByInfo {
         }
     }
 
-    /// If this `OrderByInfo` carries a parameterized vector ORDER BY
-    /// (`<-> $1` style, generic-plan prepared statement), look up the
-    /// bound `Param` value in the executor's `es_param_list_info`,
-    /// convert it to `Vec<f32>`, optionally L2-normalize for cosine,
-    /// and overwrite `query_vector` so downstream search code sees a
-    /// concrete vector.
+    /// Resolve a not-yet-concrete vector ORDER BY query vector into
+    /// `query_vector`, so downstream search code sees a concrete vector.
+    /// Two deferred forms are handled:
     ///
-    /// No-op for `OrderByFeature::VectorDistance` whose param ID is
-    /// already `None` (i.e. the vector was a literal `Const`), and
-    /// for every other `OrderByFeature` variant.
-    pub unsafe fn resolve_param(&mut self, estate: *mut pgrx::pg_sys::EState) {
+    ///   * `query_vector_param_id` — a bound `Param` (`<-> $1` style,
+    ///     generic-plan prepared statement), looked up in the executor's
+    ///     `es_param_list_info`; and
+    ///   * `query_vector_expr` — a serialized non-`Var`, non-volatile operand
+    ///     expression (e.g. `current_setting('cohere.qvec')::vector`),
+    ///     deserialized and evaluated once against `planstate`'s ExprContext.
+    ///
+    /// No-op for a `VectorDistance` whose vector was already a literal `Const`
+    /// (both fields `None`), and for every other `OrderByFeature` variant.
+    /// Idempotent: each deferred form is cleared once resolved.
+    pub unsafe fn resolve_query_vector(
+        &mut self,
+        estate: *mut pgrx::pg_sys::EState,
+        planstate: *mut pgrx::pg_sys::PlanState,
+    ) {
         let OrderByFeature::VectorDistance {
             query_vector,
             query_vector_param_id,
+            query_vector_expr,
             ..
         } = &mut self.feature
         else {
             return;
         };
+
+        // Serialized non-Var, non-volatile operand: deserialize, ExecInitExpr,
+        // and evaluate exactly once. Deferred to execution (rather than folded
+        // at plan time) so a cached generic plan re-reads the current value.
+        if let Some(expr_str) = query_vector_expr.take() {
+            use crate::postgres::customscan::expr_eval::PreparedPgExpr;
+            let prepared = PreparedPgExpr::from_serialized(&expr_str, &[]);
+            let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), planstate);
+            let econtext = (*planstate).ps_ExprContext;
+            assert!(
+                !econtext.is_null(),
+                "planstate has no ExprContext to evaluate vector ORDER BY operand"
+            );
+            let mut isnull = false;
+            let datum = pg_sys::ExecEvalExpr(expr_state, econtext, &mut isnull);
+            assert!(!isnull, "vector ORDER BY operand evaluated to NULL");
+            *query_vector = PgVector::from_datum(datum, false)
+                .expect("vector ORDER BY operand should not be NULL")
+                .0;
+            return;
+        }
+
         let Some(paramid) = *query_vector_param_id else {
             return;
         };

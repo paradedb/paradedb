@@ -33,8 +33,8 @@ maintain. If you can't install extensions on your primary, see [other deployment
 
 ### Search That Feels Like Postgres
 
-In ParadeDB, a search query is just SQL. You get BM25 relevance scoring, filtering, and sorting with the operators and functions you
-already know, plus full support for `JOIN`s, so there's no need to denormalize your existing schema.
+In ParadeDB, a search query is just SQL. You use the operators and functions you already know, with full support for `JOIN`s, so there's
+no need to denormalize your existing schema.
 
 ```sql
 -- Index a table for full-text search
@@ -50,17 +50,18 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-The same index also serves faceted search and aggregations, pushing filters and aggregates directly into the index instead of computing
-them afterward. And because ParadeDB runs inside Postgres, you can pair it with [pgvector](https://github.com/pgvector/pgvector) to combine
-full-text and semantic search in one query, with no separate vector database to keep in sync. Vectors run on pgvector today, and a
-high-performance, pgvector-compatible version is coming to the ParadeDB index soon.
+ParadeDB accelerates standard SQL queries. That includes:
+
+- **Text**: relevance-ranked full-text queries like the one above.
+- **Aggregations**: the same index serves faceted search and aggregations, pushing filters and aggregates directly into the index instead
+  of computing them afterward.
+- **Vectors**: pair ParadeDB with [pgvector](https://github.com/pgvector/pgvector) to combine full-text and semantic search in one query,
+  with no separate vector database to keep in sync. A high-performance, drop-in compatible version is coming to the ParadeDB index soon.
 
 ### One Index Behind Every Query
 
 Behind the SQL is a single custom index: the **BM25 index**, built on [Tantivy](https://github.com/quickwit-oss/tantivy), the Rust port of
-Lucene. It handles full-text ranking and aggregations together and stays current inside your transactions, so search never lags your
-writes. It goes toe-to-toe with dedicated search engines on full-text performance, often coming out on top. Vector search is coming to the
-same index soon, so hybrid queries will run on one index too. [See how it's built →](/welcome/architecture)
+Lucene. It goes toe-to-toe with dedicated search engines on full-text performance, often coming out on top. [See how it's built →](/welcome/architecture)
 
 ### As Reliable As Postgres
 

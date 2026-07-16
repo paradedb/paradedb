@@ -483,8 +483,9 @@ impl SuiteRunner {
         runner.init()?;
         let suite_runner = Arc::new(runner);
 
-        // refresh sysinfo stats very frequently
-        {
+        // Refresh sysinfo stats very frequently. A `SetupOnly` run spawned no workers or
+        // monitors and exits right after this, so skip the refresh loop entirely.
+        if suite_runner.setup_mode != SetupMode::SetupOnly {
             let alive = suite_runner.alive.clone();
             let sys = suite_runner.sys.clone();
             let suite_runner = suite_runner.clone();

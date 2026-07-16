@@ -22,7 +22,9 @@ use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SegmentMetaEntryImmutable,
 };
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata_cache;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::path::PathBuf;
@@ -320,6 +322,9 @@ pub unsafe fn save_new_metas(
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
     linked_list.commit();
 
+    // the segment-metas list contents (may have) changed: invalidate backend-local caches
+    MetaPage::open(indexrel).bump_segment_metas_version();
+
     Ok(())
 }
 
@@ -344,8 +349,41 @@ pub unsafe fn load_metas(
     let mut opstamp = None;
     let mut pin_cushion = PinCushion::default();
 
-    // Collect segments from each relevant list.
-    let metapage = MetaPage::open(indexrel);
+    // Fast path for parallel workers whose leader handed over its resolved entries through
+    // DSM: no need to walk the segment-metas linked list (or re-derive MVCC visibility) at
+    // all.  Liveness is guaranteed by the same invariant as `MvccSatisfies::ParallelWorker`:
+    // the leader holds pins on every one of these segments for as long as we're running.  We
+    // still take our own pins, exactly like the list-walking path does.
+    if let MvccSatisfies::ParallelWorkerWithEntries(handed_entries) = solve_mvcc {
+        let bman = BufferManager::new(indexrel);
+        for entry in handed_entries {
+            total_segments += 1;
+            total_docs += entry.num_docs();
+            pin_cushion.push(&bman, entry);
+            alive_segments.push(entry.as_tantivy().track(inventory));
+            alive_entries.push(*entry);
+            opstamp = opstamp.max(Some(entry.opstamp()));
+        }
+
+        let deserialized_settings = load_index_settings(indexrel)?;
+        return Ok(LoadedMetas {
+            entries: alive_entries,
+            meta: IndexMeta {
+                segments: alive_segments,
+                schema: tantivy_schema.clone(),
+                index_settings: deserialized_settings,
+                opstamp: opstamp.unwrap_or(0),
+                payload: None,
+            },
+            pin_cushion,
+            total_segments,
+            total_docs,
+        });
+    }
+
+    // Collect segments from each relevant list.  Every field we use off the metapage here is
+    // write-once, so the cached open avoids re-reading block 0 on every reader open.
+    let metapage = MetaPage::open_cached(indexrel);
     let mut segment_metas = metapage.segment_metas();
     let mut exhausted_metas_lists = false;
 
@@ -408,7 +446,7 @@ pub unsafe fn load_metas(
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
                 if !exhausted_metas_lists {
-                    if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
+                    if let Some(garbage) = MetaPage::open_cached(indexrel).segment_metas_garbage() {
                         segment_metas = garbage;
                         exhausted_metas_lists = true;
                         continue;
@@ -454,8 +492,7 @@ pub unsafe fn load_metas(
         }
     }
 
-    let settings = metapage.settings_bytes();
-    let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
+    let deserialized_settings = load_index_settings(indexrel)?;
 
     Ok(LoadedMetas {
         entries: alive_entries,
@@ -472,11 +509,37 @@ pub unsafe fn load_metas(
     })
 }
 
+/// Load the index's [`IndexSettings`].  Settings are write-once at index build (see
+/// [`save_settings`]), so they're parsed once per backend and served from the metadata cache
+/// afterwards.
+pub fn load_index_settings(indexrel: &PgSearchRelation) -> tantivy::Result<IndexSettings> {
+    match metadata_cache::cached_settings(indexrel) {
+        Some(settings) => Ok(settings),
+        None => {
+            let metapage = MetaPage::open_cached(indexrel);
+            let settings_bytes = unsafe { metapage.settings_bytes().read_all() };
+            let deserialized: IndexSettings = serde_json::from_slice(&settings_bytes)?;
+            metadata_cache::store_settings(indexrel, &deserialized);
+            Ok(deserialized)
+        }
+    }
+}
+
 pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<Schema>> {
-    let metapage = MetaPage::open(indexrel);
+    // The schema is write-once at index build (see `save_schema`): deserializing it is the
+    // single most expensive part of opening a reader, so serve it from the backend-local
+    // metadata cache when possible.
+    if let Some(schema) = metadata_cache::cached_schema(indexrel) {
+        return Ok(Some(schema));
+    }
+
+    let metapage = MetaPage::open_cached(indexrel);
     let schema_bytes = unsafe { metapage.schema_bytes().read_all() };
     if schema_bytes.is_empty() {
+        // mid-build: the schema hasn't been written yet, so there is nothing to cache
         return Ok(None);
     }
-    Ok(serde_json::from_slice(&schema_bytes)?)
+    let schema: Schema = serde_json::from_slice(&schema_bytes)?;
+    metadata_cache::store_schema(indexrel, &schema);
+    Ok(Some(schema))
 }

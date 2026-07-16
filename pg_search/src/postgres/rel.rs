@@ -22,7 +22,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
@@ -122,9 +122,12 @@ impl Error for SchemaError {}
 pub struct PgSearchRelation(
     Option<
         Rc<(
-            NonNull<pg_sys::RelationData>,
-            NeedClose,
-            Option<pg_sys::LOCKMODE>,
+            // Cells so the backend-local reader cache can retarget a long-lived handle to the
+            // current query's relation and take over close responsibility; see
+            // `Self::retarget` / `Self::close_now_and_disarm`.
+            Cell<NonNull<pg_sys::RelationData>>,
+            Cell<NeedClose>,
+            Cell<Option<pg_sys::LOCKMODE>>,
             RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
             BM25IndexOptions,
             IsCreateIndex,
@@ -151,10 +154,10 @@ crate::impl_safe_drop!(PgSearchRelation, |self| {
         return;
     };
     unsafe {
-        if need_close && pg_sys::IsTransactionState() {
-            match lockmode {
-                Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
-                None => pg_sys::RelationClose(relation.as_ptr()),
+        if need_close.get() && pg_sys::IsTransactionState() {
+            match lockmode.get() {
+                Some(lockmode) => pg_sys::relation_close(relation.get().as_ptr(), lockmode),
+                None => pg_sys::RelationClose(relation.get().as_ptr()),
             }
         }
     }
@@ -176,10 +179,12 @@ impl PgSearchRelation {
     /// This relation will not be closed when we're dropped.
     pub unsafe fn from_pg(relation: pg_sys::Relation) -> Self {
         Self(Some(Rc::new((
-            NonNull::new(relation)
-                .expect("PgSearchRelation::from_pg: provided relation cannot be NULL"),
-            false,
-            None,
+            Cell::new(
+                NonNull::new(relation)
+                    .expect("PgSearchRelation::from_pg: provided relation cannot be NULL"),
+            ),
+            Cell::new(false),
+            Cell::new(None),
             Default::default(),
             BM25IndexOptions::from_relation(relation),
             IsCreateIndex::default(),
@@ -201,9 +206,9 @@ impl PgSearchRelation {
             }
 
             Self(Some(Rc::new((
-                NonNull::new_unchecked(relation),
-                true,
-                None,
+                Cell::new(NonNull::new_unchecked(relation)),
+                Cell::new(true),
+                Cell::new(None),
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
@@ -224,9 +229,9 @@ impl PgSearchRelation {
                 None
             } else {
                 Some(Self(Some(Rc::new((
-                    NonNull::new_unchecked(relation),
-                    true,
-                    None,
+                    Cell::new(NonNull::new_unchecked(relation)),
+                    Cell::new(true),
+                    Cell::new(None),
                     Default::default(),
                     BM25IndexOptions::from_relation(relation),
                     IsCreateIndex::default(),
@@ -245,9 +250,9 @@ impl PgSearchRelation {
             // SAFETY: relation_open() always returns a valid RelationData pointer
             let relation = pg_sys::relation_open(oid, lockmode);
             Self(Some(Rc::new((
-                NonNull::new_unchecked(relation),
-                true,
-                Some(lockmode),
+                Cell::new(NonNull::new_unchecked(relation)),
+                Cell::new(true),
+                Cell::new(Some(lockmode)),
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
@@ -311,7 +316,48 @@ impl PgSearchRelation {
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {
         // SAFETY: self.0 is always Some
-        unsafe { self.0.as_ref().unwrap_unchecked().2 }
+        unsafe { self.0.as_ref().unwrap_unchecked().2.get() }
+    }
+
+    /// Point this handle (and every clone sharing its allocation) at a different, currently
+    /// open `RelationData` for the same relation.
+    ///
+    /// Used by the backend-local reader cache: the tantivy structures it retains embed clones
+    /// of the relation handle they were built with, and that handle's raw pointer dies with the
+    /// query that opened it.  Retargeting the shared allocation to the current query's open
+    /// relation revalidates every embedded clone at once.
+    ///
+    /// # Safety
+    ///
+    /// `relation` must be an open relation for the same relation oid, and must remain open for
+    /// as long as any reads happen through this handle.
+    pub(crate) unsafe fn retarget(&self, relation: pg_sys::Relation) {
+        let rc = self.0.as_ref().expect("PgSearchRelation is always Some");
+        rc.0.set(
+            NonNull::new(relation).expect("PgSearchRelation::retarget: relation cannot be NULL"),
+        );
+    }
+
+    /// Steal this handle's close responsibility, disarming the eventual last-reference close
+    /// and returning what the caller must eventually close (pointer + lockmode), or `None` if
+    /// the handle never owned a close (e.g. it came from [`Self::from_pg`]).
+    ///
+    /// The backend-local reader cache uses this when parking a reader: the cache's clones keep
+    /// the `Rc` alive past the query, which would otherwise suppress the last-reference close
+    /// and leak a relcache reference.  The stolen duty is attached to the *current* query's
+    /// reader, which performs the close when it is dropped — inside the transaction, before
+    /// portal cleanup would complain.
+    pub(crate) unsafe fn steal_close_duty(
+        &self,
+    ) -> Option<(NonNull<pg_sys::RelationData>, Option<pg_sys::LOCKMODE>)> {
+        let rc = self.0.as_ref().expect("PgSearchRelation is always Some");
+        if rc.1.get() {
+            rc.1.set(false);
+            let lockmode = rc.2.replace(None);
+            Some((rc.0.get(), lockmode))
+        } else {
+            None
+        }
     }
 
     pub fn oid(&self) -> pg_sys::Oid {
@@ -355,7 +401,7 @@ impl PgSearchRelation {
 
     pub fn as_ptr(&self) -> pg_sys::Relation {
         // SAFETY: self.0 is always Some
-        unsafe { self.0.as_ref().unwrap_unchecked().0.as_ptr() }
+        unsafe { self.0.as_ref().unwrap_unchecked().0.get().as_ptr() }
     }
 
     pub fn heap_relation(&self) -> Option<PgSearchRelation> {
@@ -402,9 +448,10 @@ impl PgSearchRelation {
         }
     }
 
-    /// This opens the MetaPage on every call, so use it carefully
+    /// The version is write-once at index build, so this is served from the backend-local
+    /// metadata cache when possible and only opens the MetaPage on a cache miss.
     pub fn created_by_version(&self) -> Option<Version> {
-        MetaPage::open(self).created_by_version()
+        MetaPage::open_cached(self).created_by_version()
     }
 
     /// Get the index info for this relation.

@@ -390,6 +390,7 @@ impl SegmentDeleter {
                                 .expect("update_item guard not executed properly")
                         },
                     )?;
+                MetaPage::open(&inner.indexrel).bump_segment_metas_version();
                 Ok(None)
             },
         }

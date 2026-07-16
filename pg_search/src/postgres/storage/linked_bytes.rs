@@ -108,6 +108,11 @@ pub struct LinkedBytesList {
     pub header_blockno: pg_sys::BlockNumber,
     blocklist_reader: OnceLock<blocklist::reader::BlockList>,
     cache: UnsafeCache<CacheEntry>,
+    /// When true, single-block reads copy the page contents into backend-local memory instead
+    /// of returning a zero-copy view over a pinned buffer.  Required for structures that
+    /// outlive the current transaction (the backend-local reader cache): pins registered with
+    /// the transaction's resource owner cannot legally survive it, copies can.
+    copy_decoded_blocks: bool,
 }
 
 pub struct LinkedBytesListWriter {
@@ -240,6 +245,17 @@ impl LinkedBytesList {
             header_blockno,
             blocklist_reader: Default::default(),
             cache: UnsafeCache::new(),
+            copy_decoded_blocks: false,
+        }
+    }
+
+    /// Like [`Self::open`], but decoded blocks are copied into backend-local memory rather
+    /// than held as zero-copy views over pinned buffers.  Use for lists whose read structures
+    /// may outlive the current transaction.
+    pub fn open_copying(rel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
+        Self {
+            copy_decoded_blocks: true,
+            ..Self::open(rel, header_blockno)
         }
     }
 
@@ -287,6 +303,7 @@ impl LinkedBytesList {
             header_blockno,
             blocklist_reader: Default::default(),
             cache: UnsafeCache::new(),
+            copy_decoded_blocks: false,
         }
     }
 
@@ -392,8 +409,7 @@ impl LinkedBytesList {
 
         // Cache miss: read the block, cache it, return the byte.
         let blockno = self.block_for_ord(block_ord).expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let block_bytes = self.decode_block(blockno);
         let byte = block_bytes[local_offset];
 
         if cache.len() >= BLOCK_CACHE_SIZE {
@@ -469,8 +485,7 @@ impl LinkedBytesList {
         let blockno = self
             .block_for_ord(start_block_ord)
             .expect("block not found");
-        let buffer = self.bman.get_buffer(blockno);
-        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let block_bytes = self.decode_block(blockno);
 
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();
@@ -481,6 +496,19 @@ impl LinkedBytesList {
         });
 
         block_bytes
+    }
+
+    /// Read one block's usable contents, either as a zero-copy view over the pinned buffer
+    /// (the default) or as a backend-local copy (see [`Self::open_copying`]).  Both forms
+    /// expose the same window: the page's written contents, per `Page::as_slice`.
+    unsafe fn decode_block(&self, blockno: pg_sys::BlockNumber) -> OwnedBytes {
+        let buffer = self.bman.get_buffer(blockno);
+        if self.copy_decoded_blocks {
+            let page = buffer.page();
+            OwnedBytes::new(page.as_slice().to_vec())
+        } else {
+            OwnedBytes::new(buffer.into_immutable_page())
+        }
     }
 }
 

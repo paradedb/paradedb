@@ -35,6 +35,7 @@ impl ParallelQueryCapable for BaseScan {
             &args.all_nsegments(),
             args.partitioning_source_idx,
             &args.query,
+            &args.entries,
             args.with_aggregates,
         )
     }

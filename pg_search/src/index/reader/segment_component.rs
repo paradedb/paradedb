@@ -39,6 +39,15 @@ impl SegmentComponentReader {
         Self { block_list, entry }
     }
 
+    /// Like [`Self::new`], but decoded blocks are copied into backend-local memory rather than
+    /// held as zero-copy views over pinned buffers.  Use when the reader may outlive the
+    /// current transaction (the backend-local reader cache).
+    pub unsafe fn new_copying(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
+        let block_list = LinkedBytesList::open_copying(indexrel, entry.starting_block);
+
+        Self { block_list, entry }
+    }
+
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         unsafe {
             let end = range.end.min(self.len());

@@ -209,8 +209,13 @@ fn launch_mpp(
             return None;
         }
     };
-    let scan_size =
-        ParallelScanState::size_of(&args.all_nsegments(), partitioning_source_idx, &[], false);
+    let scan_size = ParallelScanState::size_of(
+        &args.all_nsegments(),
+        partitioning_source_idx,
+        &[],
+        &[],
+        false,
+    );
 
     let process = MppParallelProcess {
         mesh_region: vec![0u8; region_bytes],

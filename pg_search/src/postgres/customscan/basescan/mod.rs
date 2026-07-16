@@ -152,7 +152,13 @@ impl BaseScan {
                     // this is because the workers pick a specific segment to query that
                     // is known to be held open/pinned by the leader but might not pass a ::Snapshot
                     // visibility test due to concurrent merges/garbage collects
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                    //
+                    // when the leader handed its resolved segment meta entries through DSM, use
+                    // them directly and skip re-reading the segment-metas list from the index
+                    match (*parallel_state).segment_meta_entries() {
+                        Some(entries) => MvccSatisfies::ParallelWorkerWithEntries(entries),
+                        None => MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state)),
+                    }
                 } else {
                     // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
                     // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).

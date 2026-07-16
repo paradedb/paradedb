@@ -723,32 +723,96 @@ impl From<PgItem> for SegmentMetaEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
         let bytes = unsafe { from_raw_parts(item as *const u8, size) };
+        let (entry, _) = SegmentMetaEntry::decode_from(bytes);
+        entry
+    }
+}
 
-        let (header, bytes_read): (SegmentMetaEntryHeader, _) =
+impl SegmentMetaEntry {
+    /// Decode one entry from the front of `bytes`, returning it along with the number of bytes
+    /// consumed.  Inverse of the encoding used by `From<SegmentMetaEntry> for PgItem`.
+    fn decode_from(bytes: &[u8]) -> (Self, usize) {
+        let (header, header_len): (SegmentMetaEntryHeader, _) =
             bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
                 .expect("expected to deserialize valid SegmentMetaEntryHeader");
 
-        let content = match header.tag {
+        let (content, content_len) = match header.tag {
             SegmentMetaEntryTag::Immutable => {
-                let (content, _): (SegmentMetaEntryImmutable, _) =
+                let (content, len): (SegmentMetaEntryImmutable, _) =
                     bincode::serde::decode_from_slice(
-                        &bytes[bytes_read..],
+                        &bytes[header_len..],
                         bincode::config::legacy(),
                     )
                     .expect("expected to deserialize valid SegmentMetaEntryContent");
-                SegmentMetaEntryContent::Immutable(content)
+                (SegmentMetaEntryContent::Immutable(content), len)
             }
             SegmentMetaEntryTag::Mutable => {
-                let (content, _): (SegmentMetaEntryMutable, _) = bincode::serde::decode_from_slice(
-                    &bytes[bytes_read..],
-                    bincode::config::legacy(),
-                )
-                .expect("expected to deserialize valid SegmentMetaEntryContent");
-                SegmentMetaEntryContent::Mutable(content)
+                let (content, len): (SegmentMetaEntryMutable, _) =
+                    bincode::serde::decode_from_slice(
+                        &bytes[header_len..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to deserialize valid SegmentMetaEntryContent");
+                (SegmentMetaEntryContent::Mutable(content), len)
             }
         };
 
-        SegmentMetaEntry { header, content }
+        (
+            SegmentMetaEntry { header, content },
+            header_len + content_len,
+        )
+    }
+
+    /// Serialize a batch of entries into a flat byte buffer suitable for passing through
+    /// parallel DSM.  Inverse of [`Self::deserialize_batch`].
+    pub fn serialize_batch<'a>(entries: impl Iterator<Item = &'a SegmentMetaEntry>) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let mut count: u32 = 0;
+        buf.extend_from_slice(&count.to_le_bytes());
+        for entry in entries {
+            bincode::serde::encode_into_std_write(
+                entry.header,
+                &mut buf,
+                bincode::config::legacy(),
+            )
+            .expect("expected to serialize valid SegmentMetaEntryHeader");
+            match &entry.content {
+                SegmentMetaEntryContent::Immutable(content) => {
+                    debug_assert!(entry.header.tag == SegmentMetaEntryTag::Immutable);
+                    bincode::serde::encode_into_std_write(
+                        content,
+                        &mut buf,
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to serialize valid SegmentMetaEntryContent::Immutable")
+                }
+                SegmentMetaEntryContent::Mutable(content) => {
+                    debug_assert!(entry.header.tag == SegmentMetaEntryTag::Mutable);
+                    bincode::serde::encode_into_std_write(
+                        content,
+                        &mut buf,
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to serialize valid SegmentMetaEntryContent::Mutable")
+                }
+            };
+            count += 1;
+        }
+        buf[..4].copy_from_slice(&count.to_le_bytes());
+        buf
+    }
+
+    /// Deserialize a batch of entries previously produced by [`Self::serialize_batch`].
+    pub fn deserialize_batch(bytes: &[u8]) -> Vec<SegmentMetaEntry> {
+        let count = u32::from_le_bytes(bytes[..4].try_into().expect("batch header truncated"));
+        let mut offset = 4;
+        let mut entries = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let (entry, consumed) = Self::decode_from(&bytes[offset..]);
+            entries.push(entry);
+            offset += consumed;
+        }
+        entries
     }
 }
 

@@ -30,6 +30,7 @@ use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::estimate_tree::QueryWithEstimates;
@@ -300,11 +301,20 @@ pub struct SearchIndexReader {
     index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
 
+    /// The [`SegmentMetaEntry`]s the directory resolved when this reader was opened, so a
+    /// parallel leader can hand its exact segment view to workers through DSM without the
+    /// workers re-reading the index's segment-metas list.
+    segment_meta_entries: Arc<HashMap<SegmentId, SegmentMetaEntry>>,
+
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
     _cleanup_lock: Arc<PinnedBuffer>,
+
+    // query-scoped ownership from the reader cache (segment pins, possibly a relation close
+    // duty); dropped with the last clone, inside the transaction
+    _query_lifetime: Arc<super::reader_cache::QueryLifetime>,
 }
 
 /// A queryless snapshot of visible segments used to capture canonical manifests for parallel
@@ -312,6 +322,7 @@ pub struct SearchIndexReader {
 pub struct SearchIndexManifest {
     searcher: Searcher,
     _cleanup_lock: Arc<PinnedBuffer>,
+    _query_lifetime: Arc<super::reader_cache::QueryLifetime>,
 }
 
 impl Clone for SearchIndexReader {
@@ -328,19 +339,41 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
+            segment_meta_entries: self.segment_meta_entries.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
+            _query_lifetime: self._query_lifetime.clone(),
         }
     }
 }
 
-struct IndexComponents {
-    cleanup_lock: Arc<PinnedBuffer>,
-    index: Index,
-    reader: IndexReader,
-    searcher: Searcher,
-    total_segment_count: usize,
-    total_docs: u64,
-    schema: SearchIndexSchema,
+pub(crate) struct IndexComponents {
+    pub(crate) cleanup_lock: Arc<PinnedBuffer>,
+    pub(crate) index: Index,
+    pub(crate) reader: IndexReader,
+    pub(crate) searcher: Searcher,
+    pub(crate) total_segment_count: usize,
+    pub(crate) total_docs: u64,
+    pub(crate) schema: SearchIndexSchema,
+    pub(crate) segment_meta_entries: Arc<HashMap<SegmentId, SegmentMetaEntry>>,
+    /// Query-scoped ownership (segment pins, possibly a stolen relation close duty) when the
+    /// reader-cache is involved; an empty default otherwise.  See `reader_cache`.
+    pub(crate) query_lifetime: Arc<super::reader_cache::QueryLifetime>,
+}
+
+impl Clone for IndexComponents {
+    fn clone(&self) -> Self {
+        Self {
+            cleanup_lock: self.cleanup_lock.clone(),
+            index: self.index.clone(),
+            reader: self.reader.clone(),
+            searcher: self.searcher.clone(),
+            total_segment_count: self.total_segment_count,
+            total_docs: self.total_docs,
+            schema: self.schema.clone(),
+            segment_meta_entries: self.segment_meta_entries.clone(),
+            query_lifetime: self.query_lifetime.clone(),
+        }
+    }
 }
 
 impl SearchIndexReader {
@@ -349,9 +382,34 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
-        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
+        // Experimental cross-query reader reuse (see `reader_cache`): serve the whole set of
+        // components from the backend-local cache when the segment list is provably unchanged.
+        let use_reader_cache = crate::gucs::enable_reader_cache()
+            && matches!(mvcc_style, MvccSatisfies::Snapshot)
+            && !index_relation.is_create_index();
+        if use_reader_cache {
+            if let Some(components) = unsafe { super::reader_cache::checkout(index_relation) } {
+                return Ok(components);
+            }
+        }
+        // the validation stamp must be captured BEFORE the directory resolves the segment
+        // list, so a concurrent list write can only cause a spurious rebuild, never staleness
+        let reader_cache_stamp = if use_reader_cache {
+            Some(unsafe { super::reader_cache::stamp(index_relation) })
+        } else {
+            None
+        };
 
-        let directory = mvcc_style.directory(index_relation);
+        // `cleanup_lock` is an immutable block number, so the cached MetaPage avoids a
+        // buffer-manager access to block 0 on every reader open
+        let cleanup_lock = Arc::new(MetaPage::open_cached(index_relation).cleanup_lock_pinned());
+
+        let mut directory = mvcc_style.directory(index_relation);
+        if use_reader_cache {
+            // parked readers outlive the transaction: decoded blocks must be copies, not
+            // pinned-page views
+            directory.set_long_lived(true);
+        }
         let mut index = Index::open(directory.clone())?;
         let total_segment_count = directory
             .total_segment_count()
@@ -360,7 +418,9 @@ impl SearchIndexReader {
             .total_docs()
             .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
-        if needs_tokenizer_manager {
+        if needs_tokenizer_manager || reader_cache_stamp.is_some() {
+            // when parking for reuse, always set up tokenizers so the parked index can serve
+            // later queries that need them
             setup_tokenizers(index_relation, &mut index)?;
         }
 
@@ -370,7 +430,11 @@ impl SearchIndexReader {
             .try_into()?;
         let searcher = reader.searcher();
 
-        Ok(IndexComponents {
+        // capture the entries the directory just resolved (Index::open triggered load_metas),
+        // so a parallel leader can hand its exact segment view to workers through DSM
+        let segment_meta_entries = Arc::new(directory.all_entries());
+
+        let mut components = IndexComponents {
             cleanup_lock,
             index,
             reader,
@@ -378,7 +442,21 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             schema,
-        })
+            segment_meta_entries,
+            query_lifetime: Arc::new(Default::default()),
+        };
+
+        if let Some(stamp) = reader_cache_stamp {
+            if let Some(query_lifetime) = unsafe {
+                super::reader_cache::store(index_relation, &directory, &components, stamp)
+            } {
+                // this query's reader owns the pins and the relation close duty that the
+                // parked copy relinquished
+                components.query_lifetime = Arc::new(query_lifetime);
+            }
+        }
+
+        Ok(components)
     }
 
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
@@ -426,6 +504,8 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             schema,
+            segment_meta_entries,
+            query_lifetime,
         } = components;
 
         let index_created_by_version = index_relation.created_by_version();
@@ -468,7 +548,9 @@ impl SearchIndexReader {
             total_docs,
             index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
+            segment_meta_entries,
             _cleanup_lock: cleanup_lock,
+            _query_lifetime: query_lifetime,
         })
     }
 
@@ -478,6 +560,26 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
+    }
+
+    /// Serialize the [`SegmentMetaEntry`]s for exactly the segments this reader's searcher sees,
+    /// for handing to parallel workers through DSM (see
+    /// [`SegmentMetaEntry::serialize_batch`]).
+    ///
+    /// Returns an empty `Vec` if any searcher segment is missing from the resolved entries —
+    /// callers should treat that as "no handoff available" and let workers fall back to reading
+    /// the entries from the index.
+    pub fn serialized_segment_meta_entries(&self) -> Vec<u8> {
+        let entries = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .map(|reader| self.segment_meta_entries.get(&reader.segment_id()))
+            .collect::<Option<Vec<_>>>();
+        match entries {
+            Some(entries) => SegmentMetaEntry::serialize_batch(entries.into_iter()),
+            None => Vec::new(),
+        }
     }
 
     pub fn need_scores(&self) -> bool {
@@ -1485,6 +1587,7 @@ impl SearchIndexManifest {
         Ok(Self {
             searcher: components.searcher,
             _cleanup_lock: components.cleanup_lock,
+            _query_lifetime: components.query_lifetime,
         })
     }
 

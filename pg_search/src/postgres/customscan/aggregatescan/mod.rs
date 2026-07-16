@@ -919,6 +919,7 @@ impl AggregateScan {
             all_sources,
             partitioning_source_idx: partitioning_idx,
             query: vec![],
+            entries: vec![],
             with_aggregates: false,
         };
 

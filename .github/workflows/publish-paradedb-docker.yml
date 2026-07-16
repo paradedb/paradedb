@@ -396,7 +396,11 @@ jobs:
     name: Notify ORM Repos of New Release
     runs-on: ubuntu-latest
     needs: publish-paradedb-docker-image
-    if: ${{ !contains(github.event.inputs.version || github.ref, '-rc.') }}
+    # The ORM wrappers track community releases, so this only runs on
+    # paradedb/paradedb. The repository guard lets paradedb/paradedb-enterprise
+    # carry this job unchanged (it is skipped there) instead of deleting it,
+    # which keeps the two repos from drifting. See also test-pg_search-antithesis.yml.
+    if: ${{ !contains(github.event.inputs.version || github.ref, '-rc.') && github.repository == 'paradedb/paradedb' }}
     env:
       # ORM repos to notify on new releases
       ORM_REPOS: |

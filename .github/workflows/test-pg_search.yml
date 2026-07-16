@@ -9,6 +9,15 @@ on:
   # We run nightly to update the code coverage baseline without excessive post-PR runs
   schedule:
     - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
+  push:
+    branches:
+      - target-patch-*
+    paths:
+      - ".github/workflows/test-pg_search.yml"
+      - "pg_search/**"
+      - "!pg_search/README.md"
+      - "tests/**"
+      - "tokenizers/**"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:

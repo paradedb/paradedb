@@ -6,6 +6,12 @@
 name: Lint Bash
 
 on:
+  push:
+    branches:
+      - target-patch-*
+    paths:
+      - "**/*.sh"
+      - ".github/workflows/lint-bash.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:

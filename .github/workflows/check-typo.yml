@@ -6,6 +6,9 @@
 name: Check Typo
 
 on:
+  push:
+    branches:
+      - target-patch-*
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:

@@ -6,6 +6,14 @@
 name: Test pg_search (Upgrade)
 
 on:
+  push:
+    branches:
+      - target-patch-*
+    paths:
+      - ".github/workflows/test-pg_search-upgrade.yml"
+      - "pg_search/**"
+      - "tests/**"
+      - "tokenizers/**"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:

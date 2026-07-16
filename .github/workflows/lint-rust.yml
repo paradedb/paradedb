@@ -6,6 +6,13 @@
 name: Lint Rust
 
 on:
+  push:
+    branches:
+      - target-patch-*
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
+      - ".github/workflows/lint-rust.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:

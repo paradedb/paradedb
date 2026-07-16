@@ -6,6 +6,13 @@
 name: Test pg_search (Schema)
 
 on:
+  push:
+    branches:
+      - target-patch-*
+    paths:
+      - ".github/workflows/test-pg_search-schema.yml"
+      - "pg_search/**"
+      - "!pg_search/README.md"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:

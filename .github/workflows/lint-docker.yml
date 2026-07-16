@@ -6,6 +6,12 @@
 name: Lint Docker
 
 on:
+  push:
+    branches:
+      - target-patch-*
+    paths:
+      - ".github/workflows/lint-docker.yml"
+      - "docker/**"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:

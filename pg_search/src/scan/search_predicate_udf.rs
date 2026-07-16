@@ -64,6 +64,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::query::SearchQueryInput;
 
 /// The name of our search predicate UDF - used for recognition in filter pushdown
@@ -101,8 +102,7 @@ pub struct SearchPredicateUDF {
     plan_position: Option<usize>,
     /// Canonical segment IDs injected during deserialization for execution-time
     /// UDF evaluation. Skipped during serialization because they are backend-local.
-    #[serde(skip)]
-    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
+    canonical_segment_ids: Option<HashSet<SegmentId>>,
     #[serde(skip, default = "SearchPredicateUDF::make_signature")]
     signature: Signature,
 }
@@ -186,7 +186,7 @@ impl SearchPredicateUDF {
         self.plan_position
     }
 
-    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: HashSet<SegmentId>) {
         self.canonical_segment_ids = Some(ids);
     }
 
@@ -325,16 +325,16 @@ impl SearchPredicateUDF {
         let search_results = reader.search();
 
         let fields = if self.deferred_visibility {
-            // Deferred visibility: emit packed DocAddresses without heap access.
-            // The incoming batch also has packed DocAddresses because the UDF runs
+            // DataFusion query joins on the aliased CTID produced by the scan that happens
             // below VisibilityFilterExec (inner join case).
             let ctid_alias = format!("ctid_udf_{}", self.heap_oid.to_u32());
-            vec![WhichFastField::DeferredCtid(ctid_alias)]
+            vec![(0, WhichFastField::DeferredCtid(ctid_alias))]
         } else {
-            vec![WhichFastField::Ctid]
+            vec![(0, WhichFastField::Ctid)]
         };
 
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
+        let wff_fields: Vec<WhichFastField> = fields.iter().map(|(_, w)| w.clone()).collect();
+        let ffhelper = FFHelper::with_fields(&reader, &wff_fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());

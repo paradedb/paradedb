@@ -79,8 +79,8 @@ SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
@@ -89,11 +89,13 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[]
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(12 rows)
+     :     TantivyLookupExec: decode=[category]
+     :       CooperativeExec
+     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+     :     TantivyLookupExec: decode=[category]
+     :       CooperativeExec
+     :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(14 rows)
 
 SELECT COUNT(*)
 FROM ec_products p
@@ -112,8 +114,8 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating))
    Sort Key: p.category
@@ -126,11 +128,13 @@ ORDER BY p.category;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1, avg(r_1.rating) as agg_2]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(16 rows)
+           :     TantivyLookupExec: decode=[category]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :     TantivyLookupExec: decode=[category]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
@@ -189,8 +193,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel
 GROUP BY p.category
 ORDER BY p.category;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r)
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (count(r.rating))
    Sort Key: p.category
@@ -203,11 +207,13 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(16 rows)
+           :     TantivyLookupExec: decode=[category]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :     TantivyLookupExec: decode=[category]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
@@ -255,8 +261,8 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -268,13 +274,16 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :       TantivyLookupExec: decode=[category]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :       TantivyLookupExec: decode=[category]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     TantivyLookupExec: decode=[category]
            :       CooperativeExec
            :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(17 rows)
+(20 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
@@ -320,8 +329,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel
 GROUP BY p.category
 ORDER BY p.category;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -333,13 +342,16 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1, count(s_2.supplier_name) as agg_2]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@1, supplier_name@3]
            :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       TantivyLookupExec: decode=[category]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       TantivyLookupExec: decode=[category]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     TantivyLookupExec: decode=[category, supplier_name]
            :       CooperativeExec
            :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(17 rows)
+(20 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
@@ -423,8 +435,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel
 GROUP BY 1
 ORDER BY 1;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, r)
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata -> 'brand'::text))
@@ -436,11 +448,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[metadata.brand@1]
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(15 rows)
+           :     TantivyLookupExec: decode=[category, metadata.brand]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :     TantivyLookupExec: decode=[category]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT p.metadata -> 'brand'
 FROM ec_products p
@@ -490,8 +504,8 @@ WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, s)
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata ->> 'brand'::text))
@@ -503,14 +517,16 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, category@0)], projection=[metadata.brand@0]
-           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, id@0)], projection=[metadata.brand@1, category@3]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :     TantivyLookupExec: decode=[metadata.brand, category]
+           :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, id@0)], projection=[metadata.brand@1, category@3]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     TantivyLookupExec: decode=[category]
            :       CooperativeExec
            :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(18 rows)
+(20 rows)
 
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p

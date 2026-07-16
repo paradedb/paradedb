@@ -366,8 +366,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -380,16 +380,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
-                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
-                             :       DeferredResolveExec
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Final, gby=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyLookupExec: decode=[name]
+                             :       AggregateExec: mode=Partial, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :         DeferredResolveExec
+                             :           VisibilityFilterExec: tables=[s, p]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
@@ -397,19 +399,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-   name_id   |      name       
--------------+-----------------
- TechCorp-1  | 
- TechCorp-1  | Headphones
- TechCorp-1  | Keyboard
-             | USB Cable
- TechCorp-1  | WIRELESS ROUTER
- TechCorp-1  | Wireless Mouse
-             | tablet
- FastParts-3 | 
-             | 
-(9 rows)
-
+ERROR:  DataFusion execution failed: Arrow error: Cast error: Casting from Struct("segment_ord": non-null UInt32, "term_ord": UInt64) to Utf8 not supported
 SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p

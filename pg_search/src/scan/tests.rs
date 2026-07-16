@@ -24,7 +24,7 @@ mod tests {
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
-    use crate::scan::execution_plan::PgSearchScanPlan;
+    use crate::scan::execution_plan::{PgSearchScanPlan, ScanRecipe, ScanState, ScannerConfig};
     use crate::schema::SearchFieldType;
     use datafusion::execution::TaskContext;
     use datafusion::physical_plan::ExecutionPlan;
@@ -89,14 +89,14 @@ mod tests {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let partition = crate::scan::execution_plan::ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+        let partition = ScanState {
+            recipe: ScanRecipe::Lazy {
                 parallel_state: None,
                 source_idx: None,
                 non_partitioning_index: None,
                 planner_estimated_rows: 0,
-                scanner_config: crate::scan::execution_plan::ScannerConfig {
-                    which_fast_fields: fields.clone(),
+                scanner_config: ScannerConfig {
+                    which_fast_fields: fields.clone().into_iter().enumerate().collect(),
                     heap_relid: heap_oid.into(),
                     batch_size_hint: None,
                     score_needed: false,

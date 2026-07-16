@@ -36,7 +36,7 @@ use crate::scan::tantivy_lookup_exec::PhysicalDeferredField;
 /// `State 0` (doc_address) rows and using the provided `FFHelper` to resolve them to term ordinals.
 pub struct DeferredResolveExec {
     pub input: Arc<dyn ExecutionPlan>,
-    pub ffhelpers: crate::api::HashMap<u32, Arc<FFHelper>>,
+    pub ffhelpers: HashMap<u32, Arc<FFHelper>>,
     // Information about the columns that are deferred Unions
     pub deferred_fields: Vec<PhysicalDeferredField>,
     pub schema: SchemaRef,
@@ -53,7 +53,7 @@ impl std::fmt::Debug for DeferredResolveExec {
 
 fn resolve_union_to_struct(
     union_col: &UnionArray,
-    ffhelpers: &crate::api::HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
     field: &PhysicalDeferredField,
 ) -> datafusion::common::Result<ArrayRef> {
     use crate::index::fast_fields_helper::FFType;
@@ -180,7 +180,7 @@ fn resolve_union_to_struct(
 impl DeferredResolveExec {
     pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
-        ffhelpers: crate::api::HashMap<u32, Arc<FFHelper>>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
         deferred_fields: Vec<PhysicalDeferredField>,
     ) -> datafusion::common::Result<Self> {
         let input_schema = input.schema();
@@ -193,6 +193,16 @@ impl DeferredResolveExec {
         for field in &deferred_fields {
             let idx = field.col_idx;
             fields[idx] = Field::new(&field.display_name, term_ordinal_type(), true);
+            fields.push(Field::new(
+                format!("{}_seg_id", field.display_name),
+                arrow_schema::DataType::UInt32,
+                false,
+            ));
+            fields.push(Field::new(
+                format!("{}_term_ord", field.display_name),
+                arrow_schema::DataType::UInt64,
+                true,
+            ));
         }
         let schema = Arc::new(Schema::new(fields));
 
@@ -313,7 +323,7 @@ impl DeferredResolveExec {
 struct DeferredResolveStream {
     input_stream: SendableRecordBatchStream,
     schema: SchemaRef,
-    _ffhelpers: crate::api::HashMap<u32, Arc<FFHelper>>,
+    _ffhelpers: HashMap<u32, Arc<FFHelper>>,
     deferred_fields: Vec<PhysicalDeferredField>,
 }
 
@@ -341,7 +351,25 @@ impl futures::Stream for DeferredResolveStream {
                     {
                         let resolved =
                             resolve_union_to_struct(_union_col, &self._ffhelpers, field)?;
+                        let struct_arr = resolved
+                            .as_any()
+                            .downcast_ref::<arrow_array::StructArray>()
+                            .unwrap();
+                        let seg_ord_array = std::sync::Arc::clone(struct_arr.column(0));
+                        let term_ord_array = std::sync::Arc::clone(struct_arr.column(1));
+
                         new_columns[col_idx] = resolved;
+                        new_columns.push(seg_ord_array);
+                        new_columns.push(term_ord_array);
+                    } else {
+                        // If it's not a UnionArray, it means we don't have deferred data. We must still push columns to match schema.
+                        let count = batch.num_rows();
+                        new_columns.push(std::sync::Arc::new(arrow_array::UInt32Array::from(
+                            vec![0; count],
+                        )) as _);
+                        new_columns.push(std::sync::Arc::new(arrow_array::UInt64Array::from(
+                            vec![None; count],
+                        )) as _);
                     }
                 }
                 std::task::Poll::Ready(Some(

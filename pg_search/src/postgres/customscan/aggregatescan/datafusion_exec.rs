@@ -25,6 +25,7 @@
 //! and the result is aggregate rows, not individual tuples.
 
 use super::join_targetlist::AggOrderByEntry;
+use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
@@ -41,7 +42,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table, SessionContextProfile,
 };
 use crate::scan::info::RowEstimate;
-use crate::scan::PgSearchTableProvider;
+use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
@@ -112,7 +113,7 @@ pub async fn build_join_aggregate_plan(
     // column name (e.g. metadata.brand). We must track which DataFusion output
     // column index corresponds to each of our original targetlist.group_columns.
     let mut group_exprs = Vec::new();
-    let mut field_to_df_idx = crate::api::HashMap::default();
+    let mut field_to_df_idx = HashMap::default();
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
 
     for gc in &targetlist.group_columns {
@@ -286,9 +287,16 @@ fn build_relnode_df<'a>(
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let df =
-                    build_source_df(ctx, source, plan_position, expr_context, planstate, mpp_ctx)
-                        .await?;
+                let df = build_source_df(
+                    ctx,
+                    source,
+                    plan_position,
+                    expr_context,
+                    planstate,
+                    mpp_ctx,
+                    node, // pass the RelNode instead
+                )
+                .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 Ok(df.alias(&alias)?)
@@ -349,13 +357,13 @@ fn build_relnode_df<'a>(
                 // in the DataFusion schema here; lifted SubPlan inner sources may
                 // reuse outer RTIs but are not projected.
                 let sources = filter.input.output_sources();
-                let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
+                let ctid_map: HashMap<pg_sys::Index, Expr> = sources
                     .iter()
                     .map(|s| (s.plan_position as pg_sys::Index, make_source_col(s, "ctid")))
                     .collect();
 
                 // No deferred positions in aggregate path (no VisibilityFilterExec)
-                let deferred_positions = crate::api::HashSet::default();
+                let deferred_positions = HashSet::default();
 
                 // Translate custom_exprs (non-@@@ cross-table predicates) using
                 // PredicateTranslator, mirroring JoinScan's scan_state.rs:562-576.
@@ -541,6 +549,7 @@ async fn build_source_df(
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
     mpp_ctx: Option<MppPlanContext>,
+    plan: &RelNode,
 ) -> Result<DataFrame> {
     let mut scan_info = source.scan_info.clone();
 
@@ -599,6 +608,30 @@ async fn build_source_df(
         None => (false, None),
     };
     let mut provider = PgSearchTableProvider::new(scan_info, fields, is_parallel);
+
+    let mut required_early: HashSet<String> = Default::default();
+    for jk in plan.join_keys() {
+        if source.contains_rti(jk.outer_rti) {
+            if let Some(col_name) = source.column_name(jk.outer_attno) {
+                required_early.insert(col_name);
+            }
+        }
+        if source.contains_rti(jk.inner_rti) {
+            if let Some(col_name) = source.column_name(jk.inner_attno) {
+                required_early.insert(col_name);
+            }
+        }
+    }
+    for (rti, attno) in plan.filter_input_vars() {
+        if source.contains_rti(rti) {
+            if let Some(col) = source.column_name(attno) {
+                required_early.insert(col);
+            }
+        }
+    }
+
+    // Aggregatescan does not defer visibility (no heap fetches).
+    provider.configure_deferred_outputs(&required_early, VisibilityMode::Eager);
     if let Some(idx) = np_idx {
         provider.set_non_partitioning_index(idx);
         // MPP: this source claims via `checkout_segment_for_source(plan_position)`

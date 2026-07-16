@@ -139,13 +139,14 @@ impl PreFilter {
         memoized_columns: &[Option<ArrayRef>],
         schema: &SchemaRef,
         num_rows: usize,
+        which_fast_fields: &[(usize, crate::index::fast_fields_helper::WhichFastField)],
     ) -> Result<BooleanArray, String> {
         // 1. Rewrite the expression for the current segment.
         // String literal comparisons are rewritten to ordinal comparisons.
         // NOTE: This runs two `transform()` passes on every batch. If this shows up in
         // profiling, the rewritten expression could be cached per-segment to reduce
         // allocation overhead for small batch sizes.
-        let rewritten_string_expr = self
+        let unwrapped_expr = self
             .expr
             .clone()
             .transform_down(|node| {
@@ -157,21 +158,37 @@ impl PreFilter {
                         ))
                     })?;
                     return Ok(Transformed::yes(current_expr));
-                } else if let Some(cast) = node.downcast_ref::<CastExpr>() {
+                }
+                Ok(Transformed::no(node))
+            })
+            .data()
+            .map_err(|e| format!("Failed to unwrap dyn filter: {}", e))?;
+
+        let rewritten_string_expr = unwrapped_expr
+            .transform_down(|node| {
+                if let Some(cast) = node.downcast_ref::<CastExpr>() {
                     if cast.cast_type() == &cast.expr().data_type(schema)? {
                         return Ok(Transformed::yes(Arc::clone(cast.expr())));
                     }
                     return Ok(Transformed::no(node));
                 } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
-                    if let Some(rewritten) =
-                        try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
-                    {
+                    if let Some(rewritten) = try_rewrite_binary(
+                        binary,
+                        ffhelper,
+                        segment_ord,
+                        schema,
+                        which_fast_fields,
+                    )? {
                         return Ok(Transformed::yes(rewritten));
                     }
                 } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
-                    if let Some(rewritten) =
-                        try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
-                    {
+                    if let Some(rewritten) = try_rewrite_in_list(
+                        in_list,
+                        ffhelper,
+                        segment_ord,
+                        schema,
+                        which_fast_fields,
+                    )? {
                         return Ok(Transformed::yes(rewritten));
                     }
                 }
@@ -238,9 +255,14 @@ impl PreFilter {
             .map_err(|e| format!("Failed to build RecordBatch: {}", e))?;
 
         // 3. Evaluate the rewritten expression natively via DataFusion.
-        let columnar_value = rewritten_expr
-            .evaluate(&batch)
-            .map_err(|e| format!("Failed to evaluate expr: {}", e))?;
+        let columnar_value = rewritten_expr.evaluate(&batch).map_err(|e| {
+            format!(
+                "Failed to evaluate expr {} against batch schema {:?}: {}",
+                rewritten_expr,
+                batch.schema(),
+                e
+            )
+        })?;
 
         let array = columnar_value
             .into_array(num_rows)
@@ -522,12 +544,22 @@ fn try_rewrite_binary(
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
+    which_fast_fields: &[(usize, crate::index::fast_fields_helper::WhichFastField)],
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
     let left_col = binary.left().downcast_ref::<Column>();
     let right_lit = binary.right().downcast_ref::<Literal>();
 
     if let (Some(col), Some(lit)) = (left_col, right_lit) {
-        return rewrite_col_op_lit(col, binary.op(), lit, ffhelper, segment_ord, schema);
+        let res = rewrite_col_op_lit(
+            col,
+            binary.op(),
+            lit,
+            ffhelper,
+            segment_ord,
+            schema,
+            which_fast_fields,
+        );
+        return res;
     }
 
     let left_lit = binary.left().downcast_ref::<Literal>();
@@ -535,7 +567,15 @@ fn try_rewrite_binary(
 
     if let (Some(lit), Some(col)) = (left_lit, right_col) {
         if let Some(flipped_op) = flip_operator(binary.op()) {
-            return rewrite_col_op_lit(col, &flipped_op, lit, ffhelper, segment_ord, schema);
+            return rewrite_col_op_lit(
+                col,
+                &flipped_op,
+                lit,
+                ffhelper,
+                segment_ord,
+                schema,
+                which_fast_fields,
+            );
         }
     }
 
@@ -570,6 +610,7 @@ fn try_rewrite_in_list(
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
+    which_fast_fields: &[(usize, crate::index::fast_fields_helper::WhichFastField)],
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
     let col = match in_list.expr().downcast_ref::<Column>() {
         Some(col) => col,
@@ -579,7 +620,8 @@ fn try_rewrite_in_list(
     if ff_index >= schema.fields().len() {
         return Ok(None);
     }
-    let ff_type = ffhelper.column(segment_ord, ff_index);
+    let canonical_index = which_fast_fields[ff_index].0;
+    let ff_type = ffhelper.column(segment_ord, canonical_index);
 
     let dict = match ff_type {
         FFType::Text(c) => c.dictionary(),
@@ -646,23 +688,29 @@ fn rewrite_col_op_lit(
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
+    which_fast_fields: &[(usize, crate::index::fast_fields_helper::WhichFastField)],
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
     let ff_index = col.index();
     if ff_index >= schema.fields().len() {
         return Ok(None);
     }
-    let ff_type = ffhelper.column(segment_ord, ff_index);
+    let canonical_index = which_fast_fields[ff_index].0;
+    let ff_type = ffhelper.column(segment_ord, canonical_index);
 
     let bytes = match extract_bytes_from_scalar(lit.value()) {
         Some(Some(b)) => b,
         Some(None) => return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None))))),
-        None => return Ok(None), // Not a string/bytes literal. Leave for native DataFusion eval over numerics.
+        None => {
+            return Ok(None); // Not a string/bytes literal.
+        }
     };
 
     let dict = match ff_type {
         FFType::Text(c) => c.dictionary(),
         FFType::Bytes(c) => c.dictionary(),
-        _ => return Ok(None), // Not a string/bytes column. Leave for native DataFusion eval over numerics.
+        _ => {
+            return Ok(None); // Not a string/bytes column.
+        }
     };
 
     if op == &Operator::NotEq {

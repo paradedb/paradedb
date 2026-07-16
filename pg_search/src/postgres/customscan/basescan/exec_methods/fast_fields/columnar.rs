@@ -32,7 +32,7 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
+use crate::scan::execution_plan::{PgSearchScanPlan, ScanRecipe, ScanState, ScannerConfig};
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
 
@@ -334,20 +334,25 @@ impl ColumnarExecState {
             .expect("ColumnarExecState: visibility_checker should be initialized")
             .clone();
 
-        let scanner_config = crate::scan::execution_plan::ScannerConfig {
-            which_fast_fields: self.scanner_fast_fields.clone(),
+        let scanner_config = ScannerConfig {
+            which_fast_fields: self
+                .scanner_fast_fields
+                .clone()
+                .into_iter()
+                .enumerate()
+                .collect(),
             heap_relid: heap_rel.oid().to_u32(),
             batch_size_hint: self.batch_size_hint,
             // Basescan is never leader-dispatched; mirror the reader's scoring from the fields.
             score_needed: self
                 .scanner_fast_fields
                 .iter()
-                .any(|f| matches!(f, crate::index::fast_fields_helper::WhichFastField::Score)),
+                .any(|f| matches!(f, WhichFastField::Score)),
         };
 
         // Create PgSearchScanPlan and execute via DataFusion
         let state_partition = ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+            recipe: ScanRecipe::Lazy {
                 parallel_state: state.parallel_state,
                 source_idx: None,
                 // Basescan is never an MPP source, so there is no non-partitioning position.

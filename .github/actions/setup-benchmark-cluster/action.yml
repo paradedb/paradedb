@@ -141,7 +141,7 @@ runs:
           "https://github.com/tensorchord/VectorChord/releases/download/${VCHORD_VERSION}/${deb}"
         sudo apt-get install -y "/tmp/${deb}"
 
-    # pgvectorscale (StreamingDiskANN) binary for the "cohere / diskann" index variant. Not on apt:
+    # pgvectorscale (StreamingDiskANN) binary for the "cohere / pgvectorscale" index variant. Not on apt:
     # it ships as a zip that bundles the runtime .deb (plus a dbgsym .deb we skip). Depends on
     # pgvector's `vector` type (installed above); unlike vchord it needs no shared_preload_libraries,
     # so CREATE EXTENSION at index-build time is all that's required (done post-restore in the

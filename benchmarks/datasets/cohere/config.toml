@@ -9,5 +9,40 @@ primary_key = "_id"  # used only if sampled later
 
 [params]
 lists = "sqrt({{ dataset_size }})::int"
-# ivfflat.probes tuned for ~95% recall@10 (with margin for build variance): 1m -> 28, 10m -> 46; else fall back to sqrt(lists).
-probes = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 46 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
+# tuned for 95% recall
+probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 45 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
+probes_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 54 WHEN 10000000 THEN 108 ELSE round(0.035 * sqrt({{ dataset_size }}))::int END"
+probes_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 150 WHEN 10000000 THEN 240 ELSE round(0.079 * sqrt({{ dataset_size }}))::int END"
+ef_search_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 115 WHEN 10000000 THEN 185 ELSE 100 END"
+ef_search_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 280 WHEN 10000000 THEN 560 ELSE 200 END"
+ef_search_1pct = "1000"
+max_scan_tuples_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 500000 WHEN 10000000 THEN 5000000 ELSE 200000 END"
+scan_mem_multiplier_1pct = "16"
+
+# VectorChord (vchordrq) operating points.
+#   lists  -- VectorChord docs' recommended table by row count (not the ivfflat `lists`):
+#             100K-2M -> 2000, 2M-100M -> 10000. https://docs.vectorchord.ai/vectorchord/usage/indexing.html
+#   epsilon-- RaBitQ rerank bound (range 0-4); 1.9 is the docs default (higher = more recall, lower QPS).
+#   probes -- the recall lever (recall rises monotonically with it). The 1m arms are MEASURED: the
+#             smallest probes reaching recall@10 >= 0.95 over the held-out set, from an offline sweep
+#             against the S3 ground truth (unfiltered 60 -> 0.961, 10pct 80 -> 0.953, 1pct 420 -> 0.959).
+#             The 1% filter needs ~21% of lists, well above the docs' 3-10% heuristic, because a strict
+#             filter forces the scan to probe many more lists to still surface 10 matches. The 10m arms
+#             are EXTRAPOLATED from the measured 1m fractions using the ivfflat probe-fraction scaling on
+#             this same dataset (both ivfflat sizes are tuned to ~95%): its required probe fraction
+#             shrinks ~0.51x (unfiltered/1pct) / ~0.63x (10pct) from 1m to 10m, so vchord 10m probes =
+#             1m_frac x shrink x 10m_lists(10000), rounded up for margin (160 / 300 / 1200). Confirm and
+#             lower from the CI recall step, which reports measured recall@10.
+# prefilter on/off share identical probes: the prefilter docs describe it as evaluating the predicate
+# before distance computation (a QPS optimization for strict+cheap filters) over the SAME probed lists,
+# so recall@10 is identical on/off at equal probes -- verified in the sweep, every probe value matched
+# to 4 dp. (https://docs.vectorchord.ai/vectorchord/usage/prefilter.html)
+# NOTE: params are resolved over `dataset_size` only -- a param CANNOT reference another param, so
+# the lists table is inlined in each ELSE (defensive fallback; CI only runs the 1m/10m arms).
+vchord_epsilon = "1.9"
+vchord_lists = "CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END"
+vchord_probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 60 WHEN 10000000 THEN 160 ELSE greatest(1, round(0.03 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
+vchord_probes_10pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 10000000 THEN 300 ELSE greatest(1, round(0.04 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
+vchord_probes_10pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 10000000 THEN 300 ELSE greatest(1, round(0.04 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
+vchord_probes_1pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
+vchord_probes_1pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"

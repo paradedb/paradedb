@@ -20,6 +20,8 @@
 mod auto;
 mod cli;
 mod csv;
+mod dst;
+mod fault_tolerance;
 mod graph;
 mod headless;
 mod metrics;
@@ -30,8 +32,9 @@ mod table_helper;
 mod tui;
 
 use crate::auto::{setup_server, ServerHandler};
-use crate::cli::{Cli, Command};
-use crate::runner::SuiteRunner;
+use crate::cli::{AutoArgs, Cli, Command};
+use crate::fault_tolerance::GraceWindow;
+use crate::runner::{SetupMode, SuiteRunner};
 use crate::suite::{PgConfigStyle, PgVersion, ServerStyle, Suite, SuiteDefinition};
 use anyhow::Context;
 use clap::Parser;
@@ -51,24 +54,38 @@ pub struct MetricsLine {
 
 /// Main entry point using subcommands.
 fn main() -> anyhow::Result<()> {
+    // Register the DST assertion catalog (see `dst`), so a never-hit reachability site is
+    // reported rather than passing vacuously. A no-op outside the DST environment.
+    dst::init();
+
     let cli = Cli::parse();
 
     match cli.command {
         // When using the "ui" subcommand.
         Command::Ui(args) => {
-            let suite = load_suite(&args.suite_path, args.pgversion).with_context(|| {
-                format!("Failed to load suite file: {}", args.suite_path.display())
-            })?;
-            let suite_runner = SuiteRunner::new(suite, args.paused)?;
+            let suite = load_suite(&args.suite_path, args.pgversion, None)?;
+            let suite_runner =
+                SuiteRunner::new(suite, args.paused, args.grace.window(), SetupMode::Full)?;
             tui::run(suite_runner)?;
         }
 
         // When using the "headless" subcommand.
         Command::Headless(args) => {
-            let suite = load_suite(&args.suite_path, args.pgversion).with_context(|| {
-                format!("Failed to load suite file: {}", args.suite_path.display())
-            })?;
-            let suite_runner = SuiteRunner::new(suite, false)?;
+            let suite = load_suite(&args.suite_path, args.pgversion, None)?;
+            let setup_mode = if args.setup_only {
+                SetupMode::SetupOnly
+            } else if args.skip_setup {
+                SetupMode::SkipSetup
+            } else {
+                SetupMode::Full
+            };
+            let suite_runner = SuiteRunner::new(suite, false, args.grace.window(), setup_mode)?;
+            // `--setup-only` has built the schema and is done; the workload runs later in a
+            // separate `--skip-setup` process.
+            if setup_mode == SetupMode::SetupOnly {
+                eprintln!("stressgres: setup complete, exiting without a workload");
+                return Ok(());
+            }
             let mut log_file = args.log_file.clone();
             if let Some(path) = log_file.as_ref() {
                 if path.display().to_string() == "-" {
@@ -83,6 +100,27 @@ fn main() -> anyhow::Result<()> {
             )?;
         }
 
+        // When using the "auto" subcommand: spin up a throwaway Postgres cluster
+        // (or two, for logical replication) from the given `pg_config` and run the
+        // suite headless against it.
+        Command::Auto(args) => {
+            let suite = load_suite(&args.suite_path, None, Some(&args))?;
+            // `auto` is a local-dev command with no fault injection, so fail fast
+            // (grace 0) rather than tolerating transient connectivity faults.
+            let suite_runner = SuiteRunner::new(
+                suite,
+                false,
+                GraceWindow::fixed(Duration::ZERO),
+                SetupMode::Full,
+            )?;
+            headless::run(
+                suite_runner,
+                args.log_path.clone(),
+                1000,
+                Some(args.runtime as u128),
+            )?;
+        }
+
         // When using the "graph" subcommand.
         Command::Graph(graph_args) => {
             graph::run(&graph_args)?;
@@ -91,19 +129,35 @@ fn main() -> anyhow::Result<()> {
         Command::Csv(csv_args) => {
             csv::run(&csv_args)?;
         }
-
-        other => panic!("Unrecognized command: {:?}", other),
     }
 
     Ok(())
 }
 
-/// Loads the Suite (TOML) from the provided path.
-fn load_suite<P: AsRef<Path>>(path: P, pgversion: Option<PgVersion>) -> anyhow::Result<Suite> {
-    eprintln!("Loading Suite: {}", path.as_ref().display());
-    let file = std::fs::read_to_string(path.as_ref())?;
+/// Loads the Suite (TOML) from the provided path, tagging any failure with the file path.
+fn load_suite<P: AsRef<Path>>(
+    path: P,
+    pgversion: Option<PgVersion>,
+    auto: Option<&AutoArgs>,
+) -> anyhow::Result<Suite> {
+    let path = path.as_ref();
+    load_suite_inner(path, pgversion, auto)
+        .with_context(|| format!("Failed to load suite file: {}", path.display()))
+}
+
+/// When `auto` is provided (the `auto` subcommand), every `Automatic` server is
+/// pointed at the supplied `pg_config` binary and given a data directory under the
+/// supplied base path, so a suite can be run against an arbitrary Postgres build
+/// without editing its TOML.
+fn load_suite_inner(
+    path: &Path,
+    pgversion: Option<PgVersion>,
+    auto: Option<&AutoArgs>,
+) -> anyhow::Result<Suite> {
+    eprintln!("Loading Suite: {}", path.display());
+    let file = std::fs::read_to_string(path)?;
     let mut definition = toml::from_str::<SuiteDefinition>(&file)?;
-    definition.path = Some(path.as_ref().to_path_buf());
+    definition.path = Some(path.to_path_buf());
 
     // Override server configurations with the provided pgversion if specified
     if let Some(version) = pgversion {
@@ -120,6 +174,36 @@ fn load_suite<P: AsRef<Path>>(path: P, pgversion: Option<PgVersion>) -> anyhow::
                 _ => {
                     // For other server styles, we don't override
                 }
+            }
+        }
+    }
+
+    // Override every server to use the `auto`-provided pg_config binary and a data
+    // directory under the requested base path.
+    if let Some(auto) = auto {
+        std::fs::create_dir_all(&auto.pg_data_base).with_context(|| {
+            format!(
+                "Failed to create data directory base {}",
+                auto.pg_data_base.display()
+            )
+        })?;
+        for server in &mut definition.servers {
+            let name = server.name.clone();
+            match &mut server.style {
+                ServerStyle::Automatic {
+                    pg_config,
+                    pgdata,
+                    log_path,
+                    ..
+                } => {
+                    *pg_config = PgConfigStyle::Path(auto.pg_config.clone());
+                    *pgdata = Some(auto.pg_data_base.join(format!("{name}.data")));
+                    *log_path = Some(auto.pg_data_base.join(format!("{name}.log")));
+                }
+                style => anyhow::bail!(
+                    "`stressgres auto` requires `[server.style.Automatic]` servers, \
+                     but server `{name}` is {style:?}"
+                ),
             }
         }
     }

@@ -143,7 +143,8 @@ struct RecallArgs {
     dataset: String,
 
     /// Dataset size label (e.g. "1m", "10m"). Selects the precomputed ground-truth parquet
-    /// (`{data_source}/queries/ground_truth_{size}.parquet`), which is corpus-size-specific.
+    /// (`{data_source}/queries/ground_truth_{query}_{size}.parquet`), which is query- and
+    /// corpus-size-specific.
     #[arg(long)]
     size: String,
 
@@ -151,6 +152,17 @@ struct RecallArgs {
     /// in config.toml; files load from `{data_source}/queries/`.
     #[arg(long)]
     data_source: Option<String>,
+
+    /// Query file (stem of `queries/{query}.sql`) to measure recall for, run for each held-out
+    /// vector. May include an index subdirectory (e.g. `foo/knn_top10_1pct`).
+    #[arg(long, default_value = "knn_top10_unfiltered")]
+    query: String,
+
+    /// Ground-truth stem, selecting `ground_truth_{ground_truth}_{size}.parquet`. The exact top-10
+    /// depends only on filter selectivity, so query files with the same filter share one ground
+    /// truth. Defaults to `--query` with any index subdirectory stripped.
+    #[arg(long)]
+    ground_truth: Option<String>,
 }
 
 #[tokio::main]
@@ -333,10 +345,10 @@ fn substitute_vars(s: &str, vars: &HashMap<String, String>) -> anyhow::Result<St
     Ok(out)
 }
 
-/// Resolve the dataset's `[params]` referenced by the index SQL into concrete values. Each param is
-/// an expression over recognized variables (currently `dataset_size`, from `--size`) and is
-/// evaluated as a SQL scalar — so the index DDL stays plain SQL with no inline `count(*)`.
-async fn resolve_index_params(
+/// Resolve the dataset's `[params]` referenced by SQL (index DDL or query files) into concrete
+/// values. Each param is an expression over recognized variables (currently `dataset_size`, from
+/// `--size`) and is evaluated as a SQL scalar — so the SQL stays plain (e.g. per-query probes).
+async fn resolve_template_params(
     conn: &mut PgConnection,
     dataset: &str,
     size: Option<&str>,
@@ -357,9 +369,7 @@ async fn resolve_index_params(
     let mut params = HashMap::new();
     for name in referenced {
         let expr = config.params.get(&name).with_context(|| {
-            format!(
-                "Index references `{{{{ {name} }}}}` but the dataset's [params] has no `{name}`"
-            )
+            format!("SQL references `{{{{ {name} }}}}` but the dataset's [params] has no `{name}`")
         })?;
         let expr = substitute_vars(expr, &vars).with_context(|| format!("In [params] `{name}`"))?;
         let value: i64 = sqlx::query_scalar(&format!("SELECT ({expr})::bigint"))
@@ -378,7 +388,8 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
     let index_sql = format!("datasets/{}/indexes/{}.sql", args.dataset, args.index);
     let statements = queries(Path::new(&index_sql));
     let params =
-        resolve_index_params(&mut conn, &args.dataset, args.size.as_deref(), &statements).await?;
+        resolve_template_params(&mut conn, &args.dataset, args.size.as_deref(), &statements)
+            .await?;
     let mut results = Vec::new();
 
     for statement in statements {
@@ -443,7 +454,8 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
     // Resolve `{{ params }}` (e.g. probes, sized to the dataset) and run each statement.
     let statements = queries(Path::new(&after_create_index_sql));
     let params =
-        resolve_index_params(&mut conn, &args.dataset, args.size.as_deref(), &statements).await?;
+        resolve_template_params(&mut conn, &args.dataset, args.size.as_deref(), &statements)
+            .await?;
     for statement in statements {
         let statement = substitute_vars(&statement, &params)?;
         sqlx::query(&statement)
@@ -457,17 +469,28 @@ async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<
     Ok(())
 }
 
-/// Measure recall@k of an already-built vector index against a held-out query set. Assumes the
-/// corpus and its index already exist (from a prior `benchmark` run). Runs `recall.sql`; once it has
-/// created the `cohere_queries` (held-out vectors) and `recall_gt` (precomputed exact top-k)
-/// tables, the harness loads each from parquet (via DuckDB) -- the queries from
-/// `{base}/queries/cohere_queries.parquet` and the ground truth from
-/// `{base}/queries/ground_truth_{size}.parquet`. So recall runs no sequential scans; it only does
-/// the index-approx pass and the comparison, at the same probes/ef_search as the latency benchmark.
+/// Database-level GUC holding the query vector that every query file orders by.
+const QVEC_GUC: &str = "cohere.qvec";
+/// Number of neighbors per query the ground truth stores (recall@k).
+const RECALL_K: usize = 10;
+
+/// Measure recall@k of an already-built vector index for one query file. Recall runs the *actual*
+/// latency query (`queries/{query}.sql`) verbatim -- including its `current_setting('cohere.qvec')`
+/// operand and any `SET` lines -- once per held-out vector, setting `cohere.qvec` to that vector
+/// each time. Running the query with the vector as a per-call *constant* (not a join parameter) is
+/// what keeps recall's query plan identical to the benchmark's: a lateral parameter can tip the
+/// planner to a different plan (e.g. a btree/GIN pre-filter + exact sort instead of the ANN index),
+/// which would make recall measure something the benchmark never runs. The returned top-k is
+/// intersected with the precomputed exact top-k in `ground_truth_{query}_{size}.parquet`. Assumes
+/// the corpus and its index already exist (from a prior `benchmark` run).
 async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     let recall_sql = format!("datasets/{}/recall.sql", args.dataset);
     if !Path::new(&recall_sql).exists() {
         bail!("Dataset '{}' has no recall.sql", args.dataset);
+    }
+    let query_file = format!("datasets/{}/queries/{}.sql", args.dataset, args.query);
+    if !Path::new(&query_file).exists() {
+        bail!("No query file at {query_file}; --query must name a queries/<query>.sql file");
     }
     let config_path = format!("datasets/{}/config.toml", args.dataset);
     let (config, _) = config::load_dataset_config(&config_path)
@@ -485,6 +508,54 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             )
         })?;
     let base = base.trim_end_matches('/');
+
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+
+    // Parse the query file: resolve its `{{ param }}` references (per-query probes/ef_search scaled
+    // by dataset_size), then split into the `SET` statements (operating point, applied to the
+    // session) and the single kNN query. A file may hold multiple variants (the benchmark runs all
+    // of them -- see benchmark_queries); recall measures only the FIRST variant (the one the
+    // benchmark labels with the bare file stem), so later variants' queries and SETs don't leak in.
+    // Splitting on `;` handles the inline `SET ...; SELECT ...` compound the harness uses. The query
+    // is run verbatim per held-out vector, so it must order by current_setting('cohere.qvec') --
+    // that lets recall vary the vector without changing the query (and thus its plan).
+    let raw_statements = queries(Path::new(&query_file));
+    let params =
+        resolve_template_params(&mut conn, &args.dataset, Some(&args.size), &raw_statements)
+            .await?;
+    let first_variant = raw_statements
+        .first()
+        .with_context(|| format!("Query file {query_file} is empty"))?;
+    let mut set_statements = Vec::new();
+    let mut knn_query = None;
+    for part in substitute_vars(first_variant, &params)?.split(';') {
+        let part = part.trim().to_string();
+        if part.is_empty() {
+            continue;
+        }
+        if part.to_uppercase().starts_with("SET ") {
+            set_statements.push(part);
+        } else {
+            knn_query = Some(part);
+        }
+    }
+    let knn_query =
+        knn_query.with_context(|| format!("Query file {query_file} has no query to score"))?;
+    if !knn_query.contains(&format!("current_setting('{QVEC_GUC}')")) {
+        bail!(
+            "Query file {query_file} does not order by current_setting('{QVEC_GUC}'); recall cannot \
+             vary the query vector for it"
+        );
+    }
+
+    // Ground-truth stem: explicit --ground-truth, else --query with any index subdirectory stripped.
+    let gt_stem = args
+        .ground_truth
+        .clone()
+        .unwrap_or_else(|| args.query.rsplit('/').next().unwrap().to_string());
+
     // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
     // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
     let mut fixtures = vec![
@@ -494,34 +565,21 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         ),
         (
             "recall_gt",
-            format!("{base}/queries/ground_truth_{}.parquet", args.size),
+            format!(
+                "{base}/queries/ground_truth_{}_{}.parquet",
+                gt_stem, args.size
+            ),
         ),
     ];
 
-    let mut conn = PgConnection::connect(&args.url)
-        .await
-        .with_context(|| "Failed to connect to database")?;
-
-    // recall.sql is plain SQL (no templates); its final statement returns the average recall@k.
-    let statements = queries(Path::new(&recall_sql));
-    let last = statements.len().saturating_sub(1);
-    let mut recall = None;
-    for (i, statement) in statements.into_iter().enumerate() {
-        if i == last {
-            recall = sqlx::query_scalar::<_, Option<f64>>(&statement)
-                .fetch_one(&mut conn)
-                .await
-                .with_context(|| "Failed to compute recall")?;
-            continue;
-        }
+    // Create the fixture tables (recall.sql) and load each from parquet right after its CREATE.
+    // (Keying on the CREATE statement, not table existence, avoids loading a leftover table from a
+    // prior run before recall.sql drops/recreates it.)
+    for statement in queries(Path::new(&recall_sql)) {
         sqlx::query(&statement)
             .execute(&mut conn)
             .await
             .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
-
-        // Load each fixture from parquet right after recall.sql's `CREATE TABLE` for it. (Keying on
-        // the CREATE statement, not table existence, avoids loading a leftover table from a prior
-        // run before recall.sql drops/recreates it.)
         let is_create = statement.to_lowercase().contains("create table");
         let mut pending = Vec::new();
         for (table, source) in fixtures {
@@ -542,10 +600,58 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         );
     }
 
-    match recall {
-        Some(r) => println!("recall = {r:.4}"),
-        None => bail!("Recall query returned no rows"),
+    // Apply the query file's SET statements so recall runs at the latency query's operating point.
+    for stmt in &set_statements {
+        sqlx::query(stmt)
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
     }
+
+    // Held-out query vectors (as pgvector text, ready to assign to cohere.qvec) and the exact ground
+    // truth, keyed by query id.
+    let vectors: Vec<(i32, String)> =
+        sqlx::query_as("SELECT id, emb::text FROM cohere_queries ORDER BY id")
+            .fetch_all(&mut conn)
+            .await
+            .with_context(|| "Failed to read cohere_queries")?;
+    let ground_truth: HashMap<i32, HashSet<String>> =
+        sqlx::query_as::<_, (i32, Vec<String>)>("SELECT query_id, gt_ids FROM recall_gt")
+            .fetch_all(&mut conn)
+            .await
+            .with_context(|| "Failed to read recall_gt")?
+            .into_iter()
+            .map(|(id, ids)| (id, ids.into_iter().collect()))
+            .collect();
+
+    // For each held-out vector, set cohere.qvec then run the latency query verbatim via the simple
+    // protocol (matching the benchmark, so the planner picks the same plan), and intersect its
+    // top-k with the exact ground truth.
+    let mut total_hits = 0usize;
+    for (id, emb_text) in &vectors {
+        sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{emb_text}';"))
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to set {QVEC_GUC} for query {id}"))?;
+        let rows = sqlx::raw_sql(&knn_query)
+            .fetch_all(&mut conn)
+            .await
+            .with_context(|| format!("Failed to run recall query for query {id}"))?;
+        let gt = ground_truth
+            .get(id)
+            .with_context(|| format!("No ground truth for query id {id}"))?;
+        for row in &rows {
+            let neighbor: String = row.try_get("_id").with_context(|| {
+                format!("recall query for {id} returned a row with no text `_id` column")
+            })?;
+            if gt.contains(&neighbor) {
+                total_hits += 1;
+            }
+        }
+    }
+
+    let recall = total_hits as f64 / (vectors.len() * RECALL_K) as f64;
+    println!("recall = {recall:.4}");
     Ok(())
 }
 
@@ -591,8 +697,16 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
     }
 
-    // Locate all query paths, and sort them for stability in the output.
-    let queries_dir = format!("datasets/{}/queries", args.dataset);
+    // Locate all query paths, sorted for stable output. An index may ship its own query set under
+    // `queries/{index}/`; otherwise fall back to the flat `queries/` dir.
+    let queries_dir = {
+        let index_specific = format!("datasets/{}/queries/{}", args.dataset, args.index);
+        if Path::new(&index_specific).is_dir() {
+            index_specific
+        } else {
+            format!("datasets/{}/queries", args.dataset)
+        }
+    };
     let query_paths: anyhow::Result<Vec<Option<_>>> = std::fs::read_dir(queries_dir)
         .with_context(|| "Failed to read queries directory")?
         .map(|entry| {
@@ -609,44 +723,59 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     let mut query_paths: Vec<_> = query_paths?.into_iter().flatten().collect();
     query_paths.sort_unstable();
 
+    // Parse each query file once (reused below for execution). Resolve their `{{ param }}` references
+    // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
+    // templating used for index DDL.
+    let parsed_queries: Vec<(String, String)> = query_paths
+        .iter()
+        .flat_map(|p| benchmark_queries(p))
+        .collect();
+    let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
+    let query_params = resolve_template_params(
+        &mut utility_conn,
+        &args.dataset,
+        args.size.as_deref(),
+        &query_stmts,
+    )
+    .await?;
+
     let mut results = Vec::new();
-    for path in query_paths {
-        for (query_type, query) in benchmark_queries(&path) {
-            if args.clear_caches {
-                if let Err(err) = clear_caches(&mut utility_conn).await {
-                    panic!("Failed to clear caches before query: {err}");
-                }
+    for (query_type, query) in parsed_queries {
+        let query = substitute_vars(&query, &query_params)?;
+        if args.clear_caches {
+            if let Err(err) = clear_caches(&mut utility_conn).await {
+                panic!("Failed to clear caches before query: {err}");
             }
+        }
 
-            sqlx::raw_sql("CHECKPOINT;")
-                .execute(&mut utility_conn)
-                .await
-                .with_context(|| "Failed to execute checkpoint.")?;
+        sqlx::raw_sql("CHECKPOINT;")
+            .execute(&mut utility_conn)
+            .await
+            .with_context(|| "Failed to execute checkpoint.")?;
 
-            println!("Query Type: {query_type}\nQuery: {query}");
-            let result = execute_query_multiple_times(
-                &args.url,
-                &query_type,
-                &query,
-                args.runs,
-                args.fail_on_error,
-            )
-            .await?;
-            match result {
-                Some(query_results) => {
-                    println!(
-                        "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
-                        query_results.cold, query_results.samples, query_results.num_results
-                    );
-                    results.push(QueryResult {
-                        query_type,
-                        query,
-                        results: query_results,
-                    });
-                }
-                None => {
-                    println!("Skipped (query error)\n");
-                }
+        println!("Query Type: {query_type}\nQuery: {query}");
+        let result = execute_query_multiple_times(
+            &args.url,
+            &query_type,
+            &query,
+            args.runs,
+            args.fail_on_error,
+        )
+        .await?;
+        match result {
+            Some(query_results) => {
+                println!(
+                    "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
+                    query_results.cold, query_results.samples, query_results.num_results
+                );
+                results.push(QueryResult {
+                    query_type,
+                    query,
+                    results: query_results,
+                });
+            }
+            None => {
+                println!("Skipped (query error)\n");
             }
         }
     }
@@ -1153,12 +1282,25 @@ fn queries(file: &Path) -> Vec<String> {
     content
         .split(";\n")
         .filter_map(|query| {
+            // Strip line comments and flatten each statement onto one line, but keep the interior of
+            // dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its
+            // newlines). Splitting on `$$` alternates outside/inside (even = outside, odd = inside);
+            // flatten only the outside. Files without `$$` are a single segment, unchanged.
             let query = query
-                .trim()
-                .split('\n')
-                .map(|line| line.split("--").next().unwrap().trim())
+                .split("$$")
+                .enumerate()
+                .map(|(i, seg)| {
+                    if i % 2 == 1 {
+                        seg.to_owned()
+                    } else {
+                        seg.split('\n')
+                            .map(|line| line.split("--").next().unwrap().trim())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    }
+                })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join("$$")
                 .trim()
                 .to_owned();
             if query.is_empty() {
@@ -1255,6 +1397,19 @@ async fn execute_query_multiple_times(
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
+
+    // Apply the query's `SET` preamble to the session first, so operating-point GUCs are in effect for
+    // get_query_id's EXPLAIN of the bare measured query below (some access methods error at plan time
+    // when a required GUC is unset). Idempotent -- the measured runs re-apply them via the full query.
+    for stmt in query.split(';') {
+        let stmt = stmt.trim();
+        if stmt.len() >= 4 && stmt[..4].eq_ignore_ascii_case("set ") {
+            sqlx::raw_sql(&format!("{stmt};"))
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
+        }
+    }
 
     let query_id = get_query_id(measured_query, &mut conn).await?;
     let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");

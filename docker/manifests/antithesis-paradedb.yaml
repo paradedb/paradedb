@@ -301,10 +301,11 @@ spec:
 ---
 # Vanilla Postgres publisher used by the logical-replication Stressgres suites.
 # Lives outside the CNPG cluster because real-world logical-replication
-# customers typically don't control the upstream primary. Network faults between
-# this pod and the paradedb cluster are intentionally still injected by
-# Antithesis; only container stop/kill faults on this pod are excluded (see the
-# trigger workflow).
+# customers typically don't control the upstream primary. Both network and
+# container stop/kill faults on this pod are excluded (see the trigger workflow):
+# partitioning or killing the publisher only stalls the WAL stream, so the
+# subscriber's row-count assertions fail on ordinary replication lag rather than
+# any ParadeDB defect.
 apiVersion: v1
 kind: Service
 metadata:

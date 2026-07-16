@@ -58,7 +58,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .where(rating: 3..)
         .select(:description, :rating, :category)
 ```

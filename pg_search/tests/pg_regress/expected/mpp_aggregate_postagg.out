@@ -104,15 +104,15 @@ ORDER BY f.category;
          Group By: category
          Aggregates: COUNT(*), SUM(size_bytes), MIN(size_bytes), MAX(size_bytes)
          DataFusion Physical Plan: 
-           : ┌───── DistributedExec ── Tasks: t0:[p0]
+           : ┌───── DistributedExec
            : │ CoalescePartitionsExec
            : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+           :   ┌───── Stage 3 ── tasks=3, partitions=3
            :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
            :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
+           :     ┌───── Stage 2 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
            :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
@@ -121,7 +121,7 @@ ORDER BY f.category;
            :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
            :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
-           :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+           :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
            :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
@@ -191,15 +191,15 @@ LIMIT 10;
                Group By: category, title
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
-                 : ┌───── DistributedExec ── Tasks: t0:[p0]
+                 : ┌───── DistributedExec
                  : │ CoalescePartitionsExec
                  : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
                  : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+                 :   ┌───── Stage 3 ── tasks=3, partitions=3
                  :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category, title@1 as title], aggr=[count(1) as agg_0]
                  :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
+                 :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 9), input_partitions=3
                  :     │   AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
@@ -208,7 +208,7 @@ LIMIT 10;
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
                  :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
-                 :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+                 :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
                  :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
@@ -275,17 +275,17 @@ LIMIT 3;
                Group By: category
                Aggregates: COUNT(*), SUM(size_bytes)
                DataFusion Physical Plan: 
-                 : ┌───── DistributedExec ── Tasks: t0:[p0]
+                 : ┌───── DistributedExec
                  : │ SortPreservingMergeExec: [agg_1@2 DESC], fetch=3
                  : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
                  : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+                 :   ┌───── Stage 3 ── tasks=3, partitions=3
                  :   │ SortExec: TopK(fetch=3), expr=[agg_1@2 DESC], preserve_partitioning=[true]
                  :   │   FilterExec: agg_0@1 > 100
                  :   │     AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :   │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
+                 :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
                  :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
@@ -294,7 +294,7 @@ LIMIT 3;
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
                  :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
-                 :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+                 :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
                  :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
@@ -342,12 +342,12 @@ WHERE f.content @@@ 'Section';
    Indexes: mpp_postagg_files_idx (f), mpp_postagg_pages_idx (p)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : ┌───── DistributedExec ── Tasks: t0:[p0]
+     : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
      : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
+     :   ┌───── Stage 2 ── tasks=3, partitions=9
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
      :   │     CoalescePartitionsExec
@@ -355,7 +355,7 @@ WHERE f.content @@@ 'Section';
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
      :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+     :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
      :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
@@ -431,15 +431,15 @@ ORDER BY c.name;
          Group By: name
          Aggregates: COUNT(*), SUM(size_bytes)
          DataFusion Physical Plan: 
-           : ┌───── DistributedExec ── Tasks: t0:[p0]
+           : ┌───── DistributedExec
            : │ CoalescePartitionsExec
            : │   [Stage 4] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 4 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+           :   ┌───── Stage 4 ── tasks=3, partitions=3
            :   │ AggregateExec: mode=FinalPartitioned, gby=[name@0 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
            :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=3
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 3 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
+           :     ┌───── Stage 3 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([name@0], 9), input_partitions=3
            :     │   AggregateExec: mode=Partial, gby=[name@1 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, category@0)], projection=[size_bytes@2, name@0]
@@ -451,11 +451,11 @@ ORDER BY c.name;
            :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
            :     │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
-           :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+           :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
            :       │   PgSearchScan: segments=1, query="all"
            :       └──────────────────────────────────────────────────
-           :       ┌───── Stage 2 ── Tasks: t0:[p0..p2]
+           :       ┌───── Stage 2 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
            :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────

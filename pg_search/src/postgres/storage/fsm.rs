@@ -126,7 +126,7 @@ pub trait FreeSpaceManager {
 /// those from hot-standby servers.  Reusing a block before all nodes in the cluster and/or all
 /// concurrent backends are aware that it's been deleted can cause race conditions and data corruption.
 ///
-/// The on-disk structure is simply a linked list of blocks where each block, a [`v1::FSMBlock`],
+/// The on-disk structure is simply a linked list of blocks where each block, a `v1::FSMBlock`,
 /// is a fixed-sized array of ([`pg_sys::BlockNumber`], [`pg_sys::TransactionId`]) pairs.
 ///
 /// Each block starts with a small [`FSMBlockHeader`] indicating the type of block (we've had a few
@@ -533,8 +533,8 @@ pub mod v1 {
 
 /// The [`v2`] FreeSpaceManager is a fixed-size AVL tree laid out as an array on the FSM's first block.
 ///
-/// Each entry in the AVL tree is called a [`Slot`] and each slot has a key, value, and tag.  The key
-/// is a 64bit [`pg_sys::FullTransactionId`], the value is actually the Rust unit type ([`()`]), and
+/// Each entry in the AVL tree is called a `Slot` and each slot has a key, value, and tag.  The key
+/// is a 64bit [`pg_sys::FullTransactionId`], the value is actually the Rust unit type (`()`), and
 /// the tag is a [`pg_sys::BlockNumber`].
 ///
 /// Each slot gets its own statically assigned tag value when a relation's FSM is first initialized.

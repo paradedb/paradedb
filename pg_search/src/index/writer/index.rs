@@ -23,16 +23,18 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    directory::RamDirectory, Directory, Index, IndexMeta, IndexSettings, IndexWriter, Opstamp,
-    Segment, SegmentMeta, TantivyDocument,
+    directory::RamDirectory, Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment,
+    SegmentMeta, TantivyDocument,
 };
 use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
-use crate::index::setup_tokenizers;
+use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{direct_function_call, function_name, IntoDatum, PgLogLevel, PgSqlErrorCode};
 
 struct PendingSegment {
     segment: Segment,
@@ -95,6 +97,90 @@ pub struct IndexWriterConfig {
     pub max_docs_per_segment: Option<u32>,
 }
 
+/// Pre-flight disk-space check run before each segment flush during an index build.
+///
+/// Index build feeds the guard the on-disk size of a written segment and how many segments it
+/// still intends to write. From those the guard projects the space the build still needs and
+/// aborts early — before it saturates the tablespace volume — rather than failing on `ENOSPC`
+/// deep into a large build.
+#[derive(Clone)]
+pub struct DiskSpaceGuard {
+    indexrel: PgSearchRelation,
+    /// On-disk size of a written segment, once index build has observed one. `None` until then,
+    /// which makes [`check`](Self::check) a no-op.
+    segment_bytes: Option<u64>,
+    /// How many more segments index build still intends to write.
+    remaining_segments: usize,
+}
+
+impl DiskSpaceGuard {
+    /// Fraction of the tablespace's available space held in reserve, as headroom for estimation
+    /// error and space consumed by concurrent writers.
+    const RESERVE_FRACTION: f64 = 0.02;
+
+    pub fn new(indexrel: &PgSearchRelation) -> Self {
+        Self {
+            indexrel: indexrel.clone(),
+            segment_bytes: None,
+            remaining_segments: 0,
+        }
+    }
+
+    pub fn set_segment_bytes(&mut self, bytes: u64) {
+        self.segment_bytes = Some(bytes);
+    }
+
+    pub fn set_remaining_segments(&mut self, remaining: usize) {
+        self.remaining_segments = remaining;
+    }
+
+    /// Error out if the remaining segments are projected not to fit within the tablespace's
+    /// available space.
+    fn check(&self) -> Result<()> {
+        let Some(segment_bytes) = self.segment_bytes else {
+            // no sample yet: we can't estimate segment size until one has been written
+            return Ok(());
+        };
+
+        // One extra segment of headroom for the transient space a merge occupies before its
+        // inputs are freed.
+        let projected_segments = (self.remaining_segments as u64).saturating_add(1);
+        let required = segment_bytes.saturating_mul(projected_segments);
+
+        let Some(available_bytes) = self.indexrel.available_disk_bytes() else {
+            return Ok(());
+        };
+
+        let usable = (available_bytes as f64 * (1.0 - Self::RESERVE_FRACTION)) as u64;
+
+        if required > usable {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_DISK_FULL,
+                "insufficient disk space to complete the index build",
+                function_name!(),
+            )
+            .set_detail(format!(
+                "estimated ~{} of additional disk space is required, but only ~{} is available \
+                 on the index's tablespace",
+                format_bytes(required),
+                format_bytes(usable),
+            ))
+            .set_hint("free up or increase disk space")
+            .report(PgLogLevel::ERROR);
+        }
+
+        Ok(())
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    let bytes = bytes.min(i64::MAX as u64) as i64;
+    unsafe {
+        direct_function_call::<String>(pg_sys::pg_size_pretty, &[bytes.into_datum()])
+            .expect("pg_size_pretty should not return NULL")
+    }
+}
+
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 pub struct SerialIndexWriter {
@@ -107,9 +193,28 @@ pub struct SerialIndexWriter {
     pending_segment: Option<PendingSegment>,
     new_metas: Vec<SegmentMeta>,
     schema: SearchIndexSchema,
+    disk_guard: Option<DiskSpaceGuard>,
 }
 
 impl SerialIndexWriter {
+    /// Attach a pre-flight disk-space check that runs before each segment flush.
+    pub fn with_disk_guard(mut self, disk_guard: Option<DiskSpaceGuard>) -> Self {
+        self.disk_guard = disk_guard;
+        self
+    }
+
+    pub fn set_segment_byte_size(&mut self, bytes: u64) {
+        if let Some(disk_guard) = self.disk_guard.as_mut() {
+            disk_guard.set_segment_bytes(bytes);
+        }
+    }
+
+    pub fn set_remaining_segments(&mut self, remaining: usize) {
+        if let Some(disk_guard) = self.disk_guard.as_mut() {
+            disk_guard.set_remaining_segments(remaining);
+        }
+    }
+
     pub fn open(
         index_relation: &PgSearchRelation,
         config: IndexWriterConfig,
@@ -153,6 +258,7 @@ impl SerialIndexWriter {
             pending_segment: Default::default(),
             new_metas: Default::default(),
             schema,
+            disk_guard: None,
         })
     }
 
@@ -169,18 +275,7 @@ impl SerialIndexWriter {
         let schema = index_relation.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
-        // Build IndexSettings from rd_options (same source as build.rs:create_index)
-        let options = index_relation.options();
-        let sort_by_field =
-            SearchIndexSchema::build_sort_by_field(&options.sort_by(), &tantivy_schema);
-        let settings = IndexSettings {
-            sort_by_field,
-            codec_types: vec![
-                tantivy::columnar::CodecType::Bitpacked,
-                tantivy::columnar::CodecType::BlockwiseLinearV2,
-            ],
-            ..IndexSettings::default()
-        };
+        let settings = index_settings(index_relation.options(), &tantivy_schema);
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
@@ -202,6 +297,7 @@ impl SerialIndexWriter {
             pending_segment,
             new_metas: Default::default(),
             schema,
+            disk_guard: None,
         })
     }
 
@@ -303,10 +399,16 @@ impl SerialIndexWriter {
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!("writer {}: finalizing segment", self.id);
         }
-        let Some(pending_segment) = self.pending_segment.take() else {
+        if self.pending_segment.is_none() {
             // no docs were ever added
             return Ok(None);
-        };
+        }
+
+        if let Some(disk_guard) = &self.disk_guard {
+            disk_guard.check()?;
+        }
+
+        let pending_segment = self.pending_segment.take().unwrap();
 
         on_finalize();
         let finalized_segment = pending_segment.finalize()?;

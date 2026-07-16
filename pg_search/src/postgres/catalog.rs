@@ -235,7 +235,7 @@ pub fn lookup_database_collation_locale() -> Option<CollationLocale> {
 }
 
 /// Helper function to lookup the `collcollate` and `collprovider` fields for a collation object in `pg_collation`
-/// Note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: https://www.postgresql.org/docs/current/catalog-pg-collation.html
+/// Note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: <https://www.postgresql.org/docs/current/catalog-pg-collation.html>
 pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale> {
     unsafe {
         let entry =

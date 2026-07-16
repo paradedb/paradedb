@@ -61,7 +61,7 @@ fn parallel_tuple_cost() -> f64 {
 /// the branch, not the serial-vs-parallel outcome (the plan shape shows that).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) enum WorkerDecisionReason {
-    /// Prunable score-DESC single term: Block-WAND keeps serial scoring sublinear (#4664), so
+    /// Prunable primarily score-DESC ordering: Block-WAND keeps serial scoring sublinear (#4664), so
     /// workers would only add overhead.
     BlockWandPrunable,
     /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
@@ -137,7 +137,6 @@ pub(super) fn parallel_divisor(nworkers: NonZeroUsize, leader_participates: bool
 
 pub(super) struct PathCostBasis {
     pub(super) parallelizable_cost: f64,
-    pub(super) total_cost_multiplier: f64,
 }
 
 /// Tantivy drive cost and the match count it scales against (see [`drive_fraction`]).
@@ -252,8 +251,8 @@ pub(super) unsafe fn topk_can_prune_for_method(
         return TopKPrunability::NotPrunable;
     }
 
-    // A clean ordered TopK: a prunable candidate only when ordered by score DESC (the one direction
-    // Block-WAND prunes to sublinear). Score ASC / field sort are ordered but not prunable.
+    // A clean ordered TopK: a prunable candidate only when ordered primarily by score DESC (the one
+    // direction Block-WAND prunes to sublinear). Score ASC / field sort are ordered but not prunable.
     if SearchIndexReader::orderby_uses_score_desc_topk_collector(orderby_info) {
         TopKPrunability::PrunableCandidate
     } else {
@@ -365,7 +364,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         has_grouping,
     } = inputs;
 
-    // 1. Prunable short-circuit -> serial only. Block-WAND keeps a score-DESC single term sublinear
+    // 1. Prunable short-circuit -> serial only. Block-WAND keeps primarily score-DESC ordered top-k sublinear
     //    (#4664), so workers would only add overhead. A hard gate: the cost model can't see
     //    Block-WAND, and the predicate must actually prune, not just look like a term.
     if matches!(prunability, TopKPrunability::PrunableCandidate) && query.is_topk_prunable() {
@@ -489,18 +488,12 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
 /// from output rows, plus the local output/materialization cost PG already understands. `rows` stays
 /// `base_result_rows` at the call site so Gather costing still charges only the tuples that cross.
 pub(super) fn estimate_path_cost(
-    method: &ExecMethodType,
     is_sorted: bool,
     per_tuple_cost: f64,
     base_result_rows: f64,
     drive: Option<DriveCost>,
     limit: Option<f64>,
 ) -> PathCostBasis {
-    let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge() {
-        1.01
-    } else {
-        1.0
-    };
     let output_cost = base_result_rows * per_tuple_cost;
     let scan_work = drive
         .map(|drive| drive_work(drive.cost, drive_fraction(is_sorted, limit, drive.matches)))
@@ -508,6 +501,5 @@ pub(super) fn estimate_path_cost(
 
     PathCostBasis {
         parallelizable_cost: scan_work + output_cost,
-        total_cost_multiplier,
     }
 }

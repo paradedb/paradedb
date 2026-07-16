@@ -36,14 +36,8 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use datafusion_distributed::proto::SetPlanRequest;
-use datafusion_distributed::shm::{
-    self, proc_for_task, CooperativeDrainSet, Interrupt, MppFrameHeader, MppMesh, MppSender,
-    SendBatchStats, SetPlanFrame, Wakeup,
-};
+use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_distributed::TaskKey;
-
-use crate::postgres::customscan::mpp::dispatch::StagePlan;
 
 use crate::gucs::{
     enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
@@ -120,7 +114,7 @@ pub fn producer_worker_count() -> u32 {
 /// producer fragment itself. Its outbound senders are dropped inside `leader_setup`.
 pub struct MppLeaderState {
     /// Runtime mesh handle. Install on the leader's `SessionContext` via
-    /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
+    /// `with_extension(Arc::clone(&mesh))` so `ShmChannelResolver` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
     /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
@@ -133,15 +127,6 @@ pub struct MppLeaderState {
     /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
     /// The scan state's own drop runs after detach and must find this empty.
     pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
-    /// Plans for [`deliver_set_plans`], which runs at exec time when the launched workers are
-    /// draining their inboxes. Sending from the init callback instead could fill a small ring
-    /// with no drainer behind it and wedge the leader. Kept (not drained) so a parallel rescan
-    /// can re-deliver to relaunched workers, the frame analog of the plan blob persisting in
-    /// DSM. Mutex because the exec hook only sees a shared borrow of the scan state.
-    pub stage_plans: std::sync::Mutex<Vec<StagePlan>>,
-    /// One delivery per worker generation: set by [`deliver_set_plans`], reset by the rescan
-    /// path before workers relaunch.
-    pub plans_delivered: std::sync::atomic::AtomicBool,
     /// The builder handle owning the launched producer workers. The leader controls the launch, so
     /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
     /// the workers and destroy the parallel context. `None` until `launch` installs it on the
@@ -179,7 +164,6 @@ unsafe fn self_receiver_token() -> u64 {
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     plan_bytes: Vec<u8>,
-    stage_plans: Vec<StagePlan>,
 ) -> Result<MppLeaderState, String> {
     let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
     let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
@@ -217,17 +201,25 @@ pub unsafe fn leader_setup(
     // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
     // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
     mesh.set_cancel_senders(Arc::clone(&control_senders));
-    // On abort, PG detaches the DSM before the portal contexts (and the scan state inside them)
-    // are cleaned up; release the DSM-backed senders while the mapping is still alive.
-    let on_abort = Arc::clone(&control_senders);
-    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, move || {
-        on_abort.lock().unwrap().clear();
-    });
+    // On abort, `AbortTransaction` unmaps the DSM before these callbacks run, so the senders must
+    // not touch their ring headers as they drop. The mesh's liveness flag is process-local, so
+    // flip it here (every ring handle reads it) and the senders' drop skips the freed-ring write
+    // while their heap is still freed. `PreCommit` covers a subtransaction rollback where no abort
+    // fires; the success path releases the senders in `shutdown_custom_scan` while the segment is
+    // still mapped, so the vec is empty by then.
+    let make_detacher = || {
+        let alive = mesh.detached_flag();
+        let senders = Arc::clone(&control_senders);
+        move || {
+            alive.store(false, std::sync::atomic::Ordering::Release);
+            senders.lock().unwrap().clear();
+        }
+    };
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, make_detacher());
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::PreCommit, make_detacher());
     Ok(MppLeaderState {
         mesh,
         control_senders,
-        stage_plans: std::sync::Mutex::new(stage_plans),
-        plans_delivered: std::sync::atomic::AtomicBool::new(false),
         finish: None,
         parallel_state: std::ptr::null_mut(),
     })
@@ -241,68 +233,38 @@ impl MppLeaderState {
     }
 }
 
-/// Ship every dispatched plan as `SetPlan` frames: one per `(stage, task)`, to the proc hosting
-/// the task, carrying the same `SetPlanRequest` Flight would put on its coordinator stream.
-///
-/// Runs at exec time, after the launched-worker check: the workers are attaching and draining by
-/// then, so a plan bigger than a ring drains through instead of wedging the send spin. One
-/// delivery per worker generation; re-execution without a relaunch is a no-op.
-pub fn deliver_set_plans(leader: &MppLeaderState) -> Result<(), String> {
-    if leader
-        .plans_delivered
-        .swap(true, std::sync::atomic::Ordering::SeqCst)
-    {
-        return Ok(());
-    }
-    let stage_plans = leader.stage_plans.lock().unwrap().clone();
-    if stage_plans.is_empty() {
-        return Ok(());
-    }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("mpp: set-plan runtime build: {e}"))?;
-    let n_workers = leader.mesh.n_workers();
-    runtime.block_on(async {
-        let mut stats = SendBatchStats::default();
-        for sp in &stage_plans {
-            for task in 0..sp.task_count {
-                let dest = proc_for_task(n_workers, task as u32);
-                // Clone the sender out under the lock so the guard never spans the await below.
-                let sender = {
-                    let senders = leader.control_senders.lock().unwrap();
-                    let Some(base) = senders.get(dest as usize).and_then(|s| s.as_ref()) else {
-                        return Err(format!("mpp: no leader sender for proc {dest}"));
-                    };
-                    base.clone_with_header(MppFrameHeader::set_plan(sp.stage_num, task as u32, 0))
-                        .with_cooperative_drain(
-                            Arc::clone(&leader.mesh) as Arc<dyn CooperativeDrainSet>
-                        )
-                };
-                let frame = SetPlanFrame {
-                    set_plan: Some(SetPlanRequest {
-                        plan_proto: sp.plan_proto.clone(),
-                        task_count: sp.task_count as u64,
-                        task_key: Some(TaskKey {
-                            query_id: sp.query_id.clone(),
-                            stage_id: sp.stage_num as u64,
-                            task_number: task as u64,
-                        }),
-                        work_unit_feed_declarations: vec![],
-                        target_worker_url: String::new(),
-                        query_start_time_ns: 0,
-                    }),
-                    header_keys: vec![],
-                    header_values: vec![],
-                };
-                sender
-                    .send_set_plan_traced(&frame, &mut stats)
-                    .await
-                    .map_err(|e| format!("mpp: set-plan send failed: {e}"))?;
-            }
+/// Serializes each stage subplan the coordinator dispatches, with the pg codec
+/// (`serialize_physical_plan`): the config-level codec extension point cannot express the
+/// UDF-definition handling or the optimization-only wrapper strip, so the coordinator's own
+/// encode cannot produce these bytes. The coordinator hands over its ready-to-run per-task
+/// plan; scan encodes are context-free recipes, so the plan the leader runs is the plan the
+/// workers decode, and each worker specializes its own segment slice. Every task of a stage
+/// runs the same subplan here (nothing in a pg plan is task-specialized), so the encode is
+/// cached by stage.
+#[derive(Default)]
+pub struct StagePlanDispatchSource {
+    cache: std::sync::Mutex<std::collections::HashMap<usize, Vec<u8>>>,
+}
+
+impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
+    fn dispatch_plan_proto(
+        &self,
+        task: &TaskKey,
+        specialized: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    ) -> Option<datafusion::common::Result<Vec<u8>>> {
+        // One source per query execution, so the query id never varies here.
+        let stage_id = task.stage_id;
+        if let Some(bytes) = self.cache.lock().unwrap().get(&stage_id) {
+            return Some(Ok(bytes.clone()));
         }
-        Ok(())
-    })
+        let bytes =
+            match crate::scan::physical_codec::serialize_physical_plan(Arc::clone(specialized)) {
+                Ok(bytes) => bytes,
+                Err(e) => return Some(Err(e)),
+            };
+        self.cache.lock().unwrap().insert(stage_id, bytes.clone());
+        Some(Ok(bytes))
+    }
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the
@@ -324,7 +286,7 @@ pub struct MppWorkerState {
     /// Worker's MppMesh. The single `inbound_receiver` pulls frames addressed to this
     /// proc from both the DSM MPSC inbox and the in-proc self-loop channel; demux by
     /// `(sender_proc, stage_id, partition)` happens inside the handle's channel-buffer
-    /// registry. Read by the multi-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`].
+    /// registry. Read by the multi-fragment dispatcher driven by `mpp::host::exec_mpp_worker`.
     pub mesh: Arc<MppMesh>,
 }
 
@@ -399,7 +361,7 @@ pub fn drain_worker_metrics(
     let _ = plan.apply(|node| {
         if let Some(nb) = node.as_network_boundary() {
             let stage = nb.input_stage();
-            query_id.get_or_insert_with(|| stage.query_id().as_bytes().to_vec());
+            query_id.get_or_insert_with(|| stage.query_id());
             expected += stage.task_count();
         }
         Ok(TreeNodeRecursion::Continue)
@@ -414,14 +376,18 @@ pub fn drain_worker_metrics(
     for _ in 0..100 {
         let _ = mesh.try_drain_pass();
         while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
-            store.insert(
-                datafusion_distributed::TaskKey {
-                    query_id: query_id.clone(),
-                    stage_id: stage_id as u64,
-                    task_number: task_number as u64,
-                },
-                metrics,
-            );
+            // The frames carry proto metrics; the store holds the decoded in-memory form the rewrite
+            // reads. A frame that fails to decode is still counted so the wait doesn't spin.
+            if let Ok(metrics) = datafusion_distributed::decode_task_metrics(metrics) {
+                store.insert(
+                    TaskKey {
+                        query_id,
+                        stage_id: stage_id as usize,
+                        task_number: task_number as usize,
+                    },
+                    metrics,
+                );
+            }
             got.insert((stage_id, task_number));
         }
         if got.len() >= expected {

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::fault_tolerance::{tolerate_transient, GraceWindow};
 use crate::sqlscanner::StatementDestination;
 use crate::suite::{Job, Server, ServerStyle, Suite};
 use anyhow::{anyhow, Result};
@@ -278,7 +279,7 @@ impl Conn {
             ServerStyle::With { .. } => server.connstr(),
             _ => format!("{} application_name={}", server.connstr(), sanitized),
         };
-        let mut conn = postgres::Client::connect(&connstr, {
+        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), {
             use openssl::ssl::{SslConnector, SslMethod};
             use postgres_openssl::MakeTlsConnector;
             let mut builder =
@@ -334,10 +335,40 @@ fn do_query_replacements(query: &str, server_lookup: &Arc<HashMap<String, Server
     query
 }
 
+/// Adapts a connection string for our tokio-postgres client.
+///
+/// Connection strings are written with libpq's canonical parameter names so the same
+/// string works both here and when it is inlined verbatim into SQL the server parses with
+/// libpq (e.g. `CREATE SUBSCRIPTION ... CONNECTION '...'`, via [`do_query_replacements`]).
+/// The two spellings agree on every keyword except the keepalive probe count, which libpq
+/// calls `keepalives_count` and tokio-postgres calls `keepalives_retries`; tokio-postgres
+/// rejects the libpq name outright. Translate just that one so the client accepts the
+/// libpq-canonical string. Names never used in-tree stay untranslated on purpose.
+fn tokio_connstr(connstr: &str) -> String {
+    connstr.replace("keepalives_count", "keepalives_retries")
+}
+
+/// Which portion of the suite lifecycle a [`SuiteRunner`] executes.
+///
+/// The schema build and the workload can run in separate processes so setup stays off the
+/// fault path: one process builds the schema before fault injection begins, and another runs
+/// the workload against it under faults.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SetupMode {
+    /// Build the schema (the `setup` job) and stop: no workload, no teardown.
+    SetupOnly,
+    /// Skip the `setup` job and teardown; connect to a schema a prior setup run built and run
+    /// the workload only.
+    SkipSetup,
+    /// The whole lifecycle: setup, workload, teardown. For the TUI, `auto`, and local runs.
+    Full,
+}
+
 /// Manages the entire suite: runs setup once, spawns each job's thread, optionally a monitor job,
 /// and finally runs teardown when finished.
 pub struct SuiteRunner {
     suite: Arc<Suite>,
+    setup_mode: SetupMode,
     pgver: String,
     alive: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
@@ -345,17 +376,80 @@ pub struct SuiteRunner {
     runners: Vec<Arc<JobRunner>>,
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
+    reconnect_grace: GraceWindow,
 
     monitors: Vec<Arc<JobRunner>>,
     sys: Arc<RwLock<System>>,
 }
 
+/// Run `op` against a live [`Conn`], tolerating transient connectivity faults.
+///
+/// The connection lives in `conn` and is (re)opened lazily: whenever it is `None`
+/// — the first call, or after a prior error dropped it — a fresh one is opened and
+/// the reconnect grace window is reset (the fault-tolerance layer's `mark_recovered`).
+/// On any error from `op` the connection is dropped so the next attempt reconnects;
+/// replaying the whole `op` is what keeps transactional work correct.
+///
+/// One-shot callers (version probe, setup, teardown) pass a throwaway `&mut None`;
+/// the job worker passes a long-lived slot so its connection persists across
+/// iterations. This is the single place the open / `mark_recovered` / drop-on-error
+/// dance lives, so callers only have to say what to do with the connection.
+///
+/// Returns `Ok(None)` if `alive` went false while waiting out a fault.
+fn with_reconnect<T>(
+    alive: &AtomicBool,
+    grace: &GraceWindow,
+    conn: &mut Option<Conn>,
+    suite: &Suite,
+    job: &Job,
+    mut op: impl FnMut(&mut Conn) -> Result<T>,
+) -> Result<Option<T>> {
+    tolerate_transient(alive, grace, |progress| {
+        if conn.is_none() {
+            *conn = Some(Conn::open(suite, job)?);
+            progress.mark_recovered();
+        }
+        let result = op(conn.as_mut().unwrap());
+        if result.is_err() {
+            *conn = None;
+        }
+        result
+    })
+}
+
 impl SuiteRunner {
-    /// Create a new SuiteRunner, run the `setup` job, then spawn threads for each job + monitor.
-    pub fn new(suite: Suite, paused: bool) -> Result<Arc<Self>> {
+    /// [`with_reconnect`] for a one-shot job (version probe, setup, teardown): opens a
+    /// throwaway connection and fills in the runner's `alive` / grace / suite, so the
+    /// caller only supplies the job and what to do with the connection.
+    fn run_once<T>(&self, job: &Job, op: impl FnMut(&mut Conn) -> Result<T>) -> Result<Option<T>> {
+        let mut conn = None;
+        with_reconnect(
+            &self.alive,
+            &self.reconnect_grace,
+            &mut conn,
+            &self.suite,
+            job,
+            op,
+        )
+    }
+
+    /// Create a new SuiteRunner in the given [`SetupMode`], run whatever startup that mode
+    /// needs (setup and/or the version probe), then spawn a thread per job and monitor.
+    ///
+    /// No startup bound: the schema build runs in a separate setup process before fault
+    /// injection, so setup can never be pinned by a fault, and a `SkipSetup` driver does no blocking
+    /// startup work (see the probe skip below), letting `headless::run` bound the workload by
+    /// its runtime. So the process always finishes.
+    pub fn new(
+        suite: Suite,
+        paused: bool,
+        reconnect_grace: GraceWindow,
+        setup_mode: SetupMode,
+    ) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
         let mut runner = Self {
             suite: suite.clone(),
+            setup_mode,
             pgver: String::from("<unknown>"),
             alive: Arc::new(AtomicBool::new(true)),
             paused: Arc::new(AtomicBool::new(paused)),
@@ -363,21 +457,35 @@ impl SuiteRunner {
             runners: Default::default(),
             have_error: Arc::new(AtomicBool::new(false)),
             first_error_duration_bits: Default::default(),
+            reconnect_grace,
 
             monitors: Default::default(),
             sys: Arc::new(RwLock::new(System::new_all())),
         };
 
-        runner.pgver = Conn::open(&suite, &Job::default())?
-            .first_client()
-            .query_one("SELECT version()", &[])?
-            .get(0);
+        // Probe the server version (informational). Skip it under `SkipSetup`: that mode runs
+        // under faults, and a blocking probe would ride the long reconnect grace before the
+        // runtime clock starts and pin the driver. Setup runs fault-free, so the probe
+        // is safe under `SetupOnly` / `Full`.
+        if setup_mode != SetupMode::SkipSetup {
+            let default_job = Job::default();
+            if let Some(version) = runner.run_once(&default_job, |conn| {
+                let version: String = conn
+                    .first_client()
+                    .query_one("SELECT version()", &[])?
+                    .get(0);
+                Ok(version)
+            })? {
+                runner.pgver = version;
+            }
+        }
 
         runner.init()?;
         let suite_runner = Arc::new(runner);
 
-        // refresh sysinfo stats very frequently
-        {
+        // Refresh sysinfo stats very frequently. A `SetupOnly` run spawned no workers or
+        // monitors and exits right after this, so skip the refresh loop entirely.
+        if suite_runner.setup_mode != SetupMode::SetupOnly {
             let alive = suite_runner.alive.clone();
             let sys = suite_runner.sys.clone();
             let suite_runner = suite_runner.clone();
@@ -399,28 +507,50 @@ impl SuiteRunner {
         Ok(suite_runner)
     }
 
-    /// Perform setup job, optionally create a monitor job, and spawn all main job threads.
+    /// Run what the [`SetupMode`] calls for: the setup job (unless `SkipSetup`), then the
+    /// monitors and job threads (unless `SetupOnly`).
     fn init(&mut self) -> Result<()> {
-        // 1. Run setup job (always present)
-        for server in self.suite.all_servers() {
-            let mut setup_job = server.setup.clone();
-            eprintln!(
-                "Running setup job for {} on {}",
-                server.name,
-                server.connstr()
-            );
-            setup_job.destinations = vec![StatementDestination::SpecificServers(vec![server
-                .name
-                .clone()])];
+        // Run the setup job, unless this process is running the workload against a schema a
+        // prior setup run already built (`SkipSetup`).
+        if self.setup_mode != SetupMode::SkipSetup {
+            for server in self.suite.all_servers() {
+                let mut setup_job = server.setup.clone();
+                eprintln!(
+                    "Running setup job for {} on {}",
+                    server.name,
+                    server.connstr()
+                );
+                setup_job.destinations = vec![StatementDestination::SpecificServers(vec![server
+                    .name
+                    .clone()])];
 
-            let setup_runner = JobRunner::new(
-                self.suite.clone(),
-                setup_job,
-                false,
-                self.alive.clone(),
-                self.sys.clone(),
-            )?;
-            setup_runner.run(&mut Conn::open(&self.suite, &setup_runner.job)?)?;
+                let setup_runner = JobRunner::new(
+                    self.suite.clone(),
+                    setup_job,
+                    false,
+                    self.alive.clone(),
+                    self.sys.clone(),
+                )?;
+                // Run setup on a fresh connection, replaying it in full if a transient
+                // fault interrupts it. Replay is safe because setup is idempotent (every
+                // statement is DROP ... IF EXISTS / CREATE OR REPLACE), so re-running from
+                // the top rebuilds state no matter how far a partial attempt got — not
+                // because it runs in one transaction (it can't: it issues ALTER SYSTEM /
+                // pg_reload_conf, which are disallowed inside a transaction block).
+                if self
+                    .run_once(&setup_runner.job, |conn| setup_runner.run(conn))?
+                    .is_none()
+                {
+                    // `alive` went false before setup finished; stop before spawning workers.
+                    return Ok(());
+                }
+            }
+        }
+
+        // `SetupOnly` builds the schema and stops here; the workload runs later in a
+        // separate process.
+        if self.setup_mode == SetupMode::SetupOnly {
+            return Ok(());
         }
 
         // setup and start the monitors
@@ -489,12 +619,13 @@ impl SuiteRunner {
 
         let job_runner = Arc::new(job_runner);
         let refresh_ms = Duration::from_millis(job_runner.job.refresh_ms as u64);
+        let reconnect_grace = self.reconnect_grace.clone();
 
         // The actual thread loop
         let handle = {
             let job_runner = job_runner.clone();
             std::thread::spawn(move || {
-                match Self::job_runner_worker(paused, refresh_ms, &job_runner) {
+                match Self::job_runner_worker(paused, refresh_ms, reconnect_grace, &job_runner) {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         job_runner.running.store(false, Ordering::Relaxed);
@@ -520,6 +651,7 @@ impl SuiteRunner {
     fn job_runner_worker(
         paused: Arc<AtomicBool>,
         refresh_ms: Duration,
+        reconnect_grace: GraceWindow,
         job_runner: &Arc<JobRunner>,
     ) -> Result<(), anyhow::Error> {
         *job_runner.runtime_stats.write() = Conn::make_infos(&job_runner.suite, &job_runner.job)
@@ -527,13 +659,13 @@ impl SuiteRunner {
             .map(|info| (info, RuntimeStats::default()))
             .collect();
 
-        let mut conn = if job_runner.job.atomic_connection {
-            None
-        } else {
-            Some(Conn::open(&job_runner.suite, &job_runner.job)?)
-        };
-
         let alive = job_runner.alive.clone();
+
+        // A normal job keeps a persistent connection; an `atomic_connection` job
+        // opens a fresh one each iteration. Either way it is (re)opened lazily by
+        // `with_reconnect`, so a dropped socket just reconnects.
+        let mut conn: Option<Conn> = None;
+
         while alive.load(Ordering::Relaxed) {
             // If paused, sleep until unpaused
             while paused.load(Ordering::Relaxed) && alive.load(Ordering::Relaxed) {
@@ -543,11 +675,27 @@ impl SuiteRunner {
                 break;
             }
 
-            let conn = match &mut conn {
-                Some(conn) => conn,
-                None => &mut Conn::open(&job_runner.suite, &job_runner.job)?,
-            };
-            job_runner.run(conn)?;
+            // An `atomic_connection` job opens a fresh connection each iteration.
+            // Dropping it here rather than after `run` keeps it open across the refresh
+            // sleep and closes it before the next iteration reopens it.
+            if job_runner.job.atomic_connection {
+                conn = None;
+            }
+
+            // Run one iteration, riding out transient faults. `with_reconnect` drops
+            // the (possibly poisoned) connection on error so the next attempt
+            // reconnects; replaying the whole iteration keeps transactional jobs correct.
+            let outcome = with_reconnect(
+                &alive,
+                &reconnect_grace,
+                &mut conn,
+                &job_runner.suite,
+                &job_runner.job,
+                |conn| job_runner.run(conn),
+            )?;
+            if outcome.is_none() {
+                break; // `alive` went false while waiting out a fault
+            }
 
             if refresh_ms.as_millis() <= 1000 {
                 // if the refresh interval is less than a second, just sleep for that amount of time
@@ -655,20 +803,29 @@ impl SuiteRunner {
             }
         }
 
-        for server in &mut self.suite.all_servers() {
-            let mut teardown_job = server.teardown.clone();
-            teardown_job.destinations = vec![StatementDestination::SpecificServers(vec![server
-                .name
-                .clone()])];
+        // Only a `Full` run tears down. A `SkipSetup` workload connects to a schema that setup
+        // built in a prior run and that later runs may still use, so it leaves it in place.
+        // `SetupOnly` never reaches here; it returns before the workload starts.
+        if self.setup_mode == SetupMode::Full {
+            for server in &mut self.suite.all_servers() {
+                let mut teardown_job = server.teardown.clone();
+                teardown_job.destinations =
+                    vec![StatementDestination::SpecificServers(vec![server
+                        .name
+                        .clone()])];
 
-            let teardown_runner = JobRunner::new(
-                self.suite.clone(),
-                teardown_job,
-                false,
-                self.alive.clone(),
-                self.sys.clone(),
-            )?;
-            teardown_runner.run(&mut Conn::open(&self.suite, &teardown_runner.job)?)?;
+                let teardown_runner = JobRunner::new(
+                    self.suite.clone(),
+                    teardown_job,
+                    false,
+                    self.alive.clone(),
+                    self.sys.clone(),
+                )?;
+                // Best-effort teardown: ride out a transient fault, and if connectivity
+                // is gone during shutdown (`alive` is already false here) skip it rather
+                // than panicking the shutdown thread.
+                self.run_once(&teardown_runner.job, |conn| teardown_runner.run(conn))?;
+            }
         }
 
         for job in &self.runners {
@@ -1059,4 +1216,29 @@ fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tokio_connstr;
+
+    #[test]
+    fn tokio_connstr_translates_only_the_keepalive_probe_count() {
+        // libpq's keepalives_count becomes tokio-postgres's keepalives_retries; every
+        // other keyword (including the identically-spelled keepalives_* and
+        // tcp_user_timeout) is left untouched.
+        assert_eq!(
+            tokio_connstr(
+                "postgresql://h:5432/db?connect_timeout=5&keepalives=1&keepalives_idle=5\
+                 &keepalives_interval=2&keepalives_count=3&tcp_user_timeout=15"
+            ),
+            "postgresql://h:5432/db?connect_timeout=5&keepalives=1&keepalives_idle=5\
+             &keepalives_interval=2&keepalives_retries=3&tcp_user_timeout=15"
+        );
+        // A string that never mentions the probe count is returned verbatim.
+        assert_eq!(
+            tokio_connstr("host=localhost port=5432 dbname=stressgres"),
+            "host=localhost port=5432 dbname=stressgres"
+        );
+    }
 }

@@ -404,7 +404,7 @@ impl AggregateType {
     /// - Any referenced field is a NUMERIC type (not supported for aggregation)
     ///
     /// TODO: remove field existence check once Tantivy aggregation validation is fixed.
-    /// https://github.com/quickwit-oss/tantivy/issues/2767
+    /// <https://github.com/quickwit-oss/tantivy/issues/2767>
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         // Check NUMERIC field support for standard aggregates
         if let Some(field) = self.field_name() {
@@ -524,9 +524,11 @@ impl From<AggregateType> for AggregationVariants {
             AggregateType::Count { field, missing, .. } => {
                 AggregationVariants::Count(CountAggregation { field, missing })
             }
-            AggregateType::Sum { field, missing, .. } => {
-                AggregationVariants::Sum(SumAggregation { field, missing })
-            }
+            AggregateType::Sum { field, missing, .. } => AggregationVariants::Sum(SumAggregation {
+                field,
+                missing,
+                none_if_no_match: Some(true),
+            }),
             AggregateType::Avg { field, missing, .. } => {
                 AggregationVariants::Average(AverageAggregation { field, missing })
             }

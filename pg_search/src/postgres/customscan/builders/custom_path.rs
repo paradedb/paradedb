@@ -20,7 +20,6 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::options::SortByField;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
@@ -123,29 +122,20 @@ pub enum ExecMethodType {
     Columnar {
         which_fast_fields: HashSet<WhichFastField>,
         limit_offset: Option<LimitOffset>,
-        sort_order: Option<SortByField>,
     },
 }
 
 impl ExecMethodType {
-    /// Returns true if this execution method type can support sorted output via sort_by index.
-    /// This is specifically for the sorted index feature (SortPreservingMergeExec).
-    /// Top K has its own separate pathkey handling and is not included here.
-    pub fn supports_sorted_index_merge(&self) -> bool {
-        matches!(self, ExecMethodType::Columnar { .. })
-    }
-
     /// Returns true if this execution method declares sorted output.
-    /// This checks if sorted output is actually ENABLED for this instance.
+    /// Only Top K with an `ORDER BY` produces sorted output.
     pub fn declares_sorted_output(&self) -> bool {
-        match self {
+        matches!(
+            self,
             ExecMethodType::TopK {
                 orderby_info: Some(..),
                 ..
-            } => true,
-            ExecMethodType::Columnar { sort_order, .. } => sort_order.is_some(),
-            ExecMethodType::Normal | ExecMethodType::TopK { .. } => false,
-        }
+            }
+        )
     }
 }
 

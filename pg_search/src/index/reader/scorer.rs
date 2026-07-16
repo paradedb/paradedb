@@ -16,37 +16,62 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::index::enable_scoring;
-use std::sync::OnceLock;
-use tantivy::query::{Query, Scorer};
+use std::sync::{Arc, OnceLock};
+use tantivy::query::{PruningScorer, Query, Scorer, Weight};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
-pub struct DeferredScorer {
+/// Lazily builds one [`Weight`] and shares it across a search's segments.
+///
+/// A scored weight aggregates corpus-level term statistics: `doc_freq` walks every
+/// segment's term dictionary. Building the weight per segment therefore costs
+/// segments² dictionary lookups per query, which dominates scored scans on
+/// many-segment indexes.
+pub struct LazyWeight {
     query: Box<dyn Query>,
     need_scores: bool,
-    segment_reader: SegmentReader,
     searcher: Searcher,
-    scorer: OnceLock<Box<dyn Scorer>>,
+    weight: OnceLock<Box<dyn Weight>>,
 }
 
-impl DeferredScorer {
-    pub fn new(
-        query: Box<dyn Query>,
-        need_scores: bool,
-        segment_reader: SegmentReader,
-        searcher: Searcher,
-    ) -> Self {
+impl LazyWeight {
+    pub fn new(query: Box<dyn Query>, need_scores: bool, searcher: Searcher) -> Self {
         Self {
             query,
             need_scores,
-            segment_reader,
             searcher,
+            weight: Default::default(),
+        }
+    }
+
+    fn get(&self) -> &dyn Weight {
+        self.weight
+            .get_or_init(|| {
+                self.query
+                    .weight(enable_scoring(self.need_scores, &self.searcher))
+                    .expect("weight should be constructable")
+            })
+            .as_ref()
+    }
+}
+
+pub struct DeferredScorer {
+    weight: Arc<LazyWeight>,
+    segment_reader: SegmentReader,
+    scorer: OnceLock<Box<dyn PruningScorer>>,
+}
+
+impl DeferredScorer {
+    pub fn new(weight: Arc<LazyWeight>, segment_reader: SegmentReader) -> Self {
+        Self {
+            weight,
+            segment_reader,
             scorer: Default::default(),
         }
     }
 
     #[track_caller]
     #[inline(always)]
-    fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
+    fn scorer_mut(&mut self) -> &mut dyn PruningScorer {
         self.scorer();
         self.scorer
             .get_mut()
@@ -55,17 +80,18 @@ impl DeferredScorer {
 
     #[track_caller]
     #[inline(always)]
-    fn scorer(&self) -> &dyn Scorer {
+    fn scorer(&self) -> &dyn PruningScorer {
         self.scorer.get_or_init(|| {
-            let weight = self
-                .query
-                .weight(enable_scoring(self.need_scores, &self.searcher))
-                .expect("weight should be constructable");
-
-            weight
-                .scorer(&self.segment_reader, 1.0)
-                .expect("scorer should be constructable")
+            self.weight
+                .get()
+                .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)
+                .expect("pruning scorer should be constructable")
         })
+    }
+
+    fn set_threshold(&mut self, threshold: Score) {
+        let scorer = self.scorer_mut();
+        scorer.set_threshold(threshold);
     }
 }
 
@@ -124,6 +150,10 @@ impl ScorerIter {
     /// This is used for query planning statistics and uses Tantivy's `size_hint`.
     pub fn estimated_doc_count(&self) -> u32 {
         self.deferred.size_hint()
+    }
+
+    pub fn set_threshold(&mut self, threshold: Score) {
+        self.deferred.set_threshold(threshold);
     }
 }
 

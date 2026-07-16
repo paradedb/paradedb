@@ -1041,7 +1041,6 @@ ORDER BY score DESC, id LIMIT 1;
 ------------------------------------------------------------
 \echo '=== TEST: ColumnarExecState with Composite Fields ==='
 === TEST: ColumnarExecState with Composite Fields ===
-SET paradedb.enable_columnar_sort = on;
 DROP TYPE IF EXISTS columnar_comp CASCADE;
 CREATE TYPE columnar_comp AS (priority INTEGER, created_at DATE);
 DROP TABLE IF EXISTS columnar_comp_test CASCADE;
@@ -1077,17 +1076,18 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM columnar_comp_test
 WHERE content @@@ 'item'
 ORDER BY priority DESC NULLS LAST;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on columnar_comp_test
-   Table: columnar_comp_test
-   Index: columnar_comp_test_idx
-   Exec Method: ColumnarExecState
-   Fast Fields: id, priority
-   Order By: priority DESC
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: priority DESC NULLS LAST
+   ->  Custom Scan (ParadeDB Base Scan) on columnar_comp_test
+         Table: columnar_comp_test
+         Index: columnar_comp_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: id, priority
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
 
 -- Verify correct sorted results
 SELECT id, priority FROM columnar_comp_test
@@ -1165,17 +1165,18 @@ WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
 -- Should use ColumnarExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on comp_test
-   Table: comp_test
-   Index: comp_test_idx
-   Exec Method: ColumnarExecState
-   Fast Fields: id, priority
-   Order By: priority DESC
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: priority DESC NULLS LAST
+   ->  Custom Scan (ParadeDB Base Scan) on comp_test
+         Table: comp_test
+         Index: comp_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: id, priority
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
 
 DROP TABLE comp_test CASCADE;
 DROP TYPE my_comp CASCADE;

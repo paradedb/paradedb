@@ -25,7 +25,6 @@ mod tests {
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
     use crate::scan::execution_plan::PgSearchScanPlan;
-    use crate::scan::Scanner;
     use crate::schema::SearchFieldType;
     use datafusion::execution::TaskContext;
     use datafusion::physical_plan::ExecutionPlan;
@@ -73,8 +72,6 @@ mod tests {
         )
         .unwrap();
 
-        let search_results = reader.search();
-
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
@@ -92,10 +89,19 @@ mod tests {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scanner = Scanner::new(search_results, None, fields.clone(), heap_oid.into());
-
         let partition = crate::scan::execution_plan::ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Prefetched { scanner },
+            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+                parallel_state: None,
+                source_idx: None,
+                non_partitioning_index: None,
+                planner_estimated_rows: 0,
+                scanner_config: crate::scan::execution_plan::ScannerConfig {
+                    which_fast_fields: fields.clone(),
+                    heap_relid: heap_oid.into(),
+                    batch_size_hint: None,
+                    score_needed: false,
+                },
+            },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
             reader: reader.clone(),

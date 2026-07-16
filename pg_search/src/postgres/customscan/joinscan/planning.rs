@@ -46,7 +46,9 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::utils::{
+    expr_collect_vars, expr_contains_any_operator, missing_partial_index_predicate, strip_wrappers,
+};
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 
@@ -222,19 +224,10 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
 
-        // Read the sort order from the index's relation options so DataFusion can use the
-        // physical sort order (SortPreservingMergeExec, sort-merge joins).
-        //
-        // Under MPP a pre-sorted scan lowers to a multi-partition scan the dispatch codec
-        // declines (it ships only the single-partition lazy leaf), so the query falls back to
-        // serial. Correct, just slower for sorted sources.
-        let sort_order = if crate::gucs::is_columnar_sort_enabled() {
-            let sort_by = bm25_index.options().sort_by();
-            sort_by.into_iter().next()
-        } else {
-            None
-        };
-        side_info = side_info.with_sort_order(sort_order);
+        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        if missing_partial_index_predicate(bm25_index.rd_indpred, &baserestrictinfo) {
+            return None;
+        }
 
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
@@ -243,7 +236,8 @@ pub(super) unsafe fn collect_join_sources_base_rel(
             let mut state = QualExtractState::default();
             // Extract search-capable predicates all at once. This is required
             // for score filters, which must wrap the rest of the search query.
-            if let Some(qual) = extract_quals(
+            // Fail the JoinScan if any search predicate cannot be extracted.
+            let qual = extract_quals(
                 &context,
                 rti,
                 classified.search_ri.as_ptr().cast(),
@@ -252,15 +246,11 @@ pub(super) unsafe fn collect_join_sources_base_rel(
                 false,
                 &mut state,
                 true,
-            ) {
-                let query = SearchQueryInput::from(&qual);
-                side_info = side_info.with_query(query);
-                if state.uses_our_operator {
-                    side_info = side_info.with_search_predicate();
-                }
-            } else {
-                // Fail the JoinScan if any search predicate cannot be extracted.
-                return None;
+            )?;
+            let query = SearchQueryInput::from(&qual);
+            side_info = side_info.with_query(query);
+            if state.uses_our_operator {
+                side_info = side_info.with_search_predicate();
             }
         }
     }
@@ -1894,25 +1884,6 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
     }
 
     false
-}
-
-/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
-pub(super) unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    loop {
-        if node.is_null() {
-            return node;
-        }
-        match (*node).type_ {
-            pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
-            }
-            pg_sys::NodeTag::T_PlaceHolderVar => {
-                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
-            }
-            _ => break,
-        }
-    }
-    node
 }
 
 /// Extracts the RTI of the variable passed to a `paradedb.score(var)` function call.

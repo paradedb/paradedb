@@ -62,7 +62,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shoes")
+        .match_any("shoes")
         .with_score
         .select(:id)
         .order(search_score: :desc)
@@ -141,7 +141,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("keyboard")
+        .match_any("keyboard")
         .or(MockItem.where(rating: ...2))
         .with_score
         .select(:id)
@@ -192,7 +192,7 @@ Next, let's compute a "combined BM25 score" over a join across both tables.
   Directly computing and ordering by the sum of scores across a join (e.g.
   `ORDER BY pdb.score(t1) + pdb.score(t2)`) is currently not efficient. For more
   details on implementing efficient support for this operation, please refer to
-  [Issue #5300](https://github.com/paradedb/paradedb/issues/5300).
+  [Issue #5301](https://github.com/paradedb/paradedb/issues/5301).
 </Note>
 
 The recommended approach for combining scores from multiple tables is to use [Reciprocal Rank Fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion). RRF combines the ranked results from separate queries into a single unified ranking.
@@ -239,6 +239,22 @@ LIMIT 5;
 ```
 
 </CodeGroup>
+
+## Deterministic Sorting
+
+Ordering by `pdb.score` alone is not sufficient to guarantee deterministic query results when there are multiple documents with the same score.
+
+To ensure stable output, we recommend adding a tiebreaker column (such as the primary key) after the score:
+
+```sql
+SELECT id, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC, id ASC
+LIMIT 5;
+```
+
+Note that to receive this [Top K optimization](/documentation/sorting/topk), all tiebreaker columns must be indexed.
 
 ## Score Refresh
 

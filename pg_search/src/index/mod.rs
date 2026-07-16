@@ -24,3 +24,25 @@ pub mod writer;
 
 pub use directory::*;
 pub use search::*;
+
+use crate::postgres::options::BM25IndexOptions;
+use crate::schema::SearchIndexSchema;
+use tantivy::columnar::CodecType;
+use tantivy::IndexSettings;
+
+/// The [`IndexSettings`] used for every tantivy index pg_search creates.
+///
+/// `docstore_compress_dedicated_thread` must remain `false`: a dedicated compressor thread
+/// receives process-directed signals, and pgrx's background worker signal handlers call into
+/// Postgres FFI, which panics off the main thread. Compress inline instead.
+pub fn index_settings(
+    options: &BM25IndexOptions,
+    schema: &tantivy::schema::Schema,
+) -> IndexSettings {
+    IndexSettings {
+        sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
+        docstore_compress_dedicated_thread: false,
+        codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
+        ..IndexSettings::default()
+    }
+}

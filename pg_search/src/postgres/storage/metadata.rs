@@ -30,7 +30,7 @@ use pgrx::{
     PgSqlErrorCode,
 };
 
-/// The metadata stored on the [`Metadata`] page
+/// The metadata stored on the `Metadata` page
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct MetaPageData {
@@ -83,6 +83,8 @@ pub struct MetaPageData {
     created_by_version_major: u16,
     created_by_version_minor: u16,
     created_by_version_patch: u16,
+
+    created_at: pg_sys::TimestampTz,
 }
 
 /// Provides read access to the metadata page
@@ -127,6 +129,8 @@ impl MetaPage {
                 const { parse_version_component(env!("CARGO_PKG_VERSION_MINOR")) };
             metadata.created_by_version_patch =
                 const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
+
+            metadata.created_at = pg_sys::GetCurrentTimestamp();
         }
     }
 
@@ -264,8 +268,19 @@ impl MetaPage {
         }
     }
 
+    /// The wall-clock time this index was built, as a `TimestampTz`. Returns `None` for indices
+    /// created before build-time stamping was added (the on-disk field reads as zero).
+    pub fn created_at(&self) -> Option<pg_sys::TimestampTz> {
+        let created_at = self.data.created_at;
+        if created_at == 0 {
+            None
+        } else {
+            Some(created_at)
+        }
+    }
+
     ///
-    /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
+    /// A `LinkedItemList<SegmentMetaEntry>` containing segments which are no longer visible from the
     /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
     /// be reading them on physical replicas.
     ///
@@ -388,6 +403,7 @@ unsafe fn bgmerger_state(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::datum::TimestampWithTimeZone;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -412,5 +428,53 @@ mod tests {
             env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
         );
         assert_eq!(stamped, expected);
+
+        // The UDF should surface the same version.
+        let via_udf: String = Spi::get_one("SELECT paradedb.index_created_by('t_idx')")
+            .expect("spi should succeed")
+            .unwrap();
+        assert_eq!(via_udf, stamped.to_string());
+    }
+
+    #[pg_test]
+    fn created_at_is_stamped_at_index_build() {
+        // `GetCurrentTimestamp()` is wall-clock time, so bound the build with `clock_timestamp()`
+        // (which advances within the transaction) rather than the fixed `now()`.
+        let before: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
+            .expect("spi should succeed")
+            .unwrap();
+
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id');").unwrap();
+
+        let after: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
+            .expect("spi should succeed")
+            .unwrap();
+
+        let index_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let created_at = TimestampWithTimeZone::try_from(
+            MetaPage::open(&indexrel)
+                .created_at()
+                .expect("freshly built index should be timestamp-stamped"),
+        )
+        .unwrap();
+
+        assert!(
+            created_at >= before && created_at <= after,
+            "created_at {created_at:?} should fall within [{before:?}, {after:?}]"
+        );
+
+        // The UDF should surface the same instant.
+        let via_udf: TimestampWithTimeZone =
+            Spi::get_one("SELECT paradedb.index_created_at('t_idx')")
+                .expect("spi should succeed")
+                .unwrap();
+        assert_eq!(via_udf, created_at);
     }
 }

@@ -429,7 +429,7 @@ WHERE description @@@ 'error';
    Index: fn_wrapped_agg_logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(score)
-     Aggregate Definition: {"0":{"sum":{"field":"score","missing":null}}}
+     Aggregate Definition: {"0":{"sum":{"field":"score","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT COALESCE(SUM(score), 0)
@@ -514,7 +514,7 @@ WHERE description @@@ 'error';
    Index: fn_wrapped_agg_logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(score)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"score","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"score","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT

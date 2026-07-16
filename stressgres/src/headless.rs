@@ -107,8 +107,15 @@ pub fn run(
                     server_name: conninfo.server().name.clone(),
                     metrics: columns,
                 };
-                serde_json::to_writer(&mut writer, &metrics_line)?;
-                writer.write_all(b"\n")?;
+                // Serialise the whole line (JSON plus newline) into one buffer and write it in a
+                // single call, then flush. Fault injection can SIGKILL the process at any point;
+                // a field-by-field `to_writer` could leave a half-written object in the stream
+                // that downstream parses as invalid JSON. One write plus a flush keeps every
+                // emitted line whole (only a kill mid-syscall can still clip the final line).
+                let mut line = serde_json::to_vec(&metrics_line)?;
+                line.push(b'\n');
+                writer.write_all(&line)?;
+                writer.flush()?;
             }
         }
 

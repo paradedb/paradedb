@@ -1,5 +1,6 @@
--- Test for the JoinScan Custom Scan planning
--- SortMergeJoin mechanics, sorting by join keys, Top K dynamic filters.
+-- Tests for JoinScan planning on joins with ORDER BY and Top K dynamic filters.
+-- Joins run as hash joins with an explicit sort / Top K; the columnar-sort
+-- SortMergeJoin path has been removed.
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
@@ -7,7 +8,6 @@ SET enable_indexscan to OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
-SET paradedb.enable_columnar_sort = on;
 -- =============================================================================
 -- TEST 1: Join on sorted keys (Both sides sorted on join key)
 -- =============================================================================
@@ -35,8 +35,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.val, t2.val, t1.id
    ->  Result
@@ -49,15 +49,14 @@ LIMIT 10;
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   GlobalLimitExec: skip=0, fetch=10
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[t2, t1]
-                 :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-                 :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
@@ -92,8 +91,8 @@ JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.val, t2.val, t1.id
    ->  Result
@@ -107,15 +106,14 @@ OFFSET 5 LIMIT 10;
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   GlobalLimitExec: skip=0, fetch=15
+                 :   SortExec: TopK(fetch=15), expr=[id@2 ASC], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[t2, t1]
-                 :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-                 :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
@@ -163,8 +161,8 @@ JOIN multi_seg_2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.val, t2.val, t1.id
    ->  Result
@@ -177,15 +175,14 @@ LIMIT 10;
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   SortPreservingMergeExec: [id@2 ASC], fetch=10
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[t2, t1]
-                 :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-                 :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-                 :           SortPreservingMergeExec: [t1_id@1 ASC]
-                 :             PgSearchScan: segments=2, query="all"
-                 :           SortPreservingMergeExec: [id@1 ASC]
-                 :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT t1.val, t2.val
 FROM multi_seg_1 t1
@@ -243,8 +240,8 @@ JOIN recursive_smj_3 t3 ON t1.id = t3.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.val, t2.val, t3.val, t1.id
    ->  Result
@@ -257,18 +254,17 @@ LIMIT 10;
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-                 :   GlobalLimitExec: skip=0, fetch=10
+                 :   SortExec: TopK(fetch=10), expr=[id@1 ASC], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[t1, t2, t3]
-                 :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
-                 :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@3, t1_id@1)]
-                 :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@3, t1_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(23 rows)
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 SELECT t1.val, t2.val, t3.val
 FROM recursive_smj_1 t1
@@ -320,8 +316,8 @@ JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.val, t2.val
    ->  Custom Scan (ParadeDB Join Scan)
@@ -332,17 +328,14 @@ LIMIT 10;
          Order By: t1.val asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10
-           :     TantivyLookupExec: decode=[val]
-           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
-           :         VisibilityFilterExec: tables=[t2, t1]
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val]
-           :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-           :               SortPreservingMergeExec: [t1_id@1 ASC]
-           :                 PgSearchScan: segments=2, query="all"
-           :               SortPreservingMergeExec: [id@1 ASC]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+           :   TantivyLookupExec: decode=[val]
+           :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, visibility_checks=[t2, t1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, val@4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- Cap the scanner batch size so Top K can tighten its threshold between batches.
 SET paradedb.dynamic_filter_batch_size = 8192;
@@ -354,8 +347,8 @@ JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=10.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2 INNER t1
@@ -364,17 +357,14 @@ LIMIT 10;
          Order By: t1.val asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10, metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :     TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
-           :         VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20.00 K, output_bytes=1184.8 KB, output_batches=3]
-           :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=20.00 K, output_bytes=1568.8 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=40.00 K, peak_mem_used=1.20 M]
-           :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :                 PgSearchScan: segments=2, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
-           :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=20.00 K, output_bytes=566.4 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
-(18 rows)
+           :   TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+           :     SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, visibility_checks=[t2, t1], metrics=[rows_filtered_invisible=0, rows_input=8.25 K, rows_output=10, segments_seen=2]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, val@4], metrics=[output_rows=8.25 K, output_bytes=361.6 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.25 K, build_mem_used=400.0 K, avg_fanout=100% (8.25 K/8.25 K), probe_hit_rate=100% (8.25 K/8.25 K)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=8.25 K, output_bytes=234.1 KB, output_batches=4, rows_pruned=11.75 K, rows_scanned=20.00 K]
+(15 rows)
 
 -- Verify results
 SELECT t1.val, t2.val
@@ -441,8 +431,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
-                                                                                                                                               QUERY PLAN                                                                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.id, t1.val
    ->  Custom Scan (ParadeDB Join Scan)
@@ -453,17 +443,14 @@ LIMIT 25;
          Order By: t1.val desc, t1.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25
-           :     TantivyLookupExec: decode=[val]
-           :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25
-           :         VisibilityFilterExec: tables=[t2, t1]
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id, val@4 as val]
-           :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-           :               SortPreservingMergeExec: [t1_id@1 ASC]
-           :                 PgSearchScan: segments=2, query="all"
-           :               SortPreservingMergeExec: [id@1 ASC]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
-(20 rows)
+           :   TantivyLookupExec: decode=[val]
+           :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, visibility_checks=[t2, t1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+(17 rows)
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id, t1.val
@@ -472,8 +459,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
-                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=25.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
          Relation Tree: t2 INNER t1
@@ -482,17 +469,14 @@ LIMIT 25;
          Order By: t1.val desc, t1.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
-           :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25, metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
-           :     TantivyLookupExec: decode=[val], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, metrics=[rows_input=20.00 K, rows_output=25, segments_seen=2]
-           :         VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=20.00 K, output_bytes=1305.3 KB, output_batches=3]
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id, val@4 as val], metrics=[output_rows=20.00 K, output_bytes=1376.8 KB, output_batches=3]
-           :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=20.00 K, output_bytes=1568.8 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=40.00 K, peak_mem_used=1.20 M]
-           :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :                 PgSearchScan: segments=2, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
-           :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=566.4 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
-(18 rows)
+           :   TantivyLookupExec: decode=[val], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
+           :     SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, visibility_checks=[t2, t1], metrics=[rows_filtered_invisible=0, rows_input=8.43 K, rows_output=25, segments_seen=1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4], metrics=[output_rows=8.43 K, output_bytes=493.9 KB, output_batches=2, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=8.43 K, build_mem_used=400.0 K, avg_fanout=100% (8.43 K/8.43 K), probe_hit_rate=100% (8.43 K/8.43 K)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=8.43 K, output_bytes=239.9 KB, output_batches=4, rows_pruned=11.57 K, rows_scanned=20.00 K]
+(15 rows)
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
@@ -542,8 +526,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
-                                                                                                                                               QUERY PLAN                                                                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.id, t1.val
    ->  Custom Scan (ParadeDB Join Scan)
@@ -554,17 +538,14 @@ LIMIT 10;
          Order By: t1.val asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortPreservingMergeExec: [val@3 ASC NULLS LAST], fetch=10
-           :     TantivyLookupExec: decode=[val]
-           :       SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10
-           :         VisibilityFilterExec: tables=[t2, t1]
-           :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id, val@4 as val]
-           :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-           :               SortPreservingMergeExec: [t1_id@1 ASC]
-           :                 PgSearchScan: segments=2, query="all"
-           :               SortPreservingMergeExec: [id@1 ASC]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
-(20 rows)
+           :   TantivyLookupExec: decode=[val]
+           :     SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10, visibility_checks=[t2, t1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, val@4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+(17 rows)
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
@@ -647,8 +628,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
-                                                                                                                                              QUERY PLAN                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.id, t1.val
    ->  Custom Scan (ParadeDB Join Scan)
@@ -659,16 +640,14 @@ LIMIT 15;
          Order By: t1.id desc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortPreservingMergeExec: [id@2 DESC], fetch=15
-           :     SortExec: TopK(fetch=15), expr=[id@2 DESC], preserve_partitioning=[true]
-           :       VisibilityFilterExec: tables=[t2, t1]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-           :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-           :             SortPreservingMergeExec: [t1_id@1 ASC]
-           :               PgSearchScan: segments=2, query="all"
-           :             SortPreservingMergeExec: [id@1 ASC]
-           :               PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
-(19 rows)
+           :   SortExec: TopK(fetch=15), expr=[id@2 DESC], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[t2, t1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+(17 rows)
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1

@@ -31,7 +31,7 @@ use tantivy::index::SegmentId;
 #[repr(transparent)]
 pub struct VacuumSentinel(pub PinnedBuffer);
 
-/// The metadata stored on the [`Metadata`] page
+/// The metadata stored on the `Metadata` page
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct MergeLockData {

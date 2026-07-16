@@ -18,14 +18,14 @@
 use crate::index::fast_fields_helper::{
     ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
-use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
+use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
-use arrow_array::builder::BooleanBuilder;
+use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
 use std::sync::Arc;
-use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
+use tantivy::{DocId, Score, SegmentOrdinal};
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -39,30 +39,27 @@ const MAX_BATCH_SIZE: usize = 128_000;
 /// batch size, since we are not fetching string dictionaries during the scan phase.
 const DEFERRED_BATCH_SIZE: usize = 8_192;
 
-/// Compact `ids` and `scores` in-place based on a boolean mask.
+/// Compact `ids` and `memoized_columns` in-place based on a boolean mask.
 fn compact_with_mask(
     ids: &mut Vec<DocId>,
-    scores: &mut Vec<Score>,
-    memoized_columns: &mut Vec<Option<ArrayRef>>,
+    memoized_columns: &mut [Option<ArrayRef>],
     mask: &BooleanArray,
 ) {
     if mask.false_count() == 0 && mask.null_count() == 0 {
         return;
     }
 
-    // Compact ids and scores.
+    // Compact ids.
     let mut write_idx = 0;
     for (read_idx, valid) in mask.iter().enumerate() {
         if valid == Some(true) {
             if read_idx != write_idx {
                 ids[write_idx] = ids[read_idx];
-                scores[write_idx] = scores[read_idx];
             }
             write_idx += 1;
         }
     }
     ids.truncate(write_idx);
-    scores.truncate(write_idx);
 
     // Compact memoized columns
     for opt_col in memoized_columns {
@@ -92,8 +89,8 @@ fn ensure_column_fetched(
                     .fetch_values_or_ords_to_arrow(ids, *search_field_type),
             );
         }
-        WhichFastField::Ctid
-        | WhichFastField::Score
+        WhichFastField::Score
+        | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_) => {}
         WhichFastField::DeferredCtid(alias) => {
@@ -108,9 +105,8 @@ fn ensure_column_fetched(
 /// A batch of visible tuples and their fast field values.
 #[derive(Default)]
 pub struct Batch {
-    /// An iterator of ids which have been consumed from the underlying `SearchResults`
-    /// iterator as a batch.
-    pub ids: Vec<(SearchIndexScore, DocAddress)>,
+    /// The number of rows in this batch.
+    pub num_rows: usize,
 
     /// The current batch of fast field values, indexed by FFIndex, then by row.
     /// This uses Arrow arrays for efficient columnar storage.
@@ -127,7 +123,7 @@ impl Batch {
             .map(|(i, field)| {
                 field.clone().unwrap_or_else(|| {
                     let data_type = schema.field(i).data_type();
-                    arrow_array::new_null_array(data_type, self.ids.len())
+                    arrow_array::new_null_array(data_type, self.num_rows)
                 })
             })
             .collect();
@@ -147,7 +143,6 @@ pub struct Scanner {
     table_oid: u32,
     maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
-    prefetched: Option<Batch>,
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
     defer_visibility: bool,
@@ -155,6 +150,7 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    score_threshold: Option<Score>,
 }
 
 impl Scanner {
@@ -208,10 +204,10 @@ impl Scanner {
             table_oid,
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
-            prefetched: None,
             defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            score_threshold: None,
         }
     }
 
@@ -220,9 +216,15 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
-    /// Returns the estimated number of rows that will be produced by this scanner.
-    pub fn estimated_rows(&self) -> u64 {
-        self.search_results.estimated_doc_count()
+    /// Sets the score threshold to be applied to batches extracted afterwards.
+    /// We assume the threshold will monotonically increase, and uses
+    /// greater-than (>) semantics.
+    ///
+    /// Passing a `None` will not cause the threshold on the current segment
+    /// to be updated, as threshold changes are only applied when
+    /// `self.threshold` is `Some(_)`.
+    pub(crate) fn set_score_threshold(&mut self, threshold: Option<Score>) {
+        self.score_threshold = threshold;
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
@@ -230,6 +232,9 @@ impl Scanner {
         loop {
             let scorer_iter = self.search_results.current_segment()?;
             let segment_ord = scorer_iter.segment_ord();
+            if let Some(threshold) = self.score_threshold {
+                scorer_iter.set_threshold(threshold);
+            }
 
             // Collect a batch of ids/scores for this segment.
             let mut scores = Vec::with_capacity(self.batch_size);
@@ -240,7 +245,6 @@ impl Scanner {
                     self.search_results.current_segment_pop();
                     break;
                 };
-
                 // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.
                 debug_assert_eq!(id.segment_ord, segment_ord);
                 scores.push(score);
@@ -269,11 +273,8 @@ impl Scanner {
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
-        if let Some(batch) = self.prefetched.take() {
-            return Some(batch);
-        }
         pgrx::check_for_interrupts!();
-        let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
+        let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
 
         // Memoize fetched columns to avoid redundant fetches.
         // - Numeric columns: stores the values directly.
@@ -283,6 +284,16 @@ impl Scanner {
         // We must compact these arrays whenever we filter rows (pre-filtering or visibility)
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
+
+        let mut lazy_score_array: Option<ArrayRef> = None;
+        for (idx, ff) in self.which_fast_fields.iter().enumerate() {
+            if matches!(ff, WhichFastField::Score) {
+                let score_array = lazy_score_array.get_or_insert_with(|| {
+                    Arc::new(Float32Array::from(scores.clone())) as ArrayRef
+                });
+                memoized_columns[idx] = Some(score_array.clone());
+            }
+        }
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
@@ -311,7 +322,7 @@ impl Scanner {
                         ids.len(),
                     )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-                compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
+                compact_with_mask(&mut ids, &mut memoized_columns, &mask);
             }
             self.pre_filter_rows_scanned += before;
             self.pre_filter_rows_pruned += before - ids.len();
@@ -320,11 +331,10 @@ impl Scanner {
         // Batch lookup the ctids and visibility check them.
         // When defer_visibility is true, we skip visibility checking entirely —
         // VisibilityFilterExec will handle it in batch after the join.
-        // The `ctids` Vec here is used only for:
-        //   1. Visibility masking (compacting invisible rows out of `ids`/`scores`).
+        // The `ctids_builder` here is used only for:
+        //   1. Visibility masking (compacting invisible rows out of `ids` and `memoized_columns`).
         //   2. The `WhichFastField::Ctid` Arrow output column.
-        // It is NOT placed in SearchIndexScore — the score carries only `bm25`.
-        let ctids: Vec<u64> = if self.defer_visibility {
+        let ctids_array: Option<ArrayRef> = if self.defer_visibility {
             // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
             // A physical Ctid column in this path indicates a planning bug.
             debug_assert!(
@@ -334,8 +344,8 @@ impl Scanner {
                     .any(|f| matches!(f, WhichFastField::Ctid)),
                 "defer_visibility=true but WhichFastField::Ctid is present — planning bug"
             );
-            // No real ctid lookup needed — an empty vec is correct here.
-            vec![]
+            // No real ctid lookup needed.
+            None
         } else {
             self.maybe_ctids.resize(ids.len(), None);
             ffhelper
@@ -346,12 +356,12 @@ impl Scanner {
             self.visibility_results.resize(ids.len(), None);
             visibility.check_batch(&self.maybe_ctids, &mut self.visibility_results);
 
-            let mut ctids = Vec::with_capacity(ids.len());
+            let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
             let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
             for maybe_visible_ctid in self.visibility_results.drain(..) {
                 if let Some(visible_ctid) = maybe_visible_ctid {
                     visibility_mask_builder.append_value(true);
-                    ctids.push(visible_ctid);
+                    ctids_builder.append_value(visible_ctid);
                 } else {
                     visibility_mask_builder.append_value(false);
                 }
@@ -359,11 +369,10 @@ impl Scanner {
             // Then filter the remaining columns using the mask.
             compact_with_mask(
                 &mut ids,
-                &mut scores,
                 &mut memoized_columns,
                 &visibility_mask_builder.finish(),
             );
-            ctids
+            Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
         // Pre-fetch any Named columns that weren't already fetched by pre-filters.
@@ -387,12 +396,8 @@ impl Scanner {
             .iter()
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
-                WhichFastField::Ctid => {
-                    Some(Arc::new(UInt64Array::from(ctids.clone())) as ArrayRef)
-                }
-                WhichFastField::Score => {
-                    Some(Arc::new(Float32Array::from(scores.clone())) as ArrayRef)
-                }
+                WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
+                WhichFastField::Score => Some(memoized_columns[ff_index].clone().unwrap()),
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {
@@ -428,78 +433,30 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                // Determine which union state to emit for the deferred column:
-                // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
-                // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
-                // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
+                // When resolving the data block, we build a 2-state UnionArray:
+                // 0. None -> We just have doc ids. Emit State 0 (Doc Address).
+                // 1. Some(UInt64) -> The pre-filter already resolved term ordinals. Emit State 1.
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),
-                WhichFastField::Deferred(_, field_type) => {
-                    let is_bytes = matches!(
-                        field_type.arrow_data_type(),
-                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                    );
-                    use arrow_schema::DataType;
-
-                    match &memoized_columns[ff_index] {
-                        Some(col_array) if col_array.data_type() == &DataType::UInt64 => {
-                            Some(crate::scan::deferred_encode::build_state_term_ordinals(
-                                segment_ord,
-                                col_array.clone(),
-                                is_bytes,
-                            ))
-                        }
-                        Some(col_array) => {
-                            Some(crate::scan::deferred_encode::build_state_hydrated(
-                                col_array.clone(),
-                                is_bytes,
-                            ))
-                        }
-                        None => Some(crate::scan::deferred_encode::build_state_doc_address(
+                WhichFastField::Deferred(_, _field_type) => match &memoized_columns[ff_index] {
+                    Some(col_array) => {
+                        Some(crate::scan::deferred_encode::build_state_term_ordinals(
                             segment_ord,
-                            &ids,
-                            is_bytes,
-                        )),
+                            col_array.clone(),
+                        ))
                     }
-                }
+                    None => Some(crate::scan::deferred_encode::build_state_doc_address(
+                        segment_ord,
+                        &ids,
+                    )),
+                },
             })
             .collect();
 
         Some(Batch {
-            ids: ids
-                .into_iter()
-                .zip(scores)
-                .map(|(id, score)| {
-                    (
-                        SearchIndexScore { bm25: score },
-                        DocAddress::new(segment_ord, id),
-                    )
-                })
-                .collect(),
+            num_rows: ids.len(),
             fields,
         })
-    }
-
-    /// Prefetch a single batch and store it for the next `next()` call.
-    ///
-    /// This is used to force some work between parallel segment checkouts while
-    /// preserving correctness (the prefetched batch will still be returned).
-    ///
-    /// **WARNING:** This method is specialized for multi-partition parallel workflows
-    /// (where all partitions must be opened concurrently and checked out via throttled loop).
-    /// It should **not** be used for single-partition lazy execution, as chaining segments
-    /// end-on-end dynamically does not require prefetching to yield time.
-    pub fn prefetch_next(
-        &mut self,
-        ffhelper: &FFHelper,
-        visibility: &mut VisibilityChecker,
-        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
-    ) {
-        if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
-                self.prefetched = Some(batch);
-            }
-        }
     }
 }

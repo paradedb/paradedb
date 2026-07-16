@@ -57,7 +57,7 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
-/// Describes how a [`MvccDirectory`] should resolve segment visibility.  Note that
+/// Describes how a `MvccDirectory` should resolve segment visibility.  Note that
 /// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
 /// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
 /// an index has many (thousands!) of segments.
@@ -389,7 +389,7 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a list of all segment components to Tantivy,
-    /// identified by <uuid>.<ext> PathBufs
+    /// identified by `<uuid>.<ext>` PathBufs
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         unsafe {
             Ok(MetaPage::open(&self.indexrel)
@@ -777,10 +777,10 @@ pub fn index_memory_segment(
                 }
 
                 let mut htsv_result = {
-                    let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                    let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     HeapTupleSatisfiesVacuum(
-                        (*heap_fetch_state.buffer_slot()).base.tuple,
+                        (*heap_fetch_state.buffer_heap_slot()).base.tuple,
                         oldest_xmin,
                         buffer,
                     )
@@ -800,10 +800,10 @@ pub fn index_memory_segment(
                     let fresh_oldest_xmin =
                         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
                     if fresh_oldest_xmin != oldest_xmin {
-                        let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                        let buffer = (*heap_fetch_state.buffer_heap_slot()).buffer;
                         let _lock = BorrowedBuffer::from_pg(buffer);
                         htsv_result = HeapTupleSatisfiesVacuum(
-                            (*heap_fetch_state.buffer_slot()).base.tuple,
+                            (*heap_fetch_state.buffer_heap_slot()).base.tuple,
                             fresh_oldest_xmin,
                             buffer,
                         );
@@ -811,6 +811,11 @@ pub fn index_memory_segment(
                 }
 
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
+                    // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
+                    // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
+                    // skip so the slot releases its buffer pin.
+                    pg_sys::ExecClearTuple(heap_fetch_state.slot());
+
                     // This copy of the tuple is no longer visible to any transaction. Are there
                     // more in the HOT chain?
                     if call_again {

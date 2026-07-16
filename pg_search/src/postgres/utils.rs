@@ -1269,6 +1269,27 @@ impl Drop for TempPgList {
     }
 }
 
+/// Returns `true` if `index_predicate` belongs to a partial index whose predicate
+/// is NOT implied by the query's restriction clauses -- i.e. the query is missing
+/// the predicate, so the index is missing rows the query needs and cannot safely
+/// answer it. Returns `false` for a non-partial index, or a partial index whose
+/// predicate the query implies.
+pub unsafe fn missing_partial_index_predicate(
+    index_predicate: *mut pg_sys::List,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> bool {
+    // Not a partial index: nothing can be missing.
+    if index_predicate.is_null() {
+        return false;
+    }
+
+    let mut clause_list: *mut pg_sys::List = std::ptr::null_mut();
+    for ri in restrict_info.iter_ptr() {
+        clause_list = pg_sys::lappend(clause_list, (*ri).clause as *mut std::ffi::c_void);
+    }
+    !pg_sys::predicate_implied_by(index_predicate, clause_list, false)
+}
+
 /// Filter out RestrictInfo entries whose clauses are implied by a partial index predicate.
 ///
 /// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
@@ -1278,6 +1299,10 @@ impl Drop for TempPgList {
 ///
 /// This function uses PostgreSQL's `predicate_implied_by` to check if the index predicate
 /// implies each query clause. If so, that clause is filtered out.
+///
+/// This is only the redundant-clause optimization; it does NOT verify the query is
+/// compatible with the partial index. Callers must separately gate on
+/// [`missing_partial_index_predicate`].
 pub unsafe fn filter_implied_predicates(
     index_predicate: *mut pg_sys::List,
     restrict_info: &PgList<pg_sys::RestrictInfo>,
@@ -1359,6 +1384,104 @@ pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_s
             let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
             let te = pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true);
             tlist.push(te);
+        }
+    }
+}
+
+/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
+pub unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if node.is_null() {
+            return node;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+            }
+            pg_sys::NodeTag::T_PlaceHolderVar => {
+                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+            }
+            _ => break,
+        }
+    }
+    node
+}
+
+/// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`
+/// whose OID is present in `funcoids`. Returns true if it matches.
+pub unsafe fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oid]) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    let check_node = strip_wrappers(node);
+
+    if (*check_node).type_ == pg_sys::NodeTag::T_FuncExpr {
+        let funcexpr = check_node as *mut pg_sys::FuncExpr;
+        if funcoids.contains(&(*funcexpr).funcid) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Helper function to inspect the parent plan's requirements (`processed_tlist`
+/// and `pathkeys`) and add any missing search operator function calls (like `pdb.score(...)`)
+/// into the CustomScan's targetlist.
+///
+/// This ensures that if the CustomScan is expected to output a score (or similar),
+/// it is actually present in its `targetlist` so the `Result` node can simply
+/// project it, rather than Postgres natively trying to execute the dummy function.
+pub unsafe fn add_missing_search_operators_to_tlist(
+    root: *mut pg_sys::PlannerInfo,
+    best_path: *mut pg_sys::Path,
+    tlist: &mut PgList<pg_sys::TargetEntry>,
+    search_operator_funcoids: &[pg_sys::Oid],
+) {
+    let mut add_missing_func = |expr: *mut pg_sys::Node| {
+        if !is_search_operator(expr, search_operator_funcoids) {
+            return;
+        }
+
+        let unwrapped_expr = strip_wrappers(expr.cast());
+        let already_present = tlist.iter_ptr().any(|te| {
+            pg_sys::equal(
+                strip_wrappers((*te).expr.cast()).cast(),
+                unwrapped_expr.cast(),
+            )
+        });
+
+        if !already_present {
+            let resno = tlist.len() as pg_sys::AttrNumber + 1;
+            let te = pg_sys::makeTargetEntry(
+                pg_sys::copyObjectImpl(expr.cast()).cast(),
+                resno,
+                std::ptr::null_mut(),
+                true, // resjunk
+            );
+            tlist.push(te);
+        }
+    };
+
+    // Look in processed_tlist
+    if !(*root).processed_tlist.is_null() {
+        let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
+        for te in p_tlist.iter_ptr() {
+            add_missing_func((*te).expr.cast());
+        }
+    }
+
+    // Look in pathkeys
+    if !best_path.is_null() && !(*best_path).pathkeys.is_null() {
+        let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*best_path).pathkeys);
+        for pk in pathkeys.iter_ptr() {
+            let eclass = (*pk).pk_eclass;
+            if !eclass.is_null() {
+                let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
+                for em in members.iter_ptr() {
+                    add_missing_func((*em).em_expr.cast());
+                }
+            }
         }
     }
 }

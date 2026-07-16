@@ -42,7 +42,10 @@ use crate::postgres::customscan::pullup::{
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::utils::{
+    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator,
+    missing_partial_index_predicate,
+};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
@@ -171,7 +174,7 @@ pub unsafe fn collect_join_agg_sources(
 ///    the planner has absorbed WHERE-clause quals into `RestrictInfo` lists on
 ///    the planned `JoinPath` nodes - so `(*from).quals` can be null even for
 ///    `SELECT ... FROM a, b WHERE a.id = b.id`. We recursively walk the path
-///    tree via [`extract_equi_keys_from_path`], inspecting each `JoinPath`'s
+///    tree via `extract_equi_keys_from_path`, inspecting each `JoinPath`'s
 ///    `joinrestrictinfo` for `OpExpr` nodes with merge-joinable (equality)
 ///    operators whose two sides reference different base relations.
 ///
@@ -404,20 +407,10 @@ unsafe fn build_scan_node(
         )
     })?;
 
-    // Under MPP a pre-sorted scan lowers to a multi-partition scan the dispatch codec
-    // declines (it ships only the single-partition lazy leaf), so the query falls back to
-    // serial. Correct, just slower for sorted sources.
-    let sort_order = if crate::gucs::is_columnar_sort_enabled() {
-        bm25_index.options().sort_by().into_iter().next()
-    } else {
-        None
-    };
-
     // Build a JoinSourceCandidate progressively
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
         .with_heaprelid(source.relid)
-        .with_indexrelid(bm25_index.oid())
-        .with_sort_order(sort_order);
+        .with_indexrelid(bm25_index.oid());
 
     // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
     // (and everything built on it - AggregateIndexVarMapper, build_source_df)
@@ -439,6 +432,10 @@ unsafe fn build_scan_node(
     if !rel_array.is_null() && (rti as isize) < (*root).simple_rel_array_size as isize {
         let rel = *rel_array.offset(rti as isize);
         if !rel.is_null() {
+            let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+            if missing_partial_index_predicate(bm25_index.rd_indpred, &baserestrictinfo) {
+                return Err("query does not imply the partial index predicate".into());
+            }
             classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
         }
     }
@@ -1290,8 +1287,8 @@ unsafe fn all_vars_are_fast_fields_for_agg(
 }
 
 /// Transform collected cross-table clause pointers into a `JoinLevelExpr`
-/// tree by delegating to JoinScan's [`transform_to_search_expr`] via a
-/// temporary [`JoinCSClause`]. After plan_positions have been assigned,
+/// tree by delegating to JoinScan's `transform_to_search_expr` via a
+/// temporary `JoinCSClause`. After plan_positions have been assigned,
 /// `plan.sources()` returns `&[&JoinSource]` - the same type JoinScan uses -
 /// so the shared function works directly.
 ///
@@ -1333,19 +1330,17 @@ unsafe fn build_search_filter(
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     for &clause in clauses {
-        match transform_to_search_expr(
+        // If any clause can't be fully transformed, bail out.
+        // Returning None leaves the clause as "unhandled", which causes
+        // has_non_equi_join_quals to reject the DataFusion path.
+        let expr = transform_to_search_expr(
             root,
             clause,
             &sources,
             &mut temp_clause,
             &mut multi_table_clauses,
-        ) {
-            Some(expr) => expr_trees.push(expr),
-            // If any clause can't be fully transformed, bail out.
-            // Returning None leaves the clause as "unhandled", which causes
-            // has_non_equi_join_quals to reject the DataFusion path.
-            None => return None,
-        }
+        )?;
+        expr_trees.push(expr);
     }
 
     if expr_trees.is_empty() {

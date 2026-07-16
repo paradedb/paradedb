@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::index::fast_fields_helper::FFHelper;
-use crate::scan::deferred_encode::extract_materialized_type_from_union;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::table_provider::PgSearchTableProvider;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
@@ -237,16 +236,7 @@ fn get_union_info(
     let mut new_fields = Vec::new();
 
     for (qualifier, field) in schema.iter() {
-        if let arrow_schema::DataType::Union(union_fields, _) = field.data_type() {
-            let materialized_type = extract_materialized_type_from_union(union_fields);
-
-            let materialized_field = Arc::new(arrow_schema::Field::new(
-                field.name(),
-                materialized_type,
-                field.is_nullable(),
-            ));
-            new_fields.push((qualifier.cloned(), materialized_field));
-
+        if let arrow_schema::DataType::Union(_, _) = field.data_type() {
             // Find the matching deferred field by tracing the column lineage back to its
             // base TableScan name. Name-matching is safe here because we consume entries from
             // all_deferred one-by-one: for a self-join both sides produce an identical
@@ -254,12 +244,27 @@ fn get_union_info(
             // claims its own entry without duplication.
             let col =
                 datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
+            let mut is_bytes = false;
             if let Some(base_col) = trace_column(plan, &col) {
                 if let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name) {
                     let d = all_deferred.remove(pos);
+                    is_bytes = d.is_bytes;
                     active_deferred.push(d);
                 }
             }
+
+            let materialized_type = if is_bytes {
+                arrow_schema::DataType::BinaryView
+            } else {
+                arrow_schema::DataType::Utf8View
+            };
+
+            let materialized_field = Arc::new(arrow_schema::Field::new(
+                field.name(),
+                materialized_type,
+                field.is_nullable(),
+            ));
+            new_fields.push((qualifier.cloned(), materialized_field));
         } else {
             new_fields.push((qualifier.cloned(), field.clone()));
         }
@@ -590,11 +595,29 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
         for (i, field) in child_schema.fields().iter().enumerate() {
             let (qualifier, _) = child_schema.qualified_field(i);
 
-            if let arrow_schema::DataType::Union(union_fields, _) = field.data_type() {
+            if let arrow_schema::DataType::Union(_, _) = field.data_type() {
+                // Find the corresponding deferred field by tracing column lineage.
+                // Name-matching is safe: for a self-join both sides produce identical
+                // DeferredField structs; we consume entries one-by-one so each Union
+                // column in the child schema claims its own distinct slot.
+                let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
+                let mut is_bytes = false;
+                if let Some(base_col) = trace_column(&input, &target_col) {
+                    if let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name) {
+                        let d = deferred_pool.remove(pos);
+                        is_bytes = d.is_bytes;
+                        new_deferred_fields.push(d);
+                    }
+                }
+
                 // When DataFusion's `OptimizeProjections` rule rebuilds nodes, it trims the schema.
                 // We must manually map the incoming `Union` types back to their materialized `T` types
                 // to construct a truthful output schema, avoiding invariant panics.
-                let materialized_type = extract_materialized_type_from_union(union_fields);
+                let materialized_type = if is_bytes {
+                    arrow_schema::DataType::BinaryView
+                } else {
+                    arrow_schema::DataType::Utf8View
+                };
 
                 qualified_fields.push((
                     qualifier.cloned(),
@@ -604,17 +627,6 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
                         field.is_nullable(),
                     )),
                 ));
-
-                // Find the corresponding deferred field by tracing column lineage.
-                // Name-matching is safe: for a self-join both sides produce identical
-                // DeferredField structs; we consume entries one-by-one so each Union
-                // column in the child schema claims its own distinct slot.
-                let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
-                if let Some(base_col) = trace_column(&input, &target_col) {
-                    if let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name) {
-                        new_deferred_fields.push(deferred_pool.remove(pos));
-                    }
-                }
             } else {
                 qualified_fields.push((
                     qualifier.cloned(),
@@ -735,6 +747,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         display_name: deferred.name.clone(),
                         is_bytes: deferred.is_bytes,
                         canonical: deferred.canonical.clone(),
+                        rebuild: deferred.rebuild.clone(),
                     },
                 );
             }
@@ -769,4 +782,37 @@ pub struct DeferredField {
     pub name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
+    /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing
+    /// behavior of collecting the helper from the plan subtree.
+    #[serde(default)]
+    pub rebuild: Option<DeferredLookupRebuild>,
+}
+
+/// Everything a worker needs to rebuild the fast-field reader for a deferred column when the
+/// scan that would normally supply it lives in a different plan fragment: the registered field
+/// name/type at `canonical.ff_index`, and which segment view to open.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeferredLookupRebuild {
+    pub field_name: String,
+    pub field_type: crate::schema::SearchFieldType,
+    /// The source's non-partitioning index, resolving the canonical segment set every worker
+    /// replicates. `None` means the partitioning source: its full segment list lives in the
+    /// worker's `ParallelScanState` (only the scan's runtime claiming divides it, so a reader
+    /// over the full list sees every address any producer packed).
+    pub np_source_idx: Option<usize>,
+}
+
+// `SearchFieldType` has no ordering; (name, np index) is enough for the opportunistic
+// plan-ordering these impls serve.
+impl PartialOrd for DeferredLookupRebuild {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeferredLookupRebuild {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.field_name, self.np_source_idx).cmp(&(&other.field_name, other.np_source_idx))
+    }
 }

@@ -5,6 +5,9 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6", features = ["derive"] }
@@ -33,3 +36,9 @@ toml = "0.8.23"
 url = "2.5.8"
 postgres-openssl = "0.5.3"
 openssl = "0.10.78"
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "full",
+] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

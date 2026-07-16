@@ -76,7 +76,8 @@ FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
 GROUP BY category;
 
--- Test 2.2: With bucket limit = 1, Tantivy returns only 1 group (truncated)
+-- Test 2.2: With bucket limit = 1, the estimate exceeds the cap so it routes to
+-- DataFusion and returns every group (no truncation).
 SELECT category, COUNT(*)
 FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
@@ -96,7 +97,8 @@ WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphone
 GROUP BY category
 ORDER BY category;
 
--- Test 2.4: Scalar aggregate (no GROUP BY) via DataFusion fallback
+-- Test 2.4: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
+-- single row and cannot truncate, so the bucket cap is irrelevant.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)
 FROM df_fallback_products

@@ -5,6 +5,9 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -16,6 +19,7 @@ pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
 deferred_wal = []
+dst = ["dep:antithesis_sdk"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
 debug-logging = [
@@ -24,6 +28,9 @@ debug-logging = [
 
 [dependencies]
 async-trait = "0.1.89"
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "full",
+], optional = true }
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
 arrow-array = "58.1.0"
@@ -38,6 +45,7 @@ once_cell = "1.21.4"
 parking_lot = "0.12.5"
 tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
+rustix = { version = "1", features = ["fs"] }
 rustc-hash = "2.1.2"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = [
@@ -78,7 +86,7 @@ tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "54", default-features = false }
 datafusion-proto = { version = "54", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "f2087994c4e7b8f742168762b2e1da5e9a9c13c1", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-07-15-173408", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"
@@ -89,4 +97,4 @@ rstest = "0.25.0"
 proptest = "1.11.0"
 
 [package.metadata.cargo-machete]
-ignored = ["indexmap", "libc", "tantivy-common"]
+ignored = ["indexmap", "tantivy-common"]

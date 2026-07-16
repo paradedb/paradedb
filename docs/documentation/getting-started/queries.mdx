@@ -67,7 +67,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .where(rating: 3..)
         .select(:description, :rating, :category)
         .order(:rating)
@@ -158,7 +158,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_all("running shoes")
+        .match_all("running shoes")
         .where(rating: 3..)
         .select(:description, :rating, :category)
         .order(:rating)
@@ -247,7 +247,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .where(rating: 3..)
         .with_score
         .select(:description)
@@ -346,7 +346,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .where(rating: 3..)
         .with_snippet(:description)
         .with_score
@@ -436,7 +436,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes")
+        .match_any("running shoes")
         .select(:description, :rating, :category)
         .order(:rating)
         .limit(5)
@@ -529,7 +529,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 relation = MockItem.search(:description)
-                   .matching_any("running shoes")
+                   .match_any("running shoes")
                    .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
                    .order(:rating)
                    .select(:description, :rating, :category)

@@ -39,7 +39,7 @@ use crate::scan::tantivy_lookup_exec::PhysicalDeferredField;
 /// `State 0` (doc_address) rows and using the provided `FFHelper` to resolve them to term ordinals.
 pub struct DeferredResolveExec {
     pub input: Arc<dyn ExecutionPlan>,
-    pub ffhelper: Arc<FFHelper>,
+    pub ffhelpers: crate::api::HashMap<u32, Arc<FFHelper>>,
     // Information about the columns that are deferred Unions
     pub deferred_fields: Vec<PhysicalDeferredField>,
     pub schema: SchemaRef,
@@ -57,7 +57,7 @@ impl std::fmt::Debug for DeferredResolveExec {
 
 fn resolve_union_to_struct(
     union_col: &UnionArray,
-    ffhelper: &FFHelper,
+    ffhelpers: &crate::api::HashMap<u32, Arc<FFHelper>>,
     field: &PhysicalDeferredField,
 ) -> datafusion::common::Result<ArrayRef> {
     use crate::index::fast_fields_helper::FFType;
@@ -139,8 +139,14 @@ fn resolve_union_to_struct(
         let doc_ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
         let mut term_ords: Vec<Option<tantivy::termdict::TermOrdinal>> = vec![None; doc_ids.len()];
 
-        let col = ffhelper.column(seg_ord, field.canonical.ff_index);
-        match col {
+        let ffhelper = ffhelpers.get(&field.canonical.indexrelid).ok_or_else(|| {
+            DataFusionError::Internal(format!(
+                "DeferredResolveExec: missing ffhelper for indexrelid {}",
+                field.canonical.indexrelid
+            ))
+        })?;
+        let fast_field = ffhelper.column(seg_ord, field.canonical.ff_index);
+        match fast_field {
             FFType::Text(str_col) => {
                 str_col.ords().first_vals(&doc_ids, &mut term_ords);
             }
@@ -178,7 +184,7 @@ fn resolve_union_to_struct(
 impl DeferredResolveExec {
     pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
-        ffhelper: Arc<FFHelper>,
+        ffhelpers: crate::api::HashMap<u32, Arc<FFHelper>>,
         deferred_fields: Vec<PhysicalDeferredField>,
     ) -> datafusion::common::Result<Self> {
         let input_schema = input.schema();
@@ -203,7 +209,7 @@ impl DeferredResolveExec {
 
         Ok(Self {
             input,
-            ffhelper,
+            ffhelpers,
             deferred_fields,
             schema,
             properties,
@@ -252,7 +258,7 @@ impl ExecutionPlan for DeferredResolveExec {
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         Self::try_new(
             children[0].clone(),
-            Arc::clone(&self.ffhelper),
+            self.ffhelpers.clone(),
             self.deferred_fields.clone(),
         )
         .map(|e| Arc::new(e) as Arc<dyn ExecutionPlan>)
@@ -268,7 +274,7 @@ impl ExecutionPlan for DeferredResolveExec {
         Ok(Box::pin(DeferredResolveStream {
             input_stream,
             schema: Arc::clone(&self.schema),
-            _ffhelper: Arc::clone(&self.ffhelper),
+            _ffhelpers: self.ffhelpers.clone(),
             deferred_fields: self.deferred_fields.clone(),
             baseline_metrics,
         }))
@@ -305,23 +311,9 @@ impl DeferredResolveExec {
             },
         )?;
 
-        let indexrelid = deferred_fields
-            .first()
-            .map(|f| f.canonical.indexrelid)
-            .ok_or_else(|| {
-                datafusion::common::DataFusionError::Internal(
-                    "DeferredResolveExec requires at least one deferred field".into(),
-                )
-            })?;
-
-        let ffhelper = ffhelpers
-            .get(&indexrelid)
-            .cloned()
-            .unwrap_or_else(|| Arc::new(FFHelper::empty()));
-
         Ok(Arc::new(DeferredResolveExec::try_new(
             input,
-            ffhelper,
+            ffhelpers,
             deferred_fields,
         )?))
     }
@@ -330,7 +322,7 @@ impl DeferredResolveExec {
 struct DeferredResolveStream {
     input_stream: SendableRecordBatchStream,
     schema: SchemaRef,
-    _ffhelper: Arc<FFHelper>,
+    _ffhelpers: crate::api::HashMap<u32, Arc<FFHelper>>,
     deferred_fields: Vec<PhysicalDeferredField>,
     baseline_metrics: BaselineMetrics,
 }
@@ -344,14 +336,14 @@ impl datafusion::execution::RecordBatchStream for DeferredResolveStream {
 fn enrich_batch(
     batch: RecordBatch,
     deferred_fields: &[PhysicalDeferredField],
-    ffhelper: &FFHelper,
+    ffhelpers: &crate::api::HashMap<u32, Arc<FFHelper>>,
     schema: &SchemaRef,
 ) -> datafusion::common::Result<RecordBatch> {
     let mut new_columns = batch.columns().to_vec();
     for field in deferred_fields {
         let col_idx = field.col_idx;
         if let Some(_union_col) = new_columns[col_idx].as_any().downcast_ref::<UnionArray>() {
-            let resolved = resolve_union_to_struct(_union_col, ffhelper, field)?;
+            let resolved = resolve_union_to_struct(_union_col, ffhelpers, field)?;
             new_columns[col_idx] = resolved;
         } else {
             // If it's not a UnionArray, it means we don't have deferred data.
@@ -376,7 +368,7 @@ impl futures::Stream for DeferredResolveStream {
             std::task::Poll::Ready(Some(Ok(batch))) => {
                 let timer = self.baseline_metrics.elapsed_compute().timer();
                 let result =
-                    enrich_batch(batch, &self.deferred_fields, &self._ffhelper, &self.schema);
+                    enrich_batch(batch, &self.deferred_fields, &self._ffhelpers, &self.schema);
                 timer.done();
                 std::task::Poll::Ready(Some(result.record_output(&self.baseline_metrics)))
             }

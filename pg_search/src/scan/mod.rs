@@ -17,6 +17,7 @@
 
 pub mod batch_scanner;
 pub mod codec;
+pub mod deferred_aggregate_rule;
 pub mod deferred_encode;
 pub mod deferred_resolve_exec;
 pub mod execution_plan;

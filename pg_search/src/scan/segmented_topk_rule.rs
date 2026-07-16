@@ -53,6 +53,7 @@ use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::ExecutionPlan;
 
+use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::deferred_resolve_exec::DeferredResolveExec;
@@ -343,9 +344,12 @@ fn try_inject_below_lookup(
                     })
                     .collect();
 
+                let mut ffhelpers = HashMap::default();
+                ffhelpers.insert(target_indexrelid, Arc::clone(&ffhelper));
+
                 let resolved_child = Arc::new(DeferredResolveExec::try_new(
                     Arc::clone(lookup_child),
-                    Arc::clone(&ffhelper),
+                    ffhelpers,
                     deferred_fields_for_resolve,
                 )?) as Arc<dyn ExecutionPlan>;
 

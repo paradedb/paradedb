@@ -151,6 +151,10 @@ impl TantivyLookupExec {
         self.ffhelpers.get(&indexrelid)
     }
 
+    pub fn ffhelpers(&self) -> &crate::api::HashMap<u32, Arc<FFHelper>> {
+        &self.ffhelpers
+    }
+
     /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
     /// pulls them from the scans in its decoded subtree, keyed by index relid. `decoders` is
     /// derived from `deferred_fields`, so it's recomputed on decode.

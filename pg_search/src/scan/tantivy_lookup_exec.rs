@@ -6,10 +6,15 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{
     for_each_segment, ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
+    NULL_TERM_ORDINAL,
 };
+use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::ParallelScanState;
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::late_materialization::DeferredLookupRebuild;
 
 use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
 use arrow_array::{StructArray, UInt32Array};
@@ -50,7 +55,7 @@ pub struct PhysicalDeferredField {
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
     #[serde(default)]
-    pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
+    pub rebuild: Option<DeferredLookupRebuild>,
 }
 
 impl PhysicalDeferredField {
@@ -161,8 +166,8 @@ impl TantivyLookupExec {
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
-        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
-        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        non_partitioning_segment_ids: &[HashSet<tantivy::index::SegmentId>],
+        parallel_state: Option<*mut ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let deferred_fields: Vec<PhysicalDeferredField> =
             serde_json::from_slice(buf).map_err(|e| {
@@ -193,14 +198,14 @@ pub(crate) struct LookupRebuildContext<'a> {
     /// MPP worker path: a non-partitioning source reads its replicated canonical segment set;
     /// the partitioning source reads the full list in the worker's `ParallelScanState` (the
     /// same view its scan's reader opens, so segment ordering matches the packed addresses).
-    pub non_partitioning_segment_ids: &'a [crate::api::HashSet<tantivy::index::SegmentId>],
-    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    pub non_partitioning_segment_ids: &'a [HashSet<tantivy::index::SegmentId>],
+    pub parallel_state: Option<*mut ParallelScanState>,
 }
 
 /// Resolve the segment view a rebuilt helper opens for one deferred column's index.
 pub(crate) fn rebuild_mvcc(
     context: LookupRebuildContext,
-    rebuild: &crate::scan::late_materialization::DeferredLookupRebuild,
+    rebuild: &DeferredLookupRebuild,
 ) -> Result<MvccSatisfies> {
     match rebuild.np_source_idx {
         Some(np_source_idx) => {
@@ -223,7 +228,7 @@ pub(crate) fn rebuild_mvcc(
                 )
             })?;
             Ok(MvccSatisfies::ParallelWorker(unsafe {
-                crate::postgres::customscan::parallel::list_segment_ids(ps)
+                list_segment_ids(ps)
             }))
         }
     }
@@ -233,10 +238,7 @@ pub(crate) fn rebuild_mvcc(
 /// `ff_index` (`Junk` fills the gaps), over the segment view `mvcc` picks.
 pub(crate) fn open_rebuilt_ffhelper(
     indexrelid: u32,
-    entries: &[(
-        usize,
-        &crate::scan::late_materialization::DeferredLookupRebuild,
-    )],
+    entries: &[(usize, &DeferredLookupRebuild)],
     mvcc: MvccSatisfies,
 ) -> Result<Arc<FFHelper>> {
     let index_rel = PgSearchRelation::open(pgrx::pg_sys::Oid::from(indexrelid));
@@ -263,7 +265,7 @@ pub(crate) fn open_rebuilt_ffhelper(
 /// fragment (a lookup above a network shuffle finds no scan in its decoded subtree). The
 /// `context` picks how the segment set is resolved; either way the reader's segment ordering
 /// matches the ordering the addresses were packed against.
-fn rebuild_missing_ffhelpers(
+pub(crate) fn rebuild_missing_ffhelpers(
     deferred_fields: &[PhysicalDeferredField],
     ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
     context: LookupRebuildContext,
@@ -271,7 +273,7 @@ fn rebuild_missing_ffhelpers(
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
     // lines up by construction); they rebuild only on a worker whose fragment has that scan
     // behind a network boundary.
-    let mut rebuild_indexes: crate::api::HashSet<u32> = Default::default();
+    let mut rebuild_indexes: HashSet<u32> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
@@ -294,10 +296,7 @@ fn rebuild_missing_ffhelpers(
 
     for (indexrelid, fields) in per_index {
         let mvcc = rebuild_mvcc(context, fields[0].rebuild.as_ref().unwrap())?;
-        let entries: Vec<(
-            usize,
-            &crate::scan::late_materialization::DeferredLookupRebuild,
-        )> = fields
+        let entries: Vec<(usize, &DeferredLookupRebuild)> = fields
             .iter()
             .map(|f| (f.canonical.ff_index, f.rebuild.as_ref().unwrap()))
             .collect();
@@ -327,9 +326,10 @@ fn build_schema_and_decoders(
     // This pairs the first "description" in the schema with the first "description"
     // in the deferred pool, removing it so the second one pairs correctly.
     for (col_idx, field) in input_schema.fields().iter().enumerate() {
-        let is_union = matches!(field.data_type(), DataType::Union(_, _));
+        let is_union_or_struct = matches!(field.data_type(), DataType::Union(_, _))
+            || matches!(field.data_type(), DataType::Struct(_));
 
-        if is_union {
+        if is_union_or_struct {
             if let Some(pos) = deferred_pool.iter().position(|d| d.col_idx == col_idx) {
                 let d = deferred_pool.remove(pos);
                 fields.push(Field::new(field.name(), d.output_data_type(), true));
@@ -342,7 +342,7 @@ fn build_schema_and_decoders(
                 fields.push(field.as_ref().clone());
             }
         } else {
-            // Pass through fields that are not unions or not in our deferred pool
+            // Pass through fields that are not deferred columns
             fields.push(field.as_ref().clone());
         }
     }
@@ -466,15 +466,7 @@ fn enrich_batch(
     let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
 
     for decoder in decoders {
-        let union_array = output_columns[decoder.col_idx]
-            .as_any()
-            .downcast_ref::<arrow_array::UnionArray>()
-            .ok_or_else(|| {
-                DataFusionError::Execution(format!(
-                    "expected UnionArray for deferred column at index {}",
-                    decoder.col_idx
-                ))
-            })?;
+        let array = &output_columns[decoder.col_idx];
 
         let ffhelper = ffhelpers
             .get(&decoder.canonical.indexrelid)
@@ -495,12 +487,85 @@ fn enrich_batch(
             }
         };
 
-        // Replace the raw UnionArray with the decoded String/Binary array
-        output_columns[decoder.col_idx] =
-            materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?;
+        if let Some(union_array) = array.as_any().downcast_ref::<arrow_array::UnionArray>() {
+            output_columns[decoder.col_idx] =
+                materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?;
+        } else if let Some(struct_array) = array.as_any().downcast_ref::<arrow_array::StructArray>()
+        {
+            output_columns[decoder.col_idx] =
+                materialize_deferred_struct_column(ffhelper, &ffcolumn, struct_array, num_rows)?;
+        } else {
+            return Err(DataFusionError::Execution(format!(
+                "expected UnionArray or StructArray for deferred column at index {}",
+                decoder.col_idx
+            )));
+        }
     }
 
     RecordBatch::try_new(schema.clone(), output_columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+fn materialize_deferred_struct_column(
+    ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
+    struct_array: &arrow_array::StructArray,
+    num_rows: usize,
+) -> Result<ArrayRef> {
+    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    let seg_ord_array = struct_array
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::UInt32Array>()
+        .ok_or_else(|| DataFusionError::Execution("expected UInt32Array for seg_ord".into()))?;
+    let ord_array = struct_array
+        .column(1)
+        .as_any()
+        .downcast_ref::<arrow_array::UInt64Array>()
+        .ok_or_else(|| DataFusionError::Execution("expected UInt64Array for term_ord".into()))?;
+
+    let num_segments = ffhelper.num_segments();
+    let mut ords_by_seg: OrdsBySegment = vec![Vec::new(); num_segments];
+
+    for row_idx in 0..num_rows {
+        let seg_ord = seg_ord_array.value(row_idx);
+        let term_ord = if ord_array.is_null(row_idx) {
+            None
+        } else {
+            let ord = ord_array.value(row_idx);
+            if ord != NULL_TERM_ORDINAL {
+                Some(ord)
+            } else {
+                None
+            }
+        };
+        ords_by_seg[seg_ord as usize].push((row_idx, term_ord));
+    }
+
+    decode_term_ordinals(
+        ffhelper,
+        ffcolumn,
+        ords_by_seg,
+        &mut segment_arrays,
+        &mut indices,
+    )?;
+
+    if segment_arrays.is_empty() {
+        return Ok(arrow_array::new_null_array(
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { ff_index: _ }) {
+                arrow_schema::DataType::BinaryView
+            } else {
+                arrow_schema::DataType::Utf8View
+            },
+            num_rows,
+        ));
+    }
+
+    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
+        segment_arrays.iter().map(|a| a.as_ref()).collect();
+    interleave(&segment_arrays_refs, &indices)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 

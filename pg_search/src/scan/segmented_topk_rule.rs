@@ -55,8 +55,11 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+use crate::scan::deferred_resolve_exec::DeferredResolveExec;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::segmented_topk_exec::{AbsorbedVisibilityData, SegmentedTopKExec};
+use crate::scan::segmented_topk_exec::{
+    AbsorbedVisibilityData, DeferredSortColumn, SegmentedTopKExec,
+};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 #[derive(Debug)]
@@ -262,13 +265,11 @@ fn try_inject_below_lookup(
                             .iter()
                             .find(|d| d.col_idx == physical_idx)
                         {
-                            deferred_columns.push(
-                                crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                    sort_col_idx: physical_idx,
-                                    canonical: field.canonical.clone(),
-                                    rebuild: field.rebuild.clone(),
-                                },
-                            );
+                            deferred_columns.push(DeferredSortColumn {
+                                sort_col_idx: physical_idx,
+                                canonical: field.canonical.clone(),
+                                rebuild: field.rebuild.clone(),
+                            });
                         }
                     }
                 }
@@ -331,8 +332,25 @@ fn try_inject_below_lookup(
                 let rewritten_lex_ordering =
                     LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
 
-                let segmented_topk = Arc::new(SegmentedTopKExec::new(
+                let deferred_fields_for_resolve: Vec<_> = deferred_columns
+                    .iter()
+                    .filter_map(|d| {
+                        lookup
+                            .deferred_fields()
+                            .iter()
+                            .find(|f| f.col_idx == d.sort_col_idx)
+                            .cloned()
+                    })
+                    .collect();
+
+                let resolved_child = Arc::new(DeferredResolveExec::try_new(
                     Arc::clone(lookup_child),
+                    Arc::clone(&ffhelper),
+                    deferred_fields_for_resolve,
+                )?) as Arc<dyn ExecutionPlan>;
+
+                let segmented_topk = Arc::new(SegmentedTopKExec::new(
+                    resolved_child,
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
                     Arc::clone(&ffhelper),

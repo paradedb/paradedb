@@ -45,6 +45,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
+use crate::scan::deferred_resolve_exec::DeferredResolveExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
@@ -57,6 +58,7 @@ const TAG_PG_SEARCH_SCAN: u8 = 2;
 const TAG_VISIBILITY_FILTER: u8 = 4;
 const TAG_TANTIVY_LOOKUP: u8 = 5;
 const TAG_SEGMENTED_TOPK: u8 = 6;
+const TAG_DEFERRED_RESOLVE: u8 = 7;
 
 /// [`PhysicalExtensionCodec`] for the `pg_search` custom execs, carrying the runtime context a
 /// worker needs to rebuild them. Encode is context-free (the leader serializes the recipe);
@@ -143,6 +145,17 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     self.parallel_state,
                 )
             }
+            TAG_DEFERRED_RESOLVE => {
+                let input = single_input(inputs)?;
+                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                DeferredResolveExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    ffhelpers,
+                    &self.non_partitioning_segment_ids,
+                    self.parallel_state,
+                )
+            }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
             ))),
@@ -168,6 +181,11 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
             buf.extend_from_slice(&topk.encode_for_dispatch()?);
+            return Ok(());
+        }
+        if let Some(deferred) = node.downcast_ref::<DeferredResolveExec>() {
+            buf.push(TAG_DEFERRED_RESOLVE);
+            buf.extend_from_slice(&deferred.encode_for_dispatch()?);
             return Ok(());
         }
         Err(DataFusionError::NotImplemented(format!(

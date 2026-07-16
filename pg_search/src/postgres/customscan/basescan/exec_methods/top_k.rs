@@ -311,13 +311,16 @@ impl ExecMethod for TopKScanExecState {
             }
         }
 
-        // Resolve any parameterized vector ORDER BY query vectors (generic
-        // prepared-statement plans where `<-> $1` left a Param node behind
-        // at planning time). We mutate both copies — the canonical one in
-        // `state.exec_method_type` and our local clone — so subsequent
-        // reads see the bound floats.
+        // Resolve any not-yet-concrete vector ORDER BY query vectors: a bound
+        // `<-> $1` Param (generic prepared-statement plan) or a serialized
+        // non-Var, non-volatile operand expression (e.g.
+        // `<-> current_setting('cohere.qvec')::vector`) left behind at planning
+        // time. We mutate both copies — the canonical one in
+        // `state.exec_method_type` and our local clone — so subsequent reads
+        // see the resolved floats.
         unsafe {
             let estate = (*cstate).ss.ps.state;
+            let planstate = std::ptr::addr_of_mut!((*cstate).ss.ps);
             if !estate.is_null() {
                 if let ExecMethodType::TopK {
                     orderby_info: Some(infos),
@@ -325,12 +328,12 @@ impl ExecMethod for TopKScanExecState {
                 } = &mut state.exec_method_type
                 {
                     for info in infos.iter_mut() {
-                        info.resolve_param(estate);
+                        info.resolve_query_vector(estate, planstate);
                     }
                 }
                 if let Some(infos) = self.orderby_info.as_mut() {
                     for info in infos.iter_mut() {
-                        info.resolve_param(estate);
+                        info.resolve_query_vector(estate, planstate);
                     }
                 }
             }

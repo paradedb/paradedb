@@ -53,16 +53,19 @@ pub enum SortExpressionType {
     /// Sorting by an expression that matched an indexed expression in `pg_index.indexprs`.
     IndexedExpression,
     /// Sorting by vector distance: `ORDER BY col <-> '[...]'`.
-    /// Carries the resolved query vector (if a `Const`), or the
-    /// `Param` ID to resolve at execution time (if a parameterized
-    /// generic plan), plus the metric implied by the operator
-    /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct).
+    /// Carries the resolved query vector (if a `Const`), the `Param` ID
+    /// to resolve at execution time (if a parameterized generic plan),
+    /// or a serialized non-`Var`, non-volatile operand expression
+    /// (`query_vector_expr`) to evaluate once at execution time (e.g.
+    /// `current_setting('...')::vector`), plus the metric implied by the
+    /// operator (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct).
     /// Query vectors are passed through to tantivy raw — the storage
     /// layer owns unit-norm policy for the doc side, and the cosine
     /// scoring kernel handles non-unit queries via `inv_norm_q`.
     VectorDistance {
         query_vector: Vec<f32>,
         query_vector_param_id: Option<i32>,
+        query_vector_expr: Option<String>,
         metric: VectorMetric,
     },
     /// Sorting by a vector distance operator whose implied metric
@@ -382,6 +385,7 @@ unsafe fn extract_vector_distance(
             SortExpressionType::VectorDistance {
                 query_vector,
                 query_vector_param_id: None,
+                query_vector_expr: None,
                 metric: op_metric,
             },
         ));
@@ -400,12 +404,35 @@ unsafe fn extract_vector_distance(
             SortExpressionType::VectorDistance {
                 query_vector: Vec::new(),
                 query_vector_param_id: Some((*param).paramid),
+                query_vector_expr: None,
                 metric: op_metric,
             },
         ));
     }
 
-    None
+    if pg_sys::contain_volatile_functions(value_node) || pg_sys::contain_var_clause(value_node) {
+        return None;
+    }
+    let serialized = {
+        let c_str = pg_sys::nodeToString(value_node.cast());
+        if c_str.is_null() {
+            return None;
+        }
+        let owned = std::ffi::CStr::from_ptr(c_str)
+            .to_string_lossy()
+            .into_owned();
+        pg_sys::pfree(c_str.cast());
+        owned
+    };
+    Some((
+        var_node,
+        SortExpressionType::VectorDistance {
+            query_vector: Vec::new(),
+            query_vector_param_id: None,
+            query_vector_expr: Some(serialized),
+            metric: op_metric,
+        },
+    ))
 }
 
 /// Extract FuncExpr from PlaceHolderVar node
@@ -623,6 +650,7 @@ where
                     SortExpressionType::VectorDistance {
                         ref query_vector,
                         query_vector_param_id,
+                        ref query_vector_expr,
                         metric,
                     } => {
                         if let Some(field_name) = field_name_opt {
@@ -632,6 +660,7 @@ where
                                 rti,
                                 query_vector: query_vector.clone(),
                                 query_vector_param_id,
+                                query_vector_expr: query_vector_expr.clone(),
                                 metric,
                             });
                             found_valid_member = true;

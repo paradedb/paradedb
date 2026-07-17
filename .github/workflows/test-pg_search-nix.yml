@@ -14,6 +14,7 @@ on:
       - "tokenizers/Cargo.toml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "flake.nix"
       - "flake.lock"
   workflow_dispatch:

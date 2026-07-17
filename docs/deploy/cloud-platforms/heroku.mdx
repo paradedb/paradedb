@@ -1,0 +1,51 @@
+---
+title: Heroku
+description: Notes on running ParadeDB on Heroku, and why a persistent-volume PaaS is a better fit
+canonical: https://docs.paradedb.com/deploy/cloud-platforms/heroku
+---
+
+<Warning>
+  Heroku is **not recommended** for self-hosted ParadeDB. Heroku dynos have an
+  [ephemeral filesystem](https://devcenter.heroku.com/articles/dynos#ephemeral-filesystem):
+  any data written locally is discarded when the dyno restarts, which Heroku
+  does at least once every 24 hours. That is fundamentally incompatible with
+  ParadeDB's on-disk storage under `/var/lib/postgresql`.
+
+  If you need Postgres-compatible search on Heroku, you have two realistic
+  options:
+
+  1. Use a persistent-volume PaaS instead (see the alternatives below).
+  2. Run ParadeDB somewhere with real block storage and connect to it from
+     your Heroku app as an external database.
+</Warning>
+
+## Why Heroku's Model Doesn't Fit
+
+Heroku dynos are single-slug Docker containers with a **read-only application slug** and a **writable but ephemeral** `/tmp` and working directory. There is no persistent block-storage attachment for standard dynos.
+
+ParadeDB, in contrast, is a stateful Postgres image whose entire correctness relies on the data directory at `/var/lib/postgresql` surviving container restarts. Every time Heroku recycles the dyno (at minimum daily), that directory would be wiped and the database re-initialized from scratch.
+
+This is not a configuration issue you can work around inside the Heroku container model — it is a mismatch between "stateless request handler" and "long-lived database process".
+
+## Recommended Alternatives
+
+Persistent-volume PaaS platforms that run the `paradedb/paradedb` Docker image without this problem:
+
+- **[Fly.io](/deploy/cloud-platforms/fly-io)** — Fly volumes mount into machines; Heroku-like git-and-deploy UX
+- **[Render](/deploy/cloud-platforms/render)** — persistent disks attached to private services; one-click blueprint available
+- **[Railway](/deploy/cloud-platforms/railway)** — persistent volumes and TCP proxies; one-click template available
+- **[DigitalOcean Droplet](/deploy/cloud-platforms/digitalocean)** — full VM control with the `install.sh` bootstrapper
+
+Any of these preserves ParadeDB's data across restarts and redeploys.
+
+## If You Must Use Heroku
+
+The only supported pattern is to run ParadeDB **outside** Heroku on a persistent-volume host (any of the platforms above), then connect to it from your Heroku app the same way you'd connect to any external Postgres:
+
+```bash
+heroku config:set DATABASE_URL="postgres://postgres:<YOUR_STRONG_PASSWORD>@<PARADEDB_HOST>:5432/paradedb" -a <YOUR_HEROKU_APP>
+```
+
+Your application code uses `DATABASE_URL` as it would with any Postgres backend; ParadeDB's BM25 and columnar features are available through the standard Postgres wire protocol.
+
+For fully managed production use with high availability, replicas, and BYOC, see [ParadeDB Enterprise](/deploy/enterprise).

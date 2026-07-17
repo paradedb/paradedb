@@ -141,6 +141,31 @@ WHERE parent.owner = 'user-1'
 ORDER BY parent.updated_at DESC
 LIMIT 12;
 
+-- =====================================================================
+-- Trigger 3 -- quoted aliases containing a dot
+-- =====================================================================
+-- Postgres accepts a `.` inside a quoted identifier, so `"P.A"` is a valid
+-- single-part alias. Case-folding alone would still let the aggregate scan
+-- register a schema-qualified `p.a`, which DataFusion's `parse_str` then
+-- splits on the dot and reports as `failed to resolve schema: p`. The
+-- alias sanitization in `RelationAlias::execution` (lowercase +
+-- non-`[a-z0-9_]` replaced with `_`) covers this class of alias as well.
+
+SELECT count("P.A"."id")
+FROM repro_5525_parent AS "P.A"
+JOIN repro_5525_child  AS "C.A"
+  ON "P.A"."child_id" = "C.A"."id" AND "C.A"."state" = 'active'
+WHERE "P.A"."owner" = 'user-1';
+
+SELECT "P.A"."id"
+FROM repro_5525_parent AS "P.A"
+JOIN repro_5525_child  AS "C.A"
+  ON "P.A"."child_id" = "C.A"."id"
+WHERE "P.A"."owner" = 'user-1'
+  AND "C.A"."id" @@@ paradedb.term('state', 'active'::text)
+ORDER BY "P.A"."updated_at" DESC
+LIMIT 12;
+
 -- Cleanup
 DROP TABLE repro_5525_parent CASCADE;
 DROP TABLE repro_5525_child CASCADE;

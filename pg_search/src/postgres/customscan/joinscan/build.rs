@@ -56,18 +56,40 @@ impl<'a> RelationAlias<'a> {
             .unwrap_or_else(|| format!("source_{}", index))
     }
 
-    /// For DataFusion execution, suffix the relation to make it unique.
+    /// For DataFusion execution, suffix the relation with `index` to make it
+    /// unique. The alias is sanitized so registration paths
+    /// (`ctx.register_table`, `ctx.table`, `df.alias`, which all go through
+    /// `TableReference::parse_str`) and column references built via
+    /// [`super::super::datafusion::translator::make_col`] (which use
+    /// `TableReference::Bare` and preserve the raw string) always agree on
+    /// the resulting name.
     ///
-    /// Lowercased so schema registration (which goes through `parse_str` and
-    /// case-folds unquoted identifiers) agrees with column references built
-    /// via [`super::super::datafusion::translator::make_col`] (which use
-    /// `TableReference::Bare` and preserve case). Otherwise a quoted mixed-
-    /// case Postgres alias like `"Parent"` registers as `parent_0` but is
-    /// referenced as `Parent_0`, yielding a DataFusion `FieldNotFound`.
-    /// See paradedb/paradedb#5525.
+    /// Sanitization:
+    /// 1. Lowercase, so a quoted mixed-case alias like `"Parent"` matches
+    ///    `parse_str`'s case-folded identifier form.
+    /// 2. Replace any non-`[a-z0-9_]` character with `_`, so a valid quoted
+    ///    identifier containing a dot like `"P.A"` doesn't get split by
+    ///    `parse_str` on the multipart-identifier separator and reported as
+    ///    `failed to resolve schema: p`.
+    ///
+    /// The original alias is preserved for user-facing surfaces via
+    /// [`Self::display`] (EXPLAIN) and [`Self::warning_context`] (planner
+    /// warnings). See paradedb/paradedb#5525.
     pub fn execution(&self, index: usize) -> String {
         match self.name {
-            Some(alias) => format!("{}_{}", alias.to_lowercase(), index),
+            Some(alias) => {
+                let sanitized: String = alias
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '_' {
+                            c.to_ascii_lowercase()
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                format!("{}_{}", sanitized, index)
+            }
             None => format!("source_{}", index),
         }
     }

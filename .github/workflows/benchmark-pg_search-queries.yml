@@ -376,6 +376,16 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
+      # The restored cohere snapshot carries an older pg_search whose catalog predates the bm25
+      # vector opclasses (vector_cosine_ops etc., added by the vector work); the freshly built .so is
+      # current. Bring the extension's SQL objects up to date so the bm25 vector index can be built.
+      - name: Update pg_search after restore (cohere/pg_search, 1M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER EXTENSION pg_search UPDATE;"
+
       - name: Benchmark "cohere" Dataset (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
         uses: ./.github/actions/benchmark-queries
@@ -444,6 +454,14 @@ jobs:
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
+
+      # See the 1M step: bring the restored snapshot's pg_search up to date so the bm25 vector index builds.
+      - name: Update pg_search after restore (cohere/pg_search, 10M)
+        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
+        run: |
+          set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER EXTENSION pg_search UPDATE;"
 
       - name: Benchmark "cohere" Dataset (10M)
         if: ${{ env.RUN_COHERE == 'true' }}

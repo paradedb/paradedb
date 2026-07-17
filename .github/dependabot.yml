@@ -1,9 +1,6 @@
 version: 2
 
 updates:
-  # "/" only reaches .github/workflows; the composite actions under .github/actions/*/action.yml
-  # need their own entry. Single-level glob, not **, to avoid duplicate PRs
-  # (dependabot/dependabot-core#10884).
   - package-ecosystem: "github-actions"
     directories:
       - "/.github/actions/*"

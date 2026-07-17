@@ -376,13 +376,23 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
-      # The restored cohere snapshot carries an older pg_search whose catalog predates the bm25
-      # vector opclasses (vector_cosine_ops etc., added by the vector work); the freshly built .so is
-      # current. Bring the extension's SQL objects up to date so the bm25 vector index can be built.
-      - name: Update pg_search after restore (cohere/pg_search, 1M)
+      # Two post-restore fixups for pg_search, before the bm25 vector index is built:
+      #  1. Build the index with 10 segments. The probe knobs in config.toml are tuned for ~95%
+      #     recall@10 on a ~10-segment build; the benchmark runner's default (~48 segments) probes a
+      #     larger fraction of each segment and overshoots to ~99% recall. `global_target_segment_count`
+      #     lives in postgresql.auto.conf, which the snapshot restore overwrote, so set it here and
+      #     restart. Gated on pg_search, so other index variants are unaffected.
+      #  2. The restored snapshot carries an older pg_search whose catalog predates the bm25 vector
+      #     opclasses (vector_cosine_ops etc.); the freshly built .so is current, so bring the
+      #     extension's SQL objects up to date.
+      - name: Update pg_search + force 10 segments after restore (cohere/pg_search, 1M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
         run: |
           set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 10;"
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "ALTER EXTENSION pg_search UPDATE;"
 
@@ -455,11 +465,16 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
-      # See the 1M step: bring the restored snapshot's pg_search up to date so the bm25 vector index builds.
-      - name: Update pg_search after restore (cohere/pg_search, 10M)
+      # See the 1M step: force a 10-segment build (for ~95% recall at the tuned probes) and bring the
+      # restored snapshot's pg_search up to date so the bm25 vector index builds.
+      - name: Update pg_search + force 10 segments after restore (cohere/pg_search, 10M)
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
         run: |
           set -euo pipefail
+          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+            -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 10;"
+          (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
+          (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "ALTER EXTENSION pg_search UPDATE;"
 

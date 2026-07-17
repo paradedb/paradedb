@@ -201,9 +201,6 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          # Named after the repository, so a downstream repo publishes its own image rather
-          # than this one. `workflow_dispatch` is this workflow's only trigger, so the event
-          # payload is always populated.
           images: paradedb/${{ github.event.repository.name }}
           tags: |
             type=raw,value=${{ matrix.pg_version }}-${{ needs.generate-dockerfiles.outputs.tag }}
@@ -255,10 +252,6 @@ jobs:
         # see a mounted /share/extension directory.
         pg_version: [18]
     env:
-      # Named after the repository, so a downstream repo publishes its own image rather than
-      # this one. Job-level `env:` cannot read the `env` context, so this derives from
-      # `github.event.repository.name`; `workflow_dispatch` is this workflow's only trigger,
-      # so the event payload is always populated.
       image_name: paradedb/${{ github.event.repository.name }}-extension
       image_os: trixie
 

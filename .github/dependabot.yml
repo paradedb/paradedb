@@ -6,8 +6,8 @@ updates:
   # (dependabot/dependabot-core#10884).
   - package-ecosystem: "github-actions"
     directories:
-      - "/"
       - "/.github/actions/*"
+      - "/.github/workflows/*"
     schedule:
       interval: "monthly"
     ignore:

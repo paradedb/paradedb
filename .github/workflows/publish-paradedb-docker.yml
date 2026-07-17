@@ -5,7 +5,7 @@
 # the pg_search .deb has been published to GitHub Releases. Stable releases publish Docker images for
 # all of our supported PostgreSQL versions, while beta releases only publish the default PostgreSQL
 # version we run as default (currently 18). This workflow also publishes the non-runnable
-# paradedb/paradedb-extension image for Postgres 18+ deployments that mount Postgres extension images.
+# extension image for Postgres 18+ deployments that mount Postgres extension images.
 # Once the runnable Docker images are published, notify ORM wrapper repositories via repository_dispatch
 # so they can run compatibility checks against the new version. This is done in
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
@@ -201,7 +201,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: paradedb/paradedb
+          # Named after the repository, so a downstream repo publishes its own image rather
+          # than this one. `workflow_dispatch` is this workflow's only trigger, so the event
+          # payload is always populated.
+          images: paradedb/${{ github.event.repository.name }}
           tags: |
             type=raw,value=${{ matrix.pg_version }}-${{ needs.generate-dockerfiles.outputs.tag }}
             type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }}-pg${{ matrix.pg_version }}
@@ -252,7 +255,11 @@ jobs:
         # see a mounted /share/extension directory.
         pg_version: [18]
     env:
-      image_name: paradedb/paradedb-extension
+      # Named after the repository, so a downstream repo publishes its own image rather than
+      # this one. Job-level `env:` cannot read the `env` context, so this derives from
+      # `github.event.repository.name`; `workflow_dispatch` is this workflow's only trigger,
+      # so the event payload is always populated.
+      image_name: paradedb/${{ github.event.repository.name }}-extension
       image_os: trixie
 
     steps:

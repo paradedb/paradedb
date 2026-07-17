@@ -36,15 +36,21 @@ fn only_one_index_allowed(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    match r#"
+    let result = r#"
     CREATE INDEX index_two ON public.mock_items
     USING bm25 (id, description)
     WITH (key_field = 'id');
     "#
-    .execute_result(&mut conn)
-    {
-        Ok(_) => panic!("created a second `USING bm25` index"),
-        Err(e) if format!("{e}").contains("a relation may only have one `USING bm25` index") => (), // all good
-        Err(e) => panic!("{}", e),
+    .execute_result(&mut conn);
+
+    match result {
+        Ok(_) => panic!("created a second index"),
+        Err(e) => {
+            let msg = format!("{e}");
+            assert!(
+                msg.contains("a relation may only have one `USING paradedb` index"),
+                "{msg}"
+            );
+        }
     }
 }

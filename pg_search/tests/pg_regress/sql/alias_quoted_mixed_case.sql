@@ -142,14 +142,12 @@ ORDER BY parent.updated_at DESC
 LIMIT 12;
 
 -- =====================================================================
--- Trigger 3 -- quoted aliases containing a dot
+-- Trigger 3 -- quoted aliases with characters bare identifiers cannot use
 -- =====================================================================
--- Postgres accepts a `.` inside a quoted identifier, so `"P.A"` is a valid
--- single-part alias. Case-folding alone would still let the aggregate scan
--- register a schema-qualified `p.a`, which DataFusion's `parse_str` then
--- splits on the dot and reports as `failed to resolve schema: p`. The
--- alias sanitization in `RelationAlias::execution` (lowercase +
--- non-`[a-z0-9_]` replaced with `_`) covers this class of alias as well.
+-- PostgreSQL permits quoted table aliases such as `"P.A"` and `"123"` that
+-- are not valid bare identifiers. Custom scans must treat each of these as
+-- a single relation and produce the same result as the corresponding
+-- lowercase-aliased query.
 
 SELECT count("P.A"."id")
 FROM repro_5525_parent AS "P.A"
@@ -164,6 +162,22 @@ JOIN repro_5525_child  AS "C.A"
 WHERE "P.A"."owner" = 'user-1'
   AND "C.A"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "P.A"."updated_at" DESC
+LIMIT 12;
+
+-- Numeric-only aliases (leading digit) must also work.
+SELECT count("123"."id")
+FROM repro_5525_parent AS "123"
+JOIN repro_5525_child  AS "456"
+  ON "123"."child_id" = "456"."id" AND "456"."state" = 'active'
+WHERE "123"."owner" = 'user-1';
+
+SELECT "123"."id"
+FROM repro_5525_parent AS "123"
+JOIN repro_5525_child  AS "456"
+  ON "123"."child_id" = "456"."id"
+WHERE "123"."owner" = 'user-1'
+  AND "456"."id" @@@ paradedb.term('state', 'active'::text)
+ORDER BY "123"."updated_at" DESC
 LIMIT 12;
 
 -- Cleanup

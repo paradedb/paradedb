@@ -57,24 +57,13 @@ impl<'a> RelationAlias<'a> {
     }
 
     /// For DataFusion execution, suffix the relation with `index` to make it
-    /// unique. The alias is sanitized so registration paths
-    /// (`ctx.register_table`, `ctx.table`, `df.alias`, which all go through
-    /// `TableReference::parse_str`) and column references built via
-    /// [`super::super::datafusion::translator::make_col`] (which use
-    /// `TableReference::Bare` and preserve the raw string) always agree on
-    /// the resulting name.
-    ///
-    /// Sanitization:
-    /// 1. Lowercase, so a quoted mixed-case alias like `"Parent"` matches
-    ///    `parse_str`'s case-folded identifier form.
-    /// 2. Replace any non-`[a-z0-9_]` character with `_`, so a valid quoted
-    ///    identifier containing a dot like `"P.A"` doesn't get split by
-    ///    `parse_str` on the multipart-identifier separator and reported as
-    ///    `failed to resolve schema: p`.
-    ///
-    /// The original alias is preserved for user-facing surfaces via
-    /// [`Self::display`] (EXPLAIN) and [`Self::warning_context`] (planner
-    /// warnings). See paradedb/paradedb#5525.
+    /// unique. PostgreSQL accepts quoted-identifier characters that
+    /// DataFusion's `TableReference` bare-identifier syntax does not, so
+    /// the alias is sanitized: lowercased, non-`[a-z0-9_]` characters
+    /// replaced with `_`, and prefixed with `_` if the result would start
+    /// with a digit. The raw alias is preserved for user-facing surfaces
+    /// in [`Self::display`] and [`Self::warning_context`].
+    /// See paradedb/paradedb#5525.
     pub fn execution(&self, index: usize) -> String {
         match self.name {
             Some(alias) => {
@@ -88,7 +77,16 @@ impl<'a> RelationAlias<'a> {
                         }
                     })
                     .collect();
-                format!("{}_{}", sanitized, index)
+                let prefixed = if sanitized
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_digit())
+                {
+                    format!("_{sanitized}")
+                } else {
+                    sanitized
+                };
+                format!("{}_{}", prefixed, index)
             }
             None => format!("source_{}", index),
         }

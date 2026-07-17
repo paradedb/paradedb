@@ -169,7 +169,7 @@ runs:
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
-      uses: slackapi/slack-github-action@v3
+      uses: slackapi/slack-github-action@v4
       with:
         method: files.uploadV2
         token: ${{ inputs.slack_oauth_token }}

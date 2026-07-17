@@ -390,7 +390,7 @@ jobs:
         run: |
           set -euo pipefail
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 10;"
+            -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 8;"
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
@@ -472,7 +472,7 @@ jobs:
         run: |
           set -euo pipefail
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 10;"
+            -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 8;"
           (cd pg_search && cargo pgrx stop pg${{ env.pg_version }})
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \

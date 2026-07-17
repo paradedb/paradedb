@@ -142,7 +142,7 @@ ORDER BY parent.updated_at DESC
 LIMIT 12;
 
 -- =====================================================================
--- Trigger 3 -- quoted aliases with characters bare identifiers cannot use
+-- Trigger 3 -- quoted aliases that are not valid bare identifiers
 -- =====================================================================
 -- PostgreSQL permits quoted table aliases such as `"P.A"` and `"123"` that
 -- are not valid bare identifiers. Custom scans must treat each of these as
@@ -165,11 +165,22 @@ ORDER BY "P.A"."updated_at" DESC
 LIMIT 12;
 
 -- Numeric-only aliases (leading digit) must also work.
-SELECT count("123"."id")
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT "123"."owner", count("123"."id")
 FROM repro_5525_parent AS "123"
 JOIN repro_5525_child  AS "456"
   ON "123"."child_id" = "456"."id" AND "456"."state" = 'active'
-WHERE "123"."owner" = 'user-1';
+GROUP BY "123"."owner"
+ORDER BY "123"."owner"
+LIMIT 5;
+
+SELECT "123"."owner", count("123"."id")
+FROM repro_5525_parent AS "123"
+JOIN repro_5525_child  AS "456"
+  ON "123"."child_id" = "456"."id" AND "456"."state" = 'active'
+GROUP BY "123"."owner"
+ORDER BY "123"."owner"
+LIMIT 5;
 
 SELECT "123"."id"
 FROM repro_5525_parent AS "123"

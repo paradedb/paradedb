@@ -209,7 +209,7 @@ LIMIT 12;
 (8 rows)
 
 -- =====================================================================
--- Trigger 3 -- quoted aliases with characters bare identifiers cannot use
+-- Trigger 3 -- quoted aliases that are not valid bare identifiers
 -- =====================================================================
 -- PostgreSQL permits quoted table aliases such as `"P.A"` and `"123"` that
 -- are not valid bare identifiers. Custom scans must treat each of these as
@@ -246,14 +246,44 @@ LIMIT 12;
 (8 rows)
 
 -- Numeric-only aliases (leading digit) must also work.
-SELECT count("123"."id")
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT "123"."owner", count("123"."id")
 FROM repro_5525_parent AS "123"
 JOIN repro_5525_child  AS "456"
   ON "123"."child_id" = "456"."id" AND "456"."state" = 'active'
-WHERE "123"."owner" = 'user-1';
- count 
--------
-     8
+GROUP BY "123"."owner"
+ORDER BY "123"."owner"
+LIMIT 5;
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: "123".owner
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: repro_5525_parent_idx (123), repro_5525_child_idx (456)
+               Group By: owner
+               Aggregates: COUNT(id)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(16 rows)
+
+SELECT "123"."owner", count("123"."id")
+FROM repro_5525_parent AS "123"
+JOIN repro_5525_child  AS "456"
+  ON "123"."child_id" = "456"."id" AND "456"."state" = 'active'
+GROUP BY "123"."owner"
+ORDER BY "123"."owner"
+LIMIT 5;
+ owner  | count 
+--------+-------
+ user-1 |     8
 (1 row)
 
 SELECT "123"."id"

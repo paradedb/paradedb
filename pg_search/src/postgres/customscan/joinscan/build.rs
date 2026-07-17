@@ -77,11 +77,7 @@ impl<'a> RelationAlias<'a> {
                         }
                     })
                     .collect();
-                let prefixed = if sanitized
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_digit())
-                {
+                let prefixed = if sanitized.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                     format!("_{sanitized}")
                 } else {
                     sanitized

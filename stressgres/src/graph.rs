@@ -80,7 +80,7 @@ const PALETTE: &[RGBColor] = &[
     GREEN,
 ];
 
-/// Create one PNG with as many sub-charts are there are individual metrics gathered from the [`LogRecord`]s
+/// Create one PNG with as many sub-charts are there are individual metrics gathered from the `LogRecord`s
 fn generate_graph(metrics: &[String], records: &[MetricsLine], output_path: &str) -> Result<()> {
     // The final order of subcharts we want to show (left to right):
     eprintln!("metrics={metrics:?}");

@@ -21,9 +21,9 @@
 //!
 //! [`collect_dispatched_stages`] walks the distributed physical plan, visits every
 //! [`datafusion_distributed::NetworkBoundary`], and collects one [`StageEntry`]
-//! (`input_stage.num`, `task_count`, `routing`, `plan`) per boundary. The leader serializes each
-//! stage's plan and ships it; each worker later expands a stage into one [`FragmentAssignment`]
-//! per `task_idx` it owns under `proc_for_task`.
+//! (`input_stage.num`, `task_count`, `routing`) per boundary. The stage plans travel separately,
+//! serialized by the coordinator's dispatch; each worker later expands a stage into one
+//! [`FragmentAssignment`] per `task_idx` it owns under `proc_for_task`.
 //!
 //! The fork's coordinator has no equivalent of this walk: it dispatches one boundary at a time,
 //! when the consumer's `execute` opens connections, so routing is implicit in who pulls. These
@@ -103,27 +103,21 @@ pub enum FragmentRouting {
     },
 }
 
-/// One producer stage to dispatch. The leader serializes `plan` once per stage and ships it with
-/// its `task_count` and `routing`; each worker expands a stage into one [`FragmentAssignment`] per
-/// `task_idx` it owns under `proc_for_task`.
+/// One producer stage to dispatch: the routing metadata the blob carries. Each worker expands a
+/// stage into one [`FragmentAssignment`] per `task_idx` it owns under `proc_for_task`.
 pub struct StageEntry {
     /// `input_stage.num` of the boundary whose producer side this stage belongs to.
     pub stage_num: u32,
-    /// The query's id, carried so the leader can stamp each task's `TaskKey`.
-    pub query_id: uuid::Uuid,
     /// Total task count for the stage (= `input_stage.tasks.len()`).
     pub task_count: usize,
     /// How to route each output partition to a destination proc.
     pub routing: FragmentRouting,
-    /// The stage's `input_stage.plan` (nested boundaries left `Local`; the worker converts them
-    /// at run time via `prepare_in_process_plan`, same as before).
-    pub plan: Arc<dyn ExecutionPlan>,
 }
 
 /// Walk the distributed physical plan and collect every producer stage, once per boundary. The
-/// leader runs this (replacing the worker-side re-plan): it classifies routing from the boundary
-/// type and captures each stage's `local_plan` for serialization. Not filtered by proc; the blob
-/// is shared and each worker selects its own `(stage, task)` slots.
+/// leader runs this (replacing the worker-side re-plan) to classify routing from the boundary
+/// type. Not filtered by proc; the blob is shared and each worker selects its own
+/// `(stage, task)` slots.
 pub fn collect_dispatched_stages(
     root: &Arc<dyn ExecutionPlan>,
     n_workers: u32,
@@ -145,7 +139,7 @@ fn collect_stages(
         // Only the `mpp_log!` trace reads `p_c` (routing reads the crate's `route_partition`),
         // so it's gated to non-test builds to avoid the unused-variable warning.
         #[cfg(not(test))]
-        let p_c = nb.partitions_per_consumer_task();
+        let p_c = nb.properties().partitioning.partition_count();
         // `route_partition(q).consumer_task` for every producer output partition. Used by the
         // hash-partitioned boundaries (Shuffle / Broadcast) only; Coalesce routes by task instead.
         let route_consumer_tasks = || -> Result<Vec<u32>, DataFusionError> {
@@ -239,10 +233,8 @@ fn collect_stages(
         if let Some(stage_plan) = stage.local_plan() {
             out.push(StageEntry {
                 stage_num: stage_id,
-                query_id: stage.query_id(),
                 task_count,
                 routing,
-                plan: Arc::clone(stage_plan),
             });
             // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
             // returns `[stage.plan]`, so descending through it would double-process every nested

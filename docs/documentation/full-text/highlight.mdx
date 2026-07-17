@@ -68,7 +68,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shoes")
+        .match_any("shoes")
         .with_snippet(:description)
         .select(:id)
         .limit(5)
@@ -155,7 +155,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shoes")
+        .match_any("shoes")
         .with_snippet(:description, start_tag: "<i>", end_tag: "</i>")
         .select(:id)
         .limit(5)
@@ -229,7 +229,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("artistic vase")
+        .match_any("artistic vase")
         .with_snippets(:description, max_chars: 15)
         .select(:id)
         .limit(5)
@@ -338,7 +338,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running")
+        .match_any("running")
         .with_snippets(:description, max_chars: 15, limit: 1)
         .select(:id)
         .limit(5)
@@ -417,7 +417,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running")
+        .match_any("running")
         .with_snippets(:description, max_chars: 15, limit: 1, offset: 1)
         .select(:id)
         .limit(5)
@@ -499,7 +499,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("artistic vase")
+        .match_any("artistic vase")
         .with_snippets(:description, max_chars: 15, sort_by: :position)
         .select(:id)
         .limit(5)
@@ -579,7 +579,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("shoes")
+        .match_any("shoes")
         .with_snippet(:description)
         .with_snippet_positions(:description)
         .select(:id)

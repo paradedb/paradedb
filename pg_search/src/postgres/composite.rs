@@ -227,7 +227,7 @@ pub unsafe fn get_composite_fields_for_index(
 /// ```sql
 /// CREATE INDEX idx ON t USING bm25 (id, ROW(a,b,c)::my_type);
 /// ```
-/// The composite at values[1] is unpacked once during construction.
+/// The composite at `values[1]` is unpacked once during construction.
 /// Fields "a", "b", "c" are then retrieved via simple lookups.
 ///
 /// # Lifetime

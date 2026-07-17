@@ -681,6 +681,13 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
 // Physical Execution Plan
 // ---------------------------------------------------------------------------
 
+/// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
+type CtidResolver = (u32, Arc<FFHelper>);
+
+/// The dispatch wire shape: `(plan_pos, heap_oid)` pairs, display names, and each wired
+/// resolver's `(plan_pos, indexrelid)`.
+type VisibilityDispatchPayload = (Vec<(usize, pg_sys::Oid)>, Vec<String>, Vec<(usize, u32)>);
+
 /// Physical plan node that resolves packed DocAddresses and performs batch
 /// visibility checking on ctid columns.
 ///
@@ -698,10 +705,12 @@ pub struct VisibilityFilterExec {
     table_names: Vec<String>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
-    /// Per-plan_position FFHelper for resolving packed DocAddresses to real ctids.
-    /// Wired by `VisibilityCtidResolverRule` after plan construction.
-    /// Indexed by plan_position (0, 1, 2...).
-    ctid_resolvers: Mutex<Vec<Option<Arc<FFHelper>>>>,
+    /// Per-plan_position `(indexrelid, FFHelper)` for resolving packed DocAddresses to real
+    /// ctids. Wired by `VisibilityCtidResolverRule` after plan construction. Indexed by
+    /// plan_position (0, 1, 2...). The relid rides along so the dispatch encode can tell a
+    /// worker which index to rebuild a resolver from when the scan sits behind a network
+    /// boundary.
+    ctid_resolvers: Mutex<Vec<Option<CtidResolver>>>,
 }
 
 impl fmt::Debug for VisibilityFilterExec {
@@ -750,7 +759,7 @@ impl VisibilityFilterExec {
     }
 
     /// Wire an FFHelper for resolving packed DocAddresses to real ctids for the given plan_position.
-    pub fn set_ctid_resolver(&self, plan_pos: usize, ffhelper: Arc<FFHelper>) {
+    pub fn set_ctid_resolver(&self, plan_pos: usize, indexrelid: u32, ffhelper: Arc<FFHelper>) {
         let mut resolvers = self
             .ctid_resolvers
             .lock()
@@ -758,7 +767,7 @@ impl VisibilityFilterExec {
         if plan_pos >= resolvers.len() {
             resolvers.resize(plan_pos + 1, None);
         }
-        resolvers[plan_pos] = Some(ffhelper);
+        resolvers[plan_pos] = Some((indexrelid, ffhelper));
     }
 
     pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
@@ -766,34 +775,66 @@ impl VisibilityFilterExec {
     }
 
     /// Serialize for leader dispatch. The `ctid_resolvers` are live `FFHelper`s wired by an
-    /// optimizer rule, so they don't travel; the receiving worker re-wires them from the scans in
-    /// its decoded subtree.
+    /// optimizer rule, so they don't travel; the worker re-wires them from the scans in its
+    /// decoded subtree, or rebuilds one from the shipped `(plan_position, indexrelid)` pairs
+    /// when a position's scan sits behind a network boundary.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
-        let payload: (&[(usize, pg_sys::Oid)], &[String]) =
-            (&self.plan_pos_oids, &self.table_names);
+        let resolver_indexes: Vec<(usize, u32)> = self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, r)| r.as_ref().map(|(relid, _)| (pos, *relid)))
+            .collect();
+        let payload = (&self.plan_pos_oids, &self.table_names, &resolver_indexes);
         serde_json::to_vec(&payload).map_err(|e| {
             DataFusionError::Internal(format!("VisibilityFilterExec dispatch: serialize: {e}"))
         })
     }
 
-    /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from the
-    /// scans the worker decoded below this node.
+    /// Rebuild from a dispatch descriptor, re-wiring the per-plan_position ctid resolvers from
+    /// the scans the worker decoded below this node. A position whose scan sits behind a network
+    /// boundary rebuilds its resolver instead: a helper over that index's canonical segment view
+    /// resolves any address a producer packed (ctid access needs no field layout).
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ctid_resolvers: Vec<(usize, Arc<FFHelper>)>,
+        ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
+        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let (plan_pos_oids, table_names): (Vec<(usize, pg_sys::Oid)>, Vec<String>) =
+        let (plan_pos_oids, table_names, resolver_indexes): VisibilityDispatchPayload =
             serde_json::from_slice(buf).map_err(|e| {
                 DataFusionError::Internal(format!(
                     "VisibilityFilterExec dispatch: deserialize: {e}"
                 ))
             })?;
         let exec = VisibilityFilterExec::new(input, plan_pos_oids, table_names)?;
-        for (plan_pos, ffhelper) in ctid_resolvers {
-            exec.set_ctid_resolver(plan_pos, ffhelper);
+        for (plan_pos, indexrelid, ffhelper) in &ctid_resolvers {
+            exec.set_ctid_resolver(*plan_pos, *indexrelid, Arc::clone(ffhelper));
+        }
+        for (plan_pos, indexrelid) in resolver_indexes {
+            if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
+                continue;
+            }
+            let ids = index_segment_ids.get(plan_pos).cloned().ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "VisibilityFilterExec dispatch: missing canonical segment ids for \
+                     plan_position {plan_pos}"
+                ))
+            })?;
+            let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
+                indexrelid,
+                &[],
+                crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
+            )?;
+            exec.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
         Ok(Arc::new(exec))
+    }
+
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
     }
 }
 
@@ -931,7 +972,7 @@ impl ExecutionPlan for VisibilityFilterExec {
             let visibility = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
             let resolver = resolvers
                 .get(plan_pos)
-                .and_then(|r| r.clone())
+                .and_then(|r| r.as_ref().map(|(_, ff)| Arc::clone(ff)))
                 .ok_or_else(|| {
                     DataFusionError::Execution(format!(
                         "VisibilityFilterExec: no ctid resolver wired for plan_position {plan_pos}. \
@@ -979,7 +1020,7 @@ impl ExecutionPlan for VisibilityFilterExec {
 
 /// Reusable buffers for per-segment ctid materialization.
 #[derive(Default)]
-struct DeferredCtidMaterializationState {
+pub(crate) struct DeferredCtidMaterializationState {
     resolved_ctids: Vec<Option<u64>>,
     segment_doc_ids: Vec<DocId>,
     segment_ctids: Vec<Option<u64>>,
@@ -989,7 +1030,7 @@ struct DeferredCtidMaterializationState {
 ///
 /// Each packed value encodes (segment_ord, doc_id). The FFHelper's ctid()
 /// column is used to look up the real ctid for each document.
-fn materialize_deferred_ctid(
+pub(crate) fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
     state: &mut DeferredCtidMaterializationState,

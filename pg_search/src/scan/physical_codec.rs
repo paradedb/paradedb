@@ -30,6 +30,8 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
@@ -100,21 +102,46 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
             // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
-            // are already rebuilt; pull their helpers out of the decoded subtree.
+            // are already rebuilt; pull their helpers out of the decoded subtree. A column whose
+            // scan sits behind a network boundary rebuilds its helper from the column's
+            // `DeferredLookupRebuild` instead.
             TAG_VISIBILITY_FILTER => {
                 let input = single_input(inputs)?;
                 let resolvers = collect_ctid_resolvers(&input);
-                VisibilityFilterExec::decode_for_dispatch(payload, input, resolvers)
+                VisibilityFilterExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    resolvers,
+                    &self.index_segment_ids,
+                )
             }
             TAG_TANTIVY_LOOKUP => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
-                TantivyLookupExec::decode_for_dispatch(payload, input, ffhelpers)
+                TantivyLookupExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    ffhelpers,
+                    &self.non_partitioning_segment_ids,
+                    self.parallel_state,
+                )
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
-                SegmentedTopKExec::decode_for_dispatch(payload, input, ffhelpers, ctx)
+                // Re-collect the live ctid resolvers from the decoded subtree so a dispatched
+                // fragment can rebuild its absorbed visibility data (same as VFExec above).
+                let resolvers = collect_ctid_resolvers(&input);
+                SegmentedTopKExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    ffhelpers,
+                    resolvers,
+                    ctx,
+                    &self.non_partitioning_segment_ids,
+                    &self.index_segment_ids,
+                    self.parallel_state,
+                )
             }
             other => Err(DataFusionError::NotImplemented(format!(
                 "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
@@ -225,9 +252,11 @@ struct ScanRuntime {
     ctid_plan_position: Option<usize>,
 }
 
-/// Walk a decoded subtree collecting each `PgSearchScanPlan`'s runtime handles. Nested stages are
-/// still `Local` at decode time, so the walk descends into them. Binding a resolver to any reader
-/// it finds is fine: canonical segment sets give every proc the same `segment_ord` layout.
+/// Walk a decoded subtree collecting each `PgSearchScanPlan`'s runtime handles. Nested stages
+/// decode as `Remote` (no inline child), so the walk covers this fragment's own scans; columns
+/// whose scan lives in another fragment rebuild their helpers from `DeferredLookupRebuild`.
+/// Binding a resolver to any reader it finds is fine: canonical segment sets give every proc
+/// the same `segment_ord` layout.
 fn collect_scan_runtime(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<ScanRuntime>) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         out.push(ScanRuntime {
@@ -251,14 +280,15 @@ fn single_input(inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Arc<dyn ExecutionPl
     }
 }
 
-/// `(plan_position, ffhelper)` for each scan that resolves deferred ctids, for the visibility exec.
-fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, Arc<FFHelper>)> {
+/// `(plan_position, indexrelid, ffhelper)` for each scan that resolves deferred ctids, for the
+/// visibility exec.
+fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, u32, Arc<FFHelper>)> {
     let mut scans = Vec::new();
     collect_scan_runtime(input, &mut scans);
     scans
         .into_iter()
         .filter_map(|s| match (s.ctid_plan_position, s.ffhelper) {
-            (Some(pos), Some(ff)) => Some((pos, ff)),
+            (Some(pos), Some(ff)) => Some((pos, s.indexrelid, ff)),
             _ => None,
         })
         .collect()
@@ -374,5 +404,20 @@ pub fn deserialize_physical_plan_with_runtime(
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))
     })?;
-    proto.try_into_physical_plan(ctx, &codec)
+    let plan = proto.try_into_physical_plan(ctx, &codec)?;
+    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between a
+    // node and the scans below it; the proto layer snapshots them into static expressions, so
+    // the shared link can't ride the wire. Re-running the post-optimization pushdown pass on
+    // the decoded fragment re-creates the links, so this task's probe scans prune against its
+    // own build side instead of scanning every segment. The relink is possible only because a
+    // fragment keeps an operator and its probe scans in the same process; a link that crossed
+    // fragments would need the filter values shipped between processes.
+    //
+    // Prior art: the same pass was proposed for datafusion-distributed
+    // (https://github.com/datafusion-contrib/datafusion-distributed/pull/348) and closed in
+    // favor of fixing it in DataFusion proper, by serializing and deduping dynamic filters so
+    // decode re-shares one instance (https://github.com/apache/datafusion/pull/20416, design
+    // discussion in https://github.com/apache/datafusion/issues/21207). Once DataFusion
+    // round-trips the filters natively, this pass can go.
+    FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

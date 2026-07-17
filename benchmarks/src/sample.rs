@@ -144,7 +144,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     println!("Removing root table data from local disk...");
     std::fs::remove_dir_all(&local_root_data_path)
-        .with_context(|| format!("Failed to remove dir: '{}'", &local_root_data_path))?;
+        .with_context(|| format!("Failed to remove dir: '{}'", local_root_data_path))?;
 
     // re-enable multi-threading
     conn.execute("RESET threads;", [])

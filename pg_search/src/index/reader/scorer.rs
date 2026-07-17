@@ -16,30 +16,55 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::index::enable_scoring;
-use std::sync::OnceLock;
-use tantivy::query::{PruningScorer, Query, Scorer};
+use std::sync::{Arc, OnceLock};
+use tantivy::query::{PruningScorer, Query, Scorer, Weight};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
-pub struct DeferredScorer {
+/// Lazily builds one [`Weight`] and shares it across a search's segments.
+///
+/// A scored weight aggregates corpus-level term statistics: `doc_freq` walks every
+/// segment's term dictionary. Building the weight per segment therefore costs
+/// segments² dictionary lookups per query, which dominates scored scans on
+/// many-segment indexes.
+pub struct LazyWeight {
     query: Box<dyn Query>,
     need_scores: bool,
-    segment_reader: SegmentReader,
     searcher: Searcher,
+    weight: OnceLock<Box<dyn Weight>>,
+}
+
+impl LazyWeight {
+    pub fn new(query: Box<dyn Query>, need_scores: bool, searcher: Searcher) -> Self {
+        Self {
+            query,
+            need_scores,
+            searcher,
+            weight: Default::default(),
+        }
+    }
+
+    fn get(&self) -> &dyn Weight {
+        self.weight
+            .get_or_init(|| {
+                self.query
+                    .weight(enable_scoring(self.need_scores, &self.searcher))
+                    .expect("weight should be constructable")
+            })
+            .as_ref()
+    }
+}
+
+pub struct DeferredScorer {
+    weight: Arc<LazyWeight>,
+    segment_reader: SegmentReader,
     scorer: OnceLock<Box<dyn PruningScorer>>,
 }
 
 impl DeferredScorer {
-    pub fn new(
-        query: Box<dyn Query>,
-        need_scores: bool,
-        segment_reader: SegmentReader,
-        searcher: Searcher,
-    ) -> Self {
+    pub fn new(weight: Arc<LazyWeight>, segment_reader: SegmentReader) -> Self {
         Self {
-            query,
-            need_scores,
+            weight,
             segment_reader,
-            searcher,
             scorer: Default::default(),
         }
     }
@@ -57,12 +82,8 @@ impl DeferredScorer {
     #[inline(always)]
     fn scorer(&self) -> &dyn PruningScorer {
         self.scorer.get_or_init(|| {
-            let weight = self
-                .query
-                .weight(enable_scoring(self.need_scores, &self.searcher))
-                .expect("weight should be constructable");
-
-            weight
+            self.weight
+                .get()
                 .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)
                 .expect("pruning scorer should be constructable")
         })

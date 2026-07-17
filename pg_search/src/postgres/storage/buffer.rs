@@ -828,8 +828,8 @@ impl BufferManager {
         }
     }
 
-    /// Like [`new_buffer`], but returns an iterator of buffers instead.
-    /// This is better than calling [`new_buffer`] multiple times because it avoids potentially
+    /// Like `new_buffer`, but returns an iterator of buffers instead.
+    /// This is better than calling `new_buffer` multiple times because it avoids potentially
     /// locking the relation for every new buffer.
     pub fn new_buffers(&mut self, npages: usize) -> Box<dyn Iterator<Item = BufferMut>> {
         if npages == 0 {

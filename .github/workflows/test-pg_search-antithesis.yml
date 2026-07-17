@@ -191,7 +191,7 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
           RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id -lvoidstar" \
           CARGO_PROFILE_RELEASE_WITH_DEBUG_LTO=off \
-            cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH"
+            cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH" --features dst
 
       # Catch the broken-symbol case above before shipping to Antithesis.
       # Undefined Rust symbols (_ZN/_R) mean a broken .so; Postgres C symbols stay undefined and are fine.
@@ -285,6 +285,10 @@ jobs:
         with:
           ref: ${{ env.COMMIT_SHA }}
 
+      # The workload image and the run's `antithesis.source` are named after the repository
+      - name: Resolve Registry Image Name From Repository
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -309,7 +313,7 @@ jobs:
         id: extract-workload-metadata
         uses: docker/metadata-action@v6
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}
           tags: |
             type=raw,value=${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
@@ -331,7 +335,7 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
           cat antithesis-paradedb.yaml
 
       - name: Patch Driver K8s Manifest With Driver Image Tagged With Git SHA
@@ -383,6 +387,11 @@ jobs:
       # antithesis.duration is in minutes, 360 minutes = 6 hours
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
       # antithesis.source ensures Community and Enteprise have separate histories
+      # custom.container_faults_{stop,kill}_exclusion_patterns exempts containers from stop/kill faults for two reasons:
+      #   - infra ParadeDB doesn't develop, always exempt: the cloudnative-pg operator and
+      #     logical-replication-publisher (a vanilla Postgres container)
+      #   - the paradedb pod(s) under proptests: proptests is a differential-correctness oracle with no reconnect
+      #     resilience, so a stopped/killed paradedb there is spurious query-failure noise rather than exercised recovery
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@v0.12
         with:
@@ -392,16 +401,16 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
           description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '360' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
-            antithesis.source=paradedb
-            custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}
-            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg,logical-replication-publisher
-            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg,logical-replication-publisher
+            antithesis.source=${{ env.REPO_NAME }}
+            custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }},logical-replication-publisher
+            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
+            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
 
   # Ping Slack if any of the nightly (scheduled) jobs failed. Scheduled runs only execute on
   # paradedb-enterprise (see the `if` on `setup`), so this notification only fires there.

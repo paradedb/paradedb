@@ -233,7 +233,7 @@ impl VisibilityChecker {
     /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
     /// chain) if so. Panics if any ctids are absent.
     ///
-    /// See [`check`](Self::check) for details on visibility checking logic.
+    /// See `check` for details on visibility checking logic.
     pub fn check_batch(&mut self, ctids: &[Option<u64>], results: &mut [Option<u64>]) {
         if ctids.is_empty() {
             return;

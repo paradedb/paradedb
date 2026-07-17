@@ -174,7 +174,7 @@ pub unsafe fn collect_join_agg_sources(
 ///    the planner has absorbed WHERE-clause quals into `RestrictInfo` lists on
 ///    the planned `JoinPath` nodes - so `(*from).quals` can be null even for
 ///    `SELECT ... FROM a, b WHERE a.id = b.id`. We recursively walk the path
-///    tree via [`extract_equi_keys_from_path`], inspecting each `JoinPath`'s
+///    tree via `extract_equi_keys_from_path`, inspecting each `JoinPath`'s
 ///    `joinrestrictinfo` for `OpExpr` nodes with merge-joinable (equality)
 ///    operators whose two sides reference different base relations.
 ///
@@ -1287,8 +1287,8 @@ unsafe fn all_vars_are_fast_fields_for_agg(
 }
 
 /// Transform collected cross-table clause pointers into a `JoinLevelExpr`
-/// tree by delegating to JoinScan's [`transform_to_search_expr`] via a
-/// temporary [`JoinCSClause`]. After plan_positions have been assigned,
+/// tree by delegating to JoinScan's `transform_to_search_expr` via a
+/// temporary `JoinCSClause`. After plan_positions have been assigned,
 /// `plan.sources()` returns `&[&JoinSource]` - the same type JoinScan uses -
 /// so the shared function works directly.
 ///
@@ -1330,19 +1330,17 @@ unsafe fn build_search_filter(
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     for &clause in clauses {
-        match transform_to_search_expr(
+        // If any clause can't be fully transformed, bail out.
+        // Returning None leaves the clause as "unhandled", which causes
+        // has_non_equi_join_quals to reject the DataFusion path.
+        let expr = transform_to_search_expr(
             root,
             clause,
             &sources,
             &mut temp_clause,
             &mut multi_table_clauses,
-        ) {
-            Some(expr) => expr_trees.push(expr),
-            // If any clause can't be fully transformed, bail out.
-            // Returning None leaves the clause as "unhandled", which causes
-            // has_non_equi_join_quals to reject the DataFusion path.
-            None => return None,
-        }
+        )?;
+        expr_trees.push(expr);
     }
 
     if expr_trees.is_empty() {

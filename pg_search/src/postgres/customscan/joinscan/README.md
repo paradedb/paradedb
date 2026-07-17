@@ -42,7 +42,7 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 ### 4. Deferred Columns
 
-String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal | materialized) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
+String columns are emitted as a [2-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
 
 ### 5. Pruning Path
 
@@ -79,7 +79,7 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 | [`batch_scanner.rs`](../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
 | [`execution_plan.rs`](../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
 | [`pre_filter.rs`](../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
-| [`deferred_encode.rs`](../../scan/deferred_encode.rs) | 3-way UnionArray construction and unpacking                                                                                         |
+| [`deferred_encode.rs`](../../scan/deferred_encode.rs) | 2-way UnionArray construction and unpacking                                                                                         |
 
 ## GUCs
 

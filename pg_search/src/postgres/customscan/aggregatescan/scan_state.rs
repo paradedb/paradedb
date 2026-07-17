@@ -75,20 +75,15 @@ pub struct DataFusionAggState {
     pub current_batch: Option<RecordBatch>,
     /// Row index within current_batch.
     pub batch_row_idx: usize,
-    /// Mapping from group_columns[i] to its 0-based column index in DataFusion's
+    /// Mapping from `group_columns[i]` to its 0-based column index in DataFusion's
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
-    /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and
-    /// the query qualifies (binary join + supported aggregate). Held only by
-    /// the leader; builder-launched workers reconstruct their state from DSM
-    /// and never carry this.
-    pub mpp: Option<crate::postgres::customscan::mpp::glue::MppLeaderState>,
-    /// Serialized logical-plan bytes that the leader writes into DSM and
-    /// workers read back. Computed by `begin_custom_scan` when MPP is
-    /// active; consulted by `estimate_dsm_custom_scan` and
-    /// `initialize_dsm_custom_scan`.
-    pub mpp_plan_bytes: Option<Vec<u8>>,
+    /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
+    /// prepared on first exec before planning, launched once the plan's stages are committed.
+    /// Stays `Inactive` on the serial path. Applies only when `paradedb.enable_mpp = on` and
+    /// the query qualifies (binary join + supported aggregate).
+    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

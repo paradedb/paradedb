@@ -79,7 +79,7 @@ jobs:
       # paradedb/paradedb this is always already published (the release workflow only commits
       # the regenerated Dockerfiles *after* the .deb is uploaded — see PR #4967), so this gate
       # is a no-op here. In the enterprise rebase, however, the regenerated Dockerfiles for a
-      # new version land on the enterprise-patch-* branch *before* that version's enterprise
+      # new version land on the target-patch-* branch *before* that version's enterprise
       # release and its .deb exist, so the image cannot build yet. Detect that pre-release
       # window and skip the smoke test; it runs normally once the referenced release is out.
       - name: Check whether the referenced pg_search release is published

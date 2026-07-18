@@ -48,10 +48,8 @@ use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;
-use tantivy::index::SegmentId;
 use tantivy::Score;
 
-use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -91,19 +89,11 @@ pub struct ScannerConfig {
 /// Recipe for a scan partition.
 pub enum ScanRecipe {
     /// Lazy claim from `ParallelScanState`. `source_idx = Some(i)` claims from source
-    /// `i`'s pool for MPP non-partitioning sources; `None` uses the single-counter
-    /// `checkout_segment` for the basescan IAM, the MPP partitioning source, and
-    /// non-MPP parallel hash join. The non-partitioning path can't update the
-    /// partitioning-source-sized `claims` array.
+    /// `i`'s pool for MPP sources; `None` uses the single-counter `checkout_segment`
+    /// for basescan and non-MPP parallel joins.
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
         source_idx: Option<usize>,
-        /// Position in the compacted non-partitioning source list, the index space of the
-        /// codec-injected canonical segment sets. Sibling of `source_idx`, which is the
-        /// all-sources position; the two diverge for any source after the partitioning one.
-        /// Only consulted when decoding without a `ParallelScanState`, i.e. the leader's
-        /// build-time validation round-trip of the dispatch blob.
-        non_partitioning_index: Option<usize>,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
@@ -293,17 +283,12 @@ impl PgSearchScanPlan {
         })?;
         let ScanRecipe::Lazy {
             source_idx,
-            non_partitioning_index,
             planner_estimated_rows,
             scanner_config,
             ..
         } = &state.0.recipe;
-        let (source_idx, non_partitioning_index, planner_estimated_rows, scanner_config) = (
-            *source_idx,
-            *non_partitioning_index,
-            *planner_estimated_rows,
-            scanner_config.clone(),
-        );
+        let (source_idx, planner_estimated_rows, scanner_config) =
+            (*source_idx, *planner_estimated_rows, scanner_config.clone());
 
         let schema = self.properties.eq_properties.schema().clone();
         let schema_proto: datafusion_proto::protobuf::Schema =
@@ -323,7 +308,6 @@ impl PgSearchScanPlan {
             heap_relid: scanner_config.heap_relid,
             batch_size_hint: scanner_config.batch_size_hint,
             source_idx,
-            non_partitioning_index,
             planner_estimated_rows,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
@@ -338,7 +322,6 @@ impl PgSearchScanPlan {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         parallel_state: Option<*mut ParallelScanState>,
-        non_partitioning_segment_ids: &[HashSet<SegmentId>],
         expr_context: Option<*mut pg_sys::ExprContext>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
@@ -358,32 +341,19 @@ impl PgSearchScanPlan {
         let index_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.indexrelid));
         let heap_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.heap_relid));
 
-        // MVCC view: the partitioning source (source_idx None) reads the worker's full segment
-        // list from `ParallelScanState`; a non-partitioning source reads its frozen per-source
-        // set. Mirrors the MVCC dispatch in `scan_inner`.
+        // MVCC view: an MPP source (source_idx Some) reads its per-source frozen segment
+        // list from `ParallelScanState`; a standard parallel scan (source_idx None) reads
+        // the worker's full segment list. Mirrors the MVCC dispatch in `scan_inner`.
         let mvcc = match (descriptor.source_idx, parallel_state) {
             (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { list_segment_ids(ps) }),
             (Some(idx), Some(ps)) => {
                 MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
             }
-            (Some(idx), None) => {
-                // `idx` is the all-sources position, but the canonical sets are indexed by the
-                // compacted non-partitioning list; the descriptor carries that index separately.
-                let np_idx = descriptor.non_partitioning_index.ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "PgSearchScan dispatch: source {idx} has no non-partitioning index"
-                    ))
-                })?;
-                let ids = non_partitioning_segment_ids
-                    .get(np_idx)
-                    .cloned()
-                    .ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "PgSearchScan dispatch: missing canonical segment ids for \
-                             non-partitioning source {np_idx} (all-sources {idx})"
-                        ))
-                    })?;
-                MvccSatisfies::ParallelWorker(ids)
+            (Some(_idx), None) => {
+                return Err(DataFusionError::Internal(
+                    "PgSearchScan dispatch: parallel state required for source_idx Some"
+                        .to_string(),
+                ));
             }
             (None, None) => MvccSatisfies::Snapshot,
         };
@@ -422,7 +392,6 @@ impl PgSearchScanPlan {
             recipe: ScanRecipe::Lazy {
                 parallel_state,
                 source_idx: descriptor.source_idx,
-                non_partitioning_index: descriptor.non_partitioning_index,
                 planner_estimated_rows: descriptor.planner_estimated_rows,
                 scanner_config,
             },
@@ -468,12 +437,9 @@ struct ScanDispatchDescriptor {
     which_fast_fields: Vec<WhichFastField>,
     heap_relid: u32,
     batch_size_hint: Option<usize>,
-    /// `Some(i)` for an MPP non-partitioning source (claims from source `i`'s pool); `None` for
-    /// the partitioning source / single-counter checkout. All-sources position.
+    /// `Some(i)` for an MPP source (claims from source `i`'s pool); `None` for
+    /// single-counter checkout (basescan and non-MPP parallel joins). All-sources position.
     source_idx: Option<usize>,
-    /// Position in the compacted non-partitioning source list, the index space of the canonical
-    /// segment sets a decode without `ParallelScanState` looks up.
-    non_partitioning_index: Option<usize>,
     planner_estimated_rows: u64,
 }
 
@@ -683,16 +649,12 @@ impl ExecutionPlan for PgSearchScanPlan {
             let ScanRecipe::Lazy {
                 parallel_state,
                 source_idx,
-                non_partitioning_index: _,
                 planner_estimated_rows,
                 scanner_config,
             } = recipe;
-            let search_results = match (parallel_state, source_idx) {
-                (Some(ps), idx) => reader.search_lazy(ps, idx, planner_estimated_rows),
-                (None, Some(_)) => panic!(
-                    "per-source claim needs `parallel_state` installed before recipe execution"
-                ),
-                (None, None) => reader.search(),
+            let search_results = match parallel_state {
+                Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
+                None => reader.search(),
             };
             let mut scanner = Scanner::new(
                 search_results,

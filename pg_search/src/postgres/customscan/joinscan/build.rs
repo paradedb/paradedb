@@ -495,9 +495,9 @@ pub struct JoinSource {
     ///
     /// `indexrelid` is not sufficient here because the same underlying index can
     /// appear more than once in a single JoinScan plan (for example a self-join,
-    /// or the same source copied into partitioning/non-partitioning roles in
-    /// parallel execution). `plan_position` is the per-source identity that
-    /// keeps those otherwise-identical sources distinct inside the plan.
+    /// or the same source appearing multiple times in the plan). `plan_position` is
+    /// the per-source identity that keeps those otherwise-identical sources distinct
+    /// inside the plan.
     pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,
@@ -1345,8 +1345,6 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
-    /// Optional index of the source that MUST be partitioned, overriding cost-based selection.
-    pub forced_partitioning_idx: Option<usize>,
 }
 
 impl JoinCSClause {
@@ -1359,7 +1357,6 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
-            forced_partitioning_idx: None,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1434,35 +1431,6 @@ impl JoinCSClause {
             predicate: expr,
         }));
         self
-    }
-
-    pub fn with_forced_partitioning(mut self, idx: usize) -> Self {
-        self.forced_partitioning_idx = Some(idx);
-        self
-    }
-
-    /// Returns the source that should be partitioned for parallel execution.
-    pub fn partitioning_source(&self) -> JoinSource {
-        let sources = self.plan.sources();
-        sources
-            .get(self.partitioning_source_index())
-            .cloned()
-            .expect("JoinScan requires at least one source")
-            .clone()
-    }
-
-    /// Returns the index of the source that should be partitioned for parallel execution.
-    pub fn partitioning_source_index(&self) -> usize {
-        if let Some(idx) = self.forced_partitioning_idx {
-            return idx;
-        }
-        let sources = self.plan.sources();
-        sources
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
-            .map(|(i, _)| i)
-            .expect("JoinScan requires at least one source")
     }
 
     /// Recursively collect all base relations in this join tree.

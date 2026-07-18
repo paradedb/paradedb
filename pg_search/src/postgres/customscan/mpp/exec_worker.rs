@@ -56,7 +56,6 @@ use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
-use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
@@ -68,10 +67,6 @@ use datafusion_distributed::shm::SetPlanFrame;
 pub(crate) struct MppWorkerInputs {
     /// The leader's `ParallelScanState`, used to claim the partitioning source's segment slice.
     pub parallel_state: Option<*mut ParallelScanState>,
-    /// Canonical segment ID sets for non-partitioning sources, snapshotted by the leader.
-    pub non_partitioning_segments: Vec<HashSet<SegmentId>>,
-    /// Index (in the codec's per-source layout) of the source the workers partition over.
-    pub partitioning_source_idx: usize,
     /// Total number of sources in the plan. Used to size the codec's per-source segment-ID Vec.
     pub plan_sources_count: usize,
     /// Leader's dispatch payload (framed per-stage physical subplans), copied out of DSM during
@@ -203,8 +198,6 @@ pub(crate) fn run_mpp_worker(
 ) {
     let MppWorkerInputs {
         parallel_state,
-        non_partitioning_segments,
-        partitioning_source_idx,
         plan_sources_count,
         plan_bytes,
         worker_mesh,
@@ -213,21 +206,14 @@ pub(crate) fn run_mpp_worker(
 
     let this_proc = worker_mesh.this_proc;
 
-    // Build per-source canonical segment ID sets. For the partitioning source, pull the full
-    // list out of the populated ParallelScanState (workers will then claim individual segments
-    // via `checkout_segment` inside their `PgSearchTableProvider`). For non-partitioning sources,
-    // use the segment IDs the leader snapshotted into shared memory.
+    // Build per-source canonical segment ID sets from the populated ParallelScanState.
+    // Workers will then claim individual segments via `checkout_segment` inside their
+    // `PgSearchTableProvider`.
     let mut index_segment_ids: Vec<HashSet<SegmentId>> =
         vec![HashSet::default(); plan_sources_count];
     if let Some(ps) = parallel_state {
-        let mut np_counter = 0usize;
         for (i, slot) in index_segment_ids.iter_mut().enumerate() {
-            if i == partitioning_source_idx {
-                *slot = unsafe { list_segment_ids(ps) };
-            } else if let Some(ids) = non_partitioning_segments.get(np_counter) {
-                *slot = ids.clone();
-                np_counter += 1;
-            }
+            *slot = unsafe { (*ps).segment_ids_for_source_unlocked(i) };
         }
     }
 
@@ -295,7 +281,6 @@ pub(crate) fn run_mpp_worker(
             &set_plan.plan_proto,
             &decode_ctx,
             parallel_state,
-            non_partitioning_segments.to_vec(),
             index_segment_ids.to_vec(),
             Some(expr_context_guard.as_ptr()),
         ) {

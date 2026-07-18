@@ -158,7 +158,7 @@ pub struct MppLeaderState {
     /// success path.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// The shared `ParallelScanState` the leader populated in DSM. The leader runs the top fragment
-    /// itself, and a non-partitioning source can land there (e.g. the SEMI/ANTI broadcast strategy),
+    /// itself, and a scan source can land there (e.g. under MPP's broadcast or shuffle strategy),
     /// where the scan claims per-source segments against this state just like a worker. The leader
     /// stashes it on its custom state so the codec installs it into those providers. Null until
     /// `launch` sets it.

@@ -175,7 +175,6 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
@@ -184,7 +183,6 @@ use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
@@ -197,7 +195,7 @@ use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
 use pgrx::{pg_guard, pg_sys, PgList};
-use std::ffi::{c_void, CStr};
+use std::ffi::CStr;
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -537,7 +535,7 @@ pub unsafe fn try_create_subplan_join_paths(
     // No join-level predicate extraction needed for SubPlan-based paths.
 
     // Phase 2: finalize into CustomPath.
-    match JoinScan::finalize_clause_into_path(root, rel, join_clause, &limit_offset, false) {
+    match JoinScan::finalize_clause_into_path(root, rel, join_clause, &limit_offset) {
         Some(path) => vec![path],
         None => Vec::new(),
     }
@@ -663,17 +661,6 @@ impl JoinScan {
             }
         }
 
-        if join_clause.plan.has_semi_or_anti() {
-            if join_clause.partitioning_source_index() != 0 {
-                pgrx::warning!(
-                    "For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal \
-                     parallel partitioning strategy for this query. See \
-                     https://github.com/paradedb/paradedb/issues/4152"
-                );
-            }
-            join_clause = join_clause.with_forced_partitioning(0);
-        }
-
         // Safety check: bail out if an upper plan node needs the full row set,
         // or if un-absorbed relations/SubPlans or volatile predicates could
         // change the capped output.
@@ -695,7 +682,6 @@ impl JoinScan {
         rel: *mut pg_sys::RelOptInfo,
         mut join_clause: JoinCSClause,
         limit_offset: &Option<LimitOffset>,
-        consider_parallel: bool,
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
         let current_sources = join_clause.plan.sources();
@@ -716,27 +702,11 @@ impl JoinScan {
             .map(|lo| lo.planning_estimate())
             .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
 
-        let (segment_count, row_estimate) = {
-            let src = join_clause.partitioning_source();
-            (src.scan_info.segment_count, src.scan_info.estimate)
-        };
-
         let use_mpp = mpp_is_active() && !JoinScan::source_queries_have_parameters(&join_clause);
         let nworkers = if use_mpp {
             // MPP needs exactly `producer_worker_count()` workers to match the n_procs x n_procs
             // mesh dimensions. Override the heuristic-based parallel-worker count.
             producer_worker_count() as usize
-        } else if consider_parallel {
-            let declares_sorted_output = !join_clause.order_by.is_empty();
-            compute_nworkers(
-                declares_sorted_output,
-                limit_offset.as_ref().map(|lo| lo.planning_estimate()),
-                row_estimate,
-                segment_count,
-                false,
-                false,
-                true,
-            )
         } else {
             0
         };
@@ -753,14 +723,9 @@ impl JoinScan {
             );
             result_rows /= processes as f64;
             let processes = processes as u64;
-            let partitioning_idx = join_clause.partitioning_source_index();
-            for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
+            for source in join_clause.plan.sources_mut() {
                 if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                    source.scan_info.estimated_rows_per_worker = if idx == partitioning_idx {
-                        Some(n / processes)
-                    } else {
-                        Some(n)
-                    };
+                    source.scan_info.estimated_rows_per_worker = Some(n / processes);
                 }
             }
         } else {
@@ -805,105 +770,7 @@ impl JoinScan {
             custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
-        // For MPP the customscan launches its own producer workers from exec via the builder, so
-        // the path stays serial to PG (no Gather). Only the regular non-MPP parallel join is marked
-        // parallel-aware; `nworkers` still feeds the per-source row estimates above either way.
-        if nworkers > 0 && !use_mpp {
-            custom_path.path.parallel_aware = true;
-            custom_path.path.parallel_safe = true;
-            custom_path.path.parallel_workers =
-                nworkers.try_into().expect("nworkers should be a valid i32");
-        }
-
         Some(custom_path)
-    }
-}
-
-impl ParallelQueryCapable for JoinScan {
-    fn estimate_dsm_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> pg_sys::Size {
-        // Size DSM from actual execution-time segment counts (via manifests) rather
-        // than planning-time scan_info.segment_count, which can diverge under
-        // concurrent inserts.
-        Self::ensure_source_manifests(state);
-
-        let join_clause = &state.custom_state().join_clause;
-        let partitioning_idx = join_clause.partitioning_source_index();
-        let all_nsegments: Vec<usize> = state
-            .custom_state()
-            .source_manifests
-            .iter()
-            .map(SearchIndexManifest::segment_count)
-            .collect();
-
-        // Only the regular (non-MPP) parallel join drives these callbacks now; MPP launches its
-        // own workers via the builder, so the coordinate only needs the ParallelScanState block.
-        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false) as pg_sys::Size
-    }
-
-    fn initialize_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        coordinate: *mut c_void,
-    ) {
-        Self::ensure_source_manifests(state);
-
-        let join_clause = state.custom_state().join_clause.clone();
-        let partitioning_idx = join_clause.partitioning_source_index();
-
-        // MPP launches its own workers via the builder; these callbacks now serve only the regular
-        // parallel join, with the ParallelScanState at coordinate offset 0.
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
-        unsafe {
-            let all_sources: Vec<&[tantivy::SegmentReader]> = state
-                .custom_state()
-                .source_manifests
-                .iter()
-                .map(|manifest| manifest.segment_readers())
-                .collect();
-            let args = ParallelScanArgs {
-                all_sources,
-                partitioning_source_idx: partitioning_idx,
-                query: vec![], // JoinScan passes query via PrivateData, not shared state
-                with_aggregates: false,
-            };
-            (*pscan_state).create_and_populate(args);
-        }
-
-        // Read the canonical non-partitioning segment ID sets from shared memory.
-        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
-        state.custom_state_mut().parallel_state = Some(pscan_state);
-        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
-    }
-
-    fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-        unsafe {
-            (*pscan_state).reset();
-        }
-    }
-
-    fn initialize_worker_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _toc: *mut pg_sys::shm_toc,
-        coordinate: *mut c_void,
-    ) {
-        // Regular (non-MPP) parallel join: the leader put the ParallelScanState at coordinate
-        // offset 0. MPP workers are builder-launched and never reach this callback.
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
-        state.custom_state_mut().parallel_state = Some(pscan_state);
-
-        // Workers must wait for the leader to finish populating the segment pool.
-        unsafe { (*pscan_state).wait_for_initialization() };
-
-        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
-        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
     }
 }
 
@@ -960,39 +827,20 @@ impl JoinScan {
     /// Leader/serial uses manifests captured with the same snapshot.
     fn build_index_segment_ids(
         state: &mut CustomScanStateWrapper<Self>,
-        join_clause: &JoinCSClause,
+        _join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
     ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
         let mut ids_by_pos = vec![None; plan_sources.len()];
-        let partitioning_idx = join_clause.partitioning_source_index();
-        let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
 
-        if is_worker {
-            let non_partitioning_segs = &state.custom_state().non_partitioning_segments;
-            let mut np_counter = 0usize;
-            for (i, _source) in plan_sources.iter().enumerate() {
-                if i == partitioning_idx {
-                    if let Some(ps) = state.custom_state().parallel_state {
-                        let ids =
-                            unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
-                        ids_by_pos[i] = Some(ids);
-                    }
-                } else if let Some(ids) = non_partitioning_segs.get(np_counter) {
-                    ids_by_pos[i] = Some(ids.clone());
-                    np_counter += 1;
-                }
-            }
-        } else {
-            Self::ensure_source_manifests(state);
-            for (i, _source) in plan_sources.iter().enumerate() {
-                if let Some(manifest) = state.custom_state().source_manifests.get(i) {
-                    let ids: crate::api::HashSet<_> = manifest
-                        .segment_readers()
-                        .iter()
-                        .map(|r| r.segment_id())
-                        .collect();
-                    ids_by_pos[i] = Some(ids);
-                }
+        Self::ensure_source_manifests(state);
+        for (i, _source) in plan_sources.iter().enumerate() {
+            if let Some(manifest) = state.custom_state().source_manifests.get(i) {
+                let ids: crate::api::HashSet<_> = manifest
+                    .segment_readers()
+                    .iter()
+                    .map(|r| r.segment_id())
+                    .collect();
+                ids_by_pos[i] = Some(ids);
             }
         }
 
@@ -1055,7 +903,6 @@ impl JoinScan {
             return;
         };
         Self::ensure_source_manifests(state);
-        let partitioning_idx = state.custom_state().join_clause.partitioning_source_index();
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
             .custom_state()
             .source_manifests
@@ -1064,23 +911,18 @@ impl JoinScan {
             .collect();
         let args = ParallelScanArgs {
             all_sources,
-            partitioning_source_idx: partitioning_idx,
             query: vec![],
             with_aggregates: false,
         };
-        if let Some(prep) = crate::postgres::customscan::mpp::launch::prepare_mpp_join(
-            plan_bytes.len(),
-            args,
-            partitioning_idx,
-        ) {
-            // The leader runs the top fragment itself. When a non-partitioning source lands there
-            // (the SEMI/ANTI broadcast strategy), its scan claims per-source segments against the
+        if let Some(prep) =
+            crate::postgres::customscan::mpp::launch::prepare_mpp_join(plan_bytes.len(), args)
+        {
+            // The leader runs the top fragment itself. When a scan source lands there
+            // (e.g. under MPP's broadcast or shuffle strategy), its scan claims per-source segments against the
             // same shared state the workers use, so the codec needs this pointer to install it.
             // The canonical per-source segment sets feed the same deserialize the worker-bound
             // stages are serialized from.
             state.custom_state_mut().parallel_state = Some(prep.scan_ptr);
-            state.custom_state_mut().non_partitioning_segments =
-                prep.non_partitioning_segments.clone();
             state.custom_state_mut().mpp = MppLifecycle::Prepared(prep);
         }
     }
@@ -1101,18 +943,10 @@ impl CustomScan for JoinScan {
             ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::estimate_dsm_custom_scan::<Self>,
-            ),
-            InitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_dsm_custom_scan::<Self>,
-            ),
-            ReInitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::reinitialize_dsm_custom_scan::<Self>,
-            ),
-            InitializeWorkerCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_worker_custom_scan::<Self>,
-            ),
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
             ShutdownCustomScan: Some(
                 crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
             ),
@@ -1428,7 +1262,6 @@ impl CustomScan for JoinScan {
                 Some(expr_context.as_ptr()),
                 None,
                 vec![],
-                vec![],
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1462,9 +1295,6 @@ impl CustomScan for JoinScan {
             {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
-                    let partitioning_idx =
-                        state.custom_state().join_clause.partitioning_source_index();
-                    state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
                 }
             }
         }
@@ -1546,10 +1376,7 @@ impl CustomScan for JoinScan {
                 // Raw pointers precomputed so the planning closure below never borrows `state`.
                 let runtime_context = state.runtime_context;
                 let build_plan = |ctx: &datafusion::prelude::SessionContext,
-                                  parallel_state: Option<*mut ParallelScanState>,
-                                  non_partitioning_segments: Vec<
-                    crate::api::HashSet<tantivy::index::SegmentId>,
-                >|
+                                  parallel_state: Option<*mut ParallelScanState>|
                  -> Arc<dyn ExecutionPlan> {
                     let logical_plan = deserialize_logical_plan_with_runtime(
                         &plan_bytes,
@@ -1557,7 +1384,6 @@ impl CustomScan for JoinScan {
                         parallel_state,
                         Some(runtime_context),
                         Some(planstate),
-                        non_partitioning_segments,
                         index_segment_ids.clone(),
                     )
                     .expect("Failed to deserialize logical plan");
@@ -1599,7 +1425,6 @@ impl CustomScan for JoinScan {
                 let plan = build_plan(
                     &plan_ctx,
                     plan_parallel_state,
-                    state.custom_state().non_partitioning_segments.clone(),
                 );
                 launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
@@ -1625,11 +1450,13 @@ impl CustomScan for JoinScan {
                                 (exec_ctx, plan)
                             }
                             None => {
+                                // Flush the single-threaded context's index mappings so the re-built
+                                // single-threaded plan scans the full base tables instead of hitting
+                                // the empty parallel claims pool.
                                 state.custom_state_mut().parallel_state = None;
-                                state.custom_state_mut().non_partitioning_segments = Vec::new();
                                 let serial_ctx =
                                     create_datafusion_session_context(SessionContextProfile::Join);
-                                let plan = build_plan(&serial_ctx, None, Vec::new());
+                                let plan = build_plan(&serial_ctx, None);
                                 (serial_ctx, plan)
                             }
                         }
@@ -2320,13 +2147,11 @@ impl JoinScan {
         }
 
         // Phase 2: shared ORDER BY + cost + CustomPath construction.
-        let consider_parallel = (*outerrel).consider_parallel;
         let path = Self::finalize_clause_into_path(
             root,
             builder.args().joinrel,
             join_clause,
             &limit_offset,
-            consider_parallel,
         )
         .ok_or_else(|| {
             warn(JoinDeclineReason::new(

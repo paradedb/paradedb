@@ -64,7 +64,6 @@ use crate::postgres::{ParallelScanArgs, ParallelScanState};
 const MESH_IDX: usize = 0;
 const SCAN_IDX: usize = 1;
 const GO_IDX: usize = 2;
-const PART_IDX: usize = 3;
 
 /// Go-flag states. The leader sets `RUN` once the full producer set launched and the rings are
 /// initialized, or `ABORT` on a short launch so the spare workers exit before touching the mesh.
@@ -85,17 +84,11 @@ struct MppParallelProcess {
     mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
     go: u32,
-    partitioning_source_idx: u64,
 }
 
 impl ParallelProcess for MppParallelProcess {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
-        vec![
-            &self.mesh_region,
-            &self.scan_state,
-            &self.go,
-            &self.partitioning_source_idx,
-        ]
+        vec![&self.mesh_region, &self.scan_state, &self.go]
     }
 }
 
@@ -159,11 +152,6 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
         }
     }
 
-    let partitioning_source_idx = match state_manager.object::<u64>(PART_IDX) {
-        Ok(Some(r)) => *r as usize,
-        _ => pgrx::error!("mpp worker: partitioning source index missing from parallel state"),
-    };
-
     // Attach to the leader's initialized rings.
     let region_ptr = match state_manager.slice_mut::<u8>(MESH_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
@@ -177,18 +165,15 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     };
 
     // The leader populated the ParallelScanState before launch; read the canonical
-    // non-partitioning segment sets from it.
+    // segment sets from it.
     let scan_ptr = match state_manager.slice_mut::<u8>(SCAN_IDX) {
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp worker: parallel scan state missing from parallel state"),
     };
-    let non_partitioning_segments = unsafe { (*scan_ptr).non_partitioning_segment_ids() };
-    let plan_sources_count = non_partitioning_segments.len() + 1;
+    let plan_sources_count = unsafe { (*scan_ptr).source_count() };
 
     let inputs = MppWorkerInputs {
         parallel_state: Some(scan_ptr),
-        non_partitioning_segments,
-        partitioning_source_idx,
         plan_sources_count,
         plan_bytes: worker.plan_bytes,
         worker_mesh: worker.mesh,
@@ -213,7 +198,6 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
 pub struct MppLaunchPrep {
     attach: crate::parallel_worker::builder::ParallelProcessAttach,
     pub scan_ptr: *mut ParallelScanState,
-    pub non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>>,
     producer_count: u32,
     payload_capacity: usize,
 }
@@ -304,7 +288,6 @@ impl MppLifecycle {
 fn launch_mpp_prepare(
     plan_bytes_len: usize,
     args: ParallelScanArgs,
-    partitioning_source_idx: usize,
     worker_entrypoint: &'static str,
 ) -> Option<MppLaunchPrep> {
     let producer_count = producer_worker_count();
@@ -317,8 +300,7 @@ fn launch_mpp_prepare(
             return None;
         }
     };
-    let scan_size =
-        ParallelScanState::size_of(&args.all_nsegments(), partitioning_source_idx, &[], false);
+    let scan_size = ParallelScanState::size_of(&args.all_nsegments(), &[], false);
 
     let process = MppParallelProcess {
         // SAFETY: workers can only read the region back as `u8`, and they hold on the go
@@ -329,7 +311,6 @@ fn launch_mpp_prepare(
         },
         scan_state: vec![0u8; scan_size],
         go: GO_WAIT,
-        partitioning_source_idx: partitioning_source_idx as u64,
     };
 
     let launcher = ParallelProcessBuilder::build(
@@ -348,7 +329,6 @@ fn launch_mpp_prepare(
         _ => pgrx::error!("mpp: parallel scan state region missing"),
     };
     unsafe { (*scan_ptr).create_and_populate(args) };
-    let non_partitioning_segments = unsafe { (*scan_ptr).non_partitioning_segment_ids() };
 
     // Spawn the workers before the leader plans: their process startup overlaps the planning
     // pass, and the go flag keeps them off the mesh until the payload is written.
@@ -357,7 +337,6 @@ fn launch_mpp_prepare(
     Some(MppLaunchPrep {
         attach,
         scan_ptr,
-        non_partitioning_segments,
         producer_count,
         payload_capacity,
     })
@@ -375,7 +354,6 @@ pub fn launch_mpp_commit(
     let MppLaunchPrep {
         attach,
         scan_ptr,
-        non_partitioning_segments: _,
         producer_count,
         payload_capacity,
     } = prep;
@@ -448,26 +426,12 @@ pub fn launch_mpp_commit(
 pub fn prepare_mpp_aggregate(
     plan_bytes_len: usize,
     args: ParallelScanArgs,
-    partitioning_source_idx: usize,
 ) -> Option<MppLaunchPrep> {
-    launch_mpp_prepare(
-        plan_bytes_len,
-        args,
-        partitioning_source_idx,
-        "mpp_launched_worker_agg",
-    )
+    // Note: MppLaunchPrep is retained here as a generic structure for aggregate
+    launch_mpp_prepare(plan_bytes_len, args, "mpp_launched_worker_agg")
 }
 
 /// JoinScan prepare entry: join worker symbol.
-pub fn prepare_mpp_join(
-    plan_bytes_len: usize,
-    args: ParallelScanArgs,
-    partitioning_source_idx: usize,
-) -> Option<MppLaunchPrep> {
-    launch_mpp_prepare(
-        plan_bytes_len,
-        args,
-        partitioning_source_idx,
-        "mpp_launched_worker_join",
-    )
+pub fn prepare_mpp_join(plan_bytes_len: usize, args: ParallelScanArgs) -> Option<MppLaunchPrep> {
+    launch_mpp_prepare(plan_bytes_len, args, "mpp_launched_worker_join")
 }

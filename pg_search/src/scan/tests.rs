@@ -93,7 +93,6 @@ mod tests {
             recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
                 parallel_state: None,
                 source_idx: None,
-                non_partitioning_index: None,
                 planner_estimated_rows: 0,
                 scanner_config: crate::scan::execution_plan::ScannerConfig {
                     which_fast_fields: fields.clone(),

@@ -1506,18 +1506,6 @@ impl SearchIndexManifest {
     pub fn segment_readers(&self) -> &[SegmentReader] {
         self.searcher.segment_readers()
     }
-
-    pub fn segment_count(&self) -> usize {
-        self.searcher.segment_readers().len()
-    }
-
-    /// Total live document count across all visible segments. Used by MPP
-    /// to pick the partitioning source — the source whose row count makes
-    /// it most worth slicing N ways. Defers to `Searcher::num_docs`, which
-    /// is the canonical `max_doc - num_deleted` sum.
-    pub fn total_doc_count(&self) -> u64 {
-        self.searcher.num_docs()
-    }
 }
 
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {

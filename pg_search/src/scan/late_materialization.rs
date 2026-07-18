@@ -796,11 +796,8 @@ pub struct DeferredField {
 pub struct DeferredLookupRebuild {
     pub field_name: String,
     pub field_type: crate::schema::SearchFieldType,
-    /// The source's non-partitioning index, resolving the canonical segment set every worker
-    /// replicates. `None` means the partitioning source: its full segment list lives in the
-    /// worker's `ParallelScanState` (only the scan's runtime claiming divides it, so a reader
-    /// over the full list sees every address any producer packed).
-    pub np_source_idx: Option<usize>,
+    pub is_parallel: bool,
+    pub source_idx: Option<usize>,
 }
 
 // `SearchFieldType` has no ordering; (name, np index) is enough for the opportunistic
@@ -813,6 +810,10 @@ impl PartialOrd for DeferredLookupRebuild {
 
 impl Ord for DeferredLookupRebuild {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.field_name, self.np_source_idx).cmp(&(&other.field_name, other.np_source_idx))
+        (&self.field_name, self.is_parallel, self.source_idx).cmp(&(
+            &other.field_name,
+            other.is_parallel,
+            other.source_idx,
+        ))
     }
 }

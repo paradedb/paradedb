@@ -63,7 +63,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                     QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -95,7 +94,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -115,7 +113,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -149,7 +146,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -169,7 +165,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -186,7 +181,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -206,7 +200,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -240,7 +233,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -260,7 +252,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -294,7 +285,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -314,7 +304,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -348,7 +337,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -368,7 +356,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -402,7 +389,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -423,7 +409,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -459,7 +444,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.big_id * 1::bigint DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -495,7 +479,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -531,7 +514,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY 1 * c.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -797,7 +779,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                        
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -831,7 +812,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -920,7 +900,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology OR intelligence'
 ORDER BY c.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name    
 ----+------------
   4 | AIVentures
@@ -941,7 +920,6 @@ WHERE c.id IN (
 AND c.description @@@ 'technology OR intelligence'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name    
 ----+------------
   4 | AIVentures

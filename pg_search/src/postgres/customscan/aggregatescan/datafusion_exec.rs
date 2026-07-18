@@ -67,17 +67,6 @@ pub fn create_aggregate_session_context() -> SessionContext {
     create_datafusion_session_context(SessionContextProfile::Aggregate)
 }
 
-/// MPP plan-build context. When MPP is active, identifies which source in
-/// `RelNode.sources()` is the partitioning source so per-source
-/// `PgSearchTableProvider`s can be set up with the right `is_parallel` flag
-/// (partitioning source uses `parallel_state.checkout_segment` to slice work)
-/// and `non_partitioning_index` (non-partitioning sources use the leader's
-/// canonical segment IDs replicated to every worker).
-#[derive(Debug, Clone, Copy)]
-pub struct MppPlanContext {
-    pub partitioning_plan_position: usize,
-}
-
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate [→ sort → limit].
 #[allow(clippy::too_many_arguments)]
@@ -92,7 +81,7 @@ pub async fn build_join_aggregate_plan(
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_ctx: Option<MppPlanContext>,
+    is_mpp: bool,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
@@ -103,7 +92,7 @@ pub async fn build_join_aggregate_plan(
         custom_scan_tlist,
         expr_context,
         planstate,
-        mpp_ctx,
+        is_mpp,
     )
     .await?;
 
@@ -280,14 +269,14 @@ fn build_relnode_df<'a>(
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_ctx: Option<MppPlanContext>,
+    is_mpp: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
                 let df =
-                    build_source_df(ctx, source, plan_position, expr_context, planstate, mpp_ctx)
+                    build_source_df(ctx, source, plan_position, expr_context, planstate, is_mpp)
                         .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
@@ -302,7 +291,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_ctx,
+                    is_mpp,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -313,7 +302,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_ctx,
+                    is_mpp,
                 )
                 .await?;
 
@@ -328,7 +317,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_ctx,
+                    is_mpp,
                 )
                 .await?;
 
@@ -540,7 +529,7 @@ async fn build_source_df(
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_ctx: Option<MppPlanContext>,
+    is_mpp: bool,
 ) -> Result<DataFrame> {
     let mut scan_info = source.scan_info.clone();
 
@@ -577,35 +566,12 @@ async fn build_source_df(
         fields.push(WhichFastField::Ctid);
     }
 
-    // MPP-aware provider setup. The partitioning source is the one that gets
-    // its segments sliced across PG parallel workers via
-    // `parallel_state.checkout_segment` — that's the source the `MppPlanContext`
-    // designates. Non-partitioning sources don't slice; instead the leader
-    // captures their canonical segment IDs at DSM-init time and every worker
-    // sees the same set (replicated). When `mpp_ctx.is_none()` (serial /
-    // non-MPP), `is_parallel=false` and `np_idx=None` keep the existing
-    // single-threaded behaviour.
-    let (is_parallel, np_idx) = match mpp_ctx {
-        Some(c) if plan_position == c.partitioning_plan_position => (true, None),
-        Some(c) => {
-            // Count non-partitioning sources before this one in plan_position order.
-            let np_pos = if plan_position < c.partitioning_plan_position {
-                plan_position
-            } else {
-                plan_position - 1
-            };
-            (false, Some(np_pos))
-        }
-        None => (false, None),
-    };
-    let mut provider = PgSearchTableProvider::new(scan_info, fields, is_parallel);
-    if let Some(idx) = np_idx {
-        provider.set_non_partitioning_index(idx);
-        // MPP: this source claims via `checkout_segment_for_source(plan_position)`
-        // instead of scanning the full data. Non-MPP: no `parallel_state`, no-op.
-        if mpp_ctx.is_some() {
-            provider.set_mpp_source_idx(plan_position);
-        }
+    // MPP-aware provider setup. Every source gets its segments sliced across PG
+    // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
+    // when `is_mpp` is true.
+    let mut provider = PgSearchTableProvider::new(scan_info, fields, is_mpp);
+    if is_mpp {
+        provider.set_mpp_source_idx(plan_position);
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions

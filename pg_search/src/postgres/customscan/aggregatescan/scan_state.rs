@@ -138,12 +138,6 @@ pub struct AggregateScanState {
     ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
     pub source_manifests: Vec<crate::index::reader::index::SearchIndexManifest>,
 
-    /// MPP-only: which entry in `plan.sources()` is the partitioning source
-    /// (the one whose segments workers claim from). Stamped into the DSM
-    /// header by the leader and read back by workers; used in
-    /// `exec_mpp_worker` to key `index_segment_ids` correctly.
-    pub mpp_partitioning_source_idx: Option<usize>,
-
     /// A collection of things needed for result-rewriting decisions that
     /// are expensive to look up.
     precomputed_index_info: Option<AggIndexInfo>,

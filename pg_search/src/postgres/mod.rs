@@ -188,8 +188,8 @@ struct ParallelScanPayloadLayout {
     /// One `u32` per segment in the partitioning source: max doc count.
     partitioning_max_docs: Range<usize>,
     /// One `i32` per segment in the partitioning source: which worker claimed it.
-    /// Sized to `partitioning_nsegments`, so non-partitioning sources have no slot
-    /// here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
+    /// Sized to `partitioning_nsegments` (the first source), so subsequent sources
+    /// have no slot here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
     /// Workers" section of `EXPLAIN ANALYZE`.
     claims: Range<usize>,
     aggregates_header: Option<Range<usize>>,
@@ -201,16 +201,12 @@ struct ParallelScanPayloadLayout {
 impl ParallelScanPayloadLayout {
     fn new(
         all_nsegments: &[usize],
-        partitioning_source_idx: usize,
         serialized_query: &[u8],
         with_aggregates: bool,
     ) -> Result<Self, std::alloc::LayoutError> {
         let n_sources = all_nsegments.len();
         let total_segs: usize = all_nsegments.iter().sum();
-        let partitioning_nsegments = all_nsegments
-            .get(partitioning_source_idx)
-            .copied()
-            .expect("partitioning_source_idx out of bounds");
+        let partitioning_nsegments = all_nsegments.first().copied().unwrap_or(0);
 
         // Query.
         let layout = Layout::from_size_align(serialized_query.len(), 1)?;
@@ -291,22 +287,11 @@ struct ParallelScanPayload {
 }
 
 impl ParallelScanPayload {
-    fn init(
-        &mut self,
-        all_sources: &[&[SegmentReader]],
-        partitioning_source_idx: usize,
-        query: &[u8],
-        with_aggregates: bool,
-    ) {
+    fn init(&mut self, all_sources: &[&[SegmentReader]], query: &[u8], with_aggregates: bool) {
         let all_nsegments: Vec<usize> = all_sources.iter().map(|s| s.len()).collect();
         // Compute and assign the execution-time layout from actual segment counts.
-        self.layout = ParallelScanPayloadLayout::new(
-            &all_nsegments,
-            partitioning_source_idx,
-            query,
-            with_aggregates,
-        )
-        .expect("could not layout `ParallelScanPayload` for initialization");
+        self.layout = ParallelScanPayloadLayout::new(&all_nsegments, query, with_aggregates)
+            .expect("could not layout `ParallelScanPayload` for initialization");
 
         // Query.
         let query_range = self.layout.query.clone();
@@ -341,9 +326,7 @@ impl ParallelScanPayload {
         let del_range = self.layout.partitioning_deleted_docs.clone();
         let del_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[del_range]).unwrap();
-        let partitioning_source = all_sources
-            .get(partitioning_source_idx)
-            .expect("partitioning_source_idx out of bounds");
+        let partitioning_source = all_sources.first().expect("partitioning source empty");
         for (reader, target) in partitioning_source.iter().zip(del_slice.iter_mut()) {
             *target = reader.num_deleted_docs();
         }
@@ -476,8 +459,6 @@ impl ParallelScanPayload {
 pub struct ParallelScanArgs<'a> {
     /// All sources in ascending source-index order. For basescan this is a single element.
     all_sources: Vec<&'a [SegmentReader]>,
-    /// Index of the source that `checkout_segment` draws from.
-    partitioning_source_idx: usize,
     query: Vec<u8>,
     with_aggregates: bool,
 }
@@ -533,11 +514,8 @@ pub struct ParallelScanState {
     init_cv: ConditionVariable,
     /// Number of segments in the partitioning source. Set to PARALLEL_STATE_UNINITIALIZED
     /// until the leader initializes. Protected by mutex. Remaining work lives in
-    /// `payload.remaining_by_source[partitioning_source_idx]`.
+    /// `payload.remaining_by_source[0]`.
     nsegments: usize,
-    /// Index into the unified sources array identifying the partitioning source —
-    /// the one from which workers claim segments via `checkout_segment`.
-    partitioning_source_idx: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     /// Top-K Shared Threshold Fields
     pub shared_threshold: ParallelScanThresholdState,
@@ -548,34 +526,27 @@ pub struct ParallelScanState {
 impl ParallelScanState {
     pub fn payload_capacity_of(
         all_nsegments: &[usize],
-        partitioning_source_idx: usize,
         serialized_query: &[u8],
         with_aggregates: bool,
     ) -> usize {
-        ParallelScanPayloadLayout::new(
-            all_nsegments,
-            partitioning_source_idx,
-            serialized_query,
-            with_aggregates,
-        )
-        .expect("could not compute DSM payload capacity")
-        .total
-        .size()
+        ParallelScanPayloadLayout::new(all_nsegments, serialized_query, with_aggregates)
+            .expect("could not compute DSM payload capacity")
+            .total
+            .size()
     }
 
-    fn size_of(
+    pub fn size_of(
         all_nsegments: &[usize],
-        partitioning_source_idx: usize,
         serialized_query: &[u8],
         with_aggregates: bool,
     ) -> usize {
         std::mem::size_of::<Self>()
-            + Self::payload_capacity_of(
-                all_nsegments,
-                partitioning_source_idx,
-                serialized_query,
-                with_aggregates,
-            )
+            + Self::payload_capacity_of(all_nsegments, serialized_query, with_aggregates)
+    }
+
+    pub fn source_count(&self) -> usize {
+        let range = self.payload.layout.all_counts.clone();
+        range.len() / std::mem::size_of::<u32>()
     }
 
     /// Phase 1+2: Create the mutex and populate with actual data in one call.
@@ -585,12 +556,7 @@ impl ParallelScanState {
         self.aggregation_cv.init();
         self.init_cv.init();
         self.shared_threshold.init();
-        self.populate(
-            &args.all_sources,
-            args.partitioning_source_idx,
-            &args.query,
-            args.with_aggregates,
-        );
+        self.populate(&args.all_sources, &args.query, args.with_aggregates);
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -598,22 +564,11 @@ impl ParallelScanState {
     ///
     /// Caller must hold the mutex. After populating, broadcasts to wake any workers
     /// waiting in `wait_for_initialization()`.
-    fn populate(
-        &mut self,
-        all_sources: &[&[SegmentReader]],
-        partitioning_source_idx: usize,
-        query: &[u8],
-        with_aggregates: bool,
-    ) {
-        self.partitioning_source_idx = partitioning_source_idx;
-        self.payload
-            .init(all_sources, partitioning_source_idx, query, with_aggregates);
+    fn populate(&mut self, all_sources: &[&[SegmentReader]], query: &[u8], with_aggregates: bool) {
+        self.payload.init(all_sources, query, with_aggregates);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.shared_threshold.reset();
-        let partitioning_count = all_sources
-            .get(partitioning_source_idx)
-            .expect("partitioning_source_idx out of bounds")
-            .len();
+        let partitioning_count = all_sources.first().map(|s| s.len()).unwrap_or(0);
         // Set nsegments LAST - this signals initialization is complete.
         // Remaining counts live in `payload.remaining_by_source` (initialized in
         // `ParallelScanPayload::init`); for the partitioning source the slot starts
@@ -622,18 +577,6 @@ impl ParallelScanState {
 
         // Wake up any workers waiting in `wait_for_initialization()`.
         self.init_cv.broadcast();
-    }
-
-    /// Return the canonical segment ID sets for all non-partitioning sources.
-    ///
-    /// Workers call this after `wait_for_initialization()` to obtain the frozen set of
-    /// segments that the leader snapshotted for each replicated source. Returns an empty
-    /// `Vec` for non-join or serial scans.
-    pub fn non_partitioning_segment_ids(&self) -> Vec<HashSet<SegmentId>> {
-        (0..self.payload.all_counts().len())
-            .filter(|&i| i != self.partitioning_source_idx)
-            .map(|i| self.segment_ids_for_source_unlocked(i))
-            .collect()
     }
 
     /// Phase 1: Create the mutex but mark state as uninitialized.
@@ -824,18 +767,16 @@ impl ParallelScanState {
 
     /// Claim a segment from the shared pool for the partitioning source.
     ///
-    /// Thin wrapper over [`Self::checkout_for_source`] with `defer_leader_for_debug = true`,
-    /// which engages the `debug_parallel_query` deadline retry that only matters on
-    /// the partitioning source.
+    /// Thin wrapper over [`Self::checkout_segment_for_source`] for the partitioning source.
     pub fn checkout_segment(&mut self) -> Option<SegmentId> {
-        self.checkout_for_source(self.partitioning_source_idx, true)
+        self.checkout_segment_for_source(0)
     }
 
-    /// Source-aware segment checkout. For the partitioning source, also records the
+    /// Source-aware segment checkout. For the first source (index 0), also records the
     /// claim in the per-segment `claims` array (which is sized to that source's segment
-    /// count, so non-partitioning sources have no slot to write).
+    /// count, so subsequent sources have no slot to write).
     pub fn checkout_segment_for_source(&mut self, source_idx: usize) -> Option<SegmentId> {
-        self.checkout_for_source(source_idx, false)
+        self.checkout_for_source(source_idx, source_idx == 0)
     }
 
     fn checkout_for_source(
@@ -850,7 +791,7 @@ impl ParallelScanState {
         if total == 0 {
             return None;
         }
-        let writes_claims = source_idx == self.partitioning_source_idx;
+        let writes_claims = source_idx == 0;
 
         #[cfg(not(feature = "pg15"))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
@@ -973,7 +914,7 @@ impl ParallelScanState {
     }
 
     fn segment_id(&self, i: usize) -> SegmentId {
-        SegmentId::from_bytes(self.payload.source_ids(self.partitioning_source_idx)[i])
+        SegmentId::from_bytes(self.payload.source_ids(0)[i])
     }
 
     fn num_deleted_docs(&self, i: usize) -> u32 {
@@ -1016,7 +957,7 @@ impl ParallelScanState {
     /// Read-only sibling of [`Self::segment_ids_for_source`] for callers that already
     /// know initialization is complete. No mutex acquire because the IDs are immutable
     /// after `populate`.
-    fn segment_ids_for_source_unlocked(&self, source_idx: usize) -> HashSet<SegmentId> {
+    pub fn segment_ids_for_source_unlocked(&self, source_idx: usize) -> HashSet<SegmentId> {
         self.payload
             .source_ids(source_idx)
             .iter()

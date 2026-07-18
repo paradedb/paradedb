@@ -433,9 +433,9 @@ impl ExecutionPlan for TantivyLookupExec {
 
             let mut buffered_batches: Vec<RecordBatch> = Vec::new();
             let mut buffered_rows = 0;
-            // Buffer up to ~64k rows to average ~8k rows per segment across 8 segments,
+            // Buffer up to ~1M rows to average ~128k rows per segment across 8 segments,
             // maximizing cache locality for dictionary lookups.
-            let target_row_count = 64_000;
+            let target_row_count = 1_024_000;
 
             while let Some(batch_res) = input_stream.next().await {
                 let batch = batch_res?;

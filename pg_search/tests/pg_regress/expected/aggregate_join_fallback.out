@@ -140,7 +140,7 @@ GROUP BY p.category;
    Aggregates: COUNT(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
@@ -213,7 +213,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
    Aggregates: COUNT(*), COUNT(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_2.rating) as agg_1]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_2.rating) as agg_1]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
@@ -296,7 +296,7 @@ HAVING COUNT(*) > 0;
    DataFusion Physical Plan: 
      : FilterExec: agg_0@1 > 0
      :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-     :     TantivyLookupExec: decode=[category]
+     :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
      :         DeferredResolveExec
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]

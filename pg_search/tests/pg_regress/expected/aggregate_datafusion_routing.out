@@ -32,7 +32,7 @@ SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY cat;
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
-     :   TantivyLookupExec: decode=[cat]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[cat]
      :     AggregateExec: mode=Partial, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
      :       CooperativeExec
      :         PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
@@ -93,7 +93,7 @@ SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() GROUP BY cat LIMIT
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[cat]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[cat]
            :     AggregateExec: mode=Partial, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
@@ -128,7 +128,7 @@ GROUP BY cat ORDER BY cat LIMIT 8 OFFSET 5;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=13), expr=[cat@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[cat]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[cat]
                  :       AggregateExec: mode=Partial, gby=[cat@0 as cat], aggr=[count(1) as agg_0]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
@@ -150,7 +150,7 @@ GROUP BY cat, sub ORDER BY cat, sub LIMIT 5;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Final, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
-                 :   TantivyLookupExec: decode=[cat, sub]
+                 :   TantivyLookupExec: mode=TermOrdinal, decode=[cat, sub]
                  :     AggregateExec: mode=Partial, gby=[cat@0 as cat, sub@1 as sub], aggr=[count(1) as agg_0]
                  :       CooperativeExec
                  :         PgSearchScan: segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}

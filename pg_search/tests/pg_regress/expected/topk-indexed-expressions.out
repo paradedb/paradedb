@@ -291,7 +291,7 @@ ORDER BY upper(p.name) ASC
                Order By: name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   TantivyLookupExec: decode=[name]
+                 :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                  :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
                  :       DeferredResolveExec
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name@2]
@@ -338,7 +338,7 @@ ORDER BY s.name ASC
          Order By: s.name asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, name@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[s, p]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, name@4, ctid_1@0]

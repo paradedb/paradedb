@@ -239,7 +239,7 @@ ORDER BY p.category;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[category]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
            :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
@@ -375,7 +375,7 @@ ORDER BY p.category;
          Aggregates: COUNT(DISTINCT)(tag_name)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
-           :   TantivyLookupExec: decode=[category]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
            :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
@@ -428,7 +428,7 @@ ORDER BY t.tag_name;
          Aggregates: COUNT(DISTINCT)(category)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[tag_name@0 as tag_name], aggr=[count(DISTINCT p_0.category) as agg_0]
-           :   TantivyLookupExec: decode=[tag_name]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[tag_name]
            :     AggregateExec: mode=Partial, gby=[tag_name@1 as tag_name], aggr=[count(DISTINCT p_0.category) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
@@ -485,7 +485,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
    Aggregates: COUNT(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(t_1.tag_name) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(t_1.tag_name) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
@@ -560,7 +560,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Aggregates: COUNT(category)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[tag_name@0 as tag_name], aggr=[count(p_1.category) as agg_0]
-           :   TantivyLookupExec: decode=[tag_name]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[tag_name]
            :     AggregateExec: mode=Partial, gby=[tag_name@0 as tag_name], aggr=[count(p_1.category) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(product_id@0, id@0)], projection=[tag_name@1, category@3]
@@ -1107,7 +1107,7 @@ GROUP BY p.category;
    Aggregates: SUM(product_id)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[sum(DISTINCT t_1.product_id) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[sum(DISTINCT t_1.product_id) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, product_id@2]
@@ -1133,7 +1133,7 @@ GROUP BY p.category;
    Aggregates: AVG(product_id)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[avg(DISTINCT t_1.product_id) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[avg(DISTINCT t_1.product_id) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, product_id@2]
@@ -1159,7 +1159,7 @@ GROUP BY p.category;
    Aggregates: COUNT(DISTINCT)(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
@@ -1370,7 +1370,7 @@ GROUP BY p.category;
    Aggregates: BOOL_AND(in_stock)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[bool_and(p_0.in_stock) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[bool_and(p_0.in_stock) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, in_stock@2]
@@ -1424,7 +1424,7 @@ GROUP BY p.category;
    Aggregates: STRING_AGG(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
@@ -1526,7 +1526,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
    Aggregates: COUNT(*), COUNT(category), COUNT(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(p_0.category) as agg_1, count(t_1.tag_name) as agg_2]
-     :   TantivyLookupExec: decode=[category, tag_name]
+     :   TantivyLookupExec: mode=Union, decode=[category, tag_name]
      :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :       CooperativeExec
      :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
@@ -1611,7 +1611,7 @@ GROUP BY p.category;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
      :   SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     TantivyLookupExec: decode=[category, tag_name]
+     :     TantivyLookupExec: mode=Union, decode=[category, tag_name]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :         CooperativeExec
      :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
@@ -1681,7 +1681,7 @@ GROUP BY p.category;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[array_agg(t_1.tag_name) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
      :   SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     TantivyLookupExec: decode=[category, tag_name]
+     :     TantivyLookupExec: mode=Union, decode=[category, tag_name]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :         CooperativeExec
      :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
@@ -1780,7 +1780,7 @@ GROUP BY i.metadata->>'category';
    Aggregates: COUNT(*), SUM(qty)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0, sum(o_1.qty) as agg_1]
-     :   TantivyLookupExec: decode=[metadata.category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[metadata.category]
      :     AggregateExec: mode=Partial, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0, sum(o_1.qty) as agg_1]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, item_id@0)], projection=[metadata.category@1, qty@3]
@@ -1843,7 +1843,7 @@ GROUP BY p.category;
    Aggregates: COUNT(*), COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, count(1) FILTER (WHERE p_0.price > Float64(100)) as agg_1]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, count(1) FILTER (WHERE p_0.price > Float64(100)) as agg_1]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]

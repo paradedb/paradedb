@@ -158,7 +158,7 @@ ORDER BY s.name
          Order By: s.name asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20, visibility_checks=[s, p]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
@@ -474,7 +474,7 @@ ORDER BY p.name
          Order By: p.name asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[s, p]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
@@ -509,7 +509,7 @@ ORDER BY p.name
          Order By: p.name asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, visibility_checks=[s, p]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]

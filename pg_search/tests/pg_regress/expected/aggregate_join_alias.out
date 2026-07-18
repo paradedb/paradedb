@@ -58,7 +58,7 @@ ORDER BY company_name;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[company_name_words@0 as company_name_words], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[company_name_words]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[company_name_words]
            :     AggregateExec: mode=Partial, gby=[company_name_words@0 as company_name_words], aggr=[count(1) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
@@ -110,7 +110,7 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
    Aggregates: COUNT(DISTINCT)(company_name_words)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(DISTINCT cccf_0.company_name_words) as agg_0]
-     :   TantivyLookupExec: decode=[company_name_words]
+     :   TantivyLookupExec: mode=Union, decode=[company_name_words]
      :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
      :       CooperativeExec
      :         PgSearchScan: segments=1, query="all"
@@ -154,7 +154,7 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[string_agg(cccf_0.company_name_words, ,) ORDER BY [cccf_0.company_name_words ASC NULLS LAST] as agg_0]
      :   SortExec: expr=[company_name_words@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :     TantivyLookupExec: decode=[company_name_words]
+     :     TantivyLookupExec: mode=Union, decode=[company_name_words]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
      :         CooperativeExec
      :           PgSearchScan: segments=1, query="all"

@@ -90,7 +90,7 @@ LIMIT 10;
          Order By: f.title asc, p.size_bytes asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyLookupExec: decode=[title]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[title]
            :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
@@ -150,7 +150,7 @@ LIMIT 10;
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 2 ── tasks=2, partitions=6
            :   │ LocalLimitExec: fetch=10
-           :   │   TantivyLookupExec: decode=[title]
+           :   │   TantivyLookupExec: mode=TermOrdinal, decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :   │       DeferredResolveExec
            :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
@@ -249,7 +249,7 @@ LIMIT 10;
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 2 ── tasks=2, partitions=6
            :   │ LocalLimitExec: fetch=10
-           :   │   TantivyLookupExec: decode=[title]
+           :   │   TantivyLookupExec: mode=TermOrdinal, decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :   │       DeferredResolveExec
            :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
@@ -313,7 +313,7 @@ LIMIT 10;
          Order By: f.title asc, p.size_bytes asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyLookupExec: decode=[title]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[title]
            :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]

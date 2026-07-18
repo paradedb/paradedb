@@ -267,7 +267,7 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[owner@0 as owner], aggr=[count(_123_0.id) as agg_0]
-                 :     TantivyLookupExec: decode=[owner]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[owner]
                  :       AggregateExec: mode=Partial, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]

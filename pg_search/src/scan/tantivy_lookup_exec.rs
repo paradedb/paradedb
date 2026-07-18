@@ -35,6 +35,12 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookupMode {
+    Union,
+    TermOrdinal,
+}
+
 /// Tracks a deferred column inside DataFusion's physical execution plan.
 ///
 /// Unlike the logical `DeferredField` which uses the base column's string name, this struct
@@ -75,6 +81,7 @@ pub struct TantivyLookupExec {
     ffhelpers: HashMap<u32, Arc<FFHelper>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
+    mode: LookupMode,
 }
 
 impl std::fmt::Debug for TantivyLookupExec {
@@ -92,6 +99,19 @@ impl TantivyLookupExec {
         deferred_fields: Vec<PhysicalDeferredField>,
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
     ) -> Result<Self> {
+        if deferred_fields.is_empty() {
+            return Err(DataFusionError::Internal(
+                "TantivyLookupExec requires at least one deferred field".into(),
+            ));
+        }
+        let first_col_idx = deferred_fields[0].col_idx;
+        let first_field = input.schema().field(first_col_idx).clone();
+        let mode = if matches!(first_field.data_type(), DataType::Struct(_)) {
+            LookupMode::TermOrdinal
+        } else {
+            LookupMode::Union
+        };
+
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
         let mut eq_props = EquivalenceProperties::new(output_schema.clone());
@@ -138,6 +158,7 @@ impl TantivyLookupExec {
             ffhelpers,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
+            mode,
         })
     }
 
@@ -356,7 +377,8 @@ impl DisplayAs for TantivyLookupExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "TantivyLookupExec: decode=[{}]",
+            "TantivyLookupExec: mode={:?}, decode=[{}]",
+            self.mode,
             self.deferred_fields
                 .iter()
                 .map(|d| d.display_name.as_str())
@@ -404,18 +426,41 @@ impl ExecutionPlan for TantivyLookupExec {
         let decoders = self.decoders.clone();
         let ffhelpers = self.ffhelpers.clone();
         let schema = self.properties.eq_properties.schema().clone();
+        let mode = self.mode;
 
         let stream_gen = async_stream::try_stream! {
             use futures::StreamExt;
-            while let Some(batch_res) = input_stream.next().await {
-                let timer = baseline_metrics.elapsed_compute().timer();
-                let result = match batch_res {
-                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema),
-                    Err(e) => Err(e),
-                };
-                timer.done();
 
-                yield result.record_output(&baseline_metrics)?;
+            let mut buffered_batches: Vec<RecordBatch> = Vec::new();
+            let mut buffered_rows = 0;
+            // Buffer up to ~64k rows to average ~8k rows per segment across 8 segments,
+            // maximizing cache locality for dictionary lookups.
+            let target_row_count = 64_000;
+
+            while let Some(batch_res) = input_stream.next().await {
+                let batch = batch_res?;
+                buffered_rows += batch.num_rows();
+                buffered_batches.push(batch);
+
+                if buffered_rows >= target_row_count {
+                    let timer = baseline_metrics.elapsed_compute().timer();
+                    let enriched_batches = enrich_buffered_batches(&buffered_batches, &decoders, &ffhelpers, &schema, mode)?;
+                    timer.done();
+                    for enriched in enriched_batches {
+                        yield enriched.record_output(&baseline_metrics);
+                    }
+                    buffered_batches.clear();
+                    buffered_rows = 0;
+                }
+            }
+
+            if !buffered_batches.is_empty() {
+                let timer = baseline_metrics.elapsed_compute().timer();
+                let enriched_batches = enrich_buffered_batches(&buffered_batches, &decoders, &ffhelpers, &schema, mode)?;
+                timer.done();
+                for enriched in enriched_batches {
+                    yield enriched.record_output(&baseline_metrics);
+                }
             }
             baseline_metrics.done();
         };
@@ -457,19 +502,23 @@ enum DeferredColumnKind {
     Bytes { ff_index: usize },
 }
 
-fn enrich_batch(
-    batch: RecordBatch,
+fn enrich_buffered_batches(
+    batches: &[RecordBatch],
     decoders: &[DecoderInfo],
     ffhelpers: &HashMap<u32, Arc<FFHelper>>,
     schema: &SchemaRef,
-) -> Result<RecordBatch> {
-    let num_rows = batch.num_rows();
-    // Clone the input arrays. We will overwrite the deferred ones by exact index.
-    let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
+    mode: LookupMode,
+) -> Result<Vec<RecordBatch>> {
+    let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+    if total_rows == 0 {
+        return Ok(Vec::new());
+    }
+
+    // Map: batch_idx -> col_idx -> new_column
+    let mut new_columns_per_batch: Vec<Vec<Option<ArrayRef>>> =
+        vec![vec![None; schema.fields().len()]; batches.len()];
 
     for decoder in decoders {
-        let array = &output_columns[decoder.col_idx];
-
         let ffhelper = ffhelpers
             .get(&decoder.canonical.indexrelid)
             .ok_or_else(|| {
@@ -489,23 +538,66 @@ fn enrich_batch(
             }
         };
 
-        if let Some(union_array) = array.as_any().downcast_ref::<arrow_array::UnionArray>() {
-            output_columns[decoder.col_idx] =
-                materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?;
-        } else if let Some(struct_array) = array.as_any().downcast_ref::<arrow_array::StructArray>()
-        {
-            output_columns[decoder.col_idx] =
-                materialize_deferred_struct_column(ffhelper, &ffcolumn, struct_array, num_rows)?;
-        } else {
-            return Err(DataFusionError::Execution(format!(
-                "expected UnionArray or StructArray for deferred column at index {}",
-                decoder.col_idx
-            )));
+        let arrays_to_concat: Vec<&dyn arrow_array::Array> = batches
+            .iter()
+            .map(|b| b.column(decoder.col_idx).as_ref())
+            .collect();
+        let concated_array = arrow_select::concat::concat(&arrays_to_concat)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+        let enriched_massive_array = match mode {
+            LookupMode::Union => {
+                let union_array = concated_array
+                    .as_any()
+                    .downcast_ref::<arrow_array::UnionArray>()
+                    .ok_or_else(|| {
+                        DataFusionError::Execution(format!(
+                            "expected UnionArray for deferred column at index {}",
+                            decoder.col_idx
+                        ))
+                    })?;
+                materialize_deferred_column(ffhelper, &ffcolumn, union_array, total_rows)?
+            }
+            LookupMode::TermOrdinal => {
+                let struct_array = concated_array
+                    .as_any()
+                    .downcast_ref::<arrow_array::StructArray>()
+                    .ok_or_else(|| {
+                        DataFusionError::Execution(format!(
+                            "expected StructArray for deferred column at index {}",
+                            decoder.col_idx
+                        ))
+                    })?;
+                materialize_deferred_struct_column(ffhelper, &ffcolumn, struct_array, total_rows)?
+            }
+        };
+
+        let mut offset = 0;
+        for (batch_idx, batch) in batches.iter().enumerate() {
+            let len = batch.num_rows();
+            let sliced = enriched_massive_array.slice(offset, len);
+            new_columns_per_batch[batch_idx][decoder.col_idx] = Some(sliced);
+            offset += len;
         }
     }
 
-    RecordBatch::try_new(schema.clone(), output_columns)
-        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+    let mut result = Vec::with_capacity(batches.len());
+    for (batch_idx, batch) in batches.iter().enumerate() {
+        let mut final_columns = Vec::with_capacity(schema.fields().len());
+        for (col_idx, new_col_opt) in new_columns_per_batch[batch_idx].iter().enumerate() {
+            if let Some(new_col) = new_col_opt {
+                final_columns.push(new_col.clone());
+            } else {
+                final_columns.push(batch.column(col_idx).clone());
+            }
+        }
+        result.push(
+            RecordBatch::try_new(schema.clone(), final_columns)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+        );
+    }
+
+    Ok(result)
 }
 
 fn materialize_deferred_struct_column(

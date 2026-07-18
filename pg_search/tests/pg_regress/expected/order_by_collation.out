@@ -451,7 +451,7 @@ LIMIT 5;
          Order By: p.name_c asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name_c@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyLookupExec: decode=[name_c]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[name_c]
            :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]

@@ -80,7 +80,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -155,7 +155,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[name@1 IS NULL as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -306,7 +306,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -382,7 +382,7 @@ ORDER BY p.name
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                              :   AggregateExec: mode=Final, gby=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
+                             :     TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :       AggregateExec: mode=Partial, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :         DeferredResolveExec
                              :           VisibilityFilterExec: tables=[s, p]
@@ -446,7 +446,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[character_length(name@1) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -522,7 +522,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) IS NULL as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=1, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -571,7 +571,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[name@1 IS NOT NULL as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -644,7 +644,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[character_length(name@1) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -861,7 +861,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -934,7 +934,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -1011,7 +1011,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -1148,7 +1148,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :   TantivyLookupExec: decode=[name]
+                             :   TantivyLookupExec: mode=TermOrdinal, decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10, visibility_checks=[s, p]
                              :       DeferredResolveExec
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]

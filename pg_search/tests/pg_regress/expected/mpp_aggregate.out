@@ -113,7 +113,7 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-                 :     TantivyLookupExec: decode=[title]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[title]
                  :       AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
@@ -219,7 +219,7 @@ LIMIT 5;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=3
-                 :     │   TantivyLookupExec: decode=[title]
+                 :     │   TantivyLookupExec: mode=TermOrdinal, decode=[title]
                  :     │     AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │       DeferredResolveExec
                  :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]

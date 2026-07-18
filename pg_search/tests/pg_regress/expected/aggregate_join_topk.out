@@ -76,7 +76,7 @@ GROUP BY p.category;
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-     :   TantivyLookupExec: decode=[category]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
      :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
      :       DeferredResolveExec
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
@@ -127,7 +127,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
@@ -178,7 +178,7 @@ LIMIT 2;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[sum(p_0.price) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[sum(p_0.price) as agg_0]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
@@ -308,7 +308,7 @@ LIMIT 1;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
@@ -483,7 +483,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[category@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
@@ -588,7 +588,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1]
                  :         DeferredResolveExec
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]

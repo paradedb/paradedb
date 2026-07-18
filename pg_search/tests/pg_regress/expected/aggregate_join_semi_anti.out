@@ -82,7 +82,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[job_title]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[job_title]
            :     AggregateExec: mode=Partial, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
@@ -129,7 +129,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[job_title]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[job_title]
            :     AggregateExec: mode=Partial, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
@@ -185,7 +185,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[job_title]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[job_title]
            :     AggregateExec: mode=Partial, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
@@ -416,7 +416,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Final, gby=[label@0 as label], aggr=[count(1) as agg_0]
-           :   TantivyLookupExec: decode=[label]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[label]
            :     AggregateExec: mode=Partial, gby=[label@0 as label], aggr=[count(1) as agg_0]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, id@0)], projection=[label@1]

@@ -89,7 +89,7 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[metadata.category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[metadata.category]
                  :       AggregateExec: mode=Partial, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}

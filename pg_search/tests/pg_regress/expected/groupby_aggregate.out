@@ -719,7 +719,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
@@ -921,7 +921,7 @@ LIMIT 2;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
@@ -966,7 +966,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyLookupExec: decode=[category]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}

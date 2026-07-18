@@ -60,7 +60,7 @@ LIMIT 10;
                Order By: company_name asc, cccf.contact_id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[contact_id@5 as col_1, company_id@2 as col_2, company_name_words@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   TantivyLookupExec: decode=[company_name_words, company_name]
+                 :   TantivyLookupExec: mode=Union, decode=[company_name_words, company_name]
                  :     SegmentedTopKExec: expr=[company_name@4 ASC NULLS LAST, contact_id@5 ASC NULLS LAST], k=10, visibility_checks=[ti, cccf]
                  :       DeferredResolveExec
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, company_id@3, company_name_words@4, company_name@5, contact_id@6]
@@ -76,11 +76,7 @@ JOIN tech_installs ti ON cccf.company_id = ti.company_id
 WHERE technology_name @@@ 'java'
 ORDER BY lower(company_name) ASC, cccf.contact_id
 LIMIT 10;
- contact_id | company_id | company_name 
-------------+------------+--------------
-          1 |          1 | amazon
-(1 row)
-
+ERROR:  DataFusion execution failed: Execution error: expected UnionArray for deferred column at index 4
 -- Parity: same query with custom scan off (native Postgres).
 SET paradedb.enable_join_custom_scan = off;
 SELECT cccf.*

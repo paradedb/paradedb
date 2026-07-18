@@ -320,7 +320,7 @@ LIMIT 10;
          Order By: table_a.category asc, table_a.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
-           :   TantivyLookupExec: decode=[category]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
            :     SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10, visibility_checks=[table_a]
            :       DeferredResolveExec
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]

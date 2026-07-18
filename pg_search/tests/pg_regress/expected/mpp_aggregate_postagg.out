@@ -114,7 +114,7 @@ ORDER BY f.category;
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-           :     │   TantivyLookupExec: decode=[category]
+           :     │   TantivyLookupExec: mode=TermOrdinal, decode=[category]
            :     │     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
            :     │       DeferredResolveExec
            :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
@@ -203,7 +203,7 @@ LIMIT 10;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 9), input_partitions=3
-                 :     │   TantivyLookupExec: decode=[category, title]
+                 :     │   TantivyLookupExec: mode=TermOrdinal, decode=[category, title]
                  :     │     AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
                  :     │       DeferredResolveExec
                  :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
@@ -291,7 +291,7 @@ LIMIT 3;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-                 :     │   TantivyLookupExec: decode=[category]
+                 :     │   TantivyLookupExec: mode=TermOrdinal, decode=[category]
                  :     │     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │       DeferredResolveExec
                  :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
@@ -449,7 +449,7 @@ ORDER BY c.name;
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-           :     │   TantivyLookupExec: decode=[category]
+           :     │   TantivyLookupExec: mode=Union, decode=[category]
            :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
            :     │       CoalescePartitionsExec
            :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
@@ -462,7 +462,7 @@ ORDER BY c.name;
            :       └──────────────────────────────────────────────────
            :     ┌───── Stage 3 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([name@0], 9), input_partitions=3
-           :     │   TantivyLookupExec: decode=[name]
+           :     │   TantivyLookupExec: mode=Union, decode=[name]
            :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
            :     │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────

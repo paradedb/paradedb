@@ -22,6 +22,9 @@ use arrow_schema::{Field, Schema, SchemaRef};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::StreamExt;
 
@@ -41,6 +44,7 @@ pub struct DeferredResolveExec {
     pub deferred_fields: Vec<PhysicalDeferredField>,
     pub schema: SchemaRef,
     pub properties: Arc<PlanProperties>,
+    pub metrics: ExecutionPlanMetricsSet,
 }
 
 impl std::fmt::Debug for DeferredResolveExec {
@@ -219,6 +223,7 @@ impl DeferredResolveExec {
             deferred_fields,
             schema,
             properties,
+            metrics: ExecutionPlanMetricsSet::new(),
         })
     }
 }
@@ -243,6 +248,10 @@ impl DisplayAs for DeferredResolveExec {
 impl ExecutionPlan for DeferredResolveExec {
     fn name(&self) -> &str {
         "DeferredResolveExec"
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {
@@ -271,11 +280,13 @@ impl ExecutionPlan for DeferredResolveExec {
         context: Arc<TaskContext>,
     ) -> datafusion::common::Result<SendableRecordBatchStream> {
         let input_stream = self.input.execute(partition, context)?;
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         Ok(Box::pin(DeferredResolveStream {
             input_stream,
             schema: Arc::clone(&self.schema),
             _ffhelpers: self.ffhelpers.clone(),
             deferred_fields: self.deferred_fields.clone(),
+            baseline_metrics,
         }))
     }
 }
@@ -325,12 +336,46 @@ struct DeferredResolveStream {
     schema: SchemaRef,
     _ffhelpers: HashMap<u32, Arc<FFHelper>>,
     deferred_fields: Vec<PhysicalDeferredField>,
+    baseline_metrics: BaselineMetrics,
 }
 
 impl datafusion::execution::RecordBatchStream for DeferredResolveStream {
     fn schema(&self) -> SchemaRef {
         Arc::clone(&self.schema)
     }
+}
+
+fn enrich_batch(
+    batch: RecordBatch,
+    deferred_fields: &[PhysicalDeferredField],
+    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    schema: &SchemaRef,
+) -> datafusion::common::Result<RecordBatch> {
+    let mut new_columns = batch.columns().to_vec();
+    for field in deferred_fields {
+        let col_idx = field.col_idx;
+        if let Some(_union_col) = new_columns[col_idx].as_any().downcast_ref::<UnionArray>() {
+            let resolved = resolve_union_to_struct(_union_col, ffhelpers, field)?;
+            let struct_arr = resolved
+                .as_any()
+                .downcast_ref::<arrow_array::StructArray>()
+                .unwrap();
+            let seg_ord_array = std::sync::Arc::clone(struct_arr.column(0));
+            let term_ord_array = std::sync::Arc::clone(struct_arr.column(1));
+
+            new_columns[col_idx] = resolved;
+            new_columns.push(seg_ord_array);
+            new_columns.push(term_ord_array);
+        } else {
+            // If it's not a UnionArray, it means we don't have deferred data. We must still push columns to match schema.
+            let count = batch.num_rows();
+            new_columns
+                .push(std::sync::Arc::new(arrow_array::UInt32Array::from(vec![0; count])) as _);
+            new_columns
+                .push(std::sync::Arc::new(arrow_array::UInt64Array::from(vec![None; count])) as _);
+        }
+    }
+    RecordBatch::try_new(Arc::clone(schema), new_columns).map_err(Into::into)
 }
 
 impl futures::Stream for DeferredResolveStream {
@@ -343,40 +388,18 @@ impl futures::Stream for DeferredResolveStream {
         let poll = self.input_stream.poll_next_unpin(cx);
         match poll {
             std::task::Poll::Ready(Some(Ok(batch))) => {
-                let mut new_columns = batch.columns().to_vec();
-                for field in &self.deferred_fields {
-                    let col_idx = field.col_idx;
-                    if let Some(_union_col) =
-                        new_columns[col_idx].as_any().downcast_ref::<UnionArray>()
-                    {
-                        let resolved =
-                            resolve_union_to_struct(_union_col, &self._ffhelpers, field)?;
-                        let struct_arr = resolved
-                            .as_any()
-                            .downcast_ref::<arrow_array::StructArray>()
-                            .unwrap();
-                        let seg_ord_array = std::sync::Arc::clone(struct_arr.column(0));
-                        let term_ord_array = std::sync::Arc::clone(struct_arr.column(1));
-
-                        new_columns[col_idx] = resolved;
-                        new_columns.push(seg_ord_array);
-                        new_columns.push(term_ord_array);
-                    } else {
-                        // If it's not a UnionArray, it means we don't have deferred data. We must still push columns to match schema.
-                        let count = batch.num_rows();
-                        new_columns.push(std::sync::Arc::new(arrow_array::UInt32Array::from(
-                            vec![0; count],
-                        )) as _);
-                        new_columns.push(std::sync::Arc::new(arrow_array::UInt64Array::from(
-                            vec![None; count],
-                        )) as _);
-                    }
-                }
-                std::task::Poll::Ready(Some(
-                    RecordBatch::try_new(Arc::clone(&self.schema), new_columns).map_err(Into::into),
-                ))
+                let timer = self.baseline_metrics.elapsed_compute().timer();
+                let result =
+                    enrich_batch(batch, &self.deferred_fields, &self._ffhelpers, &self.schema);
+                timer.done();
+                std::task::Poll::Ready(Some(result.record_output(&self.baseline_metrics)))
             }
-            other => other,
+            std::task::Poll::Ready(Some(Err(e))) => std::task::Poll::Ready(Some(Err(e))),
+            std::task::Poll::Ready(None) => {
+                self.baseline_metrics.done();
+                std::task::Poll::Ready(None)
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
 }

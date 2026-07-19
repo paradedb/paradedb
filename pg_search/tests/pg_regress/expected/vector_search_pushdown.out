@@ -31,10 +31,10 @@ CREATE INDEX vsp_idx ON vsp
     USING bm25 (id, label, vec vector_l2_ops)
     WITH (key_field = id);
 -- match: <-> pushes down
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-                      QUERY PLAN                       
--------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on vsp
          Table: vsp
@@ -43,11 +43,10 @@ SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 
          Scores: false
             TopK Order By: vec <-> vector asc
             TopK Limit: 2
-         Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
  id 
 ----
   1
@@ -55,11 +54,11 @@ SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 
 (2 rows)
 
 -- mismatch: <=> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((vec <=> '[1,0,0]'::vector))
@@ -68,11 +67,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
                Index: vsp_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
  id 
 ----
@@ -81,11 +79,11 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (2 rows)
 
 -- mismatch: <#> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((vec <#> '[1,0,0]'::vector))
@@ -94,11 +92,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
                Index: vsp_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
  id 
 ----
@@ -114,11 +111,11 @@ CREATE INDEX vsp_idx ON vsp
     USING bm25 (id, label, vec vector_cosine_ops)
     WITH (key_field = id);
 -- mismatch: <-> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((vec <-> '[1,0,0]'::vector))
@@ -127,11 +124,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
                Index: vsp_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
  id 
 ----
@@ -140,10 +136,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (2 rows)
 
 -- match: <=> pushes down
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-                      QUERY PLAN                       
--------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on vsp
          Table: vsp
@@ -152,11 +148,10 @@ SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 
          Scores: false
             TopK Order By: vec <=> vector asc
             TopK Limit: 2
-         Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
  id 
 ----
   1
@@ -164,11 +159,11 @@ SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 
 (2 rows)
 
 -- mismatch: <#> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((vec <#> '[1,0,0]'::vector))
@@ -177,11 +172,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
                Index: vsp_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
  id 
 ----
@@ -197,11 +191,11 @@ CREATE INDEX vsp_idx ON vsp
     USING bm25 (id, label, vec vector_ip_ops)
     WITH (key_field = id);
 -- mismatch: <-> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((vec <-> '[1,0,0]'::vector))
@@ -210,11 +204,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
                Index: vsp_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
  id 
 ----
@@ -223,11 +216,11 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (2 rows)
 
 -- mismatch: <=> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((vec <=> '[1,0,0]'::vector))
@@ -236,11 +229,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
                Index: vsp_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.check_topk_scan = false (table: vsp)
  id 
 ----
@@ -249,10 +241,10 @@ WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). 
 (2 rows)
 
 -- match: <#> pushes down
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-                      QUERY PLAN                       
--------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on vsp
          Table: vsp
@@ -261,14 +253,60 @@ SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 
          Scores: false
             TopK Order By: vec <#> vector asc
             TopK Limit: 2
-         Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
 
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
  id 
 ----
   1
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- Runtime query-vector operand (not a Const, not a Param)
+-- ============================================================
+-- A stable, Var-free operand such as current_setting(...)::vector must push
+-- down through TopK (evaluated once at execution start), and must reflect the
+-- GUC's current value rather than a stale plan-time fold.
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+SET vsp.q = '[1,0,0]';
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+-- ... and returns the same ranking as the equivalent literal
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- changing the GUC changes the ranking (proves no stale plan-time fold)
+SET vsp.q = '[0,0,1]';
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+ id 
+----
+  4
   2
 (2 rows)
 

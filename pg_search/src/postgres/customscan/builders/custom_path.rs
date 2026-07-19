@@ -41,6 +41,8 @@ pub enum OrderByStyle {
         query_vector: Vec<f32>,
         /// See `OrderByFeature::VectorDistance::query_vector_param_id`.
         query_vector_param_id: Option<i32>,
+        /// See `OrderByFeature::VectorDistance::query_vector_expr`.
+        query_vector_expr: Option<String>,
         /// See `OrderByFeature::VectorDistance::metric`.
         metric: crate::vector::metric::VectorMetric,
     },
@@ -107,6 +109,7 @@ impl From<&OrderByStyle> for OrderByInfo {
                 rti,
                 query_vector,
                 query_vector_param_id,
+                query_vector_expr,
                 metric,
                 ..
             } => OrderByFeature::VectorDistance {
@@ -114,6 +117,7 @@ impl From<&OrderByStyle> for OrderByInfo {
                 rti: *rti,
                 query_vector: query_vector.clone(),
                 query_vector_param_id: *query_vector_param_id,
+                query_vector_expr: query_vector_expr.clone(),
                 metric: *metric,
             },
         };

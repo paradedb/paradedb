@@ -37,19 +37,19 @@ CREATE INDEX vsp_idx ON vsp
     WITH (key_field = id);
 
 -- match: <-> pushes down
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 
 -- mismatch: <=> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 
 -- mismatch: <#> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
 
 DROP INDEX vsp_idx;
 
@@ -62,19 +62,19 @@ CREATE INDEX vsp_idx ON vsp
     WITH (key_field = id);
 
 -- mismatch: <-> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 
 -- match: <=> pushes down
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 
 -- mismatch: <#> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
 
 DROP INDEX vsp_idx;
 
@@ -87,19 +87,47 @@ CREATE INDEX vsp_idx ON vsp
     WITH (key_field = id);
 
 -- mismatch: <-> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 
 -- mismatch: <=> falls back, planner warns
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 
 -- match: <#> pushes down
-EXPLAIN (COSTS OFF)
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
-SELECT id FROM vsp WHERE id @@@ paradedb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- Runtime query-vector operand (not a Const, not a Param)
+-- ============================================================
+-- A stable, Var-free operand such as current_setting(...)::vector must push
+-- down through TopK (evaluated once at execution start), and must reflect the
+-- GUC's current value rather than a stale plan-time fold.
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+SET vsp.q = '[1,0,0]';
+
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+-- ... and returns the same ranking as the equivalent literal
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+
+-- changing the GUC changes the ranking (proves no stale plan-time fold)
+SET vsp.q = '[0,0,1]';
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
 
 DROP INDEX vsp_idx;
 

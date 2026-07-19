@@ -61,176 +61,162 @@ fn explain(conn: &mut PgConnection, query: &str) -> String {
     lines.join("\n")
 }
 
-#[rstest]
-fn window_count_is_not_capped_by_limit(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
-
-    // count(*) OVER () must count all 1334 joined rows, so the LIMIT cannot
-    // be pushed below it and the JoinScan must decline.
-    let query = r#"
-        SELECT p.id, count(*) OVER () AS total
-        FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-        WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-        ORDER BY p.id, c.id
-        LIMIT 5
-    "#;
-
-    assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
-
-    let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
-    assert_eq!(rows.len(), 5);
-    assert!(rows.iter().all(|(_, total)| *total == 1334), "{rows:?}");
-
-    Ok(())
+#[derive(Clone, Copy)]
+enum LimitSafetyCase {
+    WindowCount,
+    RowReducingSrf,
+    GroupBy,
+    PlainPagination,
+    ParameterizedLimit,
+    WindowAboveSubquery,
+    PlainDistinct,
 }
 
 #[rstest]
-fn row_reducing_srf_still_fills_the_limit(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
-
-    // The SRF deletes odd ids (empty array), so filling LIMIT 5 needs more
-    // than 5 join rows; a pushed LIMIT would come up short.
-    let query = r#"
-        SELECT p.id, unnest(CASE WHEN p.id % 2 = 0 THEN ARRAY[1] ELSE '{}'::int[] END) AS u
-        FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-        WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-        ORDER BY p.id, c.id
-        LIMIT 5
-    "#;
-
-    assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
-
-    let rows = query.fetch_result::<(i32, i32)>(&mut conn)?;
-    assert_eq!(
-        rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
-        vec![2, 2, 4, 4, 8]
-    );
-
-    Ok(())
-}
-
-#[rstest]
-fn group_by_without_aggregates_returns_full_groups(
+#[case::window_count(LimitSafetyCase::WindowCount)]
+#[case::row_reducing_srf(LimitSafetyCase::RowReducingSrf)]
+#[case::group_by(LimitSafetyCase::GroupBy)]
+#[case::plain_pagination(LimitSafetyCase::PlainPagination)]
+#[case::parameterized_limit(LimitSafetyCase::ParameterizedLimit)]
+#[case::window_above_subquery(LimitSafetyCase::WindowAboveSubquery)]
+#[case::plain_distinct(LimitSafetyCase::PlainDistinct)]
+fn limit_pushdown_safety(
+    #[case] case: LimitSafetyCase,
     mut conn: PgConnection,
 ) -> Result<(), sqlx::Error> {
     setup(&mut conn);
 
-    // With the aggregate scan disabled, the JoinScan is the only custom
-    // candidate; it must decline rather than cap the rows feeding the Group
-    // node (each parent has two children, so 5 groups need 10 join rows).
-    "SET paradedb.enable_aggregate_custom_scan = off;".execute(&mut conn);
+    match case {
+        LimitSafetyCase::WindowCount => {
+            // count(*) OVER () must count all 1334 joined rows, so the LIMIT cannot
+            // be pushed below it and the JoinScan must decline.
+            let query = r#"
+                SELECT p.id, count(*) OVER () AS total
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                ORDER BY p.id, c.id
+                LIMIT 5
+            "#;
 
-    let query = r#"
-        SELECT p.id
-        FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-        WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-        GROUP BY p.id
-        ORDER BY p.id
-        LIMIT 5
-    "#;
+            assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
 
-    assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
+            let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows.len(), 5);
+            assert!(rows.iter().all(|(_, total)| *total == 1334), "{rows:?}");
+        }
+        LimitSafetyCase::RowReducingSrf => {
+            // The SRF deletes odd ids (empty array), so filling LIMIT 5 needs more
+            // than 5 join rows; a pushed LIMIT would come up short.
+            let query = r#"
+                SELECT p.id, unnest(CASE WHEN p.id % 2 = 0 THEN ARRAY[1] ELSE '{}'::int[] END) AS u
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                ORDER BY p.id, c.id
+                LIMIT 5
+            "#;
 
-    let rows = query.fetch_result::<(i32,)>(&mut conn)?;
-    assert_eq!(rows, vec![(1,), (2,), (4,), (5,), (7,)]);
+            assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
 
-    Ok(())
-}
+            let rows = query.fetch_result::<(i32, i32)>(&mut conn)?;
+            assert_eq!(
+                rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+                vec![2, 2, 4, 4, 8]
+            );
+        }
+        LimitSafetyCase::GroupBy => {
+            // With the aggregate scan disabled, the JoinScan is the only custom
+            // candidate; it must decline rather than cap the rows feeding the Group
+            // node (each parent has two children, so 5 groups need 10 join rows).
+            "SET paradedb.enable_aggregate_custom_scan = off;".execute(&mut conn);
 
-#[rstest]
-fn plain_pagination_still_uses_join_scan(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
+            let query = r#"
+                SELECT p.id
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                GROUP BY p.id
+                ORDER BY p.id
+                LIMIT 5
+            "#;
 
-    // The no-regression guard: without a row-consuming node above the join,
-    // the LIMIT push stays legal and the JoinScan must keep engaging.
-    let query = r#"
-        SELECT p.id
-        FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-        WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-        ORDER BY p.id
-        LIMIT 5
-    "#;
+            assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
 
-    assert!(explain(&mut conn, query).contains(JOIN_SCAN));
+            let rows = query.fetch_result::<(i32,)>(&mut conn)?;
+            assert_eq!(rows, vec![(1,), (2,), (4,), (5,), (7,)]);
+        }
+        LimitSafetyCase::PlainPagination => {
+            // The no-regression guard: without a row-consuming node above the join,
+            // the LIMIT push stays legal and the JoinScan must keep engaging.
+            let query = r#"
+                SELECT p.id
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                ORDER BY p.id
+                LIMIT 5
+            "#;
 
-    let rows = query.fetch_result::<(i32,)>(&mut conn)?;
-    assert_eq!(rows, vec![(1,), (1,), (2,), (2,), (4,)]);
+            assert!(explain(&mut conn, query).contains(JOIN_SCAN));
 
-    Ok(())
-}
+            let rows = query.fetch_result::<(i32,)>(&mut conn)?;
+            assert_eq!(rows, vec![(1,), (1,), (2,), (2,), (4,)]);
+        }
+        LimitSafetyCase::ParameterizedLimit => {
+            // A generic plan leaves the LIMIT as a Param and PG reports
+            // limit_tuples == -1; that alone must not disable the JoinScan.
+            r#"
+            SET plan_cache_mode = force_generic_plan;
+            PREPARE ls_page AS
+                SELECT p.id
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                ORDER BY p.id
+                LIMIT $1;
+            "#
+            .execute(&mut conn);
 
-#[rstest]
-fn parameterized_limit_still_uses_join_scan(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
+            let plan: Vec<String> =
+                "EXPLAIN (COSTS OFF) EXECUTE ls_page(5)".fetch_scalar(&mut conn);
+            assert!(plan.join("\n").contains(JOIN_SCAN), "{}", plan.join("\n"));
+        }
+        LimitSafetyCase::WindowAboveSubquery => {
+            // The gate is per query level: the window function lives in the OUTER
+            // query, while the LIMIT the JoinScan pushes belongs to the subquery.
+            // Counting after the inner LIMIT is correct SQL, so the inner JoinScan
+            // must keep engaging and the window total must equal the inner limit.
+            let query = r#"
+                SELECT sub.id, count(*) OVER () AS total
+                FROM (
+                    SELECT p.id
+                    FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                    WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                    ORDER BY p.id, c.id
+                    LIMIT 10
+                ) sub
+                LIMIT 5
+            "#;
 
-    // A generic plan leaves the LIMIT as a Param and PG reports
-    // limit_tuples == -1; that alone must not disable the JoinScan.
-    r#"
-    SET plan_cache_mode = force_generic_plan;
-    PREPARE ls_page AS
-        SELECT p.id
-        FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-        WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-        ORDER BY p.id
-        LIMIT $1;
-    "#
-    .execute(&mut conn);
+            assert!(explain(&mut conn, query).contains(JOIN_SCAN));
 
-    let plan: Vec<String> = "EXPLAIN (COSTS OFF) EXECUTE ls_page(5)".fetch_scalar(&mut conn);
-    assert!(plan.join("\n").contains(JOIN_SCAN), "{}", plan.join("\n"));
+            let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
+            assert_eq!(rows.len(), 5);
+            assert!(rows.iter().all(|(_, total)| *total == 10), "{rows:?}");
+        }
+        LimitSafetyCase::PlainDistinct => {
+            // Plain DISTINCT dedups on the whole target list, which the JoinScan
+            // absorbs and applies before its limit, so the pushdown stays safe.
+            let query = r#"
+                SELECT DISTINCT p.id
+                FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
+                WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+                ORDER BY p.id
+                LIMIT 5
+            "#;
 
-    Ok(())
-}
+            assert!(explain(&mut conn, query).contains(JOIN_SCAN));
 
-#[rstest]
-fn window_above_subquery_limit_keeps_inner_join_scan(
-    mut conn: PgConnection,
-) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
-
-    // The gate is per query level: the window function lives in the OUTER
-    // query, while the LIMIT the JoinScan pushes belongs to the subquery.
-    // Counting after the inner LIMIT is correct SQL, so the inner JoinScan
-    // must keep engaging and the window total must equal the inner limit.
-    let query = r#"
-        SELECT sub.id, count(*) OVER () AS total
-        FROM (
-            SELECT p.id
-            FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-            WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-            ORDER BY p.id, c.id
-            LIMIT 10
-        ) sub
-        LIMIT 5
-    "#;
-
-    assert!(explain(&mut conn, query).contains(JOIN_SCAN));
-
-    let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
-    assert_eq!(rows.len(), 5);
-    assert!(rows.iter().all(|(_, total)| *total == 10), "{rows:?}");
-
-    Ok(())
-}
-
-#[rstest]
-fn plain_distinct_still_uses_join_scan(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
-
-    // Plain DISTINCT dedups on the whole target list, which the JoinScan
-    // absorbs and applies before its limit, so the pushdown stays safe.
-    let query = r#"
-        SELECT DISTINCT p.id
-        FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
-        WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
-        ORDER BY p.id
-        LIMIT 5
-    "#;
-
-    assert!(explain(&mut conn, query).contains(JOIN_SCAN));
-
-    let rows = query.fetch_result::<(i32,)>(&mut conn)?;
-    assert_eq!(rows, vec![(1,), (2,), (4,), (5,), (7,)]);
+            let rows = query.fetch_result::<(i32,)>(&mut conn)?;
+            assert_eq!(rows, vec![(1,), (2,), (4,), (5,), (7,)]);
+        }
+    }
 
     Ok(())
 }

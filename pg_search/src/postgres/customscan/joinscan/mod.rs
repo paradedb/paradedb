@@ -673,8 +673,9 @@ impl JoinScan {
             join_clause = join_clause.with_forced_partitioning(0);
         }
 
-        // Safety check: bail out if LIMIT pushdown is unsafe due to
-        // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
+        // Safety check: bail out if an upper plan node needs the full row set,
+        // or if un-absorbed relations/SubPlans or volatile predicates could
+        // change the capped output.
         if join_clause.limit_offset.is_some() {
             is_limit_pushdown_safe(root, &join_clause)?;
         }

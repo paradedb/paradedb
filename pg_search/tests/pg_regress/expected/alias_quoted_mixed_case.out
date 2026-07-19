@@ -68,7 +68,7 @@ WHERE "Parent"."owner" = 'user-1';
    Indexes: repro_5525_parent_idx (Parent), repro_5525_child_idx (Child)
    Aggregates: COUNT(id)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[count(parent_0.id) as agg_0]
+     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1]
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
@@ -266,12 +266,12 @@ LIMIT 5;
                Aggregates: COUNT(id)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
+                 :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
                  :       CooperativeExec
                  :         PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT "123"."owner", count("123"."id")

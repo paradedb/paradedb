@@ -21,9 +21,11 @@
 //! These tests pin the decline cases and the cases that must keep using
 //! the JoinScan.
 
+mod fixtures;
+
+use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
-use tests::fixtures::*;
 
 const JOIN_SCAN: &str = "Custom Scan (ParadeDB Join Scan)";
 

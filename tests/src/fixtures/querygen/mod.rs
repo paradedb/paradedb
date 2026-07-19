@@ -392,7 +392,6 @@ pub struct PgGucs {
     pub parallel_leader_participation: bool,
     /// Enable columnar execution (ColumnarExecState).
     pub columnar_exec: bool,
-    pub enable_mpp: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -499,7 +498,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 11]>()
+        any::<[bool; 10]>()
             .prop_map(|b| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
@@ -512,7 +511,6 @@ impl Arbitrary for PgGucs {
                     parallel_workers: b[7],
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
-                    enable_mpp: b[10],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -537,7 +535,6 @@ impl PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
-            enable_mpp: false,
         }
     }
 
@@ -553,10 +550,10 @@ impl PgGucs {
             parallel_workers,
             parallel_leader_participation,
             columnar_exec,
-            enable_mpp,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
+        let max_parallel_workers_per_gather = if *parallel_workers { 4 } else { 0 };
 
         let mut gucs = String::with_capacity(512);
         writeln!(
@@ -585,6 +582,11 @@ impl PgGucs {
         writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
         writeln!(
             gucs,
+            "SET max_parallel_workers_per_gather TO {max_parallel_workers_per_gather};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
             "SET parallel_leader_participation TO {parallel_leader_participation};"
         )
         .unwrap();
@@ -594,12 +596,8 @@ impl PgGucs {
             "SET paradedb.enable_columnar_exec TO {columnar_exec};"
         )
         .unwrap();
-        writeln!(gucs, "SET paradedb.enable_mpp TO {enable_mpp};").unwrap();
-        // Pin `min_rows_per_worker` low when we want MPP to actually fire on
-        // the 10-1000-row fixtures. The production default of 300K never trips
-        // here. Cases that aren't exercising MPP keep the production default
-        // so they don't fan out over tiny tables for unrelated reasons.
-        if *enable_mpp {
+        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
+        if *parallel_workers {
             writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
         } else {
             writeln!(gucs, "RESET paradedb.min_rows_per_worker;").unwrap();

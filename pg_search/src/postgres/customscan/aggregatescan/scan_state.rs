@@ -81,7 +81,7 @@ pub struct DataFusionAggState {
     pub group_df_indices: Vec<usize>,
     /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
     /// prepared on first exec before planning, launched once the plan's stages are committed.
-    /// Stays `Inactive` on the serial path. Applies only when `paradedb.enable_mpp = on` and
+    /// Stays `Inactive` on the serial path. Applies only when parallel execution is enabled and
     /// the query qualifies (binary join + supported aggregate).
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
 }

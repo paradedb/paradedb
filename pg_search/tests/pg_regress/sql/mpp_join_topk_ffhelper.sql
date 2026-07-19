@@ -14,7 +14,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_custom_scan = on;
 SET paradedb.enable_join_custom_scan = on;
-SET paradedb.enable_mpp = on;
 SET paradedb.mpp_worker_count = 4;
 SET paradedb.min_rows_per_worker = 0;
 SET max_parallel_workers = 4;

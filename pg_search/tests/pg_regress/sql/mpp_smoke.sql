@@ -17,22 +17,16 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 LOAD 'pg_search';
 
 -- GUCs must be visible after the extension loads.
-SHOW paradedb.enable_mpp;
 SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_worker_count;
 SHOW paradedb.mpp_queue_size;
 
--- Defaults: MPP is on; the debug knob stays off.
-SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_on;
+-- Defaults: the debug knob stays off.
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default;
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
 
 -- Toggle the boolean GUCs and verify they stick.
-SET paradedb.enable_mpp TO on;
-SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_after_set_on;
-SET paradedb.enable_mpp TO off;
-SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_after_set_off;
 
 SET paradedb.mpp_debug TO on;
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_after_set_on;
@@ -93,7 +87,7 @@ SET paradedb.mpp_debug TO on;
 SELECT 1 AS trivial_query_still_works;
 SET paradedb.mpp_debug TO off;
 
-RESET paradedb.enable_mpp;
+
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_worker_count;
 RESET paradedb.mpp_queue_size;

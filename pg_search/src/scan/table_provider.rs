@@ -328,6 +328,15 @@ impl PgSearchTableProvider {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
                     },
+                    // Resolvable from any fragment: a non-partitioning source reads the
+                    // replicated canonical set, the partitioning source reads the full list in
+                    // the worker's `ParallelScanState` (claiming only divides the scan, not a
+                    // reader opened over the whole list).
+                    rebuild: Some(crate::scan::late_materialization::DeferredLookupRebuild {
+                        field_name: name.clone(),
+                        field_type: *field_type,
+                        np_source_idx: self.non_partitioning_index,
+                    }),
                 });
             }
         }

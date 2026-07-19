@@ -34,7 +34,7 @@ mod tui;
 use crate::auto::{setup_server, ServerHandler};
 use crate::cli::{AutoArgs, Cli, Command};
 use crate::fault_tolerance::GraceWindow;
-use crate::runner::SuiteRunner;
+use crate::runner::{SetupMode, SuiteRunner};
 use crate::suite::{PgConfigStyle, PgVersion, ServerStyle, Suite, SuiteDefinition};
 use anyhow::Context;
 use clap::Parser;
@@ -63,34 +63,27 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         // When using the "ui" subcommand.
         Command::Ui(args) => {
-            let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
-                format!("Failed to load suite file: {}", args.suite_path.display())
-            })?;
-            let suite_runner = SuiteRunner::new(suite, args.paused, args.grace.window(), None)?;
+            let suite = load_suite(&args.suite_path, args.pgversion, None)?;
+            let suite_runner =
+                SuiteRunner::new(suite, args.paused, args.grace.window(), SetupMode::Full)?;
             tui::run(suite_runner)?;
         }
 
         // When using the "headless" subcommand.
         Command::Headless(args) => {
-            let suite = load_suite(&args.suite_path, args.pgversion, None).with_context(|| {
-                format!("Failed to load suite file: {}", args.suite_path.display())
-            })?;
-            // Cap startup (version probe + schema build) at one runtime's worth of time.
-            // Under fault injection the reconnect grace is set far longer than a run, so a
-            // fault straddling startup would otherwise pin the process for the whole grace
-            // window and the driver would never run to completion. If the database stays
-            // unreachable for a whole runtime we exit cleanly with no workload, so every
-            // driver reliably finishes. This is a stopgap: moving setup into an Antithesis
-            // `first_` command (which runs before any faults) removes the straddle and lets
-            // this bound go.
-            let startup_timeout =
-                Duration::from_millis(u64::try_from(args.runtime).unwrap_or(u64::MAX));
-            let suite_runner =
-                SuiteRunner::new(suite, false, args.grace.window(), Some(startup_timeout))?;
-            if !suite_runner.alive() {
-                eprintln!(
-                    "stressgres: database unreachable throughout startup, exiting without a workload"
-                );
+            let suite = load_suite(&args.suite_path, args.pgversion, None)?;
+            let setup_mode = if args.setup_only {
+                SetupMode::SetupOnly
+            } else if args.skip_setup {
+                SetupMode::SkipSetup
+            } else {
+                SetupMode::Full
+            };
+            let suite_runner = SuiteRunner::new(suite, false, args.grace.window(), setup_mode)?;
+            // `--setup-only` has built the schema and is done; the workload runs later in a
+            // separate `--skip-setup` process.
+            if setup_mode == SetupMode::SetupOnly {
+                eprintln!("stressgres: setup complete, exiting without a workload");
                 return Ok(());
             }
             let mut log_file = args.log_file.clone();
@@ -111,13 +104,15 @@ fn main() -> anyhow::Result<()> {
         // (or two, for logical replication) from the given `pg_config` and run the
         // suite headless against it.
         Command::Auto(args) => {
-            let suite = load_suite(&args.suite_path, None, Some(&args)).with_context(|| {
-                format!("Failed to load suite file: {}", args.suite_path.display())
-            })?;
+            let suite = load_suite(&args.suite_path, None, Some(&args))?;
             // `auto` is a local-dev command with no fault injection, so fail fast
             // (grace 0) rather than tolerating transient connectivity faults.
-            let suite_runner =
-                SuiteRunner::new(suite, false, GraceWindow::fixed(Duration::ZERO), None)?;
+            let suite_runner = SuiteRunner::new(
+                suite,
+                false,
+                GraceWindow::fixed(Duration::ZERO),
+                SetupMode::Full,
+            )?;
             headless::run(
                 suite_runner,
                 args.log_path.clone(),
@@ -139,21 +134,30 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Loads the Suite (TOML) from the provided path.
-///
-/// When `auto` is provided (the `auto` subcommand), every `Automatic` server is
-/// pointed at the supplied `pg_config` binary and given a data directory under the
-/// supplied base path, so a suite can be run against an arbitrary Postgres build
-/// without editing its TOML.
+/// Loads the Suite (TOML) from the provided path, tagging any failure with the file path.
 fn load_suite<P: AsRef<Path>>(
     path: P,
     pgversion: Option<PgVersion>,
     auto: Option<&AutoArgs>,
 ) -> anyhow::Result<Suite> {
-    eprintln!("Loading Suite: {}", path.as_ref().display());
-    let file = std::fs::read_to_string(path.as_ref())?;
+    let path = path.as_ref();
+    load_suite_inner(path, pgversion, auto)
+        .with_context(|| format!("Failed to load suite file: {}", path.display()))
+}
+
+/// When `auto` is provided (the `auto` subcommand), every `Automatic` server is
+/// pointed at the supplied `pg_config` binary and given a data directory under the
+/// supplied base path, so a suite can be run against an arbitrary Postgres build
+/// without editing its TOML.
+fn load_suite_inner(
+    path: &Path,
+    pgversion: Option<PgVersion>,
+    auto: Option<&AutoArgs>,
+) -> anyhow::Result<Suite> {
+    eprintln!("Loading Suite: {}", path.display());
+    let file = std::fs::read_to_string(path)?;
     let mut definition = toml::from_str::<SuiteDefinition>(&file)?;
-    definition.path = Some(path.as_ref().to_path_buf());
+    definition.path = Some(path.to_path_buf());
 
     // Override server configurations with the provided pgversion if specified
     if let Some(version) = pgversion {

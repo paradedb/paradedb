@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.24.2",
+        "version": "v0.24.3",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -345,6 +345,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.24.3",
                   "changelog/0.24.2",
                   "changelog/0.24.1",
                   "changelog/0.24.0",
@@ -575,13 +576,17 @@
       "apple-mobile-web-app-title": "ParadeDB Docs",
       "og:type": "website",
       "og:locale": "en_US",
+      "og:title": "ParadeDB Docs",
+      "og:description": "One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.",
+      "og:image": "https://www.paradedb.com/opengraph-image.png",
+      "og:image:alt": "ParadeDB: Search without a second system.",
       "twitter:card": "summary_large_image",
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
       "twitter:title": "ParadeDB Docs",
-      "twitter:description": "Developer docs for ParadeDB: Simple, Elastic-Quality Search for Postgres.",
+      "twitter:description": "One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
-      "twitter:image:alt": "ParadeDB: Simple, Elastic-Quality Search for Postgres."
+      "twitter:image:alt": "ParadeDB: Search without a second system."
     },
     "indexing": "navigable"
   }

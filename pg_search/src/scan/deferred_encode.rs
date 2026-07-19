@@ -62,7 +62,7 @@ pub fn unpack_doc_address(packed: u64) -> (u32, u32) {
 }
 
 /// Helper to get just the UnionFields (required by UnionArray::try_new)
-pub fn deferred_union_fields(is_bytes: bool) -> UnionFields {
+pub fn deferred_union_fields() -> UnionFields {
     let fields = vec![
         Field::new("doc_address", doc_address_type(), true).with_metadata(
             [(
@@ -78,39 +78,25 @@ pub fn deferred_union_fields(is_bytes: bool) -> UnionFields {
             )]
             .into(),
         ),
-        Field::new(
-            "materialized",
-            if is_bytes {
-                DataType::BinaryView
-            } else {
-                DataType::Utf8View
-            },
-            true,
-        ),
     ];
-    UnionFields::try_new(vec![0, 1, 2], fields).expect("Failed to create UnionFields")
+    UnionFields::try_new(vec![0, 1], fields).expect("Failed to create UnionFields")
 }
 
-/// The schema definition for our 3-way UnionArray
-pub fn deferred_union_data_type(is_bytes: bool) -> DataType {
-    DataType::Union(deferred_union_fields(is_bytes), UnionMode::Dense)
+/// The schema definition for our 2-way UnionArray
+pub fn deferred_union_data_type() -> DataType {
+    DataType::Union(deferred_union_fields(), UnionMode::Dense)
 }
 
 // State 0
-pub fn build_state_doc_address(
-    segment_ord: SegmentOrdinal,
-    doc_ids: &[DocId],
-    is_bytes: bool,
-) -> ArrayRef {
+pub fn build_state_doc_address(segment_ord: SegmentOrdinal, doc_ids: &[DocId]) -> ArrayRef {
     let len = doc_ids.len();
-    let fields = deferred_union_fields(is_bytes);
+    let fields = deferred_union_fields();
     let type_ids = ScalarBuffer::from(vec![0_i8; len]);
     let offsets = ScalarBuffer::from((0..len).map(|i| i as i32).collect::<Vec<_>>());
 
     let children: Vec<ArrayRef> = vec![
         Arc::new(pack_doc_addresses(segment_ord, doc_ids)),
         new_empty_array(fields[1].1.data_type()),
-        new_empty_array(fields[2].1.data_type()),
     ];
 
     Arc::new(
@@ -120,13 +106,9 @@ pub fn build_state_doc_address(
 }
 
 // State 1
-pub fn build_state_term_ordinals(
-    segment_ord: SegmentOrdinal,
-    ordinals: ArrayRef,
-    is_bytes: bool,
-) -> ArrayRef {
+pub fn build_state_term_ordinals(segment_ord: SegmentOrdinal, ordinals: ArrayRef) -> ArrayRef {
     let len = ordinals.len();
-    let fields = deferred_union_fields(is_bytes);
+    let fields = deferred_union_fields();
     let type_ids = ScalarBuffer::from(vec![1_i8; len]);
     let offsets = ScalarBuffer::from((0..len).map(|i| i as i32).collect::<Vec<_>>());
 
@@ -144,11 +126,7 @@ pub fn build_state_term_ordinals(
         .unwrap(),
     ) as ArrayRef;
 
-    let children: Vec<ArrayRef> = vec![
-        new_empty_array(fields[0].1.data_type()),
-        term_ord_struct,
-        new_empty_array(fields[2].1.data_type()),
-    ];
+    let children: Vec<ArrayRef> = vec![new_empty_array(fields[0].1.data_type()), term_ord_struct];
 
     Arc::new(
         UnionArray::try_new(fields, type_ids, Some(offsets), children)
@@ -156,47 +134,10 @@ pub fn build_state_term_ordinals(
     )
 }
 
-// State 2
-pub fn build_state_hydrated(materialized: ArrayRef, is_bytes: bool) -> ArrayRef {
-    let len = materialized.len();
-    let fields = deferred_union_fields(is_bytes);
-    let type_ids = ScalarBuffer::from(vec![2_i8; len]);
-    let offsets = ScalarBuffer::from((0..len).map(|i| i as i32).collect::<Vec<_>>());
-
-    let children: Vec<ArrayRef> = vec![
-        new_empty_array(fields[0].1.data_type()),
-        new_empty_array(fields[1].1.data_type()),
-        materialized,
-    ];
-
-    Arc::new(
-        UnionArray::try_new(fields, type_ids, Some(offsets), children)
-            .expect("Failed to construct State 2 UnionArray"),
-    )
-}
-
-/// Extracts the underlying materialized string/bytes data type from a deferred Union schema field.
-/// The Union array uses a 3-state encoding:
-/// 0 = doc_address (UInt64)
-/// 1 = term_ordinal (Struct)
-/// 2 = materialized (Utf8View / BinaryView)
-pub fn extract_materialized_type_from_union(
-    union_fields: &arrow_schema::UnionFields,
-) -> arrow_schema::DataType {
-    // The materialized type is always safely located at index 2
-    union_fields
-        .iter()
-        .nth(2)
-        .expect("Deferred Union schema is missing the materialized field variant")
-        .1
-        .data_type()
-        .clone()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::{Array, StringViewArray};
+    use arrow_array::Array;
 
     #[test]
     fn pack_unpack_roundtrip() {
@@ -222,7 +163,7 @@ mod tests {
 
     #[test]
     fn build_state_doc_address_creates_state_0() {
-        let array = build_state_doc_address(1, &[5, 10], false);
+        let array = build_state_doc_address(1, &[5, 10]);
         let union_array = array.as_any().downcast_ref::<UnionArray>().unwrap();
         assert_eq!(union_array.len(), 2);
         assert!(union_array.type_ids().iter().all(|&id| id == 0));
@@ -235,7 +176,7 @@ mod tests {
     #[test]
     fn build_state_term_ordinals_creates_state_1() {
         let ordinals: ArrayRef = Arc::new(UInt64Array::from(vec![Some(100), Some(200)]));
-        let array = build_state_term_ordinals(2, ordinals, false);
+        let array = build_state_term_ordinals(2, ordinals);
         let union_array = array.as_any().downcast_ref::<UnionArray>().unwrap();
         assert_eq!(union_array.len(), 2);
         assert!(union_array.type_ids().iter().all(|&id| id == 1));
@@ -255,30 +196,5 @@ mod tests {
             .unwrap();
         assert_eq!(term_ords.value(0), 100);
         assert_eq!(term_ords.value(1), 200);
-    }
-
-    #[test]
-    fn build_state_hydrated_creates_state_2() {
-        let strings: ArrayRef = Arc::new(StringViewArray::from(vec!["hello", "world"]));
-        let array = build_state_hydrated(strings, false);
-        let union_array = array.as_any().downcast_ref::<UnionArray>().unwrap();
-        assert_eq!(union_array.len(), 2);
-        assert!(union_array.type_ids().iter().all(|&id| id == 2));
-        let child = union_array.child(2);
-        let string_array = child.as_any().downcast_ref::<StringViewArray>().unwrap();
-        assert_eq!(string_array.value(0), "hello");
-        assert_eq!(string_array.value(1), "world");
-    }
-
-    #[test]
-    fn deferred_union_fields_text_vs_bytes() {
-        let text_fields = deferred_union_fields(false);
-        let bytes_fields = deferred_union_fields(true);
-        // Fields 0 and 1 are identical
-        assert_eq!(text_fields[0].1.data_type(), bytes_fields[0].1.data_type());
-        assert_eq!(text_fields[1].1.data_type(), bytes_fields[1].1.data_type());
-        // Field 2 differs: Utf8View for text, BinaryView for bytes
-        assert_eq!(*text_fields[2].1.data_type(), DataType::Utf8View);
-        assert_eq!(*bytes_fields[2].1.data_type(), DataType::BinaryView);
     }
 }

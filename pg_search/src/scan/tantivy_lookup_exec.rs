@@ -1,5 +1,11 @@
 use std::sync::Arc;
 
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
+use crate::query::SearchQueryInput;
+
 use crate::index::fast_fields_helper::{
     for_each_segment, ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
 };
@@ -43,6 +49,8 @@ pub struct PhysicalDeferredField {
     pub display_name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    #[serde(default)]
+    pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
 }
 
 impl PhysicalDeferredField {
@@ -152,7 +160,9 @@ impl TantivyLookupExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
+        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let deferred_fields: Vec<PhysicalDeferredField> =
             serde_json::from_slice(buf).map_err(|e| {
@@ -160,6 +170,14 @@ impl TantivyLookupExec {
                     "TantivyLookupExec dispatch: deserialize: {e}"
                 ))
             })?;
+        rebuild_missing_ffhelpers(
+            &deferred_fields,
+            &mut ffhelpers,
+            LookupRebuildContext {
+                non_partitioning_segment_ids,
+                parallel_state,
+            },
+        )?;
         Ok(Arc::new(TantivyLookupExec::new(
             input,
             deferred_fields,
@@ -168,6 +186,128 @@ impl TantivyLookupExec {
     }
 }
 
+/// Which snapshot a rebuilt fast-field reader reads. Both decode paths reach the same segments
+/// in the same order the addresses were packed against, they just resolve the set differently.
+#[derive(Clone, Copy)]
+pub(crate) struct LookupRebuildContext<'a> {
+    /// MPP worker path: a non-partitioning source reads its replicated canonical segment set;
+    /// the partitioning source reads the full list in the worker's `ParallelScanState` (the
+    /// same view its scan's reader opens, so segment ordering matches the packed addresses).
+    pub non_partitioning_segment_ids: &'a [crate::api::HashSet<tantivy::index::SegmentId>],
+    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+}
+
+/// Resolve the segment view a rebuilt helper opens for one deferred column's index.
+pub(crate) fn rebuild_mvcc(
+    context: LookupRebuildContext,
+    rebuild: &crate::scan::late_materialization::DeferredLookupRebuild,
+) -> Result<MvccSatisfies> {
+    match rebuild.np_source_idx {
+        Some(np_source_idx) => {
+            let ids = context
+                .non_partitioning_segment_ids
+                .get(np_source_idx)
+                .cloned()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "ffhelper rebuild: missing canonical segment ids for \
+                         non-partitioning source {np_source_idx}"
+                    ))
+                })?;
+            Ok(MvccSatisfies::ParallelWorker(ids))
+        }
+        None => {
+            let ps = context.parallel_state.ok_or_else(|| {
+                DataFusionError::Internal(
+                    "ffhelper rebuild: partitioning source needs a ParallelScanState".into(),
+                )
+            })?;
+            Ok(MvccSatisfies::ParallelWorker(unsafe {
+                crate::postgres::customscan::parallel::list_segment_ids(ps)
+            }))
+        }
+    }
+}
+
+/// Open a fast-field helper for `indexrelid` with each rebuild entry laid out at its original
+/// `ff_index` (`Junk` fills the gaps), over the segment view `mvcc` picks.
+pub(crate) fn open_rebuilt_ffhelper(
+    indexrelid: u32,
+    entries: &[(
+        usize,
+        &crate::scan::late_materialization::DeferredLookupRebuild,
+    )],
+    mvcc: MvccSatisfies,
+) -> Result<Arc<FFHelper>> {
+    let index_rel = PgSearchRelation::open(pgrx::pg_sys::Oid::from(indexrelid));
+    let reader = SearchIndexReader::open_with_context(
+        &index_rel,
+        SearchQueryInput::All,
+        /* need_scores */ false,
+        mvcc,
+        None,
+        None,
+        /* needs_tokenizer_manager */ false,
+    )
+    .map_err(|e| DataFusionError::Internal(format!("ffhelper rebuild: open reader: {e}")))?;
+
+    let width = entries.iter().map(|(i, _)| i + 1).max().unwrap_or(0);
+    let mut which: Vec<WhichFastField> = vec![WhichFastField::Junk(String::new()); width];
+    for (ff_index, rb) in entries {
+        which[*ff_index] = WhichFastField::Named(rb.field_name.clone(), rb.field_type);
+    }
+    Ok(Arc::new(FFHelper::with_fields(&reader, &which)))
+}
+
+/// Rebuild the fast-field readers for deferred columns whose scan lives in a different plan
+/// fragment (a lookup above a network shuffle finds no scan in its decoded subtree). The
+/// `context` picks how the segment set is resolved; either way the reader's segment ordering
+/// matches the ordering the addresses were packed against.
+fn rebuild_missing_ffhelpers(
+    deferred_fields: &[PhysicalDeferredField],
+    ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
+    context: LookupRebuildContext,
+) -> Result<()> {
+    // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
+    // lines up by construction); they rebuild only on a worker whose fragment has that scan
+    // behind a network boundary.
+    let mut rebuild_indexes: crate::api::HashSet<u32> = Default::default();
+    for f in deferred_fields {
+        if f.rebuild.is_none() {
+            continue;
+        }
+        let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
+        if scan_is_elsewhere {
+            rebuild_indexes.insert(f.canonical.indexrelid);
+        }
+    }
+
+    // Group by index so two columns of the same index share one reader, and lay out every
+    // rebuildable column of a rebuilding index, not just the ones that triggered it: the
+    // rebuilt helper replaces the map entry, so it has to serve all of them.
+    let mut per_index: HashMap<u32, Vec<&PhysicalDeferredField>> = HashMap::default();
+    for f in deferred_fields {
+        if f.rebuild.is_some() && rebuild_indexes.contains(&f.canonical.indexrelid) {
+            per_index.entry(f.canonical.indexrelid).or_default().push(f);
+        }
+    }
+
+    for (indexrelid, fields) in per_index {
+        let mvcc = rebuild_mvcc(context, fields[0].rebuild.as_ref().unwrap())?;
+        let entries: Vec<(
+            usize,
+            &crate::scan::late_materialization::DeferredLookupRebuild,
+        )> = fields
+            .iter()
+            .map(|f| (f.canonical.ff_index, f.rebuild.as_ref().unwrap()))
+            .collect();
+        ffhelpers.insert(
+            indexrelid,
+            open_rebuilt_ffhelper(indexrelid, &entries, mvcc)?,
+        );
+    }
+    Ok(())
+}
 #[derive(Clone, Debug)]
 pub struct DecoderInfo {
     pub col_idx: usize,
@@ -368,8 +508,7 @@ type OrdsBySegment = Vec<Vec<(usize, Option<TermOrdinal>)>>;
 
 /// Resolves State 0 (packed doc addresses) to term ordinals, grouped by segment.
 ///
-/// Union states: 0 = packed (segment_ord, doc_id), 1 = pre-resolved (segment_ord, term_ord),
-/// 2 = already-materialized string/bytes.
+/// Union states: 0 = packed (segment_ord, doc_id), 1 = pre-resolved (segment_ord, term_ord).
 ///
 /// Returns the same shape as State 1: a vector indexed by segment ordinal,
 /// of `(row_index, Option<TermOrdinal>)` pair vectors.
@@ -535,8 +674,8 @@ fn decode_term_ordinals(
 
 /// Materializes deferred union values into their original text or bytes representation.
 ///
-/// This function converts a 3-way `UnionArray` (containing either a packed `DocAddress`,
-/// `TermOrdinal`s, or already-materialized strings) into an Arrow `ArrayRef` matching the
+/// This function converts a 2-way `UnionArray` (containing either a packed `DocAddress`
+/// or `TermOrdinal`s) into an Arrow `ArrayRef` matching the
 /// requested String or Binary view array type. To maximize efficiency, it groups requests
 /// by segment, sorts them for sequential dictionary access, fetches materialized columns
 /// per segment, and then uses Arrow's `interleave` to reconstruct the data in the
@@ -556,12 +695,10 @@ fn materialize_deferred_column(
 
     let mut state_0_rows: Vec<usize> = Vec::new();
     let mut state_1_rows: Vec<usize> = Vec::new();
-    let mut state_2_rows: Vec<usize> = Vec::new();
     for row in 0..num_rows {
         match type_ids[row] {
             0 => state_0_rows.push(row),
             1 => state_1_rows.push(row),
-            2 => state_2_rows.push(row),
             _ => unreachable!("Invalid Union State"),
         }
     }
@@ -593,16 +730,6 @@ fn materialize_deferred_column(
         &mut indices,
     )?;
 
-    // Step 3. Map pre-materialized rows (State 2) directly from the compact child.
-    if !state_2_rows.is_empty() {
-        let materialized_child = union_array.child(2);
-        segment_arrays.push(materialized_child.clone());
-        let array_idx = segment_arrays.len() - 1;
-        for &row_idx in &state_2_rows {
-            indices[row_idx] = (array_idx, offsets[row_idx] as usize);
-        }
-    }
-
     if segment_arrays.is_empty() {
         // All rows were somehow unhandled — return a null array of the right type.
         return Ok(new_null_array(
@@ -615,7 +742,7 @@ fn materialize_deferred_column(
         ));
     }
 
-    // Step 4. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
+    // Step 3. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
     // segment arrays into the final array matching the original row order.
     let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
         segment_arrays.iter().map(|a| a.as_ref()).collect();

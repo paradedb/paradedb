@@ -428,6 +428,12 @@ mod tests {
             env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
         );
         assert_eq!(stamped, expected);
+
+        // The UDF should surface the same version.
+        let via_udf: String = Spi::get_one("SELECT paradedb.index_created_by('t_idx')")
+            .expect("spi should succeed")
+            .unwrap();
+        assert_eq!(via_udf, stamped.to_string());
     }
 
     #[pg_test]

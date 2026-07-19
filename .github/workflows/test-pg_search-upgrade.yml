@@ -16,6 +16,7 @@ on:
       - "tests/**"
       - "tokenizers/**"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:

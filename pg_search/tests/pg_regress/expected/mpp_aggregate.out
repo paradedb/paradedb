@@ -157,12 +157,12 @@ WHERE f.content @@@ 'Section';
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : ┌───── DistributedExec ── Tasks: t0:[p0]
+     : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
      : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── Tasks: t0:[p0..p2] t1:[p3..p5] t2:[p6..p8]
+     :   ┌───── Stage 2 ── tasks=3, partitions=9
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
      :   │     CoalescePartitionsExec
@@ -170,7 +170,7 @@ WHERE f.content @@@ 'Section';
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
      :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+     :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
      :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
@@ -205,16 +205,16 @@ LIMIT 5;
                Group By: title
                Aggregates: COUNT(*), SUM(size_bytes)
                DataFusion Physical Plan: 
-                 : ┌───── DistributedExec ── Tasks: t0:[p0]
+                 : ┌───── DistributedExec
                  : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
                  : │   [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
                  : └──────────────────────────────────────────────────
-                 :   ┌───── Stage 3 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+                 :   ┌───── Stage 3 ── tasks=3, partitions=3
                  :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
                  :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
                  :   └──────────────────────────────────────────────────
-                 :     ┌───── Stage 2 ── Tasks: t0:[p0..p8] t1:[p0..p8] t2:[p0..p8]
+                 :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=3
                  :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
@@ -223,7 +223,7 @@ LIMIT 5;
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
                  :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
-                 :       ┌───── Stage 1 ── Tasks: t0:[p0..p2]
+                 :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
                  :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────

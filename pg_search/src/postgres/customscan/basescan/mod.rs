@@ -278,8 +278,7 @@ impl BaseScan {
             }
 
             let namespace_name = pg_sys::get_namespace_name(namespace_oid);
-            if namespace_name.is_null()
-                || CStr::from_ptr(namespace_name).to_bytes() != b"paradedb"
+            if namespace_name.is_null() || CStr::from_ptr(namespace_name).to_bytes() != b"paradedb"
             {
                 return false;
             }
@@ -351,8 +350,11 @@ impl BaseScan {
             snippet_funcoids(),
             snippets_funcoids(),
             snippet_positions_funcoids(),
-            [agg_fn_oid(), window_agg_oid()]
-        ].into_iter().flatten().collect();
+            [agg_fn_oid(), window_agg_oid()],
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
 
         walker(node, std::ptr::from_ref(&funcoids).cast_mut().cast())
     }
@@ -391,8 +393,7 @@ impl BaseScan {
         // base-like single relations too, but join and upper RelOptInfos are not.
         if !matches!(
             (*rel).reloptkind,
-            pg_sys::RelOptKind::RELOPT_BASEREL
-                | pg_sys::RelOptKind::RELOPT_OTHER_MEMBER_REL
+            pg_sys::RelOptKind::RELOPT_BASEREL | pg_sys::RelOptKind::RELOPT_OTHER_MEMBER_REL
         ) || pg_sys::bms_num_members((*rel).relids) != 1
         {
             return false;
@@ -492,12 +493,7 @@ impl BaseScan {
                     // contract and optimization exactly as extract_quals chose it.
                     partial_quals.push(qual);
                     Self::merge_extract_state(&mut partial_state, &local_state);
-                } else if Self::can_preserve_as_residual(
-                    root,
-                    builder.args().rel,
-                    ri_type,
-                    ri,
-                ) {
+                } else if Self::can_preserve_as_residual(root, builder.args().rel, ri_type, ri) {
                     // RestrictInfo pointers are planner-local identities. They
                     // remain valid for matching clauses during PlanCustomPath.
                     residual_qual_ids.push(ri as usize);

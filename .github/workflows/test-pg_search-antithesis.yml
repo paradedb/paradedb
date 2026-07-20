@@ -46,6 +46,7 @@ env:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   # Resolve which workload(s) to run based on the trigger:
@@ -63,8 +64,6 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
       || github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
-    permissions:
-      pull-requests: write
     outputs:
       workloads: ${{ steps.compute.outputs.workloads }}
     steps:

@@ -13,6 +13,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   publish-pg_search-pgxn:
     name: Publish pg_search to PGXN

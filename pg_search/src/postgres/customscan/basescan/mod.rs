@@ -346,14 +346,13 @@ impl BaseScan {
             pg_sys::expression_tree_walker(node, Some(walker), context)
         }
 
-        let funcoids: Vec<pg_sys::Oid> = score_funcoids()
-            .iter()
-            .copied()
-            .chain(snippet_funcoids().iter().copied())
-            .chain(snippets_funcoids().iter().copied())
-            .chain(snippet_positions_funcoids().iter().copied())
-            .chain([agg_fn_oid(), window_agg_oid()])
-            .collect();
+        let funcoids: Vec<pg_sys::Oid> = [
+            score_funcoids(),
+            snippet_funcoids(),
+            snippets_funcoids(),
+            snippet_positions_funcoids(),
+            [agg_fn_oid(), window_agg_oid()]
+        ].into_iter().flatten().collect();
 
         walker(node, std::ptr::from_ref(&funcoids).cast_mut().cast())
     }

@@ -610,35 +610,34 @@ mod tests {
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
 
-    fn get_relation_oid() -> pg_sys::Oid {
+    fn get_relation_oid(with_vector: bool) -> pg_sys::Oid {
         Spi::run("SET client_min_messages = 'debug1';").unwrap();
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run(
-            "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",
-        )
-        .unwrap();
-        Spi::get_one::<pg_sys::Oid>(
-            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
-        )
-        .expect("spi should succeed")
-        .unwrap()
-    }
-
-    fn get_vector_relation_oid() -> pg_sys::Oid {
-        Spi::run("SET client_min_messages = 'debug1';").unwrap();
-        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
-        Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
-        Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
-        Spi::run(
-            "CREATE INDEX t_vec_idx ON t_vec USING bm25(id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
-        )
-        .unwrap();
-        Spi::get_one::<pg_sys::Oid>(
-            "SELECT oid FROM pg_class WHERE relname = 't_vec_idx' AND relkind = 'i';",
-        )
-        .expect("spi should succeed")
-        .unwrap()
+        if with_vector {
+            Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+            Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
+            Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
+            Spi::run(
+                "CREATE INDEX t_vec_idx ON t_vec USING bm25(id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
+            )
+            .unwrap();
+            Spi::get_one::<pg_sys::Oid>(
+                "SELECT oid FROM pg_class WHERE relname = 't_vec_idx' AND relkind = 'i';",
+            )
+            .expect("spi should succeed")
+            .unwrap()
+        } else {
+            Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+            Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+            Spi::run(
+                "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",
+            )
+            .unwrap();
+            Spi::get_one::<pg_sys::Oid>(
+                "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+            )
+            .expect("spi should succeed")
+            .unwrap()
+        }
     }
 
     fn simulate_index_writer(
@@ -669,7 +668,7 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_mem_budget() {
-        let relation_oid = get_relation_oid();
+        let relation_oid = get_relation_oid(false);
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             max_docs_per_segment: None,
@@ -687,7 +686,7 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_max_docs_per_segment() {
-        let relation_oid = get_vector_relation_oid();
+        let relation_oid = get_relation_oid(true);
         let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 25);
@@ -695,7 +694,7 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_max_docs_per_segment_requires_vector_field() {
-        let relation_oid = get_relation_oid();
+        let relation_oid = get_relation_oid(false);
         let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 2);

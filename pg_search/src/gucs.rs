@@ -311,8 +311,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.per_tuple_cost",
-        c"Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
-        c"Default is 100,000,000.0.  It is very expensive to use a USING bm25 index in the wrong query plan",
+        c"Arbitrary multiplier for the cost of retrieving a tuple from a USING paradedb index outside of an IndexScan",
+        c"Default is 100,000,000.0.  It is very expensive to use a USING paradedb index in the wrong query plan",
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,

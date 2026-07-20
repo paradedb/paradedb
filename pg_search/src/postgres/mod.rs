@@ -93,6 +93,7 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
 
 #[pg_extern(sql = "
 CREATE FUNCTION bm25_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT COST 0.0001 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+CREATE ACCESS METHOD paradedb TYPE INDEX HANDLER bm25_handler;
 CREATE ACCESS METHOD bm25 TYPE INDEX HANDLER bm25_handler;
 COMMENT ON ACCESS METHOD bm25 IS 'bm25 index access method';
 ")]

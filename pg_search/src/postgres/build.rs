@@ -71,7 +71,7 @@ pub extern "C-unwind" fn ambuild(
                 }
 
                 if is_bm25_index(&existing_index) && !is_concurrent {
-                    panic!("a relation may only have one `USING bm25` index");
+                    panic!("a relation may only have one `USING paradedb` index");
                 }
             }
         }
@@ -258,8 +258,16 @@ pub fn is_bm25_index(indexrel: &PgSearchRelation) -> bool {
 }
 
 fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
+    // `paradedb` and its backwards-compatible alias `bm25` share the same handler
+    // function, so an index built with either access method has the same
+    // `rd_amhandler`. Resolve against whichever alias is present so index
+    // recognition is independent of the access method name.
+    am_handler_oid(c"paradedb").or_else(|| am_handler_oid(c"bm25"))
+}
+
+fn am_handler_oid(amname: &core::ffi::CStr) -> Option<pg_sys::Oid> {
     unsafe {
-        let name = pg_sys::Datum::from(c"bm25".as_ptr());
+        let name = pg_sys::Datum::from(amname.as_ptr());
         let pg_am_entry = pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::AMNAME as _, name);
         if pg_am_entry.is_null() {
             return None;

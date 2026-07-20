@@ -201,6 +201,12 @@ impl ParallelProcessFinish {
         unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize }
     }
 
+    /// The parallel context's DSM segment, so the caller can register an `on_dsm_detach` hook
+    /// that runs while the mapping is still alive.
+    pub fn seg(&self) -> *mut pg_sys::dsm_segment {
+        unsafe { (*self.launcher.pcxt.as_ptr()).seg }
+    }
+
     pub fn state_manager(&self) -> &ParallelStateManager {
         &self.launcher.state_manager
     }

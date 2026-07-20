@@ -97,6 +97,10 @@ jobs:
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}
+          # cohere/pg_search sets its segment count via the index's target_segment_count WITH-option,
+          # which is only honored when the global override is zero. Bake 0 into the cohere snapshot so
+          # that value wins; other datasets keep the standard 48-segment operating point.
+          global_target_segment_count: ${{ matrix.dataset == 'cohere' && '0' || '48' }}
 
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap

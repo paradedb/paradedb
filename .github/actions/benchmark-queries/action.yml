@@ -68,7 +68,7 @@ runs:
     - name: Sleep before publish
       if: github.ref == 'refs/heads/main'
       shell: bash
-      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
+      run: sleep $(( 1 + RANDOM % 61 ))
 
     - name: Publish Benchmark Metrics
       uses: benchmark-action/github-action-benchmark@v1

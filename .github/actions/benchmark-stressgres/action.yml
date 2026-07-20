@@ -107,6 +107,29 @@ runs:
         client-id: ${{ inputs.github_app_id }}
         private-key: ${{ inputs.github_app_private_key }}
 
+    # Freshly minted GitHub App installation tokens are eventually consistent: git
+    # operations can fail with "repository not found" (a 404, since this repo is private)
+    # for a second or two after the token is created. github-action-benchmark clones the
+    # repo as its first act, so it hits that window and takes the whole job down with it.
+    # Block here until the token actually works.
+    - name: Wait for App Token to Become Usable
+      shell: bash
+      env:
+        APP_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        for attempt in $(seq 1 10); do
+          if git -c http.extraheader="$auth" ls-remote \
+              "https://github.com/${{ github.repository }}.git" HEAD >/dev/null 2>&1; then
+            echo "App token usable after ${attempt} attempt(s)"
+            exit 0
+          fi
+          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
+          sleep 5
+        done
+        echo "App token never became usable after 10 attempts" >&2
+        exit 1
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
@@ -116,7 +139,7 @@ runs:
     # benchmark-action publish actions running in other jobs
     - name: Sleep before publish
       shell: bash
-      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
+      run: sleep $(( 1 + RANDOM % 61 ))
 
     - name: Publish TPS Metrics
       uses: benchmark-action/github-action-benchmark@v1
@@ -144,7 +167,7 @@ runs:
     # benchmark-action publish actions running in other jobs
     - name: Sleep before publish
       shell: bash
-      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
+      run: sleep $(( 1 + RANDOM % 61 ))
 
     - name: Publish Other Metrics
       uses: benchmark-action/github-action-benchmark@v1

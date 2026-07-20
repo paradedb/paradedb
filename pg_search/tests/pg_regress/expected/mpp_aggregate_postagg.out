@@ -114,18 +114,20 @@ ORDER BY f.category;
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-           :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
-           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
-           :     │       CoalescePartitionsExec
-           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │   TantivyLookupExec: mode=TermOrdinal, decode=[category]
+           :     │     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1, min(p_1.size_bytes) as agg_2, max(p_1.size_bytes) as agg_3]
+           :     │       DeferredResolveExec
+           :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
+           :     │           CoalescePartitionsExec
+           :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :     │             PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
            :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
-(31 rows)
+(33 rows)
 
 SELECT f.category,
        COUNT(*) AS row_count,
@@ -201,18 +203,20 @@ LIMIT 10;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 9), input_partitions=3
-                 :     │   AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
-                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
-                 :     │       CoalescePartitionsExec
-                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-                 :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │   TantivyLookupExec: mode=TermOrdinal, decode=[category, title]
+                 :     │     AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
+                 :     │       DeferredResolveExec
+                 :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
+                 :     │           CoalescePartitionsExec
+                 :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+                 :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │             PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
                  :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
-(33 rows)
+(35 rows)
 
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -287,18 +291,20 @@ LIMIT 3;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
-                 :     │   AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
-                 :     │       CoalescePartitionsExec
-                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-                 :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │   TantivyLookupExec: mode=TermOrdinal, decode=[category]
+                 :     │     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+                 :     │       DeferredResolveExec
+                 :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
+                 :     │           CoalescePartitionsExec
+                 :     │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+                 :     │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │             PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
                  :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
-(35 rows)
+(37 rows)
 
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -419,8 +425,8 @@ JOIN mpp_postagg_categories c ON f.category = c.name
 WHERE f.content @@@ 'Section'
 GROUP BY c.name
 ORDER BY c.name;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: c.name, (count(*)), (sum(p.size_bytes))
    Sort Key: c.name
@@ -436,30 +442,31 @@ ORDER BY c.name;
            : │   [Stage 4] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 4 ── tasks=3, partitions=3
-           :   │ AggregateExec: mode=FinalPartitioned, gby=[name@0 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-           :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+           :   │ AggregateExec: mode=SinglePartitioned, gby=[name@1 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category@0, name@0)], projection=[size_bytes@1, name@2]
+           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+           :   │     [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=3
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 3 ── tasks=3, partitions=9
-           :     │ RepartitionExec: partitioning=Hash([name@0], 9), input_partitions=3
-           :     │   AggregateExec: mode=Partial, gby=[name@1 as name], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, category@0)], projection=[size_bytes@2, name@0]
+           :     ┌───── Stage 2 ── tasks=3, partitions=9
+           :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=3
+           :     │   TantivyLookupExec: mode=Union, decode=[category]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
            :     │       CoalescePartitionsExec
            :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[category@1, size_bytes@3]
-           :     │         CoalescePartitionsExec
-           :     │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, query="all"
+           :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
-           :       ┌───── Stage 2 ── tasks=1, partitions=3
-           :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :       └──────────────────────────────────────────────────
-(38 rows)
+           :     ┌───── Stage 3 ── tasks=3, partitions=9
+           :     │ RepartitionExec: partitioning=Hash([name@0], 9), input_partitions=3
+           :     │   TantivyLookupExec: mode=Union, decode=[name]
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :     │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     └──────────────────────────────────────────────────
+(39 rows)
 
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f

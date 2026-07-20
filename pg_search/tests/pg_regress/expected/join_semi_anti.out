@@ -308,8 +308,8 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY category ASC, id ASC
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
    ->  Custom Scan (ParadeDB Join Scan)
@@ -320,14 +320,15 @@ LIMIT 10;
          Order By: table_a.category asc, table_a.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
-           :   TantivyLookupExec: decode=[category]
+           :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
            :     SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10, visibility_checks=[table_a]
-           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+           :       DeferredResolveExec
+           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT *
 FROM table_a

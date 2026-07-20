@@ -73,8 +73,8 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (count(*))
    ->  Sort
@@ -88,10 +88,12 @@ LIMIT 5;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: segments=1, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-(16 rows)
+                 :   AggregateExec: mode=Final, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[metadata.category]
+                 :       AggregateExec: mode=Partial, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+(18 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single

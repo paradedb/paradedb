@@ -130,8 +130,8 @@ JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating)), (min(r.rating)), (max(r.rating))
    Backend: DataFusion
@@ -139,16 +139,19 @@ GROUP BY p.category;
    Group By: category
    Aggregates: COUNT(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0, category@1]
-     :       CooperativeExec
-     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-     :       CooperativeExec
-     :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(16 rows)
+     : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
+     :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
+     :       DeferredResolveExec
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0, category@1]
+     :             CooperativeExec
+     :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
 FROM fb_products p
@@ -201,24 +204,27 @@ LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, t)
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
    Group By: category
    Aggregates: COUNT(*), COUNT(rating)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_2.rating) as agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
-     :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[id@0, category@1]
-     :       CooperativeExec
-     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-     :       CooperativeExec
-     :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(15 rows)
+     : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_2.rating) as agg_1]
+     :   TantivyLookupExec: mode=TermOrdinal, decode=[category]
+     :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_2.rating) as agg_1]
+     :       DeferredResolveExec
+     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
+     :           HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[id@0, category@1]
+     :             CooperativeExec
+     :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM fb_products p
@@ -279,8 +285,8 @@ JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*))
    Backend: DataFusion
@@ -289,13 +295,16 @@ HAVING COUNT(*) > 0;
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : FilterExec: agg_0@1 > 0
-     :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
-     :       CooperativeExec
-     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-     :       CooperativeExec
-     :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(14 rows)
+     :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
+     :     TantivyLookupExec: mode=TermOrdinal, decode=[category]
+     :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
+     :         DeferredResolveExec
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+     :             CooperativeExec
+     :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT p.category, COUNT(*)
 FROM fb_products p

@@ -70,19 +70,22 @@
 //! tied across the *entire* sort key are conservatively retained, per the
 //! `survivors_s` bound above.
 
-use crate::api::HashMap;
+use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
     materialize_deferred_ctid, DeferredCtidMaterializationState,
 };
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::deferred_encode::unpack_doc_address;
+use crate::postgres::ParallelScanState;
+use crate::scan::late_materialization::DeferredLookupRebuild;
+
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::tantivy_lookup_exec::{open_rebuilt_ffhelper, rebuild_mvcc, LookupRebuildContext};
 use arrow_array::{
-    Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
+    Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array,
 };
 use arrow_schema::SchemaRef;
 use arrow_select::concat::concat_batches;
@@ -104,7 +107,7 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use pgrx::pg_sys;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocId, SegmentOrdinal};
+use tantivy::SegmentOrdinal;
 
 /// Minimum per-segment buffer capacity on visibility plans. Visibility checking has a
 /// per-batch setup cost (snapshot acquisition, packed-DocAddress → ctid resolution, HOT
@@ -134,7 +137,7 @@ pub struct DeferredSortColumn {
     /// How a dispatched fragment rebuilds the fast-field helper when the column's scan is not
     /// in its decoded subtree (the top-k above a network boundary).
     #[serde(default)]
-    pub rebuild: Option<crate::scan::late_materialization::DeferredLookupRebuild>,
+    pub rebuild: Option<DeferredLookupRebuild>,
 }
 
 /// One wired ctid resolver: the index it reads and the fast-field helper over its segments.
@@ -385,9 +388,9 @@ impl SegmentedTopKExec {
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
-        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
-        index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
-        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        non_partitioning_segment_ids: &[HashSet<tantivy::index::SegmentId>],
+        index_segment_ids: &[HashSet<tantivy::index::SegmentId>],
+        parallel_state: Option<*mut ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (sort_bytes, deferred_columns, k, visibility_recipe): (
             Vec<Vec<u8>>,
@@ -480,11 +483,8 @@ impl SegmentedTopKExec {
                              plan_position {plan_pos}"
                         ))
                     })?;
-                    let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
-                        indexrelid,
-                        &[],
-                        crate::index::mvcc::MvccSatisfies::ParallelWorker(ids),
-                    )?;
+                    let ffhelper =
+                        open_rebuilt_ffhelper(indexrelid, &[], MvccSatisfies::ParallelWorker(ids))?;
                     vd.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
                 }
                 Some(Arc::new(vd))
@@ -972,7 +972,6 @@ impl SegmentedTopKState {
 
         for deferred_col in &self.deferred_columns {
             let global_term_ords = Self::extract_deferred_ordinals(
-                &self.ffhelper,
                 batch,
                 deferred_col,
                 num_rows,
@@ -1047,10 +1046,9 @@ impl SegmentedTopKState {
         Ok(())
     }
 
-    /// Helper to extract term ordinals from a deferred UnionArray.
+    /// Helper to extract term ordinals from a deferred StructArray.
     /// Mutates `pass_through` for rows that contain NULLs, and populates `row_to_seg` mapping.
     fn extract_deferred_ordinals(
-        ffhelper: &FFHelper,
         batch: &RecordBatch,
         deferred_col: &DeferredSortColumn,
         num_rows: usize,
@@ -1058,132 +1056,51 @@ impl SegmentedTopKState {
         row_to_seg: &mut [Option<SegmentOrdinal>],
     ) -> Result<Vec<Option<TermOrdinal>>> {
         let column = batch.column(deferred_col.sort_col_idx);
-        let union_col = column
+        let struct_array = column
             .as_any()
-            .downcast_ref::<UnionArray>()
+            .downcast_ref::<StructArray>()
             .ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "SegmentedTopKExec: sort column should be a deferred UnionArray but found {:?} at index {}",
+                    "SegmentedTopKExec: sort column should be a deferred StructArray but found {:?} at index {}",
                     column.data_type(), deferred_col.sort_col_idx
                 ))
             })?;
 
-        let type_ids = union_col.type_ids();
-        let offsets = union_col.offsets().ok_or_else(|| {
-            DataFusionError::Internal("SegmentedTopKExec: expected dense union with offsets".into())
-        })?;
+        let seg_ord_array = struct_array
+            .column(0)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
+                )
+            })?;
+        let ord_array = struct_array
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
+                )
+            })?;
 
-        let mut state0_rows: Vec<usize> = Vec::new();
-        let mut state1_rows: Vec<usize> = Vec::new();
+        let mut global_term_ords = Vec::with_capacity(num_rows);
         for row_idx in 0..num_rows {
-            match type_ids[row_idx] {
-                0 => state0_rows.push(row_idx),
-                1 => state1_rows.push(row_idx),
-                _ => unreachable!("Invalid Union state"),
-            }
-        }
+            let seg_ord = seg_ord_array.value(row_idx);
+            row_to_seg[row_idx] = Some(seg_ord);
 
-        let mut global_term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
-
-        // State 0: compact doc address child.
-        let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, DocId)>> = HashMap::default();
-        if !state0_rows.is_empty() {
-            let doc_addr_child = union_col
-                .child(0)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
-                    )
-                })?;
-            for &row_idx in &state0_rows {
-                let packed = doc_addr_child.value(offsets[row_idx] as usize);
-                let (seg_ord, doc_id) = unpack_doc_address(packed);
-                state0_by_seg
-                    .entry(seg_ord)
-                    .or_default()
-                    .push((row_idx, doc_id));
-                row_to_seg[row_idx] = Some(seg_ord);
-            }
-        }
-
-        // State 1: compact term ordinal child.
-        if !state1_rows.is_empty() {
-            let term_ord_child = union_col
-                .child(1)
-                .as_any()
-                .downcast_ref::<StructArray>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
-                    )
-                })?;
-            let seg_ord_array = term_ord_child
-                .column(0)
-                .as_any()
-                .downcast_ref::<UInt32Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
-                    )
-                })?;
-            let ord_array = term_ord_child
-                .column(1)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
-                    )
-                })?;
-
-            for &row_idx in &state1_rows {
-                let ci = offsets[row_idx] as usize;
-                let seg_ord = seg_ord_array.value(ci);
-                row_to_seg[row_idx] = Some(seg_ord);
-                if !ord_array.is_null(ci) {
-                    let ord = ord_array.value(ci);
-                    if ord != NULL_TERM_ORDINAL {
-                        global_term_ords[row_idx] = Some(ord);
-                    } else {
-                        pass_through[row_idx] = true;
-                    }
+            if !ord_array.is_null(row_idx) {
+                let ord = ord_array.value(row_idx);
+                if ord != NULL_TERM_ORDINAL {
+                    global_term_ords.push(Some(ord));
                 } else {
                     pass_through[row_idx] = true;
+                    global_term_ords.push(None);
                 }
-            }
-        }
-
-        // Bulk-fetch term ordinals for State 0 rows via FFHelper
-        for (seg_ord, rows) in state0_by_seg {
-            let doc_ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-            let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; doc_ids.len()];
-
-            let col = ffhelper.column(seg_ord, deferred_col.canonical.ff_index);
-            match col {
-                FFType::Text(str_col) => {
-                    str_col.ords().first_vals(&doc_ids, &mut term_ords);
-                }
-                FFType::Bytes(bytes_col) => {
-                    bytes_col.ords().first_vals(&doc_ids, &mut term_ords);
-                }
-                _ => {
-                    panic!(
-                            "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
-                             — the optimizer should never plan this node for non-dictionary columns",
-                            deferred_col.canonical.ff_index
-                        );
-                }
-            }
-
-            for (i, (row_idx, _)) in rows.into_iter().enumerate() {
-                let ord = term_ords[i].unwrap_or(NULL_TERM_ORDINAL);
-                if ord == NULL_TERM_ORDINAL {
-                    pass_through[row_idx] = true;
-                } else {
-                    global_term_ords[row_idx] = Some(ord);
-                }
+            } else {
+                pass_through[row_idx] = true;
+                global_term_ords.push(None);
             }
         }
 
@@ -1486,7 +1403,7 @@ impl SegmentedTopKState {
         }
 
         // Survivors are exactly the rows still referenced by a buffer or pass-through.
-        let mut survivors = crate::api::HashSet::default();
+        let mut survivors = HashSet::default();
         for buf in self.segment_bufs.iter().flatten() {
             for (batch_idx, row_idx, _) in &buf.rows {
                 survivors.insert((*batch_idx, *row_idx));
@@ -2038,9 +1955,7 @@ mod tests {
                 SearchFieldType::I64(pgrx::pg_sys::INT4OID),
             ),
         ];
-        let ffhelper = Arc::new(crate::index::fast_fields_helper::FFHelper::with_fields(
-            &reader, &fields,
-        ));
+        let ffhelper = Arc::new(FFHelper::with_fields(&reader, &fields));
 
         let schema = Arc::new(Schema::new(vec![
             Field::new("sort_col", deferred_union_data_type(), true),
@@ -2117,7 +2032,7 @@ mod tests {
             let deferred_columns = vec![
                 DeferredSortColumn {
                     sort_col_idx: 0,
-                    canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                    canonical: CanonicalColumn {
                         indexrelid: index_oid.to_u32(),
                         ff_index: 0,
                     },

@@ -23,7 +23,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_pgoid_datetime_type, TantivyValue};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
-use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::deferred_encode::{deferred_union_data_type, unpack_doc_address, DeferMode};
 use crate::schema::SearchFieldType;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
@@ -82,7 +82,7 @@ impl FFHelper {
                 for field in fields {
                     match field {
                         WhichFastField::Named(name, search_field_type)
-                        | WhichFastField::Deferred(name, search_field_type) => lookup.push((
+                        | WhichFastField::Deferred(name, search_field_type, _) => lookup.push((
                             name.to_string(),
                             Some(*search_field_type),
                             OnceLock::default(),
@@ -350,7 +350,7 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
-    Deferred(String, SearchFieldType),
+    Deferred(String, SearchFieldType, DeferMode),
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
     DeferredCtid(String),
@@ -384,7 +384,7 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _) => s.clone(),
+            WhichFastField::Deferred(s, _, _) => s.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
         }
     }
@@ -393,7 +393,7 @@ impl WhichFastField {
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type) => Some(field_type),
+            WhichFastField::Deferred(_, field_type, _) => Some(field_type),
             WhichFastField::DeferredCtid(_) => None,
             _ => None,
         }
@@ -408,8 +408,21 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _field_type) => {
-                crate::scan::deferred_encode::deferred_union_data_type()
+            WhichFastField::Deferred(_, _field_type, DeferMode::DocAddress) => {
+                deferred_union_data_type()
+            }
+            WhichFastField::Deferred(_, _field_type, DeferMode::TermOrdinal) => {
+                arrow_schema::DataType::Struct(
+                    vec![
+                        arrow_schema::Field::new(
+                            "segment_ord",
+                            arrow_schema::DataType::UInt32,
+                            false,
+                        ),
+                        arrow_schema::Field::new("term_ord", arrow_schema::DataType::UInt64, false),
+                    ]
+                    .into(),
+                )
             }
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
         }

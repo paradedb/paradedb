@@ -72,7 +72,7 @@ use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use super::planning::get_source_attno_by_name;
-use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::api::{HashMap, HashSet, NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
@@ -200,7 +200,7 @@ pub struct JoinScanState {
     pub join_clause: JoinCSClause,
 
     /// Map of source index (in plan.sources()) to relation execution state.
-    pub relations: crate::api::HashMap<usize, RelationState>,
+    pub relations: HashMap<usize, RelationState>,
 
     /// Result tuple slot.
     pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
@@ -234,7 +234,7 @@ pub struct JoinScanState {
     /// (worker) and injected during deserialization so that
     /// non-partitioning `PgSearchTableProvider`s open each index with
     /// `MvccSatisfies::ParallelWorker`, ensuring all workers see identical segments.
-    pub non_partitioning_segments: Vec<crate::api::HashSet<SegmentId>>,
+    pub non_partitioning_segments: Vec<HashSet<SegmentId>>,
 
     /// Captured source manifests held by the leader. Serves two purposes:
     /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan` and
@@ -315,7 +315,11 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
-    builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+    builder
+        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
+        ))
 }
 
 /// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
@@ -414,7 +418,7 @@ pub async fn build_joinscan_logical_plan(
 pub async fn register_source_table(
     ctx: &SessionContext,
     alias: &str,
-    provider: crate::scan::PgSearchTableProvider,
+    provider: PgSearchTableProvider,
 ) -> Result<DataFrame> {
     let provider = Arc::new(provider);
     ctx.register_table(alias, provider)?;
@@ -476,7 +480,7 @@ struct RelNodeBuildCtx<'a> {
     partitioning_plan_position: usize,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+    ctid_map: &'a HashMap<pg_sys::Index, Expr>,
     output_columns: &'a [OutputColumnInfo],
 }
 
@@ -589,7 +593,7 @@ fn build_relnode_df<'a>(
 /// rewrite. The score column uses sentinel `attno = 0`. When DISTINCT is not
 /// active the map is empty and downstream stages preserve their original
 /// qualified column references.
-type DistinctColMap = crate::api::HashMap<(pg_sys::Index, pg_sys::AttrNumber), String>;
+type DistinctColMap = HashMap<(pg_sys::Index, pg_sys::AttrNumber), String>;
 
 /// Recursively builds a DataFusion `DataFrame` for a given join clause.
 ///
@@ -625,7 +629,7 @@ fn build_clause_df<'a>(
         // stages re-borrow `plan_sources` for projection / output assembly.
         drop(translator);
 
-        let mut ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = Default::default();
+        let mut ctid_map: HashMap<pg_sys::Index, Expr> = Default::default();
         for (i, _) in plan_sources.iter().enumerate() {
             let ctid_name = CtidColumn::new(i).to_string();
             ctid_map.insert(i as pg_sys::Index, col(&ctid_name));

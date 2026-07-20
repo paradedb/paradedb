@@ -28,7 +28,7 @@ mod pdb {
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
     fn score_from_relation(relation_reference: AnyElement) -> f32 {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        super::super::unsupported_projection_error("pdb.score")
     }
 
     extension_sql!(
@@ -46,7 +46,7 @@ mod pdb {
 #[allow(unused_variables)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(relation_reference: AnyElement) -> Option<f32> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    super::unsupported_projection_error("paradedb.score")
 }
 
 extension_sql!(

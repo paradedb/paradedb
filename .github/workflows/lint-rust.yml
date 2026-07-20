@@ -18,6 +18,9 @@ concurrency:
   group: lint-rust-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint-rust:
     name: Lint Rust Files

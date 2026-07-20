@@ -29,6 +29,9 @@ concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   publish-github-release:
     name: Publish ParadeDB GitHub Release

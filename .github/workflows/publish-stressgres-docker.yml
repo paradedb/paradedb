@@ -13,6 +13,9 @@ concurrency:
   group: publish-stressgres-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub

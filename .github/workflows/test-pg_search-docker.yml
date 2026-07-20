@@ -39,6 +39,9 @@ concurrency:
 env:
   PG_VERSION: "18"
 
+permissions:
+  contents: read
+
 jobs:
   test-paradedb:
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})

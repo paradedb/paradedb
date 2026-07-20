@@ -229,7 +229,6 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Report fixable CRITICAL/HIGH CVEs in the image (always shown in the logs).
       - name: Scan Image for Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -239,12 +238,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
 
-      # Gate the release on fixable CRITICAL CVEs only. HIGH (e.g. Go-stdlib DoS
-      # advisories inherited from the base image) is reported above but non-blocking.
-      # skip-files excludes /usr/local/bin/gosu: a non-networked setuid step-down
-      # helper from the postgres base image whose only findings are its bundled Go
-      # stdlib, flagged by version and not reachable. Scoped to the file (not its
-      # ever-growing CVE list) as a stopgap; remove once gosu is fixed (see #5626).
       - name: Gate Release on Critical Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -380,7 +373,6 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Report fixable CRITICAL/HIGH CVEs in the image (always shown in the logs).
       - name: Scan Image for Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -390,8 +382,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
 
-      # Gate the release on fixable CRITICAL CVEs only. HIGH (e.g. Go-stdlib DoS
-      # advisories inherited from the base image) is reported above but non-blocking.
       - name: Gate Release on Critical Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:

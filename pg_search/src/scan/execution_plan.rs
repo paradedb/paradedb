@@ -514,7 +514,7 @@ fn build_equivalence_properties(
 }
 
 /// Translate a `tantivy::query::StrategyTag` back into the human-readable
-/// strategy name surfaced in `EXPLAIN ANALYZE` output. The match is
+/// strategy name surfaced in `EXPLAIN ANALYZE` output.
 fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
     use tantivy::query::StrategyTag;
     match strategy {

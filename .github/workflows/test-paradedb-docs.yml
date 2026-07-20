@@ -156,9 +156,6 @@ jobs:
       - name: Add pgrx PostgreSQL binaries to PATH
         run: echo "$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
 
-      # pg_search's control declares requires='vector', so the pgrx-managed
-      # Postgres needs pgvector built against it before CREATE EXTENSION
-      # pg_search can succeed (the code-snippet bootstrap creates both).
       - name: Install pgvector (pgrx-managed Postgres)
         run: |
           git clone --branch v0.8.4 https://github.com/pgvector/pgvector.git

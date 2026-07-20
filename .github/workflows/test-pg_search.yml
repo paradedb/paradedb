@@ -259,9 +259,6 @@ jobs:
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
-      # Surface the Postgres log if `cargo pgrx start` fails — the actual
-      # error from the postmaster is in `~/.pgrx/<ver>.log` and otherwise
-      # never makes it into the CI output.
       - name: Dump Postgres startup log on failure
         if: failure()
         run: |

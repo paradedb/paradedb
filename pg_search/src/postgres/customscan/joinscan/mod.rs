@@ -178,7 +178,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
+use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use datafusion_distributed::shm::MppMesh;
@@ -675,6 +675,13 @@ impl JoinScan {
     /// extracting ORDER BY, computing costs/parallel workers, and building the
     /// `pg_sys::CustomPath` struct.
     ///
+    /// Row count estimates are NOT divided by the number of parallel workers here.
+    /// Since the custom scan natively manages its own parallel execution via MPP and
+    /// communicates directly with the leader without a Postgres `Gather` node, Postgres
+    /// sees a single path emitting the full `result_rows`. Similarly, DataFusion's
+    /// optimizer requires the undivided `estimated_rows_per_worker` to accurately assess
+    /// the full scale of the data and choose partitioned joins appropriately.
+    ///
     /// Returns `None` if ORDER BY extraction fails.
     #[allow(clippy::needless_update)]
     unsafe fn finalize_clause_into_path(
@@ -697,44 +704,10 @@ impl JoinScan {
 
         let startup_cost = crate::DEFAULT_STARTUP_COST;
         let total_cost = startup_cost + 1.0;
-        let mut result_rows = limit_offset
+        let result_rows = limit_offset
             .as_ref()
             .map(|lo| lo.planning_estimate())
             .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
-
-        let use_mpp = mpp_is_active() && !JoinScan::source_queries_have_parameters(&join_clause);
-        let nworkers = if use_mpp {
-            // MPP needs exactly `producer_worker_count()` workers to match the n_procs x n_procs
-            // mesh dimensions. Override the heuristic-based parallel-worker count.
-            producer_worker_count() as usize
-        } else {
-            0
-        };
-
-        if nworkers > 0 {
-            let processes = std::cmp::max(
-                1,
-                nworkers
-                    + if pg_sys::parallel_leader_participation {
-                        1
-                    } else {
-                        0
-                    },
-            );
-            result_rows /= processes as f64;
-            let processes = processes as u64;
-            for source in join_clause.plan.sources_mut() {
-                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                    source.scan_info.estimated_rows_per_worker = Some(n / processes);
-                }
-            }
-        } else {
-            for source in join_clause.plan.sources_mut() {
-                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                    source.scan_info.estimated_rows_per_worker = Some(n);
-                }
-            }
-        }
 
         // --- Build CustomPath ---
 

@@ -40,7 +40,7 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table, SessionContextProfile,
 };
-use crate::scan::info::RowEstimate;
+
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
@@ -531,16 +531,7 @@ async fn build_source_df(
     planstate: Option<*mut pg_sys::PlanState>,
     is_mpp: bool,
 ) -> Result<DataFrame> {
-    let mut scan_info = source.scan_info.clone();
-
-    // Set estimated_rows_per_worker for the table provider. The serial path is single-threaded,
-    // so the per-worker estimate equals the total estimate.
-    if scan_info.estimated_rows_per_worker.is_none() {
-        scan_info.estimated_rows_per_worker = Some(match scan_info.estimate {
-            RowEstimate::Known(n) => n,
-            RowEstimate::Unknown => 1000, // conservative fallback
-        });
-    }
+    let scan_info = source.scan_info.clone();
 
     let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
 

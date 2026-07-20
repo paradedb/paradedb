@@ -83,6 +83,19 @@ impl RowEstimate {
             _ => RowEstimate::Unknown,
         }
     }
+
+    /// The row estimate to provide to the DataFusion physical planner.
+    ///
+    /// It intentionally remains undivided by the number of parallel processes (for MPP) so
+    /// DataFusion's optimizer receives the true data scale, preventing it from mistakenly choosing
+    /// a broadcast join (CollectLeft) for partitioned parallel plans, leaving the slicing of the
+    /// workload up to `datafusion-distributed`.
+    pub fn as_planner_estimate(&self) -> u64 {
+        match self {
+            RowEstimate::Known(n) => *n,
+            RowEstimate::Unknown => 1000, // conservative fallback
+        }
+    }
 }
 
 /// Information about a scan of a ParadeDB table.
@@ -112,10 +125,6 @@ pub struct ScanInfo {
     pub estimate: RowEstimate,
     /// The number of segments in the index.
     pub segment_count: usize,
-    /// Estimated number of rows each worker will process.
-    /// This is computed during parallel planning by dividing the total estimate
-    /// by the expected number of workers.
-    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl ScanInfo {

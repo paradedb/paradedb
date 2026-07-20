@@ -638,11 +638,7 @@ impl PgSearchTableProvider {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        // When parallel execution is planned, we expect `estimated_rows_per_worker` to be explicitly computed.
-        // For serial execution, it will also be computed (divided by 1).
-        let total_estimated_rows = self.scan_info.estimated_rows_per_worker.unwrap_or_else(|| {
-            panic!("PgSearchTableProvider requires `estimated_rows_per_worker` to be explicitly set during planning");
-        });
+        let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
 
         self.create_lazy_scan(
             parallel_state,

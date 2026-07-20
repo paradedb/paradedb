@@ -368,7 +368,6 @@ pub struct JoinSourceCandidate {
     pub fields: Vec<FieldInfo>,
     pub estimate: Option<RowEstimate>,
     pub segment_count: Option<usize>,
-    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl JoinSourceCandidate {
@@ -385,7 +384,6 @@ impl JoinSourceCandidate {
             fields: Vec::new(),
             estimate: None,
             segment_count: None,
-            estimated_rows_per_worker: None,
         }
     }
 
@@ -611,7 +609,6 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
-                estimated_rows_per_worker: candidate.estimated_rows_per_worker,
             },
         })
     }

@@ -31,11 +31,10 @@ concurrency:
   group: publish-paradedb-docker-${{ github.event.inputs.version || github.ref }}
   cancel-in-progress: true
 
-# Used by actions/attest-build-provenance to sign the builds
+# id-token: write lets cosign sign and attest the images keylessly via Sigstore.
 permissions:
   contents: write
   id-token: write
-  attestations: write
   pull-requests: write
 
 jobs:
@@ -252,12 +251,35 @@ jobs:
           cosign sign --recursive \
             "index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}"
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-name: index.docker.io/paradedb/paradedb
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
+      # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
+      - name: Attest Build Provenance with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          IMAGE_REF: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.workflow_ref }}
+          SOURCE_URI: git+${{ github.server_url }}/${{ github.repository }}@${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg builder "$BUILDER_ID" \
+            --arg uri "$SOURCE_URI" \
+            --arg sha "$SOURCE_SHA" \
+            --arg runid "$RUN_ID" \
+            '{
+              builder: { id: $builder },
+              buildType: "https://github.com/actions/runner",
+              invocation: {
+                configSource: {
+                  uri: $uri,
+                  digest: { sha1: $sha },
+                  entryPoint: ".github/workflows/publish-paradedb-docker.yml"
+                }
+              },
+              metadata: { buildInvocationId: $runid },
+              materials: [{ uri: $uri, digest: { sha1: $sha } }]
+            }' > provenance.json
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
   # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
   publish-extension-image:
@@ -368,12 +390,35 @@ jobs:
           cosign sign --recursive \
             "index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}"
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-name: index.docker.io/${{ env.image_name }}
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
+      # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
+      - name: Attest Build Provenance with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          IMAGE_REF: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.workflow_ref }}
+          SOURCE_URI: git+${{ github.server_url }}/${{ github.repository }}@${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg builder "$BUILDER_ID" \
+            --arg uri "$SOURCE_URI" \
+            --arg sha "$SOURCE_SHA" \
+            --arg runid "$RUN_ID" \
+            '{
+              builder: { id: $builder },
+              buildType: "https://github.com/actions/runner",
+              invocation: {
+                configSource: {
+                  uri: $uri,
+                  digest: { sha1: $sha },
+                  entryPoint: ".github/workflows/publish-paradedb-docker.yml"
+                }
+              },
+              metadata: { buildInvocationId: $runid },
+              materials: [{ uri: $uri, digest: { sha1: $sha } }]
+            }' > provenance.json
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
   # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
   open-dockerfile-prs:

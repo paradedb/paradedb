@@ -162,7 +162,7 @@ ORDER BY s.name
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20, visibility_checks=[s, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -479,7 +479,7 @@ ORDER BY p.name
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 -- =============================================================================
@@ -513,7 +513,7 @@ ORDER BY p.name
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 -- =============================================================================
@@ -911,8 +911,8 @@ WHERE j.id @@@ paradedb.parse('title:developer')
 ORDER BY p.id
 LIMIT 50;
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -928,11 +928,11 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3, name@4]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
-                 :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@1)]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, person_id@0)], null_aware
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT DISTINCT p.id, p.name

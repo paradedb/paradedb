@@ -155,7 +155,9 @@ use self::planning::{
 };
 use self::predicate::{all_vars_are_fast_fields_recursive, extract_join_level_conditions};
 use self::privdat::PrivateData;
-use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
+use crate::postgres::customscan::datafusion::explain::{
+    explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
+};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::utils::expr_contains_any_operator;
@@ -1331,19 +1333,13 @@ impl CustomScan for JoinScan {
                 // Under MPP the worker fragments reported their metrics as mesh frames when
                 // they exited; fold them in so the stage boxes show more than the leader's
                 // own nodes.
-                let merged = match (
-                    state.custom_state().mpp.leader(),
-                    state.custom_state().runtime.as_ref(),
-                ) {
-                    (Some(_), Some(_runtime)) => {
-                        crate::postgres::customscan::mpp::glue::merge_worker_metrics(physical_plan)
-                    }
-                    _ => None,
-                };
-                let plan = merged.as_ref().unwrap_or(physical_plan).clone();
-                crate::postgres::customscan::datafusion::explain::explain_physical_plan(
-                    plan, explainer,
+                let plan = get_plan_with_merged_metrics(
+                    physical_plan,
+                    state.custom_state().mpp.leader().is_some(),
+                    state.custom_state().runtime.is_some(),
+                    explainer,
                 );
+                explain_physical_plan(&plan, explainer);
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
@@ -1385,10 +1381,7 @@ impl CustomScan for JoinScan {
             let physical_plan = runtime
                 .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
-            crate::postgres::customscan::datafusion::explain::explain_physical_plan(
-                physical_plan,
-                explainer,
-            );
+            explain_physical_plan(&physical_plan, explainer);
         }
     }
 

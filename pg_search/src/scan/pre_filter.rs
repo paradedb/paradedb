@@ -859,6 +859,11 @@ fn try_convert_in_list_to_query(
     // multi-column threshold is used because the column's docs-per-term isn't known here; a
     // unique-keyed column between the two thresholds still lands on `LinearScan`, an
     // accepted residual since either path is inexpensive in that band.
+    // A per-segment exact decision needs doc counts and doc_freqs only tantivy's weight
+    // sees. A `TermSetStrategyConfig` flag meaning "a consumer above rechecks membership"
+    // would let each segment fall back to match-all instead of `LinearScan`, and this
+    // planner-side prediction would go away; until then the largest segment stands in for
+    // all of them.
     let linear_fallback_possible = field.is_fast()
         && !field.is_text()
         && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));

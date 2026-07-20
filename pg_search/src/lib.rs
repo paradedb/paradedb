@@ -120,6 +120,17 @@ pub unsafe extern "C-unwind" fn _PG_init() {
         let _ = env_logger::try_init();
     }
 
+    // SuperKMeans clustering uses the OpenBLAS backend on non-macOS. OpenBLAS
+    // keeps its worker threads spin-waiting after each GEMM, which contends with
+    // Rayon during clustering (measured ~18% slower on large Cohere-scale
+    // builds). Setting this before OpenBLAS initializes — which first happens
+    // during an index build, well after `_PG_init` — stops the spinning. Only
+    // honored if unset, so operators can still override it.
+    #[cfg(not(target_os = "macos"))]
+    if std::env::var_os("OPENBLAS_THREAD_TIMEOUT").is_none() {
+        std::env::set_var("OPENBLAS_THREAD_TIMEOUT", "1");
+    }
+
     if !pg_sys::process_shared_preload_libraries_in_progress {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }

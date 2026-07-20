@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, SuperKMeansError};
+use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
     IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfVectors, Metric, VectorOptions,
 };
@@ -42,11 +42,10 @@ pub struct SuperKMeansIvfClusterer {
 
 impl Default for SuperKMeansIvfClusterer {
     fn default() -> Self {
-        let config = HierarchicalSuperKMeansConfig {
-            suppress_warnings: true,
-            sampling_fraction: 1.0,
-            ..Default::default()
-        };
+        // Per-run knobs live on the nested `base` config in superkmeans-rs.
+        let mut config = HierarchicalSuperKMeansConfig::default();
+        config.base.suppress_warnings = true;
+        config.base.sampling_fraction = 1.0;
         Self {
             config,
             centroid_ratio: 0.01,
@@ -156,13 +155,10 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
 
         let mut config = self.config.clone();
         if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
-            config.angular = true;
+            config.base.angular = true;
         }
-        let mut clusterer = HierarchicalSuperKMeans::with_config(num_centroids, dim, config)
-            .map_err(to_tantivy_error)?;
-        let centroids = clusterer
-            .train(vectors.matrix.values, vectors.matrix.rows)
-            .map_err(to_tantivy_error)?;
+        let mut clusterer = HierarchicalSuperKMeans::with_config(num_centroids, dim, config);
+        let centroids = clusterer.train(vectors.matrix.values, vectors.matrix.rows);
         if centroids.len() != num_centroids * dim {
             return Err(TantivyError::InternalError(format!(
                 "SuperKMeans returned {} centroid floats, expected {}",
@@ -232,20 +228,17 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
 
         let mut config = self.config.clone();
         if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
-            config.angular = true;
+            config.base.angular = true;
         }
-        let mut clusterer = HierarchicalSuperKMeans::with_config(centroid_matrix.rows, dim, config)
-            .map_err(to_tantivy_error)?;
+        let clusterer = HierarchicalSuperKMeans::with_config(centroid_matrix.rows, dim, config);
         // Primary (nearest-centroid) assignment via superkmeans, angular-aware
-        // for cosine/dot. One cluster per vector — no replication.
-        let primaries = clusterer
-            .assign(
-                vector_matrix.values,
-                centroid_matrix.values.as_slice(),
-                vector_matrix.rows,
-                centroid_matrix.rows,
-            )
-            .map_err(to_tantivy_error)?;
+        // for cosine/dot. One cluster per vector — no replication. `n_centroids`
+        // is derived from the centroid slice length.
+        let primaries = clusterer.assign(
+            vector_matrix.values,
+            centroid_matrix.values.as_slice(),
+            vector_matrix.rows,
+        );
         Ok(primaries)
     }
 }
@@ -256,13 +249,6 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
         .with_training_samples_per_centroid(options.training_samples_per_centroid())
         .with_replicas(options.replicas());
     index.set_ivf_clusterer(Arc::new(clusterer));
-}
-
-fn to_tantivy_error(error: SuperKMeansError) -> TantivyError {
-    match error {
-        SuperKMeansError::InvalidArgument(message) => TantivyError::InvalidArgument(message),
-        SuperKMeansError::Runtime(message) => TantivyError::InternalError(message),
-    }
 }
 
 #[cfg(test)]

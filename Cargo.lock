@@ -4813,6 +4813,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrixmultiply"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f607c237553f086e7043417a51df26b2eb899d3caff94e6a67592ff992fedc7"
+dependencies = [
+ "autocfg",
+ "num_cpus",
+ "once_cell",
+ "rawpointer",
+ "thread-tree",
+]
+
+[[package]]
 name = "maybe-rayon"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5545,7 +5558,7 @@ dependencies = [
  "serde_path_to_error",
  "stable_deref_trait",
  "strum",
- "superkmeans",
+ "superkmeans-rs",
  "tantivy",
  "tantivy-fst",
  "thiserror 2.0.18",
@@ -6540,6 +6553,12 @@ dependencies = [
  "rayon",
  "rgb",
 ]
+
+[[package]]
+name = "rawpointer"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
 
 [[package]]
 name = "rayon"
@@ -7772,8 +7791,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
-name = "superkmeans"
-version = "0.25.1"
+name = "superkmeans-rs"
+version = "0.1.0"
+source = "git+https://github.com/paradedb/superkmeans-rs?rev=9cebcb426cc5236eaec4ce035001e1299bbd9cf2#9cebcb426cc5236eaec4ce035001e1299bbd9cf2"
+dependencies = [
+ "matrixmultiply",
+ "pkg-config",
+ "rand 0.8.6",
+ "rand_chacha 0.3.1",
+ "rand_distr",
+ "rayon",
+]
 
 [[package]]
 name = "supports-color"
@@ -8157,6 +8185,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "thread-tree"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffbd370cb847953a25954d9f63e14824a36113f8c72eecf6eccef5dc4b45d630"
+dependencies = [
+ "crossbeam-channel",
 ]
 
 [[package]]

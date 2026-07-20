@@ -1922,15 +1922,15 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) (actual rows=1.00 loops=1)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0], metrics=[output_rows=1, output_bytes=8.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[], metrics=[output_rows=6, output_bytes=0.0 B, output_batches=1, array_map_created_count=1, build_input_batches=1, build_input_rows=3, input_batches=1, input_rows=6, build_mem_used=44, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[], metrics=[output_rows=6, output_bytes=0.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=3, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=24.0 B, output_batches=1]
      :     CooperativeExec

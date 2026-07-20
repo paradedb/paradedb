@@ -192,7 +192,7 @@ jobs:
 
       - name: Install Dependencies
         if: steps.guard.outputs.build == 'true'
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq gettext-base
 
       - name: Checkout Git Repository
         if: steps.guard.outputs.build == 'true'

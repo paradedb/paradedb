@@ -65,9 +65,13 @@ jobs:
             pg_version: 18
 
     steps:
-      # We force reinstall git to make sure it is in PATH
+      # Force reinstall git to make sure it is in PATH. gettext provides envsubst,
+      # which sigstore/cosign-installer needs and which isn't on PATH by default.
       - name: Install Dependencies
-        run: brew reinstall git
+        run: |
+          brew reinstall git
+          brew install gettext
+          echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7

@@ -107,11 +107,6 @@ runs:
         client-id: ${{ inputs.github_app_id }}
         private-key: ${{ inputs.github_app_private_key }}
 
-    # Freshly minted GitHub App installation tokens are eventually consistent: git
-    # operations can fail with "repository not found" (a 404, since this repo is private)
-    # for a second or two after the token is created. github-action-benchmark clones the
-    # repo as its first act, so it hits that window and takes the whole job down with it.
-    # Block here until the token actually works.
     - name: Wait for App Token to Become Usable
       shell: bash
       env:

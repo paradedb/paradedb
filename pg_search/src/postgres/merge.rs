@@ -257,7 +257,7 @@ pub unsafe fn do_merge(
         if layer_sizes.user_configured_background_layers() {
             let combined_layers = layer_sizes.combined();
             let merger = SearchIndexMerger::open(index)?;
-            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers, Some(index));
+            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
             background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
             let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
@@ -282,7 +282,7 @@ pub unsafe fn do_merge(
         } else {
             foreground_layer_sizes
         };
-        let foreground_merge_policy = LayeredMergePolicy::new(foreground_layer_sizes, Some(index));
+        let foreground_merge_policy = LayeredMergePolicy::new(foreground_layer_sizes);
         merge_index(
             index,
             foreground_merge_policy,
@@ -373,7 +373,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let metadata = MetaPage::open(&index);
 
         let layer_sizes = IndexLayerSizes::from(&index);
-        let merge_policy = LayeredMergePolicy::new(layer_sizes.combined(), Some(&index));
+        let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
         let cleanup_lock = metadata.cleanup_lock_shared();
         // this ensures there's only one merge running at a time for the given index,

@@ -17,11 +17,9 @@
 
 use crate::api::{HashMap, HashSet};
 use crate::index::writer::index::SearchIndexMerger;
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,28 +27,11 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
-/// Hard ceiling on the **live** doc count of any segment the merge
-/// policy is willing to produce or consume *when the per-index
-/// vector cap is active* — i.e. when the target index's schema
-/// declares at least one vector field. Non-vector indexes keep the
-/// historical unbounded byte-only behavior.
-///
-/// Capped at 5M because past that both the per-segment IVF centroid
-/// index and the per-query filter bitset can grow very large, and we
-/// haven't done enough testing at that scale to be confident in the
-/// behavior — clustering quality, build time, and per-query memory
-/// footprint all bear validating before we let segments climb higher.
-const VECTOR_SEGMENT_DOC_CAP: u64 = 5_000_000;
-
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
     layer_sizes: Vec<u64>,
     min_merge_count: usize,
     enable_logging: bool,
-    /// `Some(VECTOR_SEGMENT_DOC_CAP)` for indexes whose schema declares
-    /// a vector field, `None` otherwise. Resolved by [`Self::new`] from
-    /// the target index — callers don't pick the value or the toggle.
-    max_doc_count: Option<u64>,
 
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
@@ -71,18 +52,11 @@ impl MergePolicy for LayeredMergePolicy {
 }
 
 impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>, index: Option<&PgSearchRelation>) -> LayeredMergePolicy {
-        let max_doc_count = index.and_then(|idx| {
-            SearchIndexSchema::open(idx)
-                .ok()
-                .filter(|schema| schema.has_vector_field())
-                .map(|_| VECTOR_SEGMENT_DOC_CAP)
-        });
+    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
         Self {
             layer_sizes,
             min_merge_count: 2,
             enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },
-            max_doc_count,
 
             mergeable_segments: Default::default(),
             already_processed: Default::default(),
@@ -284,7 +258,6 @@ impl LayeredMergePolicy {
             let segments =
                 self.collect_mergeable_segments(original_segments, &merged_segments, avg_doc_size);
             let mut candidate_byte_size = 0;
-            let mut candidate_doc_count: u64 = 0;
             candidates.push((layer_size, MergeCandidate(vec![])));
 
             for segment in segments {
@@ -298,32 +271,15 @@ impl LayeredMergePolicy {
                     continue;
                 }
 
-                let segment_num_docs = segment.num_docs() as u64;
-
-                if let Some(cap) = self.max_doc_count {
-                    if segment_num_docs > cap {
-                        continue;
-                    }
-                    if candidate_doc_count + segment_num_docs > cap
-                        && !candidates.last().unwrap().1 .0.is_empty()
-                    {
-                        candidates.push((layer_size, MergeCandidate(vec![])));
-                        candidate_byte_size = 0;
-                        candidate_doc_count = 0;
-                    }
-                }
-
                 // add this segment as a candidate
                 let segment_byte_size =
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 candidate_byte_size += segment_byte_size;
-                candidate_doc_count += segment_num_docs;
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
-                    candidate_doc_count = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
                 }
             }
@@ -481,7 +437,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_eagerly_merges_mutable_segment() {
-        let mut policy = LayeredMergePolicy::new(vec![1000], None);
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
         // min_merge_count is 2 by default, but the single mutable segment should still be merged
         let segments = vec![create_mutable_segment_meta_entry(100, 0, false)];
         let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
@@ -501,7 +457,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_simple() {
-        let mut policy = LayeredMergePolicy::new(vec![1000], None);
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
         let segments = vec![
             create_segment_meta_entry(700, 70, 0),
             create_segment_meta_entry(700, 70, 0),
@@ -521,7 +477,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_not_full_enough() {
-        let mut policy = LayeredMergePolicy::new(vec![1000], None);
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
         let segments = vec![
             create_segment_meta_entry(400, 40, 0),
             create_segment_meta_entry(400, 40, 0),
@@ -537,7 +493,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_min_merge_count() {
-        let mut policy = LayeredMergePolicy::new(vec![1000], None);
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
         policy.min_merge_count = 3;
         let segments = vec![
             create_segment_meta_entry(700, 70, 0),
@@ -553,7 +509,7 @@ mod tests {
 
     #[pg_test]
     fn test_layered_merge_policy_multiple_layers() {
-        let mut policy = LayeredMergePolicy::new(vec![1000, 10000], None);
+        let mut policy = LayeredMergePolicy::new(vec![1000, 10000]);
         let segments = vec![
             create_segment_meta_entry(700, 70, 0),
             create_segment_meta_entry(700, 70, 0),

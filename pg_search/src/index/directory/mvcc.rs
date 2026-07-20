@@ -191,11 +191,6 @@ impl MVCCDirectory {
 
         match meta_entry {
             LoadedSegmentMetaEntry::Persisted { entry, .. } => {
-                // A known segment without this component is a missing FILE,
-                // not corruption: tantivy's Directory contract wants
-                // `DoesNotExist`, and readers probe on it — e.g.
-                // `VectorIndexReader::open` distinguishes flat from IVF
-                // segments by whether `.centroids` exists.
                 let Some(file_entry) = entry.file_entry(uuid_string, path) else {
                     return Err(TantivyError::OpenDirectoryError(
                         OpenDirectoryError::DoesNotExist(path.to_path_buf()),
@@ -235,12 +230,6 @@ impl MVCCDirectory {
                     })
                     .get_file_handle(path)
                     .map_err(|err| match err {
-                        // The in-memory segment legitimately lacks files that
-                        // probing readers ask about (e.g. `.centroids` on a
-                        // mutable segment). Normalize to the DoesNotExist shape
-                        // the Persisted arm reports so `get_file_handle` can
-                        // surface `OpenReadError::FileDoesNotExist` instead of
-                        // an opaque IoError.
                         OpenReadError::FileDoesNotExist(missing) => {
                             TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(
                                 missing,

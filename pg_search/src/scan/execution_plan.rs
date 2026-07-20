@@ -772,11 +772,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
         // join-key bounds from HashJoinExec). We accept and apply all of them.
         //
-        // The pushdown pass can potentially run more than once. Producers differ in what
-        // they deliver on a repeat pass: SortExec re-pushes its stored filter, while
-        // HashJoinExec goes silent once its filter is installed. Merge with the
-        // filters collected by earlier passes so a later pass can't drop a filter
-        // a silent producer already installed.
+        // The pushdown pass can potentially run more than once. Producers assume
+        // pushed-down filters remain installed between passes and may not re-push
+        // already-pushed filters on subsequent passes. To handle this, we merge and
+        // dedupe the filter list on each pass.
         //
         // Dedupe by `expression_id`, not pointer identity: remapping a filter's
         // columns on its way down the tree (`DynamicFilterPhysicalExpr::

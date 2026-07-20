@@ -234,13 +234,6 @@ impl SharedThreshold<tantivy::Score> for PgAtomicSharedScoreThreshold {
             }
         }
     }
-
-    // NOTE: this impl used to override `competitive_threshold` to relax the
-    // WAND pruning threshold by one epsilon (`next_down()`) when this segment
-    // wins the global tie-break. The method is gone from the trait: tantivy
-    // now applies the identical logic itself in
-    // `SortKeyComputer::bm25_pruning_threshold` (sort_by_score.rs), so the
-    // threshold object only supplies `load`/`try_update`.
 }
 
 pub fn new_score_threshold(

@@ -230,6 +230,33 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
+      # Scan the image customers run for known OS/library CVEs before we sign or
+      # publish it as trusted. `ignore-unfixed` skips advisories with no upstream
+      # fix (nothing actionable); the build fails on any fixable CRITICAL/HIGH.
+      # To loosen the gate, narrow `severity` (e.g. CRITICAL) or set exit-code 0.
+      - name: Scan Image for Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.10.1
+
+      # Keyless signature over the image digest (Sigstore OIDC via the Actions
+      # id-token, logged in Rekor). Unlike GitHub build attestations this needs no
+      # GitHub Enterprise, so it also works on the synced enterprise repo. The
+      # cloud verifies it with `cosign verify` against the same digest.
+      - name: Sign Image with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign --recursive \
+            "index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}"
+
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v4
         with:
@@ -323,6 +350,31 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
+
+      # Scan the extension image for known OS/library CVEs before we sign or publish
+      # it. `ignore-unfixed` skips advisories with no upstream fix; the build fails
+      # on any fixable CRITICAL/HIGH. Narrow `severity` or set exit-code 0 to loosen.
+      - name: Scan Image for Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.10.1
+
+      # Keyless signature over the image digest (Sigstore OIDC via the Actions
+      # id-token, logged in Rekor). Needs no GitHub Enterprise, so it also works on
+      # the synced enterprise repo. The cloud verifies it against the same digest.
+      - name: Sign Image with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign --recursive \
+            "index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}"
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v4

@@ -314,7 +314,7 @@ jobs:
           Release:        1%{?dist}
           Summary:        Full-text search for PostgreSQL using BM25
           License:        GNU Affero General Public License v3.0
-          URL:            https://github.com/paradedb/paradedb
+          URL:            ${{ github.server_url }}/${{ github.repository }}
 
           BuildRequires:  postgresql${{ matrix.pg_version }}-devel
           Requires:       postgresql${{ matrix.pg_version }}-server
@@ -367,7 +367,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            /repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')

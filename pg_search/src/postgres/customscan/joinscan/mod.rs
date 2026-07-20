@@ -354,18 +354,49 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 /// Check whether it is safe to push LIMIT into the JoinScan plan.
 ///
 /// Returns `true` when ALL of:
-/// 1. JoinScan absorbed every base relation in the query (no outer
+/// 1. No plan node above the join consumes the full row set: window
+///    functions, set-returning functions in the target list, and
+///    GROUP BY / GROUPING SETS / HAVING all need every joined row, so a
+///    LIMIT applied inside the scan starves them (issue #5561: an
+///    unpartitioned `count(*) OVER ()` returned the LIMIT instead of
+///    the true match count). `grouping_planner` sets `limit_tuples = -1` for exactly
+///    these queries; the parse flags are checked directly because
+///    `limit_tuples == -1` also means "parameterized LIMIT", which is
+///    safe to push.
+/// 2. JoinScan absorbed every base relation in the query (no outer
 ///    relations that could add post-filters above JoinScan).
-/// 2. Every SubPlan in `baserestrictinfo` of absorbed relations was also
+/// 3. Every SubPlan in `baserestrictinfo` of absorbed relations was also
 ///    absorbed into the `RelNode` tree (Semi/Anti/LeftMark joins).
 ///    Un-absorbed SubPlans would become Postgres post-filters above
 ///    the capped output.
-/// 3. No volatile functions in `baserestrictinfo` of absorbed relations
+/// 4. No volatile functions in `baserestrictinfo` of absorbed relations
 ///    (volatile functions can never be pushed into Tantivy).
+///
+/// DISTINCT is not declined here: JoinScan absorbs and implements it
+/// (#4669). `hasAggs` queries were already declined before this point.
 unsafe fn is_limit_pushdown_safe(
     root: *mut pg_sys::PlannerInfo,
     join_clause: &JoinCSClause,
 ) -> Result<(), JoinDeclineReason> {
+    // 1. Nothing above the join may need more rows than the LIMIT keeps.
+    let parse = (*root).parse;
+    if (*parse).hasWindowFuncs {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to window functions",
+        ));
+    }
+    if (*parse).hasTargetSRFs {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to set-returning functions in the target list",
+        ));
+    }
+    if !(*parse).groupClause.is_null() || !(*parse).groupingSets.is_null() || (*root).hasHavingQual
+    {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to GROUP BY or HAVING",
+        ));
+    }
+
     let absorbed_rtis: Vec<pg_sys::Index> = join_clause
         .plan
         .sources()
@@ -373,7 +404,7 @@ unsafe fn is_limit_pushdown_safe(
         .map(|s| s.scan_info.heap_rti)
         .collect();
 
-    // 1. Did JoinScan absorb ALL base relations?
+    // 2. Did JoinScan absorb ALL base relations?
     #[cfg(feature = "pg15")]
     let all_rels = (*root).all_baserels;
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
@@ -389,7 +420,7 @@ unsafe fn is_limit_pushdown_safe(
         ));
     }
 
-    // 2. Every SubPlan in baserestrictinfo must have been absorbed.
+    // 3. Every SubPlan in baserestrictinfo must have been absorbed.
     let all_subplan_ids = collect_all_subplan_ids_from_baserestrictinfo(root, &absorbed_rtis);
     let absorbed_subplan_ids = collect_absorbed_subplan_ids(&join_clause.plan);
     for id in &all_subplan_ids {
@@ -400,7 +431,7 @@ unsafe fn is_limit_pushdown_safe(
         }
     }
 
-    // 3. No volatile functions (these can never be absorbed).
+    // 4. No volatile functions (these can never be absorbed).
     for rti in &absorbed_rtis {
         let rel = pg_sys::find_base_rel(root, *rti as i32);
         let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
@@ -642,8 +673,9 @@ impl JoinScan {
             join_clause = join_clause.with_forced_partitioning(0);
         }
 
-        // Safety check: bail out if LIMIT pushdown is unsafe due to
-        // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
+        // Safety check: bail out if an upper plan node needs the full row set,
+        // or if un-absorbed relations/SubPlans or volatile predicates could
+        // change the capped output.
         if join_clause.limit_offset.is_some() {
             is_limit_pushdown_safe(root, &join_clause)?;
         }
@@ -1349,6 +1381,27 @@ impl CustomScan for JoinScan {
                     explainer.add_text("  ", line);
                 }
             }
+
+            // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
+            // DataFusion plan, so surface its per-phase breakdown separately when the query ran
+            // distributed.
+            if let Some(t) = state.custom_state().launch_timing {
+                explainer.add_text(
+                    "MPP Launch",
+                    format!(
+                        "workers={} prepare={}us plan={}us payload={}us attach={}us \
+                         leader_setup={}us exec={}us first_frame={}us",
+                        t.workers,
+                        t.prepare_us,
+                        t.plan_us,
+                        t.payload_us,
+                        t.attach_us,
+                        t.leader_setup_us,
+                        t.exec_us,
+                        t.first_frame_us,
+                    ),
+                );
+            }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
             // plan and calling PgSearchTableProvider::scan(), but without executor state
@@ -1440,11 +1493,14 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
         if state.custom_state().datafusion_stream.is_none() {
             // First exec call: build the MPP DSM before planning. The workers launch only after
             // the leader's plan is built and its stages serialize (`launch_mpp_commit` below),
             // so every planning fallback is a serial run with no workers to abort.
+            let t_prepare = std::time::Instant::now();
             Self::maybe_prepare_mpp(state);
+            launch_us.prepare_us = t_prepare.elapsed().as_micros() as u64;
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1557,11 +1613,13 @@ impl CustomScan for JoinScan {
                 } else {
                     state.custom_state().parallel_state
                 };
+                let t_plan = std::time::Instant::now();
                 let plan = build_plan(
                     &plan_ctx,
                     plan_parallel_state,
                     state.custom_state().non_partitioning_segments.clone(),
                 );
+                launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
                 // Commit the MPP launch against the built plan: serialize its producer stages,
                 // spawn the workers, and hand the coordinator the same stages to dispatch. On a
@@ -1577,6 +1635,10 @@ impl CustomScan for JoinScan {
                                 let exec_ctx =
                                     Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                                         .with_distributed_dispatch_plan_source(source);
+                                launch_us.payload_us = leader.timing.payload_us;
+                                launch_us.attach_us = leader.timing.attach_us;
+                                launch_us.leader_setup_us = leader.timing.leader_setup_us;
+                                launch_us.workers = leader.timing.workers;
                                 state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
                                 (exec_ctx, plan)
                             }
@@ -1599,13 +1661,21 @@ impl CustomScan for JoinScan {
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
                 );
+                let t_exec = std::time::Instant::now();
                 let stream = {
                     let _guard = runtime.enter();
                     plan.execute(0, task_ctx)
                         .expect("Failed to execute DataFusion plan")
                 };
+                launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
-                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
+                // launch timing only when the query actually ran distributed (workers attached);
+                // a serial fallback never reaches `Launched` and leaves `workers` at zero.
+                if state.custom_state().mpp.is_launched() {
+                    state.custom_state_mut().launch_timing = Some(launch_us);
+                    state.custom_state_mut().stream_built_at = Some(std::time::Instant::now());
+                }
                 state.custom_state_mut().physical_plan = Some(plan.clone());
 
                 let schema = plan.schema();
@@ -1646,6 +1716,16 @@ impl CustomScan for JoinScan {
 
                 match next_batch {
                     Some(Ok(batch)) => {
+                        // First distributed batch out: fold the worker decode, first scan, and
+                        // network hop into the launch timing.
+                        if let Some(built) = state.custom_state().stream_built_at {
+                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut() {
+                                if t.first_frame_us == 0 {
+                                    t.first_frame_us = built.elapsed().as_micros() as u64;
+                                }
+                            }
+                            state.custom_state_mut().stream_built_at = None;
+                        }
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }

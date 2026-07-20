@@ -17,6 +17,9 @@ on:
     paths:
       - "pg_search/sql/**"
 
+permissions:
+  contents: read
+
 jobs:
   check-released-migrations:
     name: Check Released Migrations

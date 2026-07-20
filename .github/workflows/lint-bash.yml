@@ -17,6 +17,9 @@ concurrency:
   group: lint-bash-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint-bash:
     name: Lint Bash Scripts

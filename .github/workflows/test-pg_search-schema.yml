@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/workflows/test-pg_search-schema.yml"
       - ".github/scripts/check_migration_diff.py"
+      - "rust-toolchain.toml"
       - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
@@ -18,6 +19,9 @@ on:
 concurrency:
   group: test-pg_search-schema-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test-pg_search-schema:

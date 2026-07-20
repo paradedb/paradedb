@@ -21,6 +21,9 @@ concurrency:
   group: publish-pg_search-schema-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   publish-pg_search-schema:
     name: Publish pg_search (Schema)

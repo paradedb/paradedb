@@ -18,6 +18,9 @@ concurrency:
   group: test-paradedb-docs-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test-paradedb-docs:
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
@@ -66,7 +69,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
 
       - name: Install .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 

@@ -16,11 +16,15 @@ on:
       - "tests/**"
       - "tokenizers/**"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:
   group: test-pg_search-upgrade-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   # Resolves the immediately preceding released version on the upgrade path

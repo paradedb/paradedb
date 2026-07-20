@@ -1414,6 +1414,34 @@ async fn execute_query_multiple_times(
     let query_id = get_query_id(measured_query, &mut conn).await?;
     let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
 
+    // Log the plan the timings will measure, so a benchmark run's logs show which execution
+    // path (serial, PG-parallel Gather, MPP DistributedExec) each query took. ANALYZE makes
+    // the render reflect the EXECUTED plan: launch-time fallbacks (the MPP size gate, a short
+    // worker launch) replan after the plain-EXPLAIN render would have shown a distributed
+    // shape. The compound statement runs once first so the plan reflects the query's own GUC
+    // prefix.
+    {
+        use sqlx::Row;
+        sqlx::raw_sql(query).execute(&mut conn).await.ok();
+        // VERBOSE because the JoinScan renderer only includes per-node `elapsed_compute`
+        // timing for verbose EXPLAINs.
+        let explain = format!(
+            "EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) {measured_query}"
+        );
+        match sqlx::raw_sql(&explain).fetch_all(&mut conn).await {
+            Ok(rows) => {
+                println!("plan for `{query_type}`:");
+                for row in rows {
+                    match row.try_get::<String, _>(0) {
+                        Ok(line) => println!("    {line}"),
+                        Err(e) => println!("    <row decode failed: {e}>"),
+                    }
+                }
+            }
+            Err(e) => println!("plan for `{query_type}`: EXPLAIN failed: {e}"),
+        }
+    }
+
     // run until run-to-run variance is sub-0.1% (query is warmed) or
     // until 10 runs have passed, then take the next sample_count results
     let mut runs_completed = 0;

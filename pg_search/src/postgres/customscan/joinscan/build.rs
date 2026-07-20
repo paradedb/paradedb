@@ -56,10 +56,34 @@ impl<'a> RelationAlias<'a> {
             .unwrap_or_else(|| format!("source_{}", index))
     }
 
-    /// For DataFusion execution, suffix the relation to make it unique
+    /// For DataFusion execution, suffix the relation with `index` to make it
+    /// unique. PostgreSQL accepts quoted-identifier characters that
+    /// DataFusion's `TableReference` bare-identifier syntax does not, so
+    /// the alias is sanitized: lowercased, non-`[a-z0-9_]` characters
+    /// replaced with `_`, and prefixed with `_` if the result would start
+    /// with a digit. The raw alias is preserved for user-facing surfaces
+    /// in [`Self::display`] and [`Self::warning_context`].
+    /// See paradedb/paradedb#5525.
     pub fn execution(&self, index: usize) -> String {
         match self.name {
-            Some(alias) => format!("{alias}_{index}"),
+            Some(alias) => {
+                let sanitized: String = alias
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '_' {
+                            c.to_ascii_lowercase()
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                let prefixed = if sanitized.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    format!("_{sanitized}")
+                } else {
+                    sanitized
+                };
+                format!("{}_{}", prefixed, index)
+            }
             None => format!("source_{}", index),
         }
     }

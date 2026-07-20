@@ -44,6 +44,10 @@ on:
 env:
   PG_VERSION: "18"
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   # Resolve which workload(s) to run based on the trigger:
   # - schedule: all
@@ -60,8 +64,6 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
       || github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
-    permissions:
-      pull-requests: write
     outputs:
       workloads: ${{ steps.compute.outputs.workloads }}
     steps:
@@ -285,6 +287,10 @@ jobs:
         with:
           ref: ${{ env.COMMIT_SHA }}
 
+      # The workload image and the run's `antithesis.source` are named after the repository
+      - name: Resolve Registry Image Name From Repository
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -309,7 +315,7 @@ jobs:
         id: extract-workload-metadata
         uses: docker/metadata-action@v6
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}
           tags: |
             type=raw,value=${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
@@ -331,7 +337,7 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
           cat antithesis-paradedb.yaml
 
       - name: Patch Driver K8s Manifest With Driver Image Tagged With Git SHA
@@ -397,13 +403,13 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ env.REPO_NAME }}:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
           description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '360' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
-            antithesis.source=paradedb
+            antithesis.source=${{ env.REPO_NAME }}
             custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }},logical-replication-publisher
             custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher
             custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }}${{ matrix.workload == 'proptests' && ',paradedb' || '' }},cloudnative-pg,logical-replication-publisher

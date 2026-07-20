@@ -178,34 +178,36 @@ WHERE body ||| 'alpha'
 -- Internal aggregate placeholders are ordinary FuncExpr nodes, so PostgreSQL
 -- accepts them syntactically in WHERE even though only ParadeDB may populate
 -- them. They must fail closed as residuals as well.
+SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
+    $$SELECT id, pdb.score(id)
+        FROM issue_5546_generic_residual_items
+       WHERE body ||| 'alpha'
+         AND pdb.agg_fn('count') IS NOT NULL$$
+) AS aggregate_placeholder_residual_rejected;
+
+SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
+    $$SELECT id, pdb.score(id)
+        FROM issue_5546_generic_residual_items
+       WHERE body ||| 'alpha'
+         AND pdb.window_agg('{}') > 0$$
+) AS window_placeholder_residual_rejected;
+
 -- A raw call to one of the panic-only search implementation functions can
--- remain a FuncExpr when planner support cannot associate its lhs with the
--- indexed relation. It must not become a residual either.
-SELECT
-    NOT pg_temp.issue_5546_plan_uses_basescan(
-        $$SELECT id, pdb.score(id)
-            FROM issue_5546_generic_residual_items
-           WHERE body ||| 'alpha'
-             AND pdb.agg_fn('count') IS NOT NULL$$
-    ) AS aggregate_placeholder_residual_rejected,
-    NOT pg_temp.issue_5546_plan_uses_basescan(
-        $$SELECT id, pdb.score(id)
-            FROM issue_5546_generic_residual_items
-           WHERE body ||| 'alpha'
-             AND pdb.window_agg('{}') > 0$$
-    ) AS window_placeholder_residual_rejected,
-    NOT pg_temp.issue_5546_plan_uses_basescan(
-        $$SELECT id, pdb.score(id)
-            FROM issue_5546_generic_residual_items
-           WHERE body ||| 'alpha'
-             AND CASE
-                     WHEN allowed THEN paradedb.search_with_parse(
-                         'not-a-column'::text,
-                         clock_timestamp()::text
-                     )
-                     ELSE true
-                 END$$
-    ) AS raw_search_function_residual_rejected;
+-- remain a FuncExpr when planner support can find the relation from its lhs
+-- but cannot associate that lhs expression with an indexed field. It must not
+-- become a residual either.
+SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
+    $$SELECT id, pdb.score(id)
+        FROM issue_5546_generic_residual_items
+       WHERE body ||| 'alpha'
+         AND CASE
+                 WHEN allowed THEN paradedb.search_with_parse(
+                     lower(body),
+                     clock_timestamp()::text
+                 )
+                 ELSE true
+             END$$
+) AS raw_search_function_residual_rejected;
 
 -- ParadeDB value builders are ordinary PostgreSQL-executable expressions.
 -- Inside an otherwise unsupported top-level conjunct they remain valid

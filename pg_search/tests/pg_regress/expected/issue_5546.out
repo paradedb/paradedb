@@ -40,7 +40,6 @@ BEGIN
     RETURN false;
 END;
 $$;
-CREATE FUNCTION
 -- Reproduction 1: DistinctExpr is evaluated by PostgreSQL as a residual qual.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) AS score
@@ -120,7 +119,7 @@ ORDER BY id;
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: id
+   Sort Key: issue_5546_generic_residual_items.id
    InitPlan 1
      ->  Result
    ->  Custom Scan (ParadeDB Base Scan) on issue_5546_generic_residual_items
@@ -195,6 +194,8 @@ WHERE body ||| 'alpha'
           WHEN allowed IS false THEN body ||| 'beta'
           ELSE true
       END;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- A real correlated SubPlan must not bypass that fail-closed check.
 SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
@@ -230,6 +231,8 @@ WHERE outer_items.body ||| 'alpha'
           THEN outer_items.body ||| 'beta'
           ELSE true
       END;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Context-dependent score/snippet placeholders cannot be raw ExecQual residuals.
 SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
@@ -254,37 +257,47 @@ ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/pa
 -- Internal aggregate placeholders are ordinary FuncExpr nodes, so PostgreSQL
 -- accepts them syntactically in WHERE even though only ParadeDB may populate
 -- them. They must fail closed as residuals as well.
+SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
+    $$SELECT id, pdb.score(id)
+        FROM issue_5546_generic_residual_items
+       WHERE body ||| 'alpha'
+         AND pdb.agg_fn('count') IS NOT NULL$$
+) AS aggregate_placeholder_residual_rejected;
+ aggregate_placeholder_residual_rejected 
+-----------------------------------------
+ t
+(1 row)
+
+SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
+    $$SELECT id, pdb.score(id)
+        FROM issue_5546_generic_residual_items
+       WHERE body ||| 'alpha'
+         AND pdb.window_agg('{}') > 0$$
+) AS window_placeholder_residual_rejected;
+ window_placeholder_residual_rejected 
+--------------------------------------
+ t
+(1 row)
+
 -- A raw call to one of the panic-only search implementation functions can
--- remain a FuncExpr when planner support cannot associate its lhs with the
--- indexed relation. It must not become a residual either.
-SELECT
-    NOT pg_temp.issue_5546_plan_uses_basescan(
-        $$SELECT id, pdb.score(id)
-            FROM issue_5546_generic_residual_items
-           WHERE body ||| 'alpha'
-             AND pdb.agg_fn('count') IS NOT NULL$$
-    ) AS aggregate_placeholder_residual_rejected,
-    NOT pg_temp.issue_5546_plan_uses_basescan(
-        $$SELECT id, pdb.score(id)
-            FROM issue_5546_generic_residual_items
-           WHERE body ||| 'alpha'
-             AND pdb.window_agg('{}') > 0$$
-    ) AS window_placeholder_residual_rejected,
-    NOT pg_temp.issue_5546_plan_uses_basescan(
-        $$SELECT id, pdb.score(id)
-            FROM issue_5546_generic_residual_items
-           WHERE body ||| 'alpha'
-             AND CASE
-                     WHEN allowed THEN paradedb.search_with_parse(
-                         'not-a-column'::text,
-                         clock_timestamp()::text
-                     )
-                     ELSE true
-                 END$$
-    ) AS raw_search_function_residual_rejected;
- aggregate_placeholder_residual_rejected | window_placeholder_residual_rejected | raw_search_function_residual_rejected 
------------------------------------------+--------------------------------------+---------------------------------------
- t                                       | t                                    | t
+-- remain a FuncExpr when planner support can find the relation from its lhs
+-- but cannot associate that lhs expression with an indexed field. It must not
+-- become a residual either.
+SELECT NOT pg_temp.issue_5546_plan_uses_basescan(
+    $$SELECT id, pdb.score(id)
+        FROM issue_5546_generic_residual_items
+       WHERE body ||| 'alpha'
+         AND CASE
+                 WHEN allowed THEN paradedb.search_with_parse(
+                     lower(body),
+                     clock_timestamp()::text
+                 )
+                 ELSE true
+             END$$
+) AS raw_search_function_residual_rejected;
+ raw_search_function_residual_rejected 
+---------------------------------------
+ t
 (1 row)
 
 -- ParadeDB value builders are ordinary PostgreSQL-executable expressions.

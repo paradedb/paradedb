@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use super::keyset::KeySet;
-use super::{anyelement_query_input_opoid, request_simplify};
+use super::{anyelement_query_input_opoid, is_anyelement_search_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
@@ -361,7 +361,8 @@ pub fn query_input_restrict(
 ) -> f64 {
     fn inner_query_input(
         planner_info: Internal, // <pg_sys::PlannerInfo>,
-        args: Internal,         // <pg_sys::List>,
+        operator_oid: pg_sys::Oid,
+        args: Internal, // <pg_sys::List>,
     ) -> Option<f64> {
         unsafe {
             let info = planner_info.unwrap()?.cast_mut_ptr::<pg_sys::PlannerInfo>();
@@ -370,25 +371,40 @@ pub fn query_input_restrict(
 
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let rhs = args.get_ptr(1)?;
+            let is_query_input = operator_oid == anyelement_query_input_opoid();
 
-            match (*rhs).type_ {
-                pg_sys::NodeTag::T_Const => {
-                    let const_ = rhs.cast::<pg_sys::Const>();
-                    let (heaprelid, _, _) = find_var_relation(var, info);
-                    let indexrel = rel_get_bm25_index(heaprelid)?.1;
-                    let search_query_input =
-                        SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-                    estimate_selectivity(&indexrel, search_query_input)
-                }
-                pg_sys::NodeTag::T_Param => Some(PARAMETERIZED_SELECTIVITY),
-                _ => None,
+            // For the paradedb.searchqueryinput overload with a plain constant RHS,
+            // decode the SearchQueryInput and ask Tantivy for a real estimate.
+            if is_query_input && (*rhs).type_ == pg_sys::NodeTag::T_Const {
+                let const_ = rhs.cast::<pg_sys::Const>();
+                let (heaprelid, _, _) = find_var_relation(var, info);
+                let indexrel = rel_get_bm25_index(heaprelid)?.1;
+                let search_query_input =
+                    SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                return estimate_selectivity(&indexrel, search_query_input);
             }
+
+            // Every other case — text / text[] RHS on any overload, or a
+            // parameterized / wrapped (RelabelType, FuncExpr, ...) RHS on the
+            // searchqueryinput overload — falls back to a non-collapsed constant so
+            // the planner keeps parallel-worker selection and cardinality-driven
+            // join order decisions sane. Without this the observable estimate
+            // collapses to 1 row via UNKNOWN_SELECTIVITY, which then feeds into
+            // GENERIC prepared plans and misleads the planner.
+            // See paradedb/paradedb#5275.
+            Some(PARAMETERIZED_SELECTIVITY)
         }
     }
 
-    assert!(operator_oid == anyelement_query_input_opoid());
+    // Bound to the searchqueryinput @@@ operator and (via ALTER OPERATOR in this
+    // extension's migrations) to the text / text[] overloads of @@@ and |||.
+    debug_assert!(
+        is_anyelement_search_opoid(operator_oid),
+        "query_input_restrict called with unexpected operator oid: {operator_oid:?}"
+    );
 
-    let mut selectivity = inner_query_input(planner_info, args).unwrap_or(UNKNOWN_SELECTIVITY);
+    let mut selectivity =
+        inner_query_input(planner_info, operator_oid, args).unwrap_or(UNKNOWN_SELECTIVITY);
     if selectivity > 1.0 {
         selectivity = UNKNOWN_SELECTIVITY;
     }

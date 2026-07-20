@@ -1092,11 +1092,24 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     OPERATOR 1 pg_catalog.@@@(anyelement, text),                         /* for querying with a tantivy-compatible text query */
     OPERATOR 2 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;
+
+-- Attach the same restriction-selectivity function to the text / text[]
+-- overloads of @@@ and |||. Without this the pg_operator entries for these
+-- overloads have no oprrest and Postgres collapses parameterized-plan row
+-- estimates to 1 via the UNKNOWN_SELECTIVITY fallback, which then
+-- misleads parallel-worker selection and join-order decisions for GENERIC
+-- prepared BM25 queries. See paradedb/paradedb#5275.
+ALTER OPERATOR pg_catalog.@@@ (anyelement, text)   SET (RESTRICT = paradedb.query_input_restrict);
+ALTER OPERATOR pg_catalog.||| (anyelement, text)   SET (RESTRICT = paradedb.query_input_restrict);
+ALTER OPERATOR pg_catalog.||| (anyelement, text[]) SET (RESTRICT = paradedb.query_input_restrict);
 "#,
     name = "bm25_ops_anyelement_operator",
     requires = [
-        // for using plain text on the rhs
+        // for using plain text on the rhs of @@@
         atatat::search_with_parse,
+        // for using text / text[] on the rhs of |||
+        ororor::search_with_match_disjunction,
+        ororor::search_with_match_disjunction_array,
         // for using SearchQueryInput on the rhs
         searchqueryinput::search_with_query_input,
         searchqueryinput::query_input_restrict,

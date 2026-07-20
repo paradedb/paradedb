@@ -155,7 +155,9 @@ use self::planning::{
 };
 use self::predicate::{all_vars_are_fast_fields_recursive, extract_join_level_conditions};
 use self::privdat::PrivateData;
-use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
+use crate::postgres::customscan::datafusion::explain::{
+    explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
+};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::utils::expr_contains_any_operator;
@@ -191,10 +193,9 @@ use crate::postgres::ParallelScanArgs;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
-use datafusion::physical_plan::displayable;
-use datafusion::physical_plan::metrics::MetricValue;
-use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
-use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedExt};
+
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::DistributedExt;
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::Arc;
@@ -1364,22 +1365,13 @@ impl CustomScan for JoinScan {
                 // Under MPP the worker fragments reported their metrics as mesh frames when
                 // they exited; fold them in so the stage boxes show more than the leader's
                 // own nodes.
-                let merged = match (
-                    state.custom_state().mpp.leader(),
-                    state.custom_state().runtime.as_ref(),
-                ) {
-                    (Some(_), Some(_runtime)) => {
-                        crate::postgres::customscan::mpp::glue::merge_worker_metrics(physical_plan)
-                    }
-                    _ => None,
-                };
-                let plan = merged.as_ref().unwrap_or(physical_plan);
-                explainer.add_text("DataFusion Physical Plan", "");
-                let mut lines = Vec::new();
-                render_plan_with_metrics(plan.as_ref(), 0, explainer.is_verbose(), &mut lines);
-                for line in &lines {
-                    explainer.add_text("  ", line);
-                }
+                let plan = get_plan_with_merged_metrics(
+                    physical_plan,
+                    state.custom_state().mpp.leader().is_some(),
+                    state.custom_state().runtime.is_some(),
+                    explainer,
+                );
+                explain_physical_plan(&plan, explainer);
             }
 
             // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
@@ -1442,17 +1434,7 @@ impl CustomScan for JoinScan {
             let physical_plan = runtime
                 .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
-            explainer.add_text("DataFusion Physical Plan", "");
-            let rendered = if physical_plan.is::<DistributedExec>() {
-                display_plan_ascii(physical_plan.as_ref(), false)
-            } else {
-                displayable(physical_plan.as_ref())
-                    .indent(false)
-                    .to_string()
-            };
-            for line in rendered.lines() {
-                explainer.add_text("  ", line);
-            }
+            explain_physical_plan(&physical_plan, explainer);
         }
     }
 
@@ -2461,62 +2443,5 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
-    }
-}
-
-/// Render a DataFusion physical plan tree with metrics.
-///
-/// Each node is rendered via its `DisplayAs` implementation, followed by
-/// collected metrics.  When `include_timing` is false, timing metrics
-/// (`elapsed_compute`, named `Time` values) are stripped so that regression
-/// test output remains stable.  Pass `true` (e.g. for EXPLAIN ANALYZE VERBOSE)
-/// to include everything.
-///
-/// TODO: In parallel mode each worker runs its own `exec_custom_scan` with its
-/// own plan instances, so the metrics stored on the leader's plan only reflect
-/// the leader's share of the work.  Once JoinScan parallelism is refactored
-/// (#4152), aggregate these across workers.
-fn render_plan_with_metrics(
-    plan: &dyn ExecutionPlan,
-    indent: usize,
-    include_timing: bool,
-    lines: &mut Vec<String>,
-) {
-    use std::fmt::Write;
-
-    let mut line = format!("{:indent$}", "", indent = indent * 2);
-
-    struct Fmt<'a>(&'a dyn ExecutionPlan);
-    impl std::fmt::Display for Fmt<'_> {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            self.0.fmt_as(DisplayFormatType::Default, f)
-        }
-    }
-    write!(line, "{}", Fmt(plan)).unwrap();
-
-    if let Some(metrics) = plan.metrics() {
-        let aggregated = metrics
-            .aggregate_by_name()
-            .sorted_for_display()
-            .timestamps_removed();
-        let parts: Vec<String> = aggregated
-            .iter()
-            .filter(|m| {
-                include_timing
-                    || !matches!(
-                        m.value(),
-                        MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
-                    )
-            })
-            .map(|m| m.to_string())
-            .collect();
-        if !parts.is_empty() {
-            write!(line, ", metrics=[{}]", parts.join(", ")).unwrap();
-        }
-    }
-
-    lines.push(line);
-    for child in plan.children() {
-        render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
     }
 }

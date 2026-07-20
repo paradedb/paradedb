@@ -162,7 +162,20 @@ impl ParallelStateType for i64 {}
 impl ParallelStateType for isize {}
 impl ParallelStateType for f32 {}
 impl ParallelStateType for f64 {}
-impl ParallelStateType for bool {}
+// `bool` is intentionally NOT a `ParallelStateType`. Reading a byte whose
+// bit pattern is neither `0` nor `1` back as `bool` is undefined behavior
+// in Rust, and the DSM-backed `ParallelStateManager::object`/`slice` path
+// hands out references into shared memory after a runtime type-name check
+// that does not prove the bytes form a valid `bool`. Under
+// `UninitializedBytesParallelState` (which reserves space but does not
+// initialize it), the gap is sharper still.
+//
+// A per-worker boolean flag can be stored as `u8` and interpreted as
+// `0 => false, non-zero => true`. Tracked in paradedb/paradedb#5552 as
+// part of the broader migration toward `bytemuck::AnyBitPattern` as the
+// supertrait; that migration also needs to refactor existing user types
+// (`WorkerConfig`, ...) whose fields include `bool`, and is out of scope
+// for this change.
 impl ParallelStateType for () {}
 
 impl<T: ParallelStateType> ParallelState for T {

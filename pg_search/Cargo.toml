@@ -96,12 +96,12 @@ prost = "0.14.3"
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env). See
 # `_PG_init` for the OPENBLAS_THREAD_TIMEOUT tuning used by the OpenBLAS backend.
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "a9dd9bad769c3780f749388a50358221395c24d1", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "9cebcb426cc5236eaec4ce035001e1299bbd9cf2", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "a9dd9bad769c3780f749388a50358221395c24d1", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "9cebcb426cc5236eaec4ce035001e1299bbd9cf2", features = [
   "openblas",
 ] }
 

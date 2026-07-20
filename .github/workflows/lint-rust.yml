@@ -69,10 +69,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libeigen3-dev libomp-dev libopenblas-dev postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          # See test-pg_search.yml for context.
-          echo "LIBOMP_INCLUDE_DIR=$(find /usr/lib/llvm-* -name omp.h -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
-          echo "LIBOMP_LIB_DIR=$(find /usr/lib/llvm-* -name 'libomp.so' -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
+          sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libopenblas-dev postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx

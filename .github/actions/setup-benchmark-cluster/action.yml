@@ -25,11 +25,7 @@ runs:
       run: |
         wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
         sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-        sudo apt-get update && sudo apt-get install -y libeigen3-dev libomp-dev libopenblas-dev postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }} postgresql-${{ inputs.pg_version }}-pgvector
-        # libomp-dev's omp.h + libomp.so live under /usr/lib/llvm-N/, not
-        # /usr/include/ — surface the paths for superkmeans/build.rs.
-        echo "LIBOMP_INCLUDE_DIR=$(find /usr/lib/llvm-* -name omp.h -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
-        echo "LIBOMP_LIB_DIR=$(find /usr/lib/llvm-* -name 'libomp.so' -printf '%h\n' | head -1)" >> "$GITHUB_ENV"
+        sudo apt-get update && sudo apt-get install -y libopenblas-dev postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }} postgresql-${{ inputs.pg_version }}-pgvector
         echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> $GITHUB_PATH
 
     # Separate prefix-key from debug workflows - benchmarks compile with --release.

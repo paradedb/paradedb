@@ -107,16 +107,28 @@ runs:
         client-id: ${{ inputs.github_app_id }}
         private-key: ${{ inputs.github_app_private_key }}
 
+    - name: Wait for App Token to Become Usable
+      shell: bash
+      env:
+        APP_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+        for attempt in $(seq 1 10); do
+          if git -c http.extraheader="$auth" ls-remote \
+              "https://github.com/${{ github.repository }}.git" HEAD >/dev/null 2>&1; then
+            echo "App token usable after ${attempt} attempt(s)"
+            exit 0
+          fi
+          echo "App token not usable yet (attempt ${attempt}/10); retrying in 5s"
+          sleep 5
+        done
+        echo "App token never became usable after 10 attempts" >&2
+        exit 1
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
       run: rm -rf ./benchmark-data-repository
-
-    # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
-    # benchmark-action publish actions running in other jobs
-    - name: Sleep before publish
-      shell: bash
-      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish TPS Metrics
       uses: benchmark-action/github-action-benchmark@v1
@@ -139,12 +151,6 @@ runs:
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
       run: rm -rf ./benchmark-data-repository
-
-    # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
-    # benchmark-action publish actions running in other jobs
-    - name: Sleep before publish
-      shell: bash
-      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Other Metrics
       uses: benchmark-action/github-action-benchmark@v1

@@ -42,11 +42,13 @@ use std::sync::Arc;
 
 use crate::postgres::catalog::is_ltree_oid;
 
+use crate::postgres::customscan::datafusion::explain::{
+    explain_physical_plan, get_plan_with_merged_metrics,
+};
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{
-    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
-};
+
+use datafusion_distributed::{DistributedExt, DistributedTaskContext};
 
 use datafusion_distributed::shm::MppMesh;
 
@@ -430,11 +432,6 @@ impl CustomScan for AggregateScan {
     ) {
         if state.custom_state().is_datafusion_backend() {
             explainer.add_text("Backend", "DataFusion");
-            if explainer.is_analyze() {
-                if let Some(ref df_state) = state.custom_state().datafusion_state {
-                    Self::render_executed_plan_with_metrics(df_state, explainer);
-                }
-            }
             if let Some(ref df_state) = state.custom_state().datafusion_state {
                 // Show indexes from the join tree sources
                 let indexes: Vec<String> = df_state
@@ -636,11 +633,7 @@ impl CustomScan for AggregateScan {
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Drop the gather stream first (fires the leader-inbox detach on an early-terminated LIMIT
-        // query so blocked producers stop), then wait for the workers to finish and flush their
-        // `TaskMetrics`: `recv` blocks until every worker detaches its completion queue, which it
-        // does only after sending metrics. The builder-launched workers need this explicit join so
-        // the metrics land before the EXPLAIN render (which runs before end_custom_scan, where the
-        // context is finally destroyed). Harmless when the gather already reached EOF.
+        // query so blocked producers stop).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
             // Release the DSM-backed control senders before `recv`. A producer's `work_mem`
@@ -665,6 +658,9 @@ impl CustomScan for AggregateScan {
                     );
                 }
             }
+            // Join the producer workers so their metrics land before the EXPLAIN render (which runs
+            // before end_custom_scan, where the context is finally destroyed). A worker error is
+            // re-raised from inside `recv`.
             if let Some(leader) = df_state.mpp.leader_mut() {
                 if let Some(finish) = leader.finish.as_mut() {
                     let _ = finish.recv();
@@ -956,117 +952,77 @@ impl AggregateScan {
         )
     }
 
-    /// Rebuild and render the DataFusion physical plan into the explainer.
-    /// Used only by plain EXPLAIN (no ANALYZE); EXPLAIN ANALYZE would cache
-    /// the executing plan separately.
+    /// Rebuild or retrieve the DataFusion physical plan for EXPLAIN rendering.
     ///
-    /// When `mpp_is_active()` we rebuild with the same distributed planner
-    /// the leader will run with, attached to a drain-less stub mesh — the
-    /// planner only consults the mesh's worker count, not the actual
-    /// `shm_mq` queues, so the stub is enough to produce a `DistributedExec`
-    /// root. That lets us render via `datafusion_distributed::display_plan_ascii`
-    /// and surface the boxed `Stage N — Tasks: t0:[p0..pN]` topology the
-    /// executor will actually run. When MPP is off we fall back to the
-    /// serial context and the standard `displayable().indent(false)` tree.
+    /// In EXPLAIN ANALYZE, the plan is already built (cached on the execution state)
+    /// and contains execution metrics. We merge in MPP worker metrics if applicable.
     ///
-    /// Failures here go to a single explainer line rather than crashing
-    /// EXPLAIN; the failure mode is non-load-bearing diagnostics.
+    /// In plain EXPLAIN, execution hasn't happened, so we must rebuild the physical plan.
+    /// When `mpp_is_active()` we rebuild with the same distributed planner the leader
+    /// will run with, attached to a drain-less stub mesh. The planner only consults
+    /// the mesh's worker count, not the actual `shm_mq` queues, so the stub is enough
+    /// to produce a `DistributedExec` root. That lets us render the stage boxes via
+    /// `datafusion_distributed::display_plan_ascii`.
     fn render_df_physical_plan(
         df_state: &scan_state::DataFusionAggState,
         explainer: &mut Explainer,
     ) {
-        let custom_exprs = df_state.custom_exprs;
-        let custom_scan_tlist = df_state.custom_scan_tlist;
-        let ctx = if mpp_is_active() {
-            // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
-            // The shared session-context builder takes `mesh = None` and derives `n_workers`
-            // from `producer_worker_count()`, so the planner still emits a `DistributedExec`
-            // root with the right stage sizing for display.
-            Self::build_mpp_session_context(None)
-        } else {
-            create_aggregate_session_context()
-        };
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
-            explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
-            return;
-        };
-        let plan_result = runtime.block_on(async {
-            let (logical, _) = build_join_aggregate_plan(
-                &df_state.plan,
-                &df_state.targetlist,
-                df_state.topk.as_ref(),
-                &df_state.join_level_predicates,
-                custom_exprs,
-                custom_scan_tlist,
-                df_state.having_filter.as_ref(),
-                &ctx,
-                None,
-                None,
-                None,
+        let plan: Arc<dyn ExecutionPlan> = if explainer.is_analyze() {
+            let Some(plan) = df_state.physical_plan.clone() else {
+                return;
+            };
+            get_plan_with_merged_metrics(
+                &plan,
+                df_state.mpp.leader().is_some(),
+                df_state.runtime.is_some(),
+                explainer,
             )
-            .await?;
-            build_physical_plan(&ctx, logical).await
-        });
-        match plan_result {
-            Ok(plan) => {
-                explainer.add_text("DataFusion Physical Plan", "");
-                for line in Self::render_plan_for_explain(plan.as_ref()).lines() {
-                    explainer.add_text("  ", line);
-                }
-            }
-            Err(e) => {
-                explainer.add_text(
-                    "DataFusion Plan",
-                    format!("(rebuild failed during EXPLAIN: {e})"),
-                );
-            }
-        }
-    }
-
-    /// EXPLAIN ANALYZE: merge the worker metrics that arrived over the mesh into the executed
-    /// plan and render it. The leader's own nodes already carry their metrics; the worker
-    /// fragments reported theirs as `TaskMetrics` frames when they finished.
-    fn render_executed_plan_with_metrics(
-        df_state: &scan_state::DataFusionAggState,
-        explainer: &mut Explainer,
-    ) {
-        let Some(plan) = df_state.physical_plan.clone() else {
-            return;
-        };
-        let rendered = match (df_state.mpp.leader(), df_state.runtime.as_ref()) {
-            (Some(_), Some(_runtime)) => {
-                match crate::postgres::customscan::mpp::glue::merge_worker_metrics(&plan) {
-                    Some(merged) => display_plan_ascii(merged.as_ref(), true),
-                    None => {
-                        explainer.add_text(
-                            "DataFusion Physical Plan",
-                            "(worker metrics incomplete; a worker may not have reported)",
-                        );
-                        return;
-                    }
-                }
-            }
-            // Serial fallback: no workers, the plain metrics display tells the whole story.
-            _ => Self::render_plan_for_explain(plan.as_ref()),
-        };
-        explainer.add_text("DataFusion Physical Plan", "");
-        for line in rendered.lines() {
-            explainer.add_text("  ", line);
-        }
-    }
-
-    /// Render a physical plan for EXPLAIN. `DistributedExec` roots go through
-    /// `display_plan_ascii` for the boxed-stage rendering; serial plans keep
-    /// the standard `displayable().indent(false)` tree so non-MPP expected
-    /// outputs are stable.
-    fn render_plan_for_explain(plan: &dyn ExecutionPlan) -> String {
-        if plan.is::<DistributedExec>() {
-            display_plan_ascii(plan, false)
         } else {
-            datafusion::physical_plan::displayable(plan)
-                .indent(false)
-                .to_string()
-        }
+            let custom_exprs = df_state.custom_exprs;
+            let custom_scan_tlist = df_state.custom_scan_tlist;
+            let ctx = if mpp_is_active() {
+                // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
+                // The shared session-context builder takes `mesh = None` and derives `n_workers`
+                // from `producer_worker_count()`, so the planner still emits a `DistributedExec`
+                // root with the right stage sizing for display.
+                Self::build_mpp_session_context(None)
+            } else {
+                create_aggregate_session_context()
+            };
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+                explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
+                return;
+            };
+            let plan_result = runtime.block_on(async {
+                let (logical, _) = build_join_aggregate_plan(
+                    &df_state.plan,
+                    &df_state.targetlist,
+                    df_state.topk.as_ref(),
+                    &df_state.join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                    df_state.having_filter.as_ref(),
+                    &ctx,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                build_physical_plan(&ctx, logical).await
+            });
+            match plan_result {
+                Ok(p) => p,
+                Err(e) => {
+                    explainer.add_text(
+                        "DataFusion Plan",
+                        format!("(rebuild failed during EXPLAIN: {e})"),
+                    );
+                    return;
+                }
+            }
+        };
+
+        explain_physical_plan(&plan, explainer);
     }
 
     /// Existing single-table Tantivy aggregate path.

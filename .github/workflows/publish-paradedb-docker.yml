@@ -230,10 +230,8 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Scan the image customers run for known OS/library CVEs before we sign or
-      # publish it as trusted. `ignore-unfixed` skips advisories with no upstream
-      # fix (nothing actionable); the build fails on any fixable CRITICAL/HIGH.
-      # To loosen the gate, narrow `severity` (e.g. CRITICAL) or set exit-code 0.
+      # Fail the release on fixable CRITICAL/HIGH CVEs in the image before we sign
+      # or publish it. ignore-unfixed drops advisories with no upstream fix.
       - name: Scan Image for Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -244,12 +242,11 @@ jobs:
           exit-code: "1"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.10.1
+        uses: sigstore/cosign-installer@v4
 
-      # Keyless signature over the image digest (Sigstore OIDC via the Actions
-      # id-token, logged in Rekor). Unlike GitHub build attestations this needs no
-      # GitHub Enterprise, so it also works on the synced enterprise repo. The
-      # cloud verifies it with `cosign verify` against the same digest.
+      # Keyless Sigstore signature over the image digest. Works without GitHub
+      # Enterprise, so it also covers the synced enterprise image; the cloud
+      # verifies it at deploy.
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"
@@ -351,9 +348,8 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Scan the extension image for known OS/library CVEs before we sign or publish
-      # it. `ignore-unfixed` skips advisories with no upstream fix; the build fails
-      # on any fixable CRITICAL/HIGH. Narrow `severity` or set exit-code 0 to loosen.
+      # Fail the release on fixable CRITICAL/HIGH CVEs in the image before we sign
+      # or publish it. ignore-unfixed drops advisories with no upstream fix.
       - name: Scan Image for Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -364,11 +360,11 @@ jobs:
           exit-code: "1"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.10.1
+        uses: sigstore/cosign-installer@v4
 
-      # Keyless signature over the image digest (Sigstore OIDC via the Actions
-      # id-token, logged in Rekor). Needs no GitHub Enterprise, so it also works on
-      # the synced enterprise repo. The cloud verifies it against the same digest.
+      # Keyless Sigstore signature over the image digest. Works without GitHub
+      # Enterprise, so it also covers the synced enterprise image; the cloud
+      # verifies it at deploy.
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"

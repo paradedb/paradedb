@@ -27,7 +27,6 @@ SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
 
 -- Toggle the boolean GUCs and verify they stick.
-
 SET paradedb.mpp_debug TO on;
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_after_set_on;
 SET paradedb.mpp_debug TO off;
@@ -86,7 +85,6 @@ END$$;
 SET paradedb.mpp_debug TO on;
 SELECT 1 AS trivial_query_still_works;
 SET paradedb.mpp_debug TO off;
-
 
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_worker_count;

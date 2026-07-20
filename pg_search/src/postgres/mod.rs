@@ -184,11 +184,11 @@ struct ParallelScanPayloadLayout {
     /// partitioning source.
     remaining_by_source: Range<usize>,
     /// One `u32` per segment in the partitioning source: deleted doc count.
-    partitioning_deleted_docs: Range<usize>,
+    primary_deleted_docs: Range<usize>,
     /// One `u32` per segment in the partitioning source: max doc count.
-    partitioning_max_docs: Range<usize>,
+    primary_max_docs: Range<usize>,
     /// One `i32` per segment in the partitioning source: which worker claimed it.
-    /// Sized to `partitioning_nsegments` (the first source), so subsequent sources
+    /// Sized to `primary_nsegments` (the first source), so subsequent sources
     /// have no slot here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
     /// Workers" section of `EXPLAIN ANALYZE`.
     claims: Range<usize>,
@@ -206,7 +206,10 @@ impl ParallelScanPayloadLayout {
     ) -> Result<Self, std::alloc::LayoutError> {
         let n_sources = all_nsegments.len();
         let total_segs: usize = all_nsegments.iter().sum();
-        let partitioning_nsegments = all_nsegments.first().copied().unwrap_or(0);
+        let primary_nsegments = all_nsegments
+            .first()
+            .copied()
+            .expect("primary source empty");
 
         // Query.
         let layout = Layout::from_size_align(serialized_query.len(), 1)?;
@@ -226,20 +229,20 @@ impl ParallelScanPayloadLayout {
         let (layout, remaining_offset) = layout.extend(remaining_layout)?;
         let remaining_range = remaining_offset..(remaining_offset + remaining_layout.size());
 
-        // Deleted doc counts for the partitioning source only: [u32; partitioning_nsegments].
-        let partitioning_del_layout = Layout::array::<u32>(partitioning_nsegments)?;
-        let (layout, partitioning_del_offset) = layout.extend(partitioning_del_layout)?;
-        let partitioning_deleted_docs_range =
-            partitioning_del_offset..(partitioning_del_offset + partitioning_del_layout.size());
+        // Deleted doc counts for the partitioning source only: [u32; primary_nsegments].
+        let primary_del_layout = Layout::array::<u32>(primary_nsegments)?;
+        let (layout, primary_del_offset) = layout.extend(primary_del_layout)?;
+        let primary_deleted_docs_range =
+            primary_del_offset..(primary_del_offset + primary_del_layout.size());
 
-        // Max doc counts for the partitioning source only: [u32; partitioning_nsegments].
-        let partitioning_max_layout = Layout::array::<u32>(partitioning_nsegments)?;
-        let (layout, partitioning_max_offset) = layout.extend(partitioning_max_layout)?;
-        let partitioning_max_docs_range =
-            partitioning_max_offset..(partitioning_max_offset + partitioning_max_layout.size());
+        // Max doc counts for the partitioning source only: [u32; primary_nsegments].
+        let primary_max_layout = Layout::array::<u32>(primary_nsegments)?;
+        let (layout, primary_max_offset) = layout.extend(primary_max_layout)?;
+        let primary_max_docs_range =
+            primary_max_offset..(primary_max_offset + primary_max_layout.size());
 
-        // Claims for the partitioning source only: [i32; partitioning_nsegments].
-        let claims_layout = Layout::array::<i32>(partitioning_nsegments)?;
+        // Claims for the partitioning source only: [i32; primary_nsegments].
+        let claims_layout = Layout::array::<i32>(primary_nsegments)?;
         let (mut layout, claims_offset) = layout.extend(claims_layout)?;
         let claims_range = claims_offset..(claims_offset + claims_layout.size());
 
@@ -264,8 +267,8 @@ impl ParallelScanPayloadLayout {
             all_counts: all_counts_range,
             all_ids: all_ids_range,
             remaining_by_source: remaining_range,
-            partitioning_deleted_docs: partitioning_deleted_docs_range,
-            partitioning_max_docs: partitioning_max_docs_range,
+            primary_deleted_docs: primary_deleted_docs_range,
+            primary_max_docs: primary_max_docs_range,
             claims: claims_range,
             aggregates_header,
             aggregates_data,
@@ -323,19 +326,19 @@ impl ParallelScanPayload {
         }
 
         // Deleted doc counts for the partitioning source only.
-        let del_range = self.layout.partitioning_deleted_docs.clone();
+        let del_range = self.layout.primary_deleted_docs.clone();
         let del_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[del_range]).unwrap();
-        let partitioning_source = all_sources.first().expect("partitioning source empty");
-        for (reader, target) in partitioning_source.iter().zip(del_slice.iter_mut()) {
+        let primary_source = all_sources.first().expect("primary source empty");
+        for (reader, target) in primary_source.iter().zip(del_slice.iter_mut()) {
             *target = reader.num_deleted_docs();
         }
 
         // Max doc counts for the partitioning source only.
-        let max_range = self.layout.partitioning_max_docs.clone();
+        let max_range = self.layout.primary_max_docs.clone();
         let max_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[max_range]).unwrap();
-        for (reader, target) in partitioning_source.iter().zip(max_slice.iter_mut()) {
+        for (reader, target) in primary_source.iter().zip(max_slice.iter_mut()) {
             *target = reader.max_doc();
         }
 
@@ -394,13 +397,12 @@ impl ParallelScanPayload {
         &all[offset..offset + count]
     }
 
-    fn partitioning_deleted_docs(&self) -> &[u32] {
-        bytemuck::try_cast_slice(&self.data()[self.layout.partitioning_deleted_docs.clone()])
-            .unwrap()
+    fn primary_deleted_docs(&self) -> &[u32] {
+        bytemuck::try_cast_slice(&self.data()[self.layout.primary_deleted_docs.clone()]).unwrap()
     }
 
-    fn partitioning_max_docs(&self) -> &[u32] {
-        bytemuck::try_cast_slice(&self.data()[self.layout.partitioning_max_docs.clone()]).unwrap()
+    fn primary_max_docs(&self) -> &[u32] {
+        bytemuck::try_cast_slice(&self.data()[self.layout.primary_max_docs.clone()]).unwrap()
     }
 
     fn remaining_by_source_mut(&mut self) -> &mut [u32] {
@@ -568,12 +570,12 @@ impl ParallelScanState {
         self.payload.init(all_sources, query, with_aggregates);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.shared_threshold.reset();
-        let partitioning_count = all_sources.first().map(|s| s.len()).unwrap_or(0);
+        let primary_count = all_sources.first().expect("primary source empty").len();
         // Set nsegments LAST - this signals initialization is complete.
         // Remaining counts live in `payload.remaining_by_source` (initialized in
         // `ParallelScanPayload::init`); for the partitioning source the slot starts
-        // at `partitioning_count`.
-        self.nsegments = partitioning_count;
+        // at `primary_count`.
+        self.nsegments = primary_count;
 
         // Wake up any workers waiting in `wait_for_initialization()`.
         self.init_cv.broadcast();
@@ -765,25 +767,10 @@ impl ParallelScanState {
         }
     }
 
-    /// Claim a segment from the shared pool for the partitioning source.
-    ///
-    /// Thin wrapper over [`Self::checkout_segment_for_source`] for the partitioning source.
-    pub fn checkout_segment(&mut self) -> Option<SegmentId> {
-        self.checkout_segment_for_source(0)
-    }
-
     /// Source-aware segment checkout. For the first source (index 0), also records the
     /// claim in the per-segment `claims` array (which is sized to that source's segment
     /// count, so subsequent sources have no slot to write).
     pub fn checkout_segment_for_source(&mut self, source_idx: usize) -> Option<SegmentId> {
-        self.checkout_for_source(source_idx, source_idx == 0)
-    }
-
-    fn checkout_for_source(
-        &mut self,
-        source_idx: usize,
-        defer_leader_for_debug: bool,
-    ) -> Option<SegmentId> {
         let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         self.wait_for_initialization();
 
@@ -803,13 +790,13 @@ impl ParallelScanState {
                 return None;
             }
 
-            // `debug_parallel_query` leader-defer applies only to the partitioning
+            // `debug_parallel_query` leader-defer applies only to the primary
             // source. With small datasets it gives workers a chance to start up
             // before the leader walks the whole pool, which improves the
             // reproducibility of parallel-worker issues; UNIONs under a Gather node
             // may run without workers at all, hence the deadline escape.
             #[cfg(not(feature = "pg15"))]
-            if defer_leader_for_debug
+            if writes_claims
                 && unsafe { pg_sys::debug_parallel_query } != 0
                 && parallel_worker_number == -1
                 && remaining == total
@@ -918,11 +905,11 @@ impl ParallelScanState {
     }
 
     fn num_deleted_docs(&self, i: usize) -> u32 {
-        self.payload.partitioning_deleted_docs()[i]
+        self.payload.primary_deleted_docs()[i]
     }
 
     fn segment_max_docs(&self, i: usize) -> u32 {
-        self.payload.partitioning_max_docs()[i]
+        self.payload.primary_max_docs()[i]
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {

@@ -1216,7 +1216,7 @@ mod tests {
                 ..Default::default()
             },
             vec![WhichFastField::Ctid],
-            false,
+            None,
         );
         provider.configure_deferred_outputs(
             &crate::api::HashSet::default(),

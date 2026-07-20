@@ -695,7 +695,7 @@ impl SearchIndexReader {
     /// parallel state to allow load balancing across parallel workers.
     ///
     /// `source_idx = Some(i)` routes to `checkout_segment_for_source(i)` for MPP
-    /// non-partitioning sources. `None` uses the single-counter `checkout_segment` path.
+    /// non-partitioning sources. `None` uses the single-counter `checkout_segment_for_source(0)` path.
     ///
     /// `estimated_rows` is required because a lazily-evaluated iterator does not inherently know
     /// which or how many segments it will eventually open, and thus cannot compute an accurate
@@ -725,8 +725,9 @@ impl SearchIndexReader {
                 unsafe {
                     match self.source_idx {
                         Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
-                        None => crate::postgres::customscan::parallel::checkout_segment(
+                        None => crate::postgres::customscan::parallel::checkout_segment_for_source(
                             self.parallel_state,
+                            0,
                         ),
                     }
                 }

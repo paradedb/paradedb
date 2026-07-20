@@ -1395,10 +1395,7 @@ impl CustomScan for JoinScan {
                     state.custom_state().parallel_state
                 };
                 let t_plan = std::time::Instant::now();
-                let plan = build_plan(
-                    &plan_ctx,
-                    plan_parallel_state,
-                );
+                let plan = build_plan(&plan_ctx, plan_parallel_state);
                 launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
                 // Commit the MPP launch against the built plan: serialize its producer stages,

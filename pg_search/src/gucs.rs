@@ -564,7 +564,7 @@ pub fn init() {
         c"paradedb.mpp_worker_count",
         c"Total MPP participants (leader + parallel workers)",
         c"Sets the number of MPP participants per query when parallel execution is enabled. \
-          The queue mesh and drain thread are general over N.",
+          The queue mesh and drain thread are general over N. Setting this below 3 disables MPP.",
         &MPP_WORKER_COUNT,
         1,
         64,

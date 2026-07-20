@@ -89,7 +89,7 @@ pub struct ScannerConfig {
 /// Recipe for a scan partition.
 pub enum ScanRecipe {
     /// Lazy claim from `ParallelScanState`. `source_idx = Some(i)` claims from source
-    /// `i`'s pool for MPP sources; `None` uses the single-counter `checkout_segment`
+    /// `i`'s pool for MPP sources; `None` uses the single-counter `checkout_segment_for_source(0)`
     /// for basescan and non-MPP parallel joins.
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
@@ -349,13 +349,7 @@ impl PgSearchScanPlan {
             (Some(idx), Some(ps)) => {
                 MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
             }
-            (Some(_idx), None) => {
-                return Err(DataFusionError::Internal(
-                    "PgSearchScan dispatch: parallel state required for source_idx Some"
-                        .to_string(),
-                ));
-            }
-            (None, None) => MvccSatisfies::Snapshot,
+            (_, None) => MvccSatisfies::Snapshot,
         };
 
         let query = descriptor.query;

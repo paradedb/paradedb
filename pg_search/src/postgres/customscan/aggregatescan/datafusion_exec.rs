@@ -40,7 +40,6 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table, SessionContextProfile,
 };
-
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
@@ -560,10 +559,8 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when `is_mpp` is true.
-    let mut provider = PgSearchTableProvider::new(scan_info, fields, is_mpp);
-    if is_mpp {
-        provider.set_mpp_source_idx(plan_position);
-    }
+    let source_idx = if is_mpp { Some(plan_position) } else { None };
+    let mut provider = PgSearchTableProvider::new(scan_info, fields, source_idx);
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.

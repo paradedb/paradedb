@@ -806,11 +806,11 @@ impl AggregateScan {
     /// region; the dispatched stage plans themselves are derived later, from the leader's
     /// physical plan.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
-        // Capture source manifests BEFORE building the logical plan. In MPP,
-        // every `PgSearchTableProvider` is set up with `is_parallel` set to `is_mpp`, and the
-        // codec injects `mpp_source_idx` so that workers can dynamically claim segments via
-        // `parallel_state.checkout_segment_for_source`. These flags are baked into the
-        // serialized plan; workers re-derive them via the codec.
+        // Capture source manifests BEFORE building the logical plan.
+        // We pass `is_mpp: false` below because this plan is only serialized to compute `.len()`
+        // to size the DSM payload. The actual dispatched payload is derived later from the
+        // leader's physical plan. The resulting byte length is a close approximation, and
+        // `DISPATCH_BLOAT_FACTOR` absorbs any difference from omitted `source_idx` fields.
         Self::ensure_source_manifests(state);
 
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {

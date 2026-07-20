@@ -194,20 +194,18 @@ pub(crate) fn rebuild_mvcc(
     context: LookupRebuildContext,
     rebuild: &crate::scan::late_materialization::DeferredLookupRebuild,
 ) -> Result<MvccSatisfies> {
-    if let Some(ps) = context.parallel_state {
-        if rebuild.is_parallel {
-            if let Some(source_idx) = rebuild.source_idx {
-                return Ok(MvccSatisfies::ParallelWorker(unsafe {
-                    (*ps).segment_ids_for_source(source_idx)
-                }));
-            } else {
-                return Ok(MvccSatisfies::ParallelWorker(unsafe {
-                    crate::postgres::customscan::parallel::list_segment_ids(ps)
-                }));
-            }
-        }
+    if let Some(source_idx) = rebuild.source_idx {
+        let ps = context.parallel_state.ok_or_else(|| {
+            DataFusionError::Internal(
+                "ffhelper rebuild: parallel scan requires a ParallelScanState".into(),
+            )
+        })?;
+        Ok(MvccSatisfies::ParallelWorker(unsafe {
+            (*ps).segment_ids_for_source(source_idx)
+        }))
+    } else {
+        Ok(MvccSatisfies::Snapshot)
     }
-    Ok(MvccSatisfies::Snapshot)
 }
 
 /// Open a fast-field helper for `indexrelid` with each rebuild entry laid out at its original

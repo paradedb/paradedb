@@ -966,16 +966,17 @@ fn build_source_df<'a>(
             }
         }
 
-        let mut provider =
-            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), is_parallel);
-
         // Both MPP and PG-parallel hash join need the canonical-segment-id
         // replication so every worker sees the full build side. The MPP
         // per-source claim counter goes on top of that and PG-parallel doesn't
         // want it.
-        if is_parallel && crate::postgres::customscan::mpp::glue::mpp_is_active() {
-            provider.set_mpp_source_idx(plan_position);
-        }
+        let source_idx = if is_parallel && crate::postgres::customscan::mpp::glue::mpp_is_active() {
+            Some(plan_position)
+        } else {
+            None
+        };
+        let mut provider =
+            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys
         // to include all DISTINCT columns.

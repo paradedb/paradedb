@@ -427,7 +427,6 @@ pub fn prepare_mpp_aggregate(
     plan_bytes_len: usize,
     args: ParallelScanArgs,
 ) -> Option<MppLaunchPrep> {
-    // Note: MppLaunchPrep is retained here as a generic structure for aggregate
     launch_mpp_prepare(plan_bytes_len, args, "mpp_launched_worker_agg")
 }
 

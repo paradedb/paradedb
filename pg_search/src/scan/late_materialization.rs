@@ -796,7 +796,6 @@ pub struct DeferredField {
 pub struct DeferredLookupRebuild {
     pub field_name: String,
     pub field_type: crate::schema::SearchFieldType,
-    pub is_parallel: bool,
     pub source_idx: Option<usize>,
 }
 
@@ -810,10 +809,6 @@ impl PartialOrd for DeferredLookupRebuild {
 
 impl Ord for DeferredLookupRebuild {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.field_name, self.is_parallel, self.source_idx).cmp(&(
-            &other.field_name,
-            other.is_parallel,
-            other.source_idx,
-        ))
+        (&self.field_name, &self.source_idx).cmp(&(&other.field_name, &other.source_idx))
     }
 }

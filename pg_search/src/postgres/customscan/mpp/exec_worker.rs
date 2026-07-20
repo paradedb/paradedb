@@ -207,7 +207,7 @@ pub(crate) fn run_mpp_worker(
     let this_proc = worker_mesh.this_proc;
 
     // Build per-source canonical segment ID sets from the populated ParallelScanState.
-    // Workers will then claim individual segments via `checkout_segment` inside their
+    // Workers will then claim individual segments via `checkout_segment_for_source` inside their
     // `PgSearchTableProvider`.
     let mut index_segment_ids: Vec<HashSet<SegmentId>> =
         vec![HashSet::default(); plan_sources_count];

@@ -33,7 +33,6 @@ use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
@@ -76,11 +75,10 @@ pub struct PgSearchTableProvider {
     schema: OnceLock<SchemaRef>,
     #[serde(skip)]
     late_materialization_schema: OnceLock<SchemaRef>,
-    is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
     /// re-injected by the execution codec during deserialization if
-    /// `is_parallel` is true.
+    /// `source_idx` is some.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
     /// Postgres expression context, skipped during serialization and
@@ -116,11 +114,10 @@ pub struct PgSearchTableProvider {
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
 
-    /// Source position in the MPP unified-sources array. When set, the codec's
+    /// Source position in the unified-sources array. When set, the codec's
     /// `parallel_state` routes per-source claims via
-    /// `checkout_segment_for_source(source_idx)`. `None` for serial and non-MPP
-    /// parallel scans.
-    mpp_source_idx: Option<usize>,
+    /// `checkout_segment_for_source(source_idx)`. `None` for serial scans.
+    source_idx: Option<usize>,
 }
 
 mod atomic_bool_serde {
@@ -147,19 +144,22 @@ unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
 impl PgSearchTableProvider {
-    pub fn new(scan_info: ScanInfo, fields: Vec<WhichFastField>, is_parallel: bool) -> Self {
+    pub fn new(
+        scan_info: ScanInfo,
+        fields: Vec<WhichFastField>,
+        source_idx: Option<usize>,
+    ) -> Self {
         Self {
             scan_info,
             fields,
             schema: OnceLock::new(),
             late_materialization_schema: OnceLock::new(),
-            is_parallel,
             parallel_state: None,
             expr_context: None,
             planstate: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
-            mpp_source_idx: None,
+            source_idx,
         }
     }
 
@@ -169,13 +169,9 @@ impl PgSearchTableProvider {
             .store(true, Ordering::Relaxed);
     }
 
-    pub(crate) fn is_parallel(&self) -> bool {
-        self.is_parallel
-    }
-
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
-        // Parallel scans and MPP sources need `parallel_state` to claim segments.
-        assert!(self.is_parallel || self.mpp_source_idx.is_some());
+        // Parallel scans need `parallel_state` to claim segments.
+        assert!(self.source_idx.is_some());
         self.parallel_state = parallel_state;
     }
 
@@ -187,13 +183,8 @@ impl PgSearchTableProvider {
         self.planstate = planstate;
     }
 
-    /// See [`PgSearchTableProvider::mpp_source_idx`] for what this gates.
-    pub(crate) fn set_mpp_source_idx(&mut self, idx: usize) {
-        self.mpp_source_idx = Some(idx);
-    }
-
-    pub(crate) fn mpp_source_idx(&self) -> Option<usize> {
-        self.mpp_source_idx
+    pub(crate) fn source_idx(&self) -> Option<usize> {
+        self.source_idx
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
@@ -298,8 +289,7 @@ impl PgSearchTableProvider {
                     rebuild: Some(crate::scan::late_materialization::DeferredLookupRebuild {
                         field_name: name.clone(),
                         field_type: *field_type,
-                        is_parallel: self.is_parallel,
-                        source_idx: self.mpp_source_idx,
+                        source_idx: self.source_idx,
                     }),
                 });
             }
@@ -465,7 +455,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
         planner_estimated_rows: u64,
-        mpp_source_idx: Option<usize>,
+        source_idx: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -476,7 +466,7 @@ impl PgSearchTableProvider {
         };
         let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
             parallel_state,
-            source_idx: mpp_source_idx,
+            source_idx,
             planner_estimated_rows,
             scanner_config,
         };
@@ -590,33 +580,23 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
-        // MVCC dispatch by (`mpp_source_idx`, `parallel_state`):
+        // MVCC dispatch by `source_idx`:
         //
-        // MPP parallel worker or leader (`mpp_source_idx` Some, `parallel_state` Some):
+        // Parallel worker or leader (`source_idx` Some):
         // Retrieve the specific frozen segment IDs for this source from `ParallelScanState`.
-        //
-        // Non-MPP parallel worker or leader (`parallel_state` Some):
-        // Leader uses Snapshot, workers use all segments listed in shared state.
         //
         // Serial (otherwise): Snapshot.
 
-        let mvcc_style = if let Some(source_idx) = self.mpp_source_idx {
-            if let Some(parallel_state) = parallel_state {
-                unsafe {
-                    let ids = (*parallel_state).segment_ids_for_source(source_idx);
-                    MvccSatisfies::ParallelWorker(ids)
-                }
-            } else {
-                MvccSatisfies::Snapshot
-            }
-        } else if let Some(parallel_state) = parallel_state {
+        let mvcc_style = if let Some(parallel_state) = parallel_state {
             unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // Leader only sees snapshot-visible segments
                     MvccSatisfies::Snapshot
                 } else {
-                    // Workers see all segments listed in shared state
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                    let ids = (*parallel_state).segment_ids_for_source(
+                        self.source_idx.expect("parallel_state implies source_idx"),
+                    );
+                    MvccSatisfies::ParallelWorker(ids)
                 }
             }
         } else {
@@ -650,7 +630,7 @@ impl PgSearchTableProvider {
             projected_schema,
             query,
             total_estimated_rows,
-            self.mpp_source_idx,
+            self.source_idx,
         )
     }
 }

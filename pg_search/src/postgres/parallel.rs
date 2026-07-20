@@ -142,7 +142,7 @@ pub unsafe fn maybe_init_parallel_scan(
 /// Both leader and workers use this to get work.
 /// All participants wait for initialization before attempting to claim.
 pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
-    get_bm25_scan_state(scan)?.checkout_segment()
+    get_bm25_scan_state(scan)?.checkout_segment_for_source(0)
 }
 
 pub fn get_bm25_scan_state<'a>(scan: pg_sys::IndexScanDesc) -> Option<&'a mut ParallelScanState> {

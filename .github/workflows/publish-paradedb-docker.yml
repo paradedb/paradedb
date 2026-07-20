@@ -244,9 +244,7 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4
 
-      # Keyless Sigstore signature over the image digest. Works without GitHub
-      # Enterprise, so it also covers the synced enterprise image; the cloud
-      # verifies it at deploy.
+      # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"
@@ -362,9 +360,7 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4
 
-      # Keyless Sigstore signature over the image digest. Works without GitHub
-      # Enterprise, so it also covers the synced enterprise image; the cloud
-      # verifies it at deploy.
+      # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"

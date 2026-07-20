@@ -497,8 +497,11 @@ pub struct SearchIndexMerger {
 }
 
 impl SearchIndexMerger {
-    pub fn open(indexrel: &PgSearchRelation) -> Result<SearchIndexMerger> {
-        let directory = MvccSatisfies::Mergeable.directory(indexrel);
+    pub fn open(
+        indexrel: &PgSearchRelation,
+        mvcc_satisfies: MvccSatisfies,
+    ) -> Result<SearchIndexMerger> {
+        let directory = mvcc_satisfies.directory(indexrel);
         let schema = indexrel.schema()?;
         let mut index = Index::open(directory.clone())?;
         if schema.has_vector_field() {

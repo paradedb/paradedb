@@ -17,6 +17,7 @@
 
 use crate::api::version::Version;
 use crate::gucs;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -520,7 +521,7 @@ impl<'a> WorkerBuildState<'a> {
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
-        let mut merger = SearchIndexMerger::open(&self.indexrel)?;
+        let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
         merger.merge_segments(&segment_ids_to_merge)?;
 

@@ -58,6 +58,10 @@ pub struct PrivateData {
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
+    // Planner-local identities of top-level RestrictInfo nodes that could not be
+    // represented as ParadeDB Quals and must be evaluated by PostgreSQL through
+    // CustomScan.scan.plan.qual.
+    residual_qual_ids: Vec<usize>,
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
@@ -242,6 +246,9 @@ impl PrivateData {
     pub fn set_use_sorted_path(&mut self, use_sorted: bool) {
         self.use_sorted_path = use_sorted;
     }
+    pub fn set_residual_qual_ids(&mut self, residual_qual_ids: Vec<usize>) {
+        self.residual_qual_ids = residual_qual_ids;
+    }
 }
 
 //
@@ -327,5 +334,8 @@ impl PrivateData {
 
     pub fn use_sorted_path(&self) -> bool {
         self.use_sorted_path
+    }
+    pub fn residual_qual_ids(&self) -> &[usize] {
+        &self.residual_qual_ids
     }
 }

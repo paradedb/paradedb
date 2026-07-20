@@ -34,9 +34,11 @@ use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{estimate_query_cost, estimate_selectivity_and_cost};
+use crate::api::operator::{
+    estimate_query_cost, estimate_selectivity_and_cost, is_anyelement_search_opoid,
+};
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, Varno};
+use crate::api::{agg_fn_oid, HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -94,12 +96,18 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_S
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
 #[derive(Default)]
 pub struct BaseScan;
+
+#[derive(Default)]
+struct ExtractedBaseQuals {
+    pushdown: Option<Qual>,
+    residual_qual_ids: Vec<usize>,
+}
 
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
@@ -225,6 +233,202 @@ impl BaseScan {
         }
     }
 
+    /// Returns true when a failed-extraction expression is not eligible for
+    /// BaseScan's post-search PostgreSQL residual path.
+    ///
+    /// This is deliberately an eligibility check, not a catalogue of everything
+    /// that can appear in ParadeDB's `Qual` IR.  In particular, `Qual::HeapExpr`
+    /// also evaluates its stored expression through PostgreSQL's `ExecEvalExpr`;
+    /// placing that expression inside a Tantivy `HeapFilter` does not give the
+    /// expression access to scores, snippets, or other injected placeholders.
+    /// Its different contract comes from its position inside the Tantivy query
+    /// tree, where it can participate in boolean query semantics and filter
+    /// before collection/TopK.
+    ///
+    /// There are two reasons to reject an expression here:
+    ///
+    /// * score, snippet, and internal aggregate functions are placeholders whose
+    ///   raw implementations cannot be executed by `ExecQual`/`ExecEvalExpr`;
+    /// * routing a nested ParadeDB search operator that `extract_quals` rejected
+    ///   into `scan.plan.qual` would introduce a new, independently materialized
+    ///   search slow path.  The canonical SearchQueryInput operator does have a
+    ///   PostgreSQL-executable sequential-scan implementation, but enabling that
+    ///   implicitly inside BaseScan is outside this narrow fallback fix.
+    ///
+    /// This is strictly a failed-extraction fallback check. It must not be used
+    /// to revalidate or reinterpret an already-created `Qual`.
+    unsafe fn contains_disallowed_paradedb_residual_expression(node: *mut pg_sys::Node) -> bool {
+        /// The SQL-visible implementation functions behind ParadeDB's boolean
+        /// search operators live in the `paradedb` schema and use the reserved
+        /// `search_with_` prefix. Most deliberately panic if planner support
+        /// cannot replace them, so a raw call cannot be a PostgreSQL residual.
+        ///
+        /// `search_with_query_input` is the exception: it implements ParadeDB's
+        /// intentional (expensive) sequential-scan path and PostgreSQL can
+        /// execute it directly. Do not broaden this fallback detector into a
+        /// ban on that existing execution path.
+        unsafe fn is_panic_only_search_function(func_expr: *mut pg_sys::FuncExpr) -> bool {
+            if func_expr.is_null() || (*func_expr).funcresulttype != pg_sys::BOOLOID {
+                return false;
+            }
+
+            let namespace_oid = pg_sys::get_func_namespace((*func_expr).funcid);
+            if namespace_oid == pg_sys::InvalidOid {
+                return false;
+            }
+
+            let namespace_name = pg_sys::get_namespace_name(namespace_oid);
+            if namespace_name.is_null()
+                || CStr::from_ptr(namespace_name).to_bytes() != b"paradedb"
+            {
+                return false;
+            }
+
+            let function_name = pg_sys::get_func_name((*func_expr).funcid);
+            if function_name.is_null() {
+                return false;
+            }
+
+            let function_name = CStr::from_ptr(function_name).to_bytes();
+            function_name.starts_with(b"search_with_")
+                && function_name != b"search_with_query_input"
+        }
+
+        #[pg_guard]
+        unsafe extern "C-unwind" fn walker(
+            node: *mut pg_sys::Node,
+            context: *mut core::ffi::c_void,
+        ) -> bool {
+            if node.is_null() {
+                return false;
+            }
+
+            match (*node).type_ {
+                // RestrictInfo is a planner node rather than an expression node,
+                // so expression_tree_walker cannot traverse it directly.
+                pg_sys::NodeTag::T_RestrictInfo => {
+                    let ri = node.cast::<pg_sys::RestrictInfo>();
+                    return walker((*ri).clause.cast(), context);
+                }
+
+                pg_sys::NodeTag::T_OpExpr => {
+                    let op_expr = node.cast::<pg_sys::OpExpr>();
+                    // The proximity combinators (`##` and `##>`) are ordinary
+                    // PostgreSQL-executable value expressions. Only boolean
+                    // ParadeDB search predicates establish a search context.
+                    if (*op_expr).opresulttype == pg_sys::BOOLOID
+                        && is_anyelement_search_opoid((*op_expr).opno)
+                    {
+                        return true;
+                    }
+                }
+
+                pg_sys::NodeTag::T_ScalarArrayOpExpr => {
+                    let op_expr = node.cast::<pg_sys::ScalarArrayOpExpr>();
+                    if is_anyelement_search_opoid((*op_expr).opno) {
+                        return true;
+                    }
+                }
+
+                pg_sys::NodeTag::T_FuncExpr => {
+                    let func_expr = node.cast::<pg_sys::FuncExpr>();
+                    let funcoids = &*context.cast::<Vec<pg_sys::Oid>>();
+                    if funcoids.contains(&(*func_expr).funcid)
+                        || is_panic_only_search_function(func_expr)
+                    {
+                        return true;
+                    }
+                }
+
+                _ => {}
+            }
+
+            pg_sys::expression_tree_walker(node, Some(walker), context)
+        }
+
+        let funcoids: Vec<pg_sys::Oid> = score_funcoids()
+            .iter()
+            .copied()
+            .chain(snippet_funcoids().iter().copied())
+            .chain(snippets_funcoids().iter().copied())
+            .chain(snippet_positions_funcoids().iter().copied())
+            .chain([agg_fn_oid(), window_agg_oid()])
+            .collect();
+
+        walker(node, std::ptr::from_ref(&funcoids).cast_mut().cast())
+    }
+
+    /// Decide whether a failed top-level qual extraction may safely fall back to
+    /// PostgreSQL's standard expression evaluator.
+    ///
+    /// Generic residual classification is intentionally restricted to a complete
+    /// top-level base-relation RestrictInfo. Join-level and non-local clauses
+    /// continue to fail closed.
+    unsafe fn can_preserve_as_residual(
+        root: *mut pg_sys::PlannerInfo,
+        rel: *mut pg_sys::RelOptInfo,
+        ri_type: RestrictInfoType,
+        ri: *mut pg_sys::RestrictInfo,
+    ) -> bool {
+        if root.is_null() || ri.is_null() {
+            return false;
+        }
+
+        if !matches!(ri_type, RestrictInfoType::BaseRelation)
+            || rel.is_null()
+            || (*ri).clause.is_null()
+        {
+            return false;
+        }
+
+        // Only a boolean WHERE predicate can be installed in plan.qual. This
+        // should already be guaranteed by PostgreSQL's RestrictInfo invariants,
+        // but keep the residual boundary fail-closed if that ever changes.
+        if pg_sys::exprType((*ri).clause.cast()) != pg_sys::BOOLOID {
+            return false;
+        }
+
+        // This classifier is deliberately BaseScan-only. Append members are
+        // base-like single relations too, but join and upper RelOptInfos are not.
+        if !matches!(
+            (*rel).reloptkind,
+            pg_sys::RelOptKind::RELOPT_BASEREL
+                | pg_sys::RelOptKind::RELOPT_OTHER_MEMBER_REL
+        ) || pg_sys::bms_num_members((*rel).relids) != 1
+        {
+            return false;
+        }
+
+        // The residual must be executable using only this BaseScan's tuple.
+        if !pg_sys::bms_is_subset((*ri).clause_relids, (*rel).relids) {
+            return false;
+        }
+
+        // clause_relids records Vars physically present in the expression,
+        // while required_relids can be larger to enforce the semantic level at
+        // which PostgreSQL is allowed to evaluate it (notably around joins).
+        if !pg_sys::bms_is_subset((*ri).required_relids, (*rel).relids) {
+            return false;
+        }
+
+        // Do not route a nested ParadeDB search predicate or a raw ParadeDB
+        // placeholder into this narrow post-search ExecQual fallback.
+        if Self::contains_disallowed_paradedb_residual_expression((*ri).clause.cast()) {
+            return false;
+        }
+
+        // Preserve the legacy SubPlan/InitPlan residual fallback even when generic
+        // filter pushdown is disabled. Other residual expressions are part of the
+        // new generic path and therefore retain the GUC's original opt-out.
+        is_subplan(ri.cast(), root) || gucs::enable_filter_pushdown()
+    }
+
+    fn merge_extract_state(target: &mut QualExtractState, source: &QualExtractState) {
+        target.uses_our_operator |= source.uses_our_operator;
+        target.uses_tantivy_to_query |= source.uses_tantivy_to_query;
+        target.uses_heap_expr |= source.uses_heap_expr;
+    }
+
     #[allow(clippy::too_many_arguments)]
     unsafe fn extract_all_possible_quals(
         builder: &mut CustomPathBuilder<BaseScan>,
@@ -235,9 +439,10 @@ impl BaseScan {
         indexrel: &PgSearchRelation,
         uses_score_or_snippet: bool,
         attempt_pushdown: bool,
-    ) -> Option<Qual> {
+    ) -> ExtractedBaseQuals {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
+        let mut residual_qual_ids = Vec::new();
 
         // Filter out predicates that are implied by the partial index predicate.
         // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
@@ -256,20 +461,23 @@ impl BaseScan {
             attempt_pushdown,
         );
 
-        // If full extraction failed (e.g., baserestrictinfo contains SubPlan from
-        // RLS policies alongside our @@@ operator), try partial extraction: extract
-        // each restrict_info item individually, skipping ones we can't handle.
-        // Only use partial extraction when ALL skipped clauses are SubPlans
-        // (which will be evaluated via plan.qual). If any non-SubPlan clause
-        // is skipped, fall back to let PostgreSQL handle the query normally.
+        // If the complete conjunction cannot be represented as a ParadeDB Qual,
+        // classify each top-level RestrictInfo independently:
         //
-        // TODO: We do something similar in `collect_join_sources_base_rel`,
-        // is unification possible?
+        //   * successfully extracted clauses become ParadeDB/Tantivy pushdowns;
+        //   * safe local PostgreSQL expressions become residual plan quals;
+        //   * unsafe or non-local clauses reject this partial extraction.
+        //
+        // Classification intentionally happens only at top-level RestrictInfo
+        // granularity. We never partially extract inside an unsupported OR, NOT,
+        // CASE, COALESCE, or another expression wrapper.
         if quals.is_none() {
             let mut partial_quals = Vec::new();
             let mut partial_state = QualExtractState::default();
-            let mut all_skipped_are_subplans = true;
+            let mut all_skipped_are_safe_residuals = true;
             for ri in filtered_restrict_info.iter_ptr() {
+                let mut local_state = QualExtractState::default();
+
                 if let Some(qual) = extract_quals(
                     &context,
                     rti,
@@ -277,17 +485,32 @@ impl BaseScan {
                     ri_type,
                     indexrel,
                     false,
-                    &mut partial_state,
+                    &mut local_state,
                     attempt_pushdown,
                 ) {
+                    // An existing Qual is authoritative and intentionally opaque
+                    // to the residual fallback. Keep every established Qual
+                    // contract and optimization exactly as extract_quals chose it.
                     partial_quals.push(qual);
-                } else if !is_subplan(ri.cast(), root) {
-                    all_skipped_are_subplans = false;
+                    Self::merge_extract_state(&mut partial_state, &local_state);
+                } else if Self::can_preserve_as_residual(
+                    root,
+                    builder.args().rel,
+                    ri_type,
+                    ri,
+                ) {
+                    // RestrictInfo pointers are planner-local identities. They
+                    // remain valid for matching clauses during PlanCustomPath.
+                    residual_qual_ids.push(ri as usize);
+                } else {
+                    all_skipped_are_safe_residuals = false;
+                    break;
                 }
             }
+
             if !partial_quals.is_empty()
                 && partial_state.uses_our_operator
-                && all_skipped_are_subplans
+                && all_skipped_are_safe_residuals
             {
                 state = partial_state;
                 quals = if partial_quals.len() == 1 {
@@ -295,6 +518,10 @@ impl BaseScan {
                 } else {
                     Some(Qual::And(partial_quals))
                 };
+            } else {
+                // Do not carry residual identities into another planning path
+                // unless this complete top-level split was accepted.
+                residual_qual_ids.clear();
             }
         }
 
@@ -345,11 +572,22 @@ impl BaseScan {
         // 2. enable_custom_scan_without_operator is true, OR
         // 3. The query has window aggregates (pdb.agg()) that we must handle.
         let has_window_aggs = query_has_window_agg_functions(root);
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
+        let pushdown = if state.uses_our_operator
+            || gucs::enable_custom_scan_without_operator()
+            || has_window_aggs
         {
             quals
         } else {
             None
+        };
+
+        if pushdown.is_none() {
+            residual_qual_ids.clear();
+        }
+
+        ExtractedBaseQuals {
+            pushdown,
+            residual_qual_ids,
         }
     }
 
@@ -655,7 +893,10 @@ impl CustomScan for BaseScan {
             //
             let is_select =
                 (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
-            let quals = Self::extract_all_possible_quals(
+            let ExtractedBaseQuals {
+                pushdown: quals,
+                residual_qual_ids,
+            } = Self::extract_all_possible_quals(
                 &mut builder,
                 root,
                 rti,
@@ -665,6 +906,8 @@ impl CustomScan for BaseScan {
                 maybe_needs_const_projections,
                 is_select,
             );
+
+            let has_residual_quals = !residual_qual_ids.is_empty();
 
             // If we have window aggregates but no quals, we must still create the custom path
             // because pdb.agg() can only be executed by our custom scan
@@ -711,6 +954,7 @@ impl CustomScan for BaseScan {
             // TODO: `impl Default for PrivateData` requires that many fields are in invalid
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
+            custom_private.set_residual_qual_ids(residual_qual_ids);
 
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
@@ -750,19 +994,28 @@ impl CustomScan for BaseScan {
             // `is_limit_pushdown_safe` then gates on topology + predicates +
             // unsafe SRFs.
             let raw_limit_offset = LimitOffset::from_root(builder.args().root);
-            let limit_offset = raw_limit_offset.filter(|lo| {
-                let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
-                let unnest_override = classify_target_list_srf(builder.args().root).is_safe();
 
-                (pg_says_pushable || lo.has_any_param() || unnest_override)
-                    && is_limit_pushdown_safe(
-                        builder.args().root,
-                        rel,
-                        baserels,
-                        rti,
-                        &Some(quals.clone()),
-                    )
-            });
+            let limit_offset = if has_residual_quals {
+                // A PostgreSQL residual is evaluated by ExecQual after the
+                // ParadeDB scan produces a candidate. Pushing an irreversible
+                // LIMIT into the scan would apply TopK before that filter and
+                // can therefore change query results.
+                None
+            } else {
+                raw_limit_offset.filter(|lo| {
+                    let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
+                    let unnest_override = classify_target_list_srf(builder.args().root).is_safe();
+
+                    (pg_says_pushable || lo.has_any_param() || unnest_override)
+                        && is_limit_pushdown_safe(
+                            builder.args().root,
+                            rel,
+                            baserels,
+                            rti,
+                            &Some(quals.clone()),
+                        )
+                })
+            };
 
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
@@ -1168,28 +1421,44 @@ impl CustomScan for BaseScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
-            // Collect subplans that our Custom Scan doesn't handle internally and set them as plan.qual.
-            // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
-            // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
+            // Materialize the top-level clauses classified as PostgreSQL
+            // residuals during CreateCustomPath.
+            //
+            // PostgreSQL's ExecInitCustomScan initializes scan.plan.qual through
+            // ExecInitQual, including any nested SubPlans or PARAM_EXEC values.
+            // BaseScan then evaluates the resulting expression states through
+            // ExecQual for every produced heap tuple.
+            let residual_qual_ids = builder.custom_private().residual_qual_ids().to_vec();
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
-            let mut subplan_quals = PgList::<pg_sys::Node>::new();
+            let mut residual_quals = PgList::<pg_sys::Node>::new();
+
             for clause in clauses.iter_ptr() {
-                if is_subplan(clause, builder.args().root) {
-                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
-                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
-                        let ri = clause as *mut pg_sys::RestrictInfo;
-                        (*ri).clause.cast()
+                if clause.is_null() {
+                    continue;
+                }
+
+                let (bare_clause, is_recorded_residual) =
+                    if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                        let ri = clause.cast::<pg_sys::RestrictInfo>();
+                        (
+                            (*ri).clause.cast(),
+                            residual_qual_ids.contains(&(ri as usize)),
+                        )
                     } else {
-                        clause
+                        (clause, false)
                     };
-                    subplan_quals.push(bare_clause);
+
+                // Keep the old SubPlan fallback as a defensive compatibility
+                // path for any clause shape that was not matched by identity.
+                if is_recorded_residual || is_subplan(clause, builder.args().root) {
+                    residual_quals.push(bare_clause);
                 }
             }
 
-            // SubPlan quals require per-tuple heap access for ExecQual, which would
-            // negate the benefit of columnar. Fall back to Normal so we don't pay for both
-            // batch processing AND per-tuple heap fetches.
-            if !subplan_quals.is_empty()
+            // PostgreSQL residual quals require a heap tuple and per-tuple
+            // ExecQual evaluation. Columnar execution cannot provide the complete
+            // PostgreSQL expression-evaluation contract, so use Normal execution.
+            if !residual_quals.is_empty()
                 && matches!(
                     builder.custom_private().exec_method_type(),
                     ExecMethodType::Columnar { .. }
@@ -1201,8 +1470,8 @@ impl CustomScan for BaseScan {
             }
 
             let mut scan = builder.build();
-            if !subplan_quals.is_empty() {
-                scan.scan.plan.qual = subplan_quals.into_pg();
+            if !residual_quals.is_empty() {
+                scan.scan.plan.qual = residual_quals.into_pg();
             }
             scan
         }
@@ -1597,10 +1866,10 @@ impl CustomScan for BaseScan {
                             }
                         };
 
-                        // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
-                        // that couldn't be pushed into the tantivy query.
-                        // These are set as plan.qual in plan_custom_path.
-                        if !satisfies_subplan_quals(state, slot) {
+                        // Evaluate executor-level residual quals (including the
+                        // legacy RLS/SubPlan case) before any score, snippet, or
+                        // window-aggregate placeholder is populated.
+                        if !satisfies_residual_quals(state, slot) {
                             continue;
                         }
 
@@ -2088,11 +2357,16 @@ fn check_visibility(
         .exec_if_visible(ctid, bslot.cast(), move |_| bslot.cast())
 }
 
-/// Evaluate executor-level quals (e.g., RLS policy SubPlan expressions) that couldn't be pushed
-/// into the tantivy query. These are set as `plan.qual` in `plan_custom_path`.
-/// Returns `true` if qual passes (or no qual exists), `false` if the row should be skipped.
+/// Evaluate executor-level residual quals that could not be represented by the
+/// ParadeDB query IR.  These are set as `plan.qual` in `plan_custom_path` and
+/// run on the visible BaseScan heap tuple after Tantivy has produced a candidate.
+/// This is intentionally distinct from `Qual::HeapExpr`, whose PostgreSQL
+/// expression is embedded in a Tantivy `HeapFilter` and runs while its scorer is
+/// enumerating documents.
+/// Returns `true` if the qual passes (or no qual exists), and `false` if the row
+/// should be skipped.
 #[inline(always)]
-unsafe fn satisfies_subplan_quals(
+unsafe fn satisfies_residual_quals(
     state: &mut CustomScanStateWrapper<BaseScan>,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {

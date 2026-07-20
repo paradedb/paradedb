@@ -221,6 +221,14 @@ pub struct JoinScanState {
     /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
     pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
 
+    /// Per-phase MPP launch timing, filled during exec when the query runs distributed, for
+    /// `EXPLAIN ANALYZE`. `None` when the query ran serially (no launch).
+    pub launch_timing: Option<crate::postgres::customscan::mpp::glue::MppLaunchTiming>,
+
+    /// When the distributed stream was built, used to time the first batch out (worker decode
+    /// plus first scan plus the network hop to the leader).
+    pub stream_built_at: Option<std::time::Instant>,
+
     /// Shared state for parallel execution.
     /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
     /// `initialize_worker_custom_scan` (in a worker), and then consumed in

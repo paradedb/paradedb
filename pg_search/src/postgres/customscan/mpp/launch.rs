@@ -380,17 +380,24 @@ pub fn launch_mpp_commit(
         payload_capacity,
     } = prep;
 
+    let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
+
     // Derive the per-stage subplans from the plan the leader itself will execute. A failure
     // here is a hard error: a serialization gap is a codec bug, and the parked workers die
     // with the transaction.
+    let t_payload = std::time::Instant::now();
     let (payload, stage_count) =
         match dispatch_payload_from_plan(physical, producer_count, payload_capacity) {
             Ok(p) => p,
             Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
         };
+    timing.payload_us = t_payload.elapsed().as_micros() as u64;
 
+    let t_attach = std::time::Instant::now();
     let finish = attach.wait_for_attach()?;
+    timing.attach_us = t_attach.elapsed().as_micros() as u64;
     let launched = finish.launched_workers() as u32;
+    timing.workers = launched;
 
     let go = unsafe { go_flag(finish.state_manager()) };
 
@@ -421,10 +428,13 @@ pub fn launch_mpp_commit(
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp: mesh region missing"),
     };
+    let t_setup = std::time::Instant::now();
     let mut leader = match unsafe { leader_setup(mesh_ptr, payload) } {
         Ok(l) => l,
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };
+    timing.leader_setup_us = t_setup.elapsed().as_micros() as u64;
+    leader.timing = timing;
 
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);

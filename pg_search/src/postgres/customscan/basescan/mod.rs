@@ -2209,7 +2209,7 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
 /// collected for this targetlist. The ORDER BY key is always a top-level
 /// `TargetEntry` expr, so an in-place per-entry rewrite is sufficient.
 unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> bool {
-    use crate::postgres::customscan::orderby::metric_for_opoid;
+    use crate::vector::metric::VectorMetric;
 
     let mut replaced = false;
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
@@ -2220,7 +2220,7 @@ unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> 
         let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>()) else {
             continue;
         };
-        if metric_for_opoid((*opexpr).opno).is_some() {
+        if VectorMetric::from_opoid((*opexpr).opno).is_some() {
             let const_node = pg_sys::makeConst(
                 pg_sys::FLOAT8OID,
                 -1,

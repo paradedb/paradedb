@@ -279,40 +279,6 @@ pub unsafe fn analyze_sort_expression(
     None
 }
 
-/// Map a pgvector distance operator OID to its implied `VectorMetric`.
-/// Returns `None` if `opoid` is not one of `<->`, `<=>`, or `<#>`.
-pub(crate) fn metric_for_opoid(opoid: pg_sys::Oid) -> Option<VectorMetric> {
-    use std::sync::OnceLock;
-    static OP_METRICS: OnceLock<[(pg_sys::Oid, VectorMetric); 3]> = OnceLock::new();
-    let cached = OP_METRICS.get_or_init(|| unsafe {
-        // pg_search must stay usable when pgvector is not installed: resolving the
-        // `<->(vector,vector)` operators via `regoperatorin` raises `type "vector"
-        // does not exist` (a Postgres ereport, not catchable by `unwrap_or`), which
-        // would blow up every custom-scan plan. `to_regtype` returns NULL rather than
-        // erroring, so gate on the vector type existing; otherwise leave all OIDs
-        // INVALID so no vector metric ever matches (no vector ORDER BY pushdown).
-        let vector_type_exists =
-            direct_function_call::<pg_sys::Oid>(pg_sys::to_regtype, &["vector".into_datum()])
-                .is_some();
-        let lookup = |sig: &std::ffi::CStr| -> pg_sys::Oid {
-            if !vector_type_exists {
-                return pg_sys::Oid::INVALID;
-            }
-            direct_function_call::<pg_sys::Oid>(pg_sys::regoperatorin, &[sig.into_datum()])
-                .unwrap_or(pg_sys::Oid::INVALID)
-        };
-        [
-            (lookup(c"<->(vector,vector)"), VectorMetric::L2),
-            (lookup(c"<=>(vector,vector)"), VectorMetric::Cosine),
-            (lookup(c"<#>(vector,vector)"), VectorMetric::InnerProduct),
-        ]
-    });
-    cached
-        .iter()
-        .find(|(oid, _)| *oid != pg_sys::Oid::INVALID && *oid == opoid)
-        .map(|(_, metric)| *metric)
-}
-
 /// Try to interpret `node` as a reference to an indexed vector
 /// column. Accepts only a direct `T_Var` whose schema entry resolves
 /// to `SearchFieldType::Vector` — pgvector convention. The metric
@@ -351,7 +317,7 @@ unsafe fn extract_vector_distance(
     schema: &SearchIndexSchema,
 ) -> Option<(*mut pg_sys::Var, SortExpressionType)> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
-    let op_metric = metric_for_opoid((*opexpr).opno)?;
+    let op_metric = VectorMetric::from_opoid((*opexpr).opno)?;
 
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
     if args.len() != 2 {

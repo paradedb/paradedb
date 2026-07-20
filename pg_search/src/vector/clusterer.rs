@@ -247,7 +247,7 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
         .with_centroid_ratio(options.centroid_ratio())
         .with_training_samples_per_centroid(options.training_samples_per_centroid())
-        .with_replicas(options.replicas());
+        .with_replicas(options.cluster_replication());
     index.set_ivf_clusterer(Arc::new(clusterer));
 }
 

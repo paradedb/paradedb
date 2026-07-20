@@ -30,7 +30,7 @@ CREATE INDEX remerge_idx ON remerge
     USING bm25 (id, vec vector_l2_ops)
     WITH (
         key_field = id,
-        replicas = 3,
+        cluster_replication = 3,
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',

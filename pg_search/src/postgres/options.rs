@@ -324,9 +324,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "replicas".as_pg_cstr(),
+            optname: "cluster_replication".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, replicas) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, cluster_replication) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -423,8 +423,8 @@ impl BM25IndexOptions {
         self.options_data().training_samples_per_centroid()
     }
 
-    pub fn replicas(&self) -> usize {
-        self.options_data().replicas()
+    pub fn cluster_replication(&self) -> usize {
+        self.options_data().cluster_replication()
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -720,7 +720,7 @@ struct BM25IndexOptionsData {
     search_tokenizer_offset: i32,
     centroid_ratio: f64,
     training_samples_per_centroid: i32,
-    replicas: i32,
+    cluster_replication: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -769,14 +769,14 @@ impl BM25IndexOptionsData {
     }
 
     /// Total cells a vector is written into (SPANN `ReplicaCount`): the primary
-    /// plus up to `replicas - 1` next-nearest cells, selected by tantivy at
-    /// merge time in the field's metric. `1` (the default) is primary-only.
-    /// Any non-positive value is treated as `1`.
-    pub fn replicas(&self) -> usize {
-        if self.replicas <= 0 {
+    /// plus up to `cluster_replication - 1` next-nearest cells, selected by
+    /// tantivy at merge time in the field's metric. `1` (the default) is
+    /// primary-only. Any non-positive value is treated as `1`.
+    pub fn cluster_replication(&self) -> usize {
+        if self.cluster_replication <= 0 {
             1
         } else {
-            self.replicas as usize
+            self.cluster_replication as usize
         }
     }
 
@@ -1018,8 +1018,8 @@ pub unsafe fn init() {
     );
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "replicas".as_pg_cstr(),
-        "Cells a vector is written into: primary + up to replicas-1 next-nearest cells (1 = no replication)".as_pg_cstr(),
+        "cluster_replication".as_pg_cstr(),
+        "Cells a vector is written into: primary + up to (value - 1) next-nearest cells (1 = no replication)".as_pg_cstr(),
         1,
         1,
         i32::MAX,

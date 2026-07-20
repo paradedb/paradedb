@@ -10,6 +10,14 @@ inputs:
     description: "PostgreSQL major version."
     required: false
     default: "18"
+  global_target_segment_count:
+    description: >-
+      Cluster-wide `paradedb.global_target_segment_count`. Overrides each index's own
+      `target_segment_count` when non-zero. Defaults to the standard 48-segment benchmark
+      operating point; jobs that need a different segment count (e.g. the cohere pg_search
+      recall arm) can pass their own value.
+    required: false
+    default: "48"
 
 runs:
   using: composite
@@ -112,7 +120,7 @@ runs:
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
         # CASCADE also auto-creates the required `vector` extension (already installed above).
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;"
-        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = ${{ inputs.global_target_segment_count }};";
 
     - name: Restart Postgres
       shell: bash

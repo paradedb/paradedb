@@ -247,9 +247,7 @@ jobs:
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"
-        run: |
-          cosign sign --recursive \
-            "index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}"
+        run: cosign sign --recursive "index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}"
 
       # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
       - name: Attest Build Provenance with Cosign (keyless)
@@ -386,9 +384,7 @@ jobs:
       - name: Sign Image with Cosign (keyless)
         env:
           COSIGN_YES: "true"
-        run: |
-          cosign sign --recursive \
-            "index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}"
+        run: cosign sign --recursive "index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}"
 
       # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
       - name: Attest Build Provenance with Cosign (keyless)

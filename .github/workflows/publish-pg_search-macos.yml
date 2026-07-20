@@ -257,7 +257,7 @@ jobs:
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       # Keyless Sigstore signature over the .pkg. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.

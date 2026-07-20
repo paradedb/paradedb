@@ -343,7 +343,7 @@ jobs:
 
       - name: Install Cosign
         if: steps.guard.outputs.build == 'true'
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       # Keyless Sigstore signature over the .deb. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.

@@ -2139,7 +2139,7 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     // other plan a Sort consumes the distance column and we must leave it be.
     let is_topk = matches!(
         state.custom_state().exec_method_type,
-        crate::postgres::customscan::builders::custom_path::ExecMethodType::TopK { .. }
+        ExecMethodType::TopK { .. }
     );
 
     if !need_scores && !need_snippets && !has_window_aggs && !is_topk {

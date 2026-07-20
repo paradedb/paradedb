@@ -311,13 +311,7 @@ impl ExecMethod for TopKScanExecState {
             }
         }
 
-        // Resolve any not-yet-concrete vector ORDER BY query vectors: a bound
-        // `<-> $1` Param (generic prepared-statement plan) or a serialized
-        // non-Var, non-volatile operand expression (e.g.
-        // `<-> current_setting('cohere.qvec')::vector`) left behind at planning
-        // time. We mutate both copies — the canonical one in
-        // `state.exec_method_type` and our local clone — so subsequent reads
-        // see the resolved floats.
+        // handle parameterized vectors
         unsafe {
             let estate = (*cstate).ss.ps.state;
             let planstate = std::ptr::addr_of_mut!((*cstate).ss.ps);

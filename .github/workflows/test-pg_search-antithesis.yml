@@ -44,6 +44,9 @@ on:
 env:
   PG_VERSION: "18"
 
+permissions:
+  contents: read
+
 jobs:
   # Resolve which workload(s) to run based on the trigger:
   # - schedule: all

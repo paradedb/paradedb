@@ -285,7 +285,19 @@ pub(crate) fn metric_for_opoid(opoid: pg_sys::Oid) -> Option<VectorMetric> {
     use std::sync::OnceLock;
     static OP_METRICS: OnceLock<[(pg_sys::Oid, VectorMetric); 3]> = OnceLock::new();
     let cached = OP_METRICS.get_or_init(|| unsafe {
+        // pg_search must stay usable when pgvector is not installed: resolving the
+        // `<->(vector,vector)` operators via `regoperatorin` raises `type "vector"
+        // does not exist` (a Postgres ereport, not catchable by `unwrap_or`), which
+        // would blow up every custom-scan plan. `to_regtype` returns NULL rather than
+        // erroring, so gate on the vector type existing; otherwise leave all OIDs
+        // INVALID so no vector metric ever matches (no vector ORDER BY pushdown).
+        let vector_type_exists =
+            direct_function_call::<pg_sys::Oid>(pg_sys::to_regtype, &["vector".into_datum()])
+                .is_some();
         let lookup = |sig: &std::ffi::CStr| -> pg_sys::Oid {
+            if !vector_type_exists {
+                return pg_sys::Oid::INVALID;
+            }
             direct_function_call::<pg_sys::Oid>(pg_sys::regoperatorin, &[sig.into_datum()])
                 .unwrap_or(pg_sys::Oid::INVALID)
         };

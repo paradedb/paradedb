@@ -715,11 +715,6 @@ pub unsafe fn extract_field_attributes(
         )
         .unwrap_or_else(|e| panic!("{e}"));
 
-        // For vector fields, the real metric lives on the index
-        // attribute's opclass (pgvector convention) — not on the
-        // column type. Patch the placeholder L2 produced by
-        // `try_from` with the opclass-resolved metric so downstream
-        // (build, query) sees the correct one.
         if let SearchFieldType::Vector(oid, dims, _) = tantivy_type {
             let metric =
                 VectorMetric::from_index_attr(indexrel, attno as usize).unwrap_or_default();

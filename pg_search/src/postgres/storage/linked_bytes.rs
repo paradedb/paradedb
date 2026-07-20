@@ -39,6 +39,10 @@ const BLOCK_CACHE_SIZE: usize = 16;
 /// Unified cache entry: stores OwnedBytes which wraps an Arc'd ImmutablePage.
 /// get_byte indexes directly into the pre-resolved &[u8] slice (no vtable dispatch).
 /// get_bytes_range_block clones the Arc on cache hit.
+///
+/// The cache is a plain FIFO (admit at back, evict at front, no promotion on
+/// hit): every reuse pattern it serves is immediate-recency, so promotion
+/// would only add work on the hot path.
 struct CacheEntry {
     block_ord: usize,
     block_bytes: OwnedBytes,
@@ -386,7 +390,6 @@ impl LinkedBytesList {
             }
         }
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
-            // No LRU promotion — not needed for fieldnorm reads.
             return cache[pos].block_bytes[local_offset];
         }
 
@@ -426,28 +429,21 @@ impl LinkedBytesList {
             return block_bytes.slice(slice_start..slice_end);
         }
 
-        // Multi-page read, fallback to copying
-        let mut blockno = self
-            .block_for_ord(start_block_ord)
-            .expect("block not found");
-
+        // Multi-page read: must copy, but each page is served through the block
+        // cache so blocks shared with adjacent reads (torn items on a page
+        // boundary, consecutive spans) skip the buffer manager round trip.
         let mut data = Vec::with_capacity(range.len());
         let mut remaining = range.len();
 
-        while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
-            let buffer = self.bman.get_buffer(blockno);
-            let page = buffer.page();
-            let special = page.special::<BM25PageSpecialData>();
-            let slice_start = if data.is_empty() {
+        for block_ord in start_block_ord..=end_block_ord {
+            let block_bytes = self.get_bytes_range_block(block_ord);
+            let slice_start = if block_ord == start_block_ord {
                 range.start % ITEM_SIZE
             } else {
                 0
             };
             let slice_len = (ITEM_SIZE - slice_start).min(remaining);
-            let slice = page.as_slice_range(slice_start, slice_len);
-
-            data.extend_from_slice(slice);
-            blockno = special.next_blockno;
+            data.extend_from_slice(&block_bytes[slice_start..slice_start + slice_len]);
             remaining -= slice_len;
         }
 
@@ -458,11 +454,10 @@ impl LinkedBytesList {
         // SAFETY: Postgres backends are single-threaded.
         let cache = self.cache.get();
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
-            // Cache hit: move to back, Arc clone.
-            let entry = cache.remove(pos).unwrap();
-            let block_bytes = entry.block_bytes.clone();
-            cache.push_back(entry);
-            return block_bytes;
+            // Cache hit: Arc clone. The cache is a plain FIFO -- no promotion on
+            // hit, because all reuse through it is immediate-recency (adjacent
+            // reads touching the same or a boundary block).
+            return cache[pos].block_bytes.clone();
         }
 
         // Cache miss: read the block.

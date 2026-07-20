@@ -61,9 +61,15 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
 /// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
 /// an index has many (thousands!) of segments.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum MvccSatisfies {
     ParallelWorker(HashSet<SegmentId>),
+    /// Like [`MvccSatisfies::ParallelWorker`], but the leader handed us its fully-resolved
+    /// [`SegmentMetaEntry`]s (through parallel DSM), so `load_metas` can skip walking the
+    /// index's segment-metas linked list entirely.  Relies on the same invariant as
+    /// `ParallelWorker`: the leader holds pins on these segments for as long as its workers
+    /// are running.
+    ParallelWorkerWithEntries(Vec<SegmentMetaEntry>),
     LargestSegment,
     Snapshot,
     Vacuum,
@@ -114,6 +120,13 @@ pub struct MVCCDirectory {
     indexrel: PgSearchRelation,
     mvcc_style: Arc<MvccSatisfies>,
 
+    /// When true, segment component readers copy decoded blocks into backend-local memory
+    /// instead of holding zero-copy views over pinned buffers, so the resulting tantivy
+    /// structures may legally outlive the current transaction (the backend-local reader
+    /// cache).  Must be set before the directory is handed to `Index::open` — tantivy's clones
+    /// inherit the value.
+    long_lived: bool,
+
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
@@ -147,6 +160,7 @@ impl MVCCDirectory {
         Self {
             indexrel: Clone::clone(index_relation),
             mvcc_style: Arc::new(mvcc_style),
+            long_lived: false,
 
             readers: Default::default(),
             new_files: Default::default(),
@@ -158,6 +172,45 @@ impl MVCCDirectory {
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
         }
+    }
+
+    /// Mark this directory long-lived: segment component readers will copy decoded blocks
+    /// instead of holding pinned-buffer views.  Must be called before `Index::open`.
+    pub fn set_long_lived(&mut self, long_lived: bool) {
+        self.long_lived = long_lived;
+    }
+
+    /// True if any resolved segment is a mutable (in-memory) segment, whose contents change
+    /// with every insert and therefore can never be served from a cross-query cache.
+    pub(crate) fn has_mutable_segments(&self) -> bool {
+        self.all_entries
+            .lock()
+            .values()
+            .any(|entry| matches!(entry, LoadedSegmentMetaEntry::Memory { .. }))
+    }
+
+    /// Move the pin cushion out of this directory, transferring ownership of its pins to the
+    /// caller.  The backend-local reader cache does this when parking a reader: the pins
+    /// become the property of the *current* query's reader (released when it drops, inside
+    /// the transaction), and the parked directory holds no pins between queries.  Segments of
+    /// a parked reader need no cross-query pin protection: recycling requires tombstoning,
+    /// tombstoning bumps the segment-metas version, and a version bump fails validation
+    /// before the parked structures are ever read again.
+    pub(crate) fn take_pin_cushion(&self) -> Option<PinCushion> {
+        self.pin_cushion.lock().take()
+    }
+
+    /// Take a fresh pin on every resolved segment's pintest block under the *current*
+    /// resource owner, returning the cushion to be owned by the current query's reader.
+    /// Restores, for the duration of one query, the same protection `load_metas` originally
+    /// established.
+    pub(crate) fn pin_cushion_for_query(&self, indexrel: &PgSearchRelation) -> PinCushion {
+        let bman = BufferManager::new(indexrel);
+        let mut cushion = PinCushion::default();
+        for entry in self.all_entries.lock().values() {
+            cushion.push_blockno(&bman, entry.pintest_blockno());
+        }
+        cushion
     }
 
     /// If the given SegmentId is a mutable segment, return true.
@@ -194,7 +247,11 @@ impl MVCCDirectory {
                     .file_entry(uuid_string, path)
                     .expect("No such path for {entry:?}: {path:?}");
                 Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
+                    if self.long_lived {
+                        SegmentComponentReader::new_copying(&self.indexrel, file_entry)
+                    } else {
+                        SegmentComponentReader::new(&self.indexrel, file_entry)
+                    }
                 }))
             }
             LoadedSegmentMetaEntry::Memory {
@@ -327,7 +384,11 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(&self.indexrel, file_entry)
+                            if self.long_lived {
+                                SegmentComponentReader::new_copying(&self.indexrel, file_entry)
+                            } else {
+                                SegmentComponentReader::new(&self.indexrel, file_entry)
+                            }
                         }))
                         .clone())
                 }
@@ -598,7 +659,10 @@ pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 
 impl PinCushion {
     pub fn push(&mut self, bman: &BufferManager, entry: &SegmentMetaEntry) {
-        let blockno = entry.pintest_blockno();
+        self.push_blockno(bman, entry.pintest_blockno());
+    }
+
+    pub fn push_blockno(&mut self, bman: &BufferManager, blockno: pg_sys::BlockNumber) {
         self.0.insert(blockno, bman.pinned_buffer(blockno));
     }
 
@@ -714,6 +778,7 @@ pub fn index_memory_segment(
     let query_visible = match mvcc_style {
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
+        | MvccSatisfies::ParallelWorkerWithEntries(_)
         | MvccSatisfies::LargestSegment => true,
         MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
     };

@@ -187,11 +187,15 @@ impl BaseScanState {
         let query = serde_json::to_vec(self.search_query_input())
             .expect("should be able to serialize query");
 
-        let segment_readers = self
+        let search_reader = self
             .search_reader
             .as_ref()
-            .expect("search reader must be initialized to build parallel serialization data")
-            .segment_readers();
+            .expect("search reader must be initialized to build parallel serialization data");
+        let segment_readers = search_reader.segment_readers();
+
+        // hand the leader's resolved segment meta entries to workers so they can open their
+        // readers without re-walking the index's segment-metas list
+        let entries = search_reader.serialized_segment_meta_entries();
 
         let with_aggregates = !self.window_aggregates.is_empty();
 
@@ -199,6 +203,7 @@ impl BaseScanState {
             all_sources: vec![segment_readers],
             partitioning_source_idx: 0,
             query,
+            entries,
             with_aggregates,
         }
     }

@@ -23,6 +23,7 @@ use crate::postgres::storage::buffer::{
 };
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
+use crate::postgres::storage::metadata_cache;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
@@ -72,9 +73,15 @@ pub struct MetaPageData {
     /// The block where our current, v2, FSM starts
     v2_fsm: pg_sys::BlockNumber,
 
-    /// This used to be for detecting concurrent background merges,
-    /// now we use advisory locks
-    _dead_space_4: [pg_sys::BlockNumber; 2],
+    /// A counter bumped every time the contents of the segment-metas linked list change
+    /// (segments created, merged away, garbage collected, or mutated in place).  Backend-local
+    /// caches use "unchanged counter (plus unchanged `ambulkdelete_epoch`)" as proof that a
+    /// previously resolved segment list is still current.
+    ///
+    /// This space was previously used for detecting concurrent background merges (now advisory
+    /// locks), so pre-existing indexes may start from an arbitrary value — only equality and
+    /// wrapping increments matter, so any starting point is fine.
+    segment_metas_version: u64,
 
     /// pg_search version that created this index.
     /// PageInit zeroes the page at creation, so bytes past the fields that exist at creation time
@@ -94,6 +101,10 @@ pub struct MetaPageData {
 pub struct MetaPage {
     data: MetaPageData,
     bman: BufferManager,
+    /// True when `data` came from the backend-local metadata cache rather than a fresh read of
+    /// block 0.  Cached data is valid for every write-once field but NOT for
+    /// `ambulkdelete_epoch`, which changes on every `ambulkdelete()`.
+    from_cache: bool,
 }
 
 const METAPAGE: pg_sys::BlockNumber = 0;
@@ -214,13 +225,36 @@ impl MetaPage {
             Self {
                 data: *metadata,
                 bman,
+                from_cache: false,
             }
         } else {
             Self {
                 data: metadata,
                 bman,
+                from_cache: false,
             }
         }
+    }
+
+    /// Like [`MetaPage::open`], but serves the metapage contents from the backend-local
+    /// metadata cache when possible, avoiding a buffer-manager access to block 0.
+    ///
+    /// The returned instance is valid for every accessor except [`MetaPage::ambulkdelete_epoch`]
+    /// (which changes on every `ambulkdelete()` and must always be read fresh — it will panic on
+    /// a cache-served instance).  Use this on hot read paths; use [`MetaPage::open`] anywhere
+    /// the epoch is needed or freshness matters.
+    pub fn open_cached(indexrel: &PgSearchRelation) -> Self {
+        if let Some(data) = metadata_cache::cached_metapage_data(indexrel) {
+            return Self {
+                data,
+                bman: BufferManager::new(indexrel),
+                from_cache: true,
+            };
+        }
+
+        let this = Self::open(indexrel);
+        metadata_cache::store_metapage_data(indexrel, this.data);
+        this
     }
 
     /// Acquires the merge lock.
@@ -373,6 +407,11 @@ impl MetaPage {
     // Note that this value is read when not under a share lock, so there's no guarantee that it hasn't
     // been updated and this value is stale
     pub fn ambulkdelete_epoch(&self) -> u32 {
+        assert!(
+            !self.from_cache,
+            "ambulkdelete_epoch changes on every ambulkdelete and cannot be served from a \
+             cached MetaPage; use MetaPage::open() instead of MetaPage::open_cached()"
+        );
         self.data.ambulkdelete_epoch
     }
 
@@ -381,6 +420,26 @@ impl MetaPage {
         let mut page = buffer.page_mut();
         let metadata = page.contents_mut::<MetaPageData>();
         metadata.ambulkdelete_epoch = metadata.ambulkdelete_epoch.wrapping_add(1);
+    }
+
+    // Like `ambulkdelete_epoch`, this value changes underneath us, so it can't be served from
+    // a cached MetaPage
+    pub fn segment_metas_version(&self) -> u64 {
+        assert!(
+            !self.from_cache,
+            "segment_metas_version changes on every segment-metas write and cannot be served \
+             from a cached MetaPage; use MetaPage::open() instead of MetaPage::open_cached()"
+        );
+        self.data.segment_metas_version
+    }
+
+    /// Bump the segment-metas version counter.  Must be called by every code path that changes
+    /// the contents of the segment-metas linked list, after the change is committed.
+    pub fn bump_segment_metas_version(&mut self) {
+        let mut buffer = self.bman.get_buffer_mut(METAPAGE);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        metadata.segment_metas_version = metadata.segment_metas_version.wrapping_add(1);
     }
 }
 

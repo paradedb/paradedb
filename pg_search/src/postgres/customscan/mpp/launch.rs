@@ -317,8 +317,13 @@ fn launch_mpp_prepare(
             return None;
         }
     };
-    let scan_size =
-        ParallelScanState::size_of(&args.all_nsegments(), partitioning_source_idx, &[], false);
+    let scan_size = ParallelScanState::size_of(
+        &args.all_nsegments(),
+        partitioning_source_idx,
+        &[],
+        &[],
+        false,
+    );
 
     let process = MppParallelProcess {
         // SAFETY: workers can only read the region back as `u8`, and they hold on the go

@@ -433,6 +433,7 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
     // TODO: `lookup_ex` and `update_item` should probably return an `Option` rather than a
     // `Result`.
     if inserted.is_ok() {
+        MetaPage::open(indexrel).bump_segment_metas_version();
         return false;
     }
 
@@ -446,6 +447,7 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
         content,
     );
     segment_metas.add_items(&[entry], None);
+    MetaPage::open(indexrel).bump_segment_metas_version();
 
     true
 }

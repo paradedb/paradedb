@@ -836,7 +836,8 @@ impl ParallelQueryCapable for JoinScan {
 
         // Only the regular (non-MPP) parallel join drives these callbacks now; MPP launches its
         // own workers via the builder, so the coordinate only needs the ParallelScanState block.
-        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false) as pg_sys::Size
+        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], &[], false)
+            as pg_sys::Size
     }
 
     fn initialize_dsm_custom_scan(
@@ -864,6 +865,7 @@ impl ParallelQueryCapable for JoinScan {
                 all_sources,
                 partitioning_source_idx: partitioning_idx,
                 query: vec![], // JoinScan passes query via PrivateData, not shared state
+                entries: vec![], // JoinScan workers re-read segment metas from the index
                 with_aggregates: false,
             };
             (*pscan_state).create_and_populate(args);
@@ -1065,6 +1067,7 @@ impl JoinScan {
             all_sources,
             partitioning_source_idx: partitioning_idx,
             query: vec![],
+            entries: vec![],
             with_aggregates: false,
         };
         if let Some(prep) = crate::postgres::customscan::mpp::launch::prepare_mpp_join(

@@ -134,6 +134,11 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// and AggregateScan. When off, behavior is identical to the non-MPP path.
 static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Experimental: reuse the most recently opened index reader across queries in the same
+/// backend, validated against the index's segment-metas version and ambulkdelete epoch.
+/// NB: default is ON in this experimental branch so CI benchmarks exercise it.
+static ENABLE_READER_CACHE: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -482,6 +487,18 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_reader_cache",
+        c"Experimental: reuse index readers across queries in the same backend",
+        c"When enabled, the most recently opened BM25 index reader is kept in backend-local \
+          memory and reused by later queries when the index's segment list is provably \
+          unchanged (validated against an on-disk version counter and the vacuum epoch). \
+          Avoids re-opening every segment on every query.",
+        &ENABLE_READER_CACHE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_size",
         c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
@@ -818,6 +835,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_reader_cache() -> bool {
+    ENABLE_READER_CACHE.get()
 }
 
 pub fn enable_mpp() -> bool {

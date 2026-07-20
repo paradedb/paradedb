@@ -528,6 +528,7 @@ pub unsafe fn garbage_collect_index(
     // Replication is not enabled: immediately free the entries. It doesn't matter when we
     // commit the segment metas list in this case.
     segment_metas.commit();
+    MetaPage::open(indexrel).bump_segment_metas_version();
     free_entries(indexrel, entries, current_xid);
 }
 

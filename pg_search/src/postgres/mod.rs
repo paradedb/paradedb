@@ -27,6 +27,7 @@ use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
@@ -175,6 +176,12 @@ struct AggregatesPayloadHeader {
 #[repr(C)]
 struct ParallelScanPayloadLayout {
     query: Range<usize>,
+    /// Bincode-serialized `SegmentMetaEntry`s for the partitioning source, resolved by the
+    /// leader.  Lets workers skip re-walking the index's segment-metas linked list (and its
+    /// MVCC re-derivation) when opening their readers.  Empty when the initializing scan type
+    /// doesn't provide them (e.g. joinscan); workers then fall back to reading the entries
+    /// from the index themselves.
+    entries: Range<usize>,
     /// One `u32` per source: its segment count, in ascending source-index order.
     all_counts: Range<usize>,
     /// Concatenated 16-byte segment UUIDs for all sources, in ascending source-index order.
@@ -203,6 +210,7 @@ impl ParallelScanPayloadLayout {
         all_nsegments: &[usize],
         partitioning_source_idx: usize,
         serialized_query: &[u8],
+        serialized_entries: &[u8],
         with_aggregates: bool,
     ) -> Result<Self, std::alloc::LayoutError> {
         let n_sources = all_nsegments.len();
@@ -215,6 +223,11 @@ impl ParallelScanPayloadLayout {
         // Query.
         let layout = Layout::from_size_align(serialized_query.len(), 1)?;
         let query_range = 0..(layout.size());
+
+        // Leader-resolved segment meta entries.
+        let entries_layout = Layout::from_size_align(serialized_entries.len(), 1)?;
+        let (layout, entries_offset) = layout.extend(entries_layout)?;
+        let entries_range = entries_offset..(entries_offset + entries_layout.size());
 
         // Per-source segment counts: [u32; n_sources].
         let all_counts_layout = Layout::array::<u32>(n_sources)?;
@@ -265,6 +278,7 @@ impl ParallelScanPayloadLayout {
 
         Ok(Self {
             query: query_range,
+            entries: entries_range,
             all_counts: all_counts_range,
             all_ids: all_ids_range,
             remaining_by_source: remaining_range,
@@ -296,6 +310,7 @@ impl ParallelScanPayload {
         all_sources: &[&[SegmentReader]],
         partitioning_source_idx: usize,
         query: &[u8],
+        entries: &[u8],
         with_aggregates: bool,
     ) {
         let all_nsegments: Vec<usize> = all_sources.iter().map(|s| s.len()).collect();
@@ -304,6 +319,7 @@ impl ParallelScanPayload {
             &all_nsegments,
             partitioning_source_idx,
             query,
+            entries,
             with_aggregates,
         )
         .expect("could not layout `ParallelScanPayload` for initialization");
@@ -313,6 +329,12 @@ impl ParallelScanPayload {
         let _ = (&mut self.data_mut()[query_range])
             .write(query)
             .expect("failed to write query bytes");
+
+        // Leader-resolved segment meta entries.
+        let entries_range = self.layout.entries.clone();
+        let _ = (&mut self.data_mut()[entries_range])
+            .write(entries)
+            .expect("failed to write segment meta entry bytes");
 
         // Per-source segment counts.
         let counts_range = self.layout.all_counts.clone();
@@ -390,6 +412,10 @@ impl ParallelScanPayload {
         }
         let query_data = &self.data()[query_range];
         Ok(Some(serde_json::from_slice(query_data)?))
+    }
+
+    fn entries_bytes(&self) -> &[u8] {
+        &self.data()[self.layout.entries.clone()]
     }
 
     fn all_counts(&self) -> &[u32] {
@@ -479,6 +505,10 @@ pub struct ParallelScanArgs<'a> {
     /// Index of the source that `checkout_segment` draws from.
     partitioning_source_idx: usize,
     query: Vec<u8>,
+    /// Bincode-serialized leader-resolved [`SegmentMetaEntry`]s for the partitioning source
+    /// (see [`SegmentMetaEntry::serialize_batch`]).  Empty when the scan type doesn't provide
+    /// them; workers then re-read the entries from the index.
+    entries: Vec<u8>,
     with_aggregates: bool,
 }
 
@@ -550,12 +580,14 @@ impl ParallelScanState {
         all_nsegments: &[usize],
         partitioning_source_idx: usize,
         serialized_query: &[u8],
+        serialized_entries: &[u8],
         with_aggregates: bool,
     ) -> usize {
         ParallelScanPayloadLayout::new(
             all_nsegments,
             partitioning_source_idx,
             serialized_query,
+            serialized_entries,
             with_aggregates,
         )
         .expect("could not compute DSM payload capacity")
@@ -567,6 +599,7 @@ impl ParallelScanState {
         all_nsegments: &[usize],
         partitioning_source_idx: usize,
         serialized_query: &[u8],
+        serialized_entries: &[u8],
         with_aggregates: bool,
     ) -> usize {
         std::mem::size_of::<Self>()
@@ -574,6 +607,7 @@ impl ParallelScanState {
                 all_nsegments,
                 partitioning_source_idx,
                 serialized_query,
+                serialized_entries,
                 with_aggregates,
             )
     }
@@ -589,6 +623,7 @@ impl ParallelScanState {
             &args.all_sources,
             args.partitioning_source_idx,
             &args.query,
+            &args.entries,
             args.with_aggregates,
         );
     }
@@ -603,11 +638,17 @@ impl ParallelScanState {
         all_sources: &[&[SegmentReader]],
         partitioning_source_idx: usize,
         query: &[u8],
+        entries: &[u8],
         with_aggregates: bool,
     ) {
         self.partitioning_source_idx = partitioning_source_idx;
-        self.payload
-            .init(all_sources, partitioning_source_idx, query, with_aggregates);
+        self.payload.init(
+            all_sources,
+            partitioning_source_idx,
+            query,
+            entries,
+            with_aggregates,
+        );
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.shared_threshold.reset();
         let partitioning_count = all_sources
@@ -909,6 +950,24 @@ impl ParallelScanState {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }
         segments
+    }
+
+    /// Returns the leader-resolved [`SegmentMetaEntry`]s for the partitioning source, if the
+    /// leader provided them, letting a worker open its reader without re-walking the index's
+    /// segment-metas linked list.  Returns `None` when the initializing scan type didn't
+    /// serialize entries into the DSM (e.g. joinscan) — callers must then fall back to
+    /// [`Self::segments`] + `MvccSatisfies::ParallelWorker`.
+    ///
+    /// Like [`Self::segments`], waits until the leader has initialized the parallel state.
+    pub fn segment_meta_entries(&mut self) -> Option<Vec<SegmentMetaEntry>> {
+        self.wait_for_initialization();
+
+        let _mutex = self.acquire_mutex();
+        let bytes = self.payload.entries_bytes();
+        if bytes.is_empty() {
+            return None;
+        }
+        Some(SegmentMetaEntry::deserialize_batch(bytes))
     }
 
     /// Wait for parallel state to be initialized by the leader.

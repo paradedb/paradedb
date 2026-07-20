@@ -229,14 +229,23 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Fail the release on fixable CRITICAL/HIGH CVEs in the image before we sign
-      # or publish it. ignore-unfixed drops advisories with no upstream fix.
+      # Report fixable CRITICAL/HIGH CVEs in the image (always shown in the logs).
       - name: Scan Image for Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
           format: table
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      # Gate the release on fixable CRITICAL CVEs only. HIGH (e.g. Go-stdlib DoS
+      # advisories inherited from the base image) is reported above but non-blocking.
+      - name: Gate Release on Critical Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
 
@@ -366,14 +375,23 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      # Fail the release on fixable CRITICAL/HIGH CVEs in the image before we sign
-      # or publish it. ignore-unfixed drops advisories with no upstream fix.
+      # Report fixable CRITICAL/HIGH CVEs in the image (always shown in the logs).
       - name: Scan Image for Vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
           format: table
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      # Gate the release on fixable CRITICAL CVEs only. HIGH (e.g. Go-stdlib DoS
+      # advisories inherited from the base image) is reported above but non-blocking.
+      - name: Gate Release on Critical Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
 

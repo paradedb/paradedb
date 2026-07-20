@@ -1176,6 +1176,15 @@ ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
+-- SECTION 28: EXPLAIN ANALYZE Metrics Output
+-- =====================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

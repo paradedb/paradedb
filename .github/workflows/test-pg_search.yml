@@ -29,6 +29,9 @@ concurrency:
   group: test-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   set-matrix:
     name: Define the PostgreSQL Version Matrix

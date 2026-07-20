@@ -23,6 +23,9 @@ concurrency:
   group: schemabot-generate-diff-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   schemabot-generate-diff:
     name: SchemaBot

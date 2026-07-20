@@ -18,6 +18,9 @@ concurrency:
   group: lint-markdown-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint-markdown:
     name: Lint Markdown Files

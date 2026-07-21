@@ -58,6 +58,9 @@ pub fn init() {}
 // metavariables — the standard escape for a macro that defines a macro.
 
 /// Generate a condition-style wrapper: `name!(condition, "message" [, &details])`.
+// rustfmt cannot format a `macro_rules!` that defines a `macro_rules!` idempotently — each pass
+// re-indents the nested arms further — so pin this generator's formatting by hand.
+#[rustfmt::skip]
 macro_rules! define_condition_assert {
     ($d:tt $name:ident, $doc:literal) => {
         #[doc = $doc]
@@ -85,6 +88,7 @@ macro_rules! define_condition_assert {
 }
 
 /// Generate a message-only wrapper: `name!("message" [, &details])`.
+#[rustfmt::skip]
 macro_rules! define_message_assert {
     ($d:tt $name:ident, $doc:literal) => {
         #[doc = $doc]
@@ -238,7 +242,11 @@ mod tests {
         // call them unqualified (they are in textual scope). Consumer crates reference them
         // cross-crate as `dst::assert_*!`, which is unaffected.
         crate::observe!(seen, |n: &i64| {
-            assert_always!(*n >= 0, "seen count is never negative", &::serde_json::json!({ "n": *n }));
+            assert_always!(
+                *n >= 0,
+                "seen count is never negative",
+                &::serde_json::json!({ "n": *n })
+            );
         });
 
         crate::observe!(|| {

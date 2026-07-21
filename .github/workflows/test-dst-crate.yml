@@ -1,11 +1,11 @@
-# workflows/test-dst.yml
+# workflows/test-dst-crate.yml
 #
-# Test dst
+# Test dst crate
 # Lint and test the deterministic simulation testing crate in both of its feature
 # configurations. The crate has no Postgres dependency, so it needs none of the pgrx setup
 # that the pg_search workflows carry.
 
-name: Test dst
+name: Test dst Crate
 
 on:
   pull_request:
@@ -15,19 +15,19 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
-      - ".github/workflows/test-dst.yml"
+      - ".github/workflows/test-dst-crate.yml"
   workflow_dispatch:
 
 concurrency:
-  group: test-dst-${{ github.head_ref || github.ref }}
+  group: test-dst-crate-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  test-dst:
-    name: Lint & Test dst
+  test-dst-crate:
+    name: Lint & Test dst Crate
     runs-on: ubuntu-latest
 
     steps:

@@ -19,8 +19,128 @@
 
 use pretty_assertions::assert_eq;
 use rstest::*;
+use serde_json::Value;
 use sqlx::PgConnection;
 use tests::fixtures::*;
+
+fn gather_workers_launched(plan: &Value) -> Option<i64> {
+    match plan {
+        Value::Object(object) => {
+            if matches!(
+                object.get("Node Type").and_then(Value::as_str),
+                Some("Gather" | "Gather Merge")
+            ) {
+                if let Some(workers) = object.get("Workers Launched").and_then(Value::as_i64) {
+                    return Some(workers);
+                }
+            }
+
+            object.values().find_map(gather_workers_launched)
+        }
+        Value::Array(values) => values.iter().find_map(gather_workers_launched),
+        _ => None,
+    }
+}
+
+fn has_worker_instrumented_paradedb_scan(plan: &Value) -> bool {
+    match plan {
+        Value::Object(object) => {
+            let is_paradedb_scan = object
+                .get("Node Type")
+                .and_then(Value::as_str)
+                .is_some_and(|node_type| node_type == "Custom Scan")
+                && object
+                    .get("Custom Plan Provider")
+                    .and_then(Value::as_str)
+                    .is_some_and(|provider| provider == "ParadeDB Base Scan");
+
+            let worker_instrumented = object
+                .get("Workers")
+                .and_then(Value::as_array)
+                .is_some_and(|workers| !workers.is_empty());
+
+            (is_paradedb_scan && worker_instrumented)
+                || object.values().any(has_worker_instrumented_paradedb_scan)
+        }
+        Value::Array(values) => values.iter().any(has_worker_instrumented_paradedb_scan),
+        _ => false,
+    }
+}
+
+fn create_lindera_parallel_table(
+    conn: &mut PgConnection,
+    table: &str,
+    index: &str,
+    tokenizer: &str,
+    text_a: &str,
+    text_b: &str,
+    text_c: &str,
+) {
+    format!(
+        r#"
+        DROP TABLE IF EXISTS {table};
+        CREATE TABLE {table} (
+            id SERIAL PRIMARY KEY,
+            body TEXT
+        );
+
+        INSERT INTO {table} (body)
+        SELECT CASE
+            WHEN i % 3 = 0 THEN '{text_a}'
+            WHEN i % 3 = 1 THEN '{text_b}'
+            ELSE '{text_c}'
+        END
+        FROM generate_series(1, 1000) i;
+
+        ALTER TABLE {table} SET (parallel_workers = 2);
+
+        CREATE INDEX {index} ON {table}
+        USING bm25 (id, body)
+        WITH (
+            key_field = 'id',
+            text_fields = '{{"body": {{"tokenizer": {{"type": "{tokenizer}"}}, "record": "position"}}}}'
+        );
+        "#
+    )
+    .execute(conn);
+}
+
+fn assert_lindera_match_launches_workers(conn: &mut PgConnection, table: &str, query: &str) {
+    let (count,) = format!(
+        r#"
+        SELECT count(*)
+        FROM {table}
+        WHERE body @@@ paradedb.match('body', '{query}')
+        "#
+    )
+    .fetch_one::<(i64,)>(conn);
+    assert!(count > 0, "{table} should match query {query:?}");
+
+    let (plan,) = format!(
+        r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT id, paradedb.score(id)
+        FROM {table}
+        WHERE body @@@ paradedb.match('body', '{query}')
+        ORDER BY paradedb.score(id) DESC
+        LIMIT 10
+        "#
+    )
+    .fetch_one::<(Value,)>(conn);
+
+    eprintln!("{table} parallel Lindera plan: {plan:#?}");
+
+    let workers = gather_workers_launched(&plan)
+        .unwrap_or_else(|| panic!("{table} should use Gather/Gather Merge: {plan:#?}"));
+    assert!(
+        workers > 0,
+        "{table} should launch parallel workers: {plan:#?}"
+    );
+    assert!(
+        has_worker_instrumented_paradedb_scan(&plan),
+        "{table} should execute ParadeDB Base Scan in a worker: {plan:#?}"
+    );
+}
 
 #[rstest]
 async fn lindera_korean_tokenizer(mut conn: PgConnection) {
@@ -70,6 +190,57 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
     let row: (i32,) = r#"SELECT id FROM korean WHERE korean @@@ 'message:"지역 축제"' ORDER BY id"#
         .fetch_one(&mut conn);
     assert_eq!(row.0, 3);
+}
+
+#[rstest]
+fn lindera_match_launches_parallel_workers(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // `debug_parallel_query` is needed to make worker launch deterministic.
+        return;
+    }
+
+    r#"
+        SET max_parallel_workers = 8;
+        SET max_parallel_workers_per_gather = 2;
+        SET min_parallel_table_scan_size = 0;
+        SET min_parallel_index_scan_size = 0;
+        SET parallel_setup_cost = 0;
+        SET parallel_tuple_cost = 0;
+        SET debug_parallel_query = on;
+    "#
+    .execute(&mut conn);
+
+    create_lindera_parallel_table(
+        &mut conn,
+        "lindera_parallel_ko",
+        "lindera_parallel_ko_idx",
+        "korean_lindera",
+        "서울은 한국의 수도이며 검색 테스트 문장입니다.",
+        "부산은 항구와 해변으로 유명한 도시입니다.",
+        "대구는 음식과 시장으로 잘 알려져 있습니다.",
+    );
+    create_lindera_parallel_table(
+        &mut conn,
+        "lindera_parallel_ja",
+        "lindera_parallel_ja_idx",
+        "japanese_lindera",
+        "東京は日本の首都で検索テストの文章です。",
+        "大阪は食文化と商業で知られる都市です。",
+        "京都には古い寺院と静かな庭があります。",
+    );
+    create_lindera_parallel_table(
+        &mut conn,
+        "lindera_parallel_zh",
+        "lindera_parallel_zh_idx",
+        "chinese_lindera",
+        "北京是中国的首都，也是搜索测试句子。",
+        "上海拥有繁忙的港口和现代天际线。",
+        "广州以美食和贸易闻名。",
+    );
+
+    assert_lindera_match_launches_workers(&mut conn, "lindera_parallel_ko", "서울");
+    assert_lindera_match_launches_workers(&mut conn, "lindera_parallel_ja", "東京");
+    assert_lindera_match_launches_workers(&mut conn, "lindera_parallel_zh", "北京");
 }
 
 #[rstest]

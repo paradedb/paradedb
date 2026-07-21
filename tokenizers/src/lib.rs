@@ -21,6 +21,7 @@ pub mod code;
 pub mod edge_ngram;
 pub mod icu;
 pub mod lindera;
+pub mod lindera_mmap;
 pub mod manager;
 pub mod ngram;
 pub mod token_length;

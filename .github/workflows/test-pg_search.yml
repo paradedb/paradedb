@@ -222,7 +222,9 @@ jobs:
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: |
+          cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          ../scripts/install_lindera_dictionaries.sh --sudo --pg-config "/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
       # entries on PRs (so Codecov has fresh data per PR). Older-version PR
@@ -243,7 +245,9 @@ jobs:
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
+        run: |
+          cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
+          ../scripts/install_lindera_dictionaries.sh --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config
 
       # ---------- Start Postgres ----------
       - name: Start Postgres (system)
@@ -269,6 +273,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          export PARADEDB_LINDERA_DICT_ROOT="$($PG_CONFIG --sharedir)/extension/pg_search/lindera"
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
           else
@@ -289,7 +294,11 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
+        run: |
+          PG_CONFIG_PATH=(~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config)
+          export PG_CONFIG="${PG_CONFIG_PATH[0]}"
+          export PARADEDB_LINDERA_DICT_ROOT="$($PG_CONFIG --sharedir)/extension/pg_search/lindera"
+          RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'

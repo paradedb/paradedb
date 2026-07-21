@@ -28,7 +28,7 @@ use lindera::character_filter::unicode_normalize::{
     UnicodeNormalizeCharacterFilter, UnicodeNormalizeKind,
 };
 use lindera::character_filter::BoxCharacterFilter;
-use lindera::dictionary::load_dictionary;
+use lindera::dictionary::Dictionary;
 use lindera::mode::Mode;
 use lindera::token::Token as LinderaToken;
 use lindera::token_filter::japanese_reading_form::JapaneseReadingFormTokenFilter;
@@ -80,17 +80,29 @@ enum ReadingForm {
     Korean,
 }
 
-/// Build a Lindera tokenizer for `dictionary_uri`, appending the NFKC
+static CMN_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("cc-cedict"));
+static JPN_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("ipadic"));
+static KOR_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("ko-dic"));
+
+fn load_mmap_dictionary(name: &str) -> Dictionary {
+    crate::lindera_mmap::load_dictionary(name).unwrap_or_else(|err| {
+        panic!(
+            "Lindera `{name}` dictionary must be installed as mmap component files: {err:#}. \
+             If you built pg_search from source, run \
+             `scripts/install_lindera_dictionaries.sh --pg-config <path-to-pg_config>` \
+             after `cargo pgrx install`."
+        )
+    })
+}
+
+/// Build a Lindera tokenizer for `dictionary`, appending the NFKC
 /// character filter and the reading-form token filter when the corresponding
 /// options are set.
 fn build_lindera_tokenizer(
-    dictionary_uri: &str,
-    dictionary_name: &str,
+    dictionary: Dictionary,
     options: LinderaOptions,
     reading_form: ReadingForm,
 ) -> Arc<LinderaTokenizer> {
-    let dictionary = load_dictionary(dictionary_uri)
-        .unwrap_or_else(|_| panic!("Lindera `{dictionary_name}` dictionary must be present"));
     let mut tokenizer = LinderaTokenizer::new(
         lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None)
             .keep_whitespace(options.keep_whitespace),
@@ -130,30 +142,19 @@ static KOR_TOKENIZERS: Lazy<[OnceCell<Arc<LinderaTokenizer>>; 8]> =
     Lazy::new(|| std::array::from_fn(|_| OnceCell::new()));
 
 fn chinese_tokenizer(options: LinderaOptions) -> &'static Arc<LinderaTokenizer> {
-    CMN_TOKENIZERS[options.index()].get_or_init(|| {
-        build_lindera_tokenizer(
-            "embedded://cc-cedict",
-            "cc-cedict",
-            options,
-            ReadingForm::None,
-        )
-    })
+    CMN_TOKENIZERS[options.index()]
+        .get_or_init(|| build_lindera_tokenizer(CMN_DICTIONARY.clone(), options, ReadingForm::None))
 }
 
 fn japanese_tokenizer(options: LinderaOptions) -> &'static Arc<LinderaTokenizer> {
     JPN_TOKENIZERS[options.index()].get_or_init(|| {
-        build_lindera_tokenizer(
-            "embedded://ipadic",
-            "ipadic",
-            options,
-            ReadingForm::Japanese,
-        )
+        build_lindera_tokenizer(JPN_DICTIONARY.clone(), options, ReadingForm::Japanese)
     })
 }
 
 fn korean_tokenizer(options: LinderaOptions) -> &'static Arc<LinderaTokenizer> {
     KOR_TOKENIZERS[options.index()].get_or_init(|| {
-        build_lindera_tokenizer("embedded://ko-dic", "ko-dic", options, ReadingForm::Korean)
+        build_lindera_tokenizer(KOR_DICTIONARY.clone(), options, ReadingForm::Korean)
     })
 }
 
@@ -352,6 +353,25 @@ mod tests {
         tokens
     }
 
+    fn skip_if_lindera_dictionaries_are_missing() -> bool {
+        if crate::lindera_mmap::installed_dictionaries_ready() {
+            return false;
+        }
+
+        if std::env::var_os("CI").is_some() {
+            panic!(
+                "Lindera dictionaries are missing in CI; set {} to a preinstalled dictionary root",
+                crate::lindera_mmap::DICTIONARY_ROOT_ENV
+            );
+        }
+
+        eprintln!(
+            "skipping Lindera tokenizer test; set {} to a preinstalled dictionary root",
+            crate::lindera_mmap::DICTIONARY_ROOT_ENV
+        );
+        true
+    }
+
     #[rstest]
     #[case(LinderaChineseTokenizer::new(true), 19)]
     #[case(LinderaChineseTokenizer::new(false), 18)]
@@ -359,6 +379,10 @@ mod tests {
         #[case] mut tokenizer: LinderaChineseTokenizer,
         #[case] expected_token_count: usize,
     ) {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let tokens = test_helper(
             &mut tokenizer,
             "地址1，包含無效的字元 (包括符號與不標準的asci阿爾發字元",
@@ -382,6 +406,10 @@ mod tests {
         #[case] mut tokenizer: LinderaJapaneseTokenizer,
         #[case] expected_token_count: usize,
     ) {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let tokens = test_helper(&mut tokenizer, "すもも もももももものうち");
         assert_eq!(tokens.len(), expected_token_count);
         {
@@ -401,6 +429,10 @@ mod tests {
         #[case] mut tokenizer: LinderaKoreanTokenizer,
         #[case] expected_token_count: usize,
     ) {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         // With keep_whitespace=true (backward compatible behavior), whitespace is included as tokens
         let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");
         assert_eq!(tokens.len(), expected_token_count);
@@ -427,6 +459,10 @@ mod tests {
     // segment. The OFF/ON comparison proves the option is not a no-op.
     #[rstest]
     fn test_lindera_japanese_tokenizer_with_nfkc() {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let input = "ＡＢＣ１２３";
 
         let mut off = LinderaJapaneseTokenizer::with_options(false, false, false);
@@ -448,6 +484,10 @@ mod tests {
     // (katakana). "日本語" -> "ニホンゴ".
     #[rstest]
     fn test_lindera_japanese_tokenizer_with_reading_form() {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let input = "日本語";
 
         let mut off = LinderaJapaneseTokenizer::with_options(false, false, false);
@@ -468,6 +508,10 @@ mod tests {
     // tokens with their ko-dic Hangul reading. "韓國" -> "한국".
     #[rstest]
     fn test_lindera_korean_tokenizer_with_reading_form() {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let input = "韓國";
 
         let mut off = LinderaKoreanTokenizer::with_options(false, false, false);

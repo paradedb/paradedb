@@ -280,6 +280,7 @@ jobs:
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --pg-config $PG_CONFIG_PATH
+          ../scripts/install_lindera_dictionaries.sh --pg-config "$PG_CONFIG_PATH" --package-root "../target/release/pg_search-pg${{ matrix.pg_version }}"
 
       - name: Create .deb Package
         run: |
@@ -294,6 +295,7 @@ jobs:
           cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
           cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
           cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+          cp -R target/release/pg_search-pg${{ matrix.pg_version }}/usr/share/postgresql/${{ matrix.pg_version }}/extension/pg_search ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension/
 
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN

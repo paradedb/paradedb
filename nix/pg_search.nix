@@ -64,7 +64,7 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-9Qzo3y90y3Yx7V2etMCjZSyT3EaQUrUcJsXu4fqWG4w=";
+  cargoHash = "sha256-Xa1YmF0L6riToJ3njgPsBad3qA6loRfddwf5dhe8jk8=";
 
   inherit cargo-pgrx postgresql;
 
@@ -82,6 +82,11 @@ buildPgrxExtension (finalAttrs: {
     '') (lib.attrValues dictionaries)}
 
     echo "Lindera cache prepared at $LINDERA_CACHE"
+  '';
+
+  postInstall = ''
+    cargo run --release --package lindera-dict-builder -- \
+      "$out/share/postgresql/extension/pg_search/lindera"
   '';
 
   cargoPgrxFlags = [

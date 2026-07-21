@@ -30,10 +30,44 @@ use crate::postgres::storage::LinkedItemList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
+use pgrx::pg_sys::panic::CaughtError;
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, FromDatum, IntoDatum, PgTryBuilder};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;
+
+/// The DST details payload for a background-merge worker crash, or `None` when `caught` is not a
+/// bug. Returns `Some` only for bug-class errors — internal-error / corruption SQLSTATEs and Rust
+/// panics. An interrupt-driven cancellation is not a bug and never reaches here: `merge_index`
+/// downgrades it to a `warning!`, so the faults we deliberately inject do not trip the assertion.
+fn merge_crash_details(caught: &CaughtError) -> Option<serde_json::Value> {
+    use pgrx::PgSqlErrorCode::*;
+
+    let report = match caught {
+        // A Rust panic (a failed `expect`, or the `panic!("failed to merge…")` in `merge_index`)
+        // is always a bug.
+        CaughtError::RustPanic { ereport, .. } => ereport,
+        // A Postgres/ereport error is a bug only when it is an internal error or corruption;
+        // cancellations, shutdowns and connection faults are the chaos we are injecting.
+        CaughtError::PostgresError(report) | CaughtError::ErrorReport(report) => {
+            if !matches!(
+                report.sql_error_code(),
+                ERRCODE_INTERNAL_ERROR
+                    | ERRCODE_DATA_CORRUPTED
+                    | ERRCODE_INDEX_CORRUPTED
+                    | ERRCODE_ASSERT_FAILURE
+            ) {
+                return None;
+            }
+            report
+        }
+    };
+
+    Some(serde_json::json!({
+        "sqlstate": format!("{:?}", report.sql_error_code()),
+        "message": report.message(),
+    }))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -399,7 +433,11 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         // fuzzer's run fails instead of silently passing. Rethrowing preserves the
         // existing behaviour (Postgres logs the error and the worker exits).
         .catch_others(|caught| {
-            crate::dst::report_merge_crash!(&caught);
+            dst::observe!(|| {
+                if let Some(details) = merge_crash_details(&caught) {
+                    dst::assert_unreachable!("pg_search background merge crashed", &details);
+                }
+            });
             caught.rethrow()
         })
         .execute();

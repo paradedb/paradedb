@@ -281,13 +281,32 @@ await dbContext
 
 ## Sorting by JSON
 
-Ordering by JSON subfield is on the roadmap but not yet supported. For example, this query will not receive an optimized
-Top K scan:
+Ordering by a JSON subfield directly is not yet supported. For example, this query will not receive an optimized Top K scan:
 
 ```sql
 SELECT id, description, metadata
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY metadata->'weight'
+LIMIT 5;
+```
+
+However, you can achieve an optimized Top K scan by projecting the JSON field, casting it to the desired type, and indexing it with `pdb.alias`.
+
+For example, to order by a numeric `weight` field within a JSON column:
+
+```sql
+CREATE INDEX json_topk_idx ON mock_items
+USING bm25 (id, description, (((metadata->>'weight')::int)::pdb.alias('weight')))
+WITH (key_field='id', sort_by='weight');
+```
+
+You can then query and order by the exact underlying expression, which will now use the Top K optimization:
+
+```sql
+SELECT id, description, (metadata->>'weight')::int AS weight
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY (metadata->>'weight')::int
 LIMIT 5;
 ```

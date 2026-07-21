@@ -373,6 +373,9 @@ pub struct ExtractedFieldAttribute {
 }
 
 /// Recursively strips tokenizer casts (e.g. `pdb.literal`, `pdb.alias`) from an expression.
+///
+/// This is used both for schema building (determining the inner type of an indexed expression)
+/// and for Top-K query planning (canonicalizing an indexed expression to match against an ORDER BY clause).
 pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     if node.is_null() {
         return node;
@@ -386,11 +389,17 @@ pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node
             }
         }
     } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+        // RelabelType doesn't change physical datum representation, so it is safe to strip.
         return strip_tokenizer_cast((*relabel).arg.cast());
     } else if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+        // CoerceToDomain doesn't change physical datum representation, so it is safe to strip.
         return strip_tokenizer_cast((*coerce).arg.cast());
     } else if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-        return strip_tokenizer_cast((*coerce).arg.cast());
+        // CoerceViaIO (e.g. `text::int`) CAN change the underlying physical representation.
+        // We must only strip it if it explicitly targets a tokenizer type.
+        if type_is_tokenizer((*coerce).resulttype) {
+            return strip_tokenizer_cast((*coerce).arg.cast());
+        }
     }
 
     node

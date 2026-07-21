@@ -12,14 +12,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tests/**"
       - "tokenizers/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:

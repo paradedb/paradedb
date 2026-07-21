@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
+  "benchmarks",
+  "dst",
+  "macros",
   "pg_search",
+  "stressgres",
   "tests",
   "tokenizers",
-  "benchmarks",
-  "macros",
-  "stressgres",
-  "dst",
 ]
 
 [workspace.package]

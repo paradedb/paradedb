@@ -9,9 +9,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "**/*.yml"
-      - "**/*.yaml"
       - ".github/workflows/lint-yaml.yml"
+      - "**/*.yaml"
+      - "**/*.yml"
   workflow_dispatch:
 
 concurrency:

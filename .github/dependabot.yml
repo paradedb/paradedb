@@ -28,6 +28,18 @@ updates:
   #         - "*"
 
   # - package-ecosystem: "cargo"
+  #   directory: "/dst"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     dst-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
   #   directory: "/pg_search"
   #   schedule:
   #     interval: "monthly"

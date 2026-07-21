@@ -8,7 +8,7 @@
 -- - 'code' selectivity on stackoverflow_posts.body: ~75%
 
 -- Postgres default plan (custom scan off)
-SET paradedb.enable_aggregate_custom_scan TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
     c.id,
     p.post_type_id,
     p.owner_user_id,

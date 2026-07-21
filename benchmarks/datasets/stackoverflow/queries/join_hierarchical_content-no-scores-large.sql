@@ -5,7 +5,7 @@
 -- - 'error' selectivity on stackoverflow_posts.title: ~1%
 -- - 'question' selectivity on comments.text: ~7%
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
   *
 FROM
   users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id

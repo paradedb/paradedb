@@ -6,7 +6,7 @@
 -- - reputation > 100 selectivity on users.reputation: ~82% (active users are overrepresented at smaller sizes; likely lower for larger datasets)
 -- - score > 0 selectivity on comments.score: ~17%
 
-SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT
+SET work_mem TO '8GB'; SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT
     u.id,
     u.display_name,
     u.about_me

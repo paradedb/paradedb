@@ -10,7 +10,7 @@
 -- - 'code' selectivity on stackoverflow_posts.body: ~75%
 
 -- Postgres default plan (aggregate custom scan off)
-SET paradedb.enable_aggregate_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT
     p.owner_display_name,
     COUNT(*)
 FROM stackoverflow_posts p

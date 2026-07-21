@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
@@ -27,7 +27,18 @@ use crate::postgres::options::BM25IndexOptions;
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 
-#[derive(Clone, Debug)]
+/// A `HierarchicalSuperKMeans` built for assignment, tagged with the
+/// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
+/// centroids, pruner, or cluster count — it derives everything from the vectors
+/// and centroids handed to it per call — so one instance is valid for every
+/// batch (and every merge) sharing the same `(dim, angular)`.
+struct AssignClusterer {
+    dim: usize,
+    angular: bool,
+    clusterer: Arc<HierarchicalSuperKMeans>,
+}
+
+#[derive(Clone)]
 pub struct SuperKMeansIvfClusterer {
     config: HierarchicalSuperKMeansConfig,
     centroid_ratio: f32,
@@ -38,6 +49,23 @@ pub struct SuperKMeansIvfClusterer {
     /// next-nearest cells at merge time, selected by tantivy's centroid
     /// selector (exact scan or `RelativeNeighborhoodGraph`).
     replicas: usize,
+    /// Lazily-built clusterer reused across `assign` batches.
+    assign_cache: Arc<Mutex<Option<AssignClusterer>>>,
+}
+
+impl std::fmt::Debug for SuperKMeansIvfClusterer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SuperKMeansIvfClusterer")
+            .field("config", &self.config)
+            .field("centroid_ratio", &self.centroid_ratio)
+            .field(
+                "training_samples_per_centroid",
+                &self.training_samples_per_centroid,
+            )
+            .field("assign_batch_size", &self.assign_batch_size)
+            .field("replicas", &self.replicas)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for SuperKMeansIvfClusterer {
@@ -52,6 +80,7 @@ impl Default for SuperKMeansIvfClusterer {
             training_samples_per_centroid: 32,
             assign_batch_size: DEFAULT_ASSIGN_BATCH_SIZE,
             replicas: 1,
+            assign_cache: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -226,11 +255,35 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
             return Ok(Vec::new());
         }
 
-        let mut config = self.config.clone();
-        if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
-            config.base.angular = true;
-        }
-        let clusterer = HierarchicalSuperKMeans::with_config(centroid_matrix.rows, dim, config);
+        let angular = matches!(options.metric(), Metric::Cosine | Metric::Dot);
+
+        // Build the clusterer once per `(dim, angular)` and reuse it across every batch.
+        let clusterer = {
+            let mut cache = self
+                .assign_cache
+                .lock()
+                .expect("assign clusterer cache mutex poisoned");
+            match cache.as_ref() {
+                Some(entry) if entry.dim == dim && entry.angular == angular => {
+                    entry.clusterer.clone()
+                }
+                _ => {
+                    let mut config = self.config.clone();
+                    config.base.angular = angular;
+                    let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(
+                        centroid_matrix.rows,
+                        dim,
+                        config,
+                    ));
+                    *cache = Some(AssignClusterer {
+                        dim,
+                        angular,
+                        clusterer: clusterer.clone(),
+                    });
+                    clusterer
+                }
+            }
+        };
         // Primary (nearest-centroid) assignment via superkmeans, angular-aware
         // for cosine/dot. One cluster per vector — no replication. `n_centroids`
         // is derived from the centroid slice length.

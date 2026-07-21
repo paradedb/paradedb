@@ -470,6 +470,28 @@ impl Directory for MVCCDirectory {
             ) {
                 Err(e) => Err(e),
                 Ok(mut loaded) => {
+                    // [antithesis correctness] the visible segment set contains no duplicate
+                    // SegmentId. A duplicate would make a segment double-counted/double-read for
+                    // this snapshot (wrong result counts) and corrupt the parallel-worker claim
+                    // accounting.
+                    dst::observe!(|| {
+                        let loaded_entry_count = loaded.entries.len();
+                        let unique_segment_count = loaded
+                            .entries
+                            .iter()
+                            .map(|entry| entry.segment_id())
+                            .collect::<HashSet<_>>()
+                            .len();
+                        dst::assert_always!(
+                            unique_segment_count == loaded_entry_count,
+                            "pg_search: load_metas visible segment set has unique segment ids",
+                            &::serde_json::json!({
+                                "loaded_entry_count": loaded_entry_count,
+                                "unique_segment_count": unique_segment_count,
+                            })
+                        );
+                    });
+
                     let all_entries: HashMap<_, _> = loaded
                         .entries
                         .into_iter()

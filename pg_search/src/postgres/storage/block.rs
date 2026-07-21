@@ -510,7 +510,23 @@ impl SegmentMetaEntry {
     }
 
     pub fn num_docs(&self) -> usize {
-        self.max_doc() as usize - self.num_deleted_docs()
+        let max_doc = self.max_doc() as usize;
+        let num_deleted = self.num_deleted_docs();
+        // [antithesis correctness] a segment can never have more deleted docs than it has docs; a
+        // violation means count corruption (this subtraction would underflow, yielding a bogus
+        // live-doc count and wrong query results / OOM allocations downstream)
+        dst::observe!(|| {
+            dst::assert_always!(
+                num_deleted <= max_doc,
+                "pg_search: SegmentMetaEntry num_deleted_docs <= max_doc",
+                &::serde_json::json!({
+                    "segment_id": self.segment_id().to_string(),
+                    "num_deleted_docs": num_deleted,
+                    "max_doc": max_doc,
+                })
+            );
+        });
+        max_doc - num_deleted
     }
 
     pub fn num_deleted_docs(&self) -> usize {
@@ -803,10 +819,30 @@ impl MVCCEntry for SegmentMetaEntry {
 
     unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool {
         // recyclable if we've deleted it
-        self.is_deleted()
+        let is_recyclable = self.is_deleted()
 
         // and there's no pin on our pintest buffer, assuming we have a valid buffer
-        && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some())
+        && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some());
+
+        // [antithesis correctness] a recyclable segment must never be visible: recycling implies
+        // deleted (xmax == FrozenTransactionId), and visibility is exactly !deleted. Reclaiming the
+        // blocks of a still-visible segment would be a use-after-free / MVCC violation (a live
+        // snapshot could read freed/overwritten pages, returning wrong or corrupt results).
+        dst::observe!(|| {
+            let is_visible = self.visible();
+            dst::assert_always!(
+                !is_recyclable || !is_visible,
+                "pg_search: recyclable SegmentMetaEntry is not visible",
+                &::serde_json::json!({
+                    "segment_id": self.segment_id().to_string(),
+                    "is_recyclable": is_recyclable,
+                    "is_visible": is_visible,
+                    "xmax": self.xmax(),
+                    "pintest_blockno": self.pintest_blockno(),
+                })
+            );
+        });
+        is_recyclable
     }
 }
 

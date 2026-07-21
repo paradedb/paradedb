@@ -669,6 +669,25 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
                 .page()
                 .contents::<LinkedListData>();
 
+            // [antithesis correctness] the header published atomically to all readers must point at a
+            // valid start block: `atomically()` always builds at least one cloned block and links it
+            // as the cloned header's start_blockno, so committing a header with an InvalidBlockNumber
+            // start would make the list unreadable/empty for every reader (data loss / wrong results).
+            dst::observe!(|| {
+                // Copy out of the #[repr(C, packed)] struct before passing it to `json!`.
+                let cloned_start_blockno = { cloned_header_metadata.start_blockno };
+                dst::assert_always!(
+                    cloned_start_blockno != pg_sys::InvalidBlockNumber,
+                    "pg_search: atomic commit publishes a header with a valid start block",
+                    &::serde_json::json!({
+                        "cloned_header_blockno": self.cloned.header_blockno,
+                        "original_header_blockno": original.header_blockno,
+                        "cloned_start_blockno": cloned_start_blockno,
+                        "invalid_blockno": pg_sys::InvalidBlockNumber,
+                    })
+                );
+            });
+
             // Capture our old start page, then overwrite our metadata.
             let mut original_header_page = original_header_lock.page_mut();
             let original_metadata = original_header_page.contents_mut::<LinkedListData>();

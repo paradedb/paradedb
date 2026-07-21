@@ -24,11 +24,10 @@ concurrency:
   group: publish-pg_search-postgresapp-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-# Used by actions/attest-build-provenance to sign the builds
+# id-token: write lets cosign sign the builds keylessly via Sigstore.
 permissions:
   contents: write
   id-token: write
-  attestations: write
 
 jobs:
   publish-pg_search-postgresapp:
@@ -43,9 +42,13 @@ jobs:
         pg_version: [18]
 
     steps:
-      # We force reinstall git to make sure it is in PATH
+      # Force reinstall git to make sure it is in PATH. gettext provides envsubst,
+      # which sigstore/cosign-installer needs and which isn't on PATH by default.
       - name: Install Dependencies
-        run: brew reinstall git
+        run: |
+          brew reinstall git
+          brew install gettext
+          echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
@@ -258,10 +261,16 @@ jobs:
           xcrun stapler staple "${{ steps.pkg.outputs.pkg_path }}"
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: ./${{ steps.pkg.outputs.pkg_path }}
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the .pkg. Works without GitHub Enterprise;
+      # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
+      - name: Sign .pkg with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          PKG: ./${{ steps.pkg.outputs.pkg_path }}
+        run: cosign sign-blob --yes --bundle "${PKG}.cosign.bundle" "$PKG"
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -282,6 +291,15 @@ jobs:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./${{ steps.pkg.outputs.pkg_path }}
           asset_name: ${{ steps.pkg.outputs.pkg_name }}
+          overwrite: true
+
+      - name: Upload pg_search .pkg Cosign Bundle to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./${{ steps.pkg.outputs.pkg_path }}.cosign.bundle
+          asset_name: ${{ steps.pkg.outputs.pkg_name }}.cosign.bundle
           overwrite: true
 
       # Open a PR to PostgresApp/PostgresApp updating the pg_search download URL on

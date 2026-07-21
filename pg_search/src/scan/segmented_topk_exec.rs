@@ -1765,13 +1765,30 @@ impl SegmentedTopKState {
             .collect();
 
         let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
+        // Batch-convert all ordinal survivors' rows in a single convert_rows call.
+        // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
+        let ord_rows: Vec<_> = candidates
+            .iter()
+            .filter_map(|(_, _, ord_info)| ord_info.as_ref().map(|(_, row_val)| row_val.row()))
+            .collect();
 
-        // For each candidate, resolve materialized ScalarValues and convert to OwnedRow.
-        let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
+        let all_ord_arrays: Option<Vec<ArrayRef>> = if !ord_rows.is_empty() {
+            Some(
+                self.row_converter
+                    .convert_rows(ord_rows)
+                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+            )
+        } else {
+            None
+        };
 
-        for (idx, (batch_idx, row_idx, ord_info)) in candidates.iter().enumerate() {
-            let mut values = Vec::with_capacity(self.sort_exprs.len());
+        // Build column-major ScalarValues and batch-convert all candidates at once.
+        let mut column_values: Vec<Vec<ScalarValue>> = (0..self.sort_exprs.len())
+            .map(|_| Vec::with_capacity(candidates.len()))
+            .collect();
 
+        let mut ord_pos = 0;
+        for (batch_idx, row_idx, ord_info) in candidates.iter() {
             for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
                 let is_deferred = sort_expr
                     .expr
@@ -1783,16 +1800,15 @@ impl SegmentedTopKState {
                     });
 
                 let value = if let Some(deferred) = is_deferred {
-                    if let Some((seg_ord, ord_row)) = ord_info {
-                        // Ordinal survivor: convert ordinal back to string.
-                        let arrays = self
-                            .row_converter
-                            .convert_rows(std::iter::once(ord_row.row()))
-                            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+                    if let Some((seg_ord, _)) = ord_info {
+                        // Ordinal survivor: use pre-batched arrays with our sequential counter.
+                        let arrays = all_ord_arrays
+                            .as_ref()
+                            .expect("all_ord_arrays is None for ordinal survivor");
                         let term_ord = arrays[i]
                             .as_any()
                             .downcast_ref::<UInt64Array>()
-                            .map(|a| a.value(0));
+                            .map(|a| a.value(ord_pos));
                         if let Some(term_ord) = term_ord {
                             let col = self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
                             match col {
@@ -1829,18 +1845,25 @@ impl SegmentedTopKState {
                     ScalarValue::try_from_array(&arr, *row_idx)
                         .unwrap_or(ScalarValue::Utf8View(None))
                 };
-                values.push(value);
+                column_values[i].push(value);
             }
 
-            // Convert ScalarValues to arrays and then to an OwnedRow.
-            let arrays: Vec<ArrayRef> = values
-                .iter()
-                .map(|v| v.to_array())
-                .collect::<Result<Vec<_>>>()?;
-            let converted = mat_row_converter
-                .convert_columns(&arrays)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-            mat_rows.push((idx, converted.row(0).owned()));
+            if ord_info.is_some() {
+                ord_pos += 1;
+            }
+        }
+
+        // Batch convert all candidates in a single convert_columns call.
+        let arrays: Vec<ArrayRef> = column_values
+            .into_iter()
+            .map(|col| ScalarValue::iter_to_array(col))
+            .collect::<Result<Vec<_>>>()?;
+        let converted = mat_row_converter
+            .convert_columns(&arrays)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
+        for idx in 0..candidates.len() {
+            mat_rows.push((idx, converted.row(idx).owned()));
         }
 
         // 4. Sort candidates by materialized OwnedRow and take top K.

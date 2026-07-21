@@ -2901,6 +2901,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
+name = "dst"
+version = "0.24.3"
+dependencies = [
+ "antithesis_sdk",
+ "serde_json",
+]
+
+[[package]]
 name = "duckdb"
 version = "1.10502.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5679,7 +5687,6 @@ dependencies = [
 name = "pg_search"
 version = "0.24.3"
 dependencies = [
- "antithesis_sdk",
  "anyhow",
  "arrow-array 59.1.0",
  "arrow-buffer 59.1.0",
@@ -5696,6 +5703,7 @@ dependencies = [
  "datafusion-distributed",
  "datafusion-proto",
  "decimal-bytes",
+ "dst",
  "env_logger 0.11.10",
  "futures",
  "half 2.7.1",
@@ -7874,7 +7882,6 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "stressgres"
 version = "0.24.3"
 dependencies = [
- "antithesis_sdk",
  "anyhow",
  "clap",
  "csv",
@@ -7882,6 +7889,7 @@ dependencies = [
  "cursive-multiplex",
  "cursive_core",
  "cursive_table_view",
+ "dst",
  "human_bytes",
  "humantime",
  "image 0.25.9",

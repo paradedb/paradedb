@@ -651,6 +651,13 @@ struct DistinctDeferrable {
 ///
 /// Only string/bytes fast fields qualify (the doc-address decode is a fast-field lookup), and
 /// only when nothing else forces early materialization (join keys, join-level filters).
+///
+/// This is a hand-rolled functional dependency: the key determines the row, so the dependent
+/// columns can leave the group keys. DataFusion's `FunctionalDependencies` can't do it here
+/// even with key constraints declared: its group-key shrink only drops columns the parent
+/// doesn't require, and a DISTINCT's parent requires every column. The missing piece is
+/// re-deriving the dropped values above the aggregate, which is what the doc-address lookup
+/// supplies.
 fn distinct_deferrable_columns(
     join_clause: &JoinCSClause,
     source: &JoinSource,

@@ -92,14 +92,17 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
-      # The `dst` crate compiles to nothing unless its `enabled` feature is set, so the runs
-      # above only ever see one of its two halves. This has to be a separate invocation:
-      # feature unification means passing `--features dst/enabled` to the workspace runs would
-      # swap the shipping configuration for the instrumented one rather than cover both.
-      - name: Lint dst With the SDK Enabled
+      # `dst` compiles to entirely different code depending on its `enabled` feature, and the
+      # workspace runs above only ever see one resolution of it: stressgres pins `enabled`, so
+      # feature unification turns it on for the whole workspace. That leaves the feature-off
+      # half — which is what pg_search actually ships — unlinted. The crate is small, so just
+      # lint both configurations explicitly rather than depend on how the workspace unifies.
+      - name: Lint dst in Both Feature Configurations
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: |
+          cargo clippy --package dst --all-targets -- -D warnings --no-deps
+          cargo doc --package dst --no-deps --document-private-items
           cargo clippy --package dst --all-targets --features enabled -- -D warnings --no-deps
           cargo doc --package dst --features enabled --no-deps --document-private-items
 

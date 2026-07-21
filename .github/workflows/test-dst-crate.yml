@@ -1,11 +1,11 @@
 # workflows/test-dst-crate.yml
 #
-# Test dst crate
-# Lint and test the deterministic simulation testing crate in both of its feature
+# Test DST Crate
+# Lint and test the DST (deterministic simulation testing) crate in both of its feature
 # configurations. The crate has no Postgres dependency, so it needs none of the pgrx setup
 # that the pg_search workflows carry.
 
-name: Test dst Crate
+name: Test DST Crate
 
 on:
   pull_request:
@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   test-dst-crate:
-    name: Lint & Test dst Crate
+    name: Lint & Test DST Crate
     runs-on: ubuntu-latest
 
     steps:
@@ -40,10 +40,10 @@ jobs:
           cache: false
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
-      # With `enabled` off the crate compiles to nothing — this is what pg_search ships, and
-      # it is the half the workspace-wide runs in lint-rust never see, since stressgres pins
-      # `enabled` and feature unification turns it on for the whole workspace.
-      - name: Lint & Test dst (SDK disabled)
+      # With `enabled` off the DST crate compiles to nothing — this is what pg_search ships,
+      # and it is the half the workspace-wide runs in lint-rust never see, since stressgres
+      # pins `enabled` and feature unification turns it on for the whole workspace.
+      - name: Lint & Test DST (SDK disabled)
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: |
@@ -53,7 +53,7 @@ jobs:
 
       # With `enabled` on everything forwards to the SDK. This is the configuration stressgres
       # links unconditionally and the one an Antithesis build of pg_search uses.
-      - name: Lint & Test dst (SDK enabled)
+      - name: Lint & Test DST (SDK enabled)
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: |

@@ -782,6 +782,10 @@ impl ParallelScanState {
 
         #[cfg(not(feature = "pg15"))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
+        // `defer_leader_for_debug` only drives the pg15+ `debug_parallel_query`
+        // deadline retry below; on pg15 that block is compiled out, leaving it unused.
+        #[cfg(feature = "pg15")]
+        let _ = defer_leader_for_debug;
 
         loop {
             let _mutex = self.acquire_mutex();

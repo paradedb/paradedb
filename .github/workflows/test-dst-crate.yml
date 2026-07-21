@@ -11,11 +11,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "dst/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
       - ".github/workflows/test-dst-crate.yml"
+      - "dst/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:

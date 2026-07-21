@@ -9,8 +9,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "**/*.sh"
       - ".github/workflows/lint-bash.yml"
+      - "**/*.sh"
   workflow_dispatch:
 
 concurrency:

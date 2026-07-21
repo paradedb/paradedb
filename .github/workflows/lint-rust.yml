@@ -9,9 +9,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/lint-rust.yml"
       - "**/*.rs"
       - "**/*.toml"
-      - ".github/workflows/lint-rust.yml"
   workflow_dispatch:
 
 concurrency:

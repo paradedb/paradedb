@@ -9,11 +9,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/test-pg_search-schema.yml"
       - ".github/scripts/check_migration_diff.py"
-      - "rust-toolchain.toml"
+      - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:

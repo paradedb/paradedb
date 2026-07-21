@@ -9,8 +9,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/test-paradedb-docs.yml"
       - ".github/scripts/**"
+      - ".github/workflows/test-paradedb-docs.yml"
       - "docs/**"
   workflow_dispatch:
 

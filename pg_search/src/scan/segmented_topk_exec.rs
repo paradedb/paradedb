@@ -1773,38 +1773,29 @@ impl SegmentedTopKState {
 
         let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
         // Batch-convert all ordinal survivors' rows in a single convert_rows call.
-        let ord_entries: Vec<(usize, SegmentOrdinal, OwnedRow)> = candidates
+        // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
+        let ord_rows: Vec<_> = candidates
             .iter()
-            .enumerate()
-            .filter_map(|(cand_idx, (_, _, ord_info))| {
-                ord_info
-                    .as_ref()
-                    .map(|(seg_ord, row_val)| (cand_idx, *seg_ord, row_val.clone()))
-            })
+            .filter_map(|(_, _, ord_info)| ord_info.as_ref().map(|(_, row_val)| row_val.row()))
             .collect();
 
-        let all_ord_arrays: Option<Vec<ArrayRef>> = if !ord_entries.is_empty() {
+        let all_ord_arrays: Option<Vec<ArrayRef>> = if !ord_rows.is_empty() {
             Some(
                 self.row_converter
-                    .convert_rows(ord_entries.iter().map(|(_, _, r)| r.row()))
+                    .convert_rows(ord_rows)
                     .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
             )
         } else {
             None
         };
 
-        // Map candidate index → position in ord_entries for O(1) lookup.
-        let mut cand_ord_idx: Vec<Option<usize>> = vec![None; candidates.len()];
-        for (ord_pos, (cand_idx, _, _)) in ord_entries.iter().enumerate() {
-            cand_ord_idx[*cand_idx] = Some(ord_pos);
-        }
-
         // Build column-major ScalarValues and batch-convert all candidates at once.
         let mut column_values: Vec<Vec<ScalarValue>> = (0..self.sort_exprs.len())
             .map(|_| Vec::with_capacity(candidates.len()))
             .collect();
 
-        for (idx, (batch_idx, row_idx, ord_info)) in candidates.iter().enumerate() {
+        let mut ord_pos = 0;
+        for (batch_idx, row_idx, ord_info) in candidates.iter() {
             for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
                 let is_deferred = sort_expr
                     .expr
@@ -1817,9 +1808,7 @@ impl SegmentedTopKState {
 
                 let value = if let Some(deferred) = is_deferred {
                     if let Some((seg_ord, _)) = ord_info {
-                        // Ordinal survivor: use pre-batched arrays.
-                        let ord_pos = cand_ord_idx[idx]
-                            .expect("ordinal survivor candidate not in cand_ord_idx");
+                        // Ordinal survivor: use pre-batched arrays with our sequential counter.
                         let arrays = all_ord_arrays
                             .as_ref()
                             .expect("all_ord_arrays is None for ordinal survivor");
@@ -1865,12 +1854,16 @@ impl SegmentedTopKState {
                 };
                 column_values[i].push(value);
             }
+
+            if ord_info.is_some() {
+                ord_pos += 1;
+            }
         }
 
         // Batch convert all candidates in a single convert_columns call.
         let arrays: Vec<ArrayRef> = column_values
             .into_iter()
-            .map(|col| ScalarValue::iter_to_array(col.into_iter()))
+            .map(|col| ScalarValue::iter_to_array(col))
             .collect::<Result<Vec<_>>>()?;
         let converted = mat_row_converter
             .convert_columns(&arrays)

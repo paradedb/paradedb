@@ -1474,14 +1474,9 @@ impl SearchQueryInput {
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
-                // Is initialized in `begin_custom_scan` during execution. During plain EXPLAIN,
-                // render_df_physical_plan supplies a temporary standalone ExprContext instead.
-                // Return Err here as a defensive backstop for any caller that omits one.
-                let Some(expr_context) = expr_context else {
-                    return Err(anyhow::anyhow!(
-                        "An expression context must be provided when heap filtering."
-                    ));
-                };
+                // Is initialized in `begin_custom_scan` if `has_heap_filters`.
+                let expr_context = expr_context
+                    .expect("An expression context must be provided when heap filtering.");
 
                 // Create combined query with heap field filters
                 let query = Box::new(heap_field_filter::HeapFilterQuery::new(

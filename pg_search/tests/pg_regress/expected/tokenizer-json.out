@@ -249,18 +249,9 @@ SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on index_json
-   Table: index_json
-   Index: idxindex_json
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"j.key1","phrase":"value1","slop":null}}}}
-(6 rows)
-
+ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  should be able to open the search index reader: field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
+ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                        QUERY PLAN                                       
 ----------------------------------------------------------------------------------------

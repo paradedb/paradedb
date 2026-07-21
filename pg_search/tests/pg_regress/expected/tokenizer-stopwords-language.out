@@ -6,11 +6,8 @@ CREATE TABLE stopwords_lang(
 CREATE INDEX idxstopwords_lang ON stopwords_lang USING bm25 (id, (t::pdb.simple('stopwords_language=english'))) WITH (key_field = 'id');
 INSERT INTO stopwords_lang (t) VALUES ('how many of these are in the stopwords list?');
 SELECT * FROM stopwords_lang WHERE t @@@ 'are in the';  -- runtime tantivy error
-ERROR:  should be able to open the search index reader: could not parse query string 't:(are in the)'.
+ERROR:  could not parse query string 't:(are in the)'.
            make sure to use column:term pairs, and to capitalize AND/OR.
-
-Caused by:
-    Invalid query: Only excluding terms given
 SELECT * FROM stopwords_lang WHERE t @@@ 'are in the stopwords list?'; -- finds the row
  id |                      t                       
 ----+----------------------------------------------

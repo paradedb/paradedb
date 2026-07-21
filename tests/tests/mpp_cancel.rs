@@ -58,7 +58,6 @@ ANALYZE mpp_sig_pages;
 // Forces the join through MPP and zeroes the parallel costs so the planner always picks it.
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_mpp TO on;
 SET paradedb.mpp_worker_count TO 4;
 SET max_parallel_workers_per_gather TO 4;
 SET max_parallel_workers TO 8;

@@ -165,8 +165,11 @@ pub fn max_useful_workers(
     nworkers
 }
 
-pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
-    (*pscan_state).checkout_segment()
+pub unsafe fn checkout_segment_for_source(
+    pscan_state: *mut ParallelScanState,
+    source_idx: usize,
+) -> Option<SegmentId> {
+    (*pscan_state).checkout_segment_for_source(source_idx)
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {

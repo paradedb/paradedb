@@ -385,7 +385,6 @@ impl SegmentedTopKExec {
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
-        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -418,13 +417,7 @@ impl SegmentedTopKExec {
                             first.canonical.indexrelid
                         ))
                     })?;
-                    let mvcc = rebuild_mvcc(
-                        LookupRebuildContext {
-                            non_partitioning_segment_ids,
-                            parallel_state,
-                        },
-                        first_rb,
-                    )?;
+                    let mvcc = rebuild_mvcc(LookupRebuildContext { parallel_state }, first_rb)?;
                     open_rebuilt_ffhelper(first.canonical.indexrelid, &entries, mvcc)?
                 }
             },

@@ -350,8 +350,7 @@ impl ColumnarExecState {
             recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
                 parallel_state: state.parallel_state,
                 source_idx: None,
-                // Basescan is never an MPP source, so there is no non-partitioning position.
-                non_partitioning_index: None,
+                // Basescan is never an MPP source.
                 planner_estimated_rows: 0,
                 scanner_config,
             },

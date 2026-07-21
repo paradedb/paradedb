@@ -161,7 +161,6 @@ impl TantivyLookupExec {
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
         mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
-        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
         let deferred_fields: Vec<PhysicalDeferredField> =
@@ -173,10 +172,7 @@ impl TantivyLookupExec {
         rebuild_missing_ffhelpers(
             &deferred_fields,
             &mut ffhelpers,
-            LookupRebuildContext {
-                non_partitioning_segment_ids,
-                parallel_state,
-            },
+            LookupRebuildContext { parallel_state },
         )?;
         Ok(Arc::new(TantivyLookupExec::new(
             input,
@@ -189,11 +185,7 @@ impl TantivyLookupExec {
 /// Which snapshot a rebuilt fast-field reader reads. Both decode paths reach the same segments
 /// in the same order the addresses were packed against, they just resolve the set differently.
 #[derive(Clone, Copy)]
-pub(crate) struct LookupRebuildContext<'a> {
-    /// MPP worker path: a non-partitioning source reads its replicated canonical segment set;
-    /// the partitioning source reads the full list in the worker's `ParallelScanState` (the
-    /// same view its scan's reader opens, so segment ordering matches the packed addresses).
-    pub non_partitioning_segment_ids: &'a [crate::api::HashSet<tantivy::index::SegmentId>],
+pub(crate) struct LookupRebuildContext {
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
 }
 
@@ -202,30 +194,17 @@ pub(crate) fn rebuild_mvcc(
     context: LookupRebuildContext,
     rebuild: &crate::scan::late_materialization::DeferredLookupRebuild,
 ) -> Result<MvccSatisfies> {
-    match rebuild.np_source_idx {
-        Some(np_source_idx) => {
-            let ids = context
-                .non_partitioning_segment_ids
-                .get(np_source_idx)
-                .cloned()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "ffhelper rebuild: missing canonical segment ids for \
-                         non-partitioning source {np_source_idx}"
-                    ))
-                })?;
-            Ok(MvccSatisfies::ParallelWorker(ids))
-        }
-        None => {
-            let ps = context.parallel_state.ok_or_else(|| {
-                DataFusionError::Internal(
-                    "ffhelper rebuild: partitioning source needs a ParallelScanState".into(),
-                )
-            })?;
-            Ok(MvccSatisfies::ParallelWorker(unsafe {
-                crate::postgres::customscan::parallel::list_segment_ids(ps)
-            }))
-        }
+    if let Some(source_idx) = rebuild.source_idx {
+        let ps = context.parallel_state.ok_or_else(|| {
+            DataFusionError::Internal(
+                "ffhelper rebuild: parallel scan requires a ParallelScanState".into(),
+            )
+        })?;
+        Ok(MvccSatisfies::ParallelWorker(unsafe {
+            (*ps).segment_ids_for_source(source_idx)
+        }))
+    } else {
+        Ok(MvccSatisfies::Snapshot)
     }
 }
 

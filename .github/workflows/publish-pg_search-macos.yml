@@ -69,6 +69,10 @@ jobs:
       # which sigstore/cosign-installer needs and which isn't on PATH by default.
       - name: Install Dependencies
         run: |
+          # The GitHub macOS runner images ship with aws/tap pre-tapped but untrusted,
+          # which makes Homebrew print a "taps are not trusted" warning on every brew
+          # invocation. We don't use it, so untap it to keep the logs clean.
+          brew untap aws/tap || true
           brew reinstall git
           brew install gettext
           echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"

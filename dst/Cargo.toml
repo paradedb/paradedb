@@ -1,6 +1,6 @@
 [package]
 name = "dst"
-description = "Deterministic-simulation-testing (Antithesis) hooks shared by pg_search and stressgres"
+description = "Deterministic simulation testing hooks shared by pg_search and Stressgres"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

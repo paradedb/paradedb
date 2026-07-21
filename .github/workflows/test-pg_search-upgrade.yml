@@ -9,8 +9,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/test-pg_search-upgrade.yml"
       - ".github/actions/test-pg_search-upgrade/**"
+      - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tests/**"

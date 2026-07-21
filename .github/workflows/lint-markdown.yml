@@ -9,9 +9,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/lint-markdown.yml"
       - "**/*.md"
       - "**/*.mdx"
-      - ".github/workflows/lint-markdown.yml"
   workflow_dispatch:
 
 concurrency:

@@ -1035,6 +1035,7 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector.clone())
                     .with_adaptive_params(AdaptiveProbeParams {
                         epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                        overfetch_margin: crate::gucs::vector_cluster_overfetch(),
                         max_probe_count: crate::gucs::vector_cluster_max_probes(),
                         ..Default::default()
                     });

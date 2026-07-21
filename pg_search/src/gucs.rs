@@ -256,6 +256,18 @@ pub fn vector_cluster_probe_epsilon() -> f32 {
     VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
 }
 
+/// Additive over-fetch margin for the IVF candidate floor: the probe
+/// loop gathers at least `top_n + overfetch` surviving candidates before
+/// the epsilon gate may stop it. Additive (not `m × top_n`) so the
+/// over-probe cushion is a fixed number of clusters regardless of K,
+/// keeping the epsilon needed for a target recall stable across top-K.
+/// Default 32, PROVISIONAL.
+static VECTOR_CLUSTER_OVERFETCH: GucSetting<i32> = GucSetting::<i32>::new(32);
+
+pub fn vector_cluster_overfetch() -> usize {
+    VECTOR_CLUSTER_OVERFETCH.get().max(0) as usize
+}
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -481,6 +493,17 @@ pub fn init() {
         &VECTOR_CLUSTER_PROBE_EPSILON,
         0.0,
         100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_cluster_overfetch",
+        c"Additive over-fetch margin for the IVF candidate floor on vector ORDER BY queries",
+        c"The probe loop gathers at least `top_n + overfetch` surviving (post-filter) candidates before the epsilon gate may stop it, guaranteeing >= top_n results and a recall cushion. Additive rather than a multiple of top_n so the over-probe cushion stays a fixed number of clusters as K grows, keeping the epsilon needed for a target recall stable across top-K. Higher values improve recall (especially under selective filters) at the cost of latency.",
+        &VECTOR_CLUSTER_OVERFETCH,
+        0,
+        65536,
         GucContext::Userset,
         GucFlags::default(),
     );

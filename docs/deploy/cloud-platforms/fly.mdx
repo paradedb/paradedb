@@ -1,0 +1,105 @@
+---
+title: Fly.io
+description: Deploy ParadeDB on Fly.io using Fly Launch and the official Docker image
+canonical: https://docs.paradedb.com/deploy/cloud-platforms/fly
+---
+
+<Note>
+  Cloud platform deployments run ParadeDB Community, which do not support high
+  availability or read replicas. If these matter to you, we recommend [ParadeDB
+  Enterprise](/deploy/enterprise) deployed via
+  [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
+</Note>
+
+[Fly.io](https://fly.io) deploys Docker containers as apps close to your users. This guide uses
+[Fly Launch](https://fly.io/docs/reference/fly-launch/) — Fly's scaffolding flow — to deploy the
+official `paradedb/paradedb` Docker image with a persistent volume.
+
+## Prerequisites
+
+1. A Fly.io account.
+2. The [Fly.io CLI (`flyctl`)](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated with `fly auth login`.
+
+## Launch the App
+
+From an empty directory, run `fly launch` and point it at the ParadeDB Docker image. `--no-deploy` lets you edit
+the generated `fly.toml` before the first deploy so you can add the persistent volume and secrets:
+
+```bash
+fly launch \
+  --image paradedb/paradedb:latest \
+  --internal-port 5432 \
+  --no-deploy
+```
+
+`fly launch` prompts for an app name and a primary region, then writes a `fly.toml` in the current directory.
+See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available `paradedb/paradedb` tags —
+pin one (for example `paradedb/paradedb:0.24.3-pg18`) instead of `latest` for reproducible deploys.
+
+## Create a Persistent Volume
+
+ParadeDB stores its data under `/var/lib/postgresql`. Create a Fly.io volume in the same region as the app so
+data survives restarts and redeploys:
+
+```bash
+fly volumes create paradedb_data --region <REGION> --size 10
+```
+
+Replace `<REGION>` with the region you chose during `fly launch` (see [Fly.io regions](https://fly.io/docs/reference/regions/)).
+
+## Set the Postgres Password
+
+Set the `POSTGRES_PASSWORD` as a Fly.io secret so it is never committed to `fly.toml`:
+
+```bash
+fly secrets set POSTGRES_PASSWORD=<YOUR_STRONG_PASSWORD>
+```
+
+## Finish `fly.toml`
+
+Open the generated `fly.toml` and add the `[env]` block (Postgres init variables) and a `[[mounts]]` block that
+attaches the volume you just created. The `[build]`, `[[services]]`, and `[[vm]]` sections were written by
+`fly launch`:
+
+```toml
+[env]
+  POSTGRES_USER = "postgres"
+  POSTGRES_DB = "paradedb"
+  PGDATA = "/var/lib/postgresql/data"
+
+[[mounts]]
+  source = "paradedb_data"
+  destination = "/var/lib/postgresql"
+```
+
+## Deploy
+
+```bash
+fly deploy
+```
+
+Fly.io pulls the ParadeDB image, mounts the volume, and starts the machine.
+
+## Connect to ParadeDB
+
+Fly.io machines are only reachable via WireGuard or Fly's proxy by default. Use `fly proxy` to open a local tunnel:
+
+```bash
+fly proxy 5432
+```
+
+Then connect with `psql` from another terminal:
+
+```bash
+psql "postgres://postgres:<YOUR_STRONG_PASSWORD>@localhost:5432/paradedb"
+```
+
+To expose ParadeDB publicly, allocate a dedicated IPv4 address (the `[[services]]` block from `fly launch` already
+accepts external traffic on port 5432):
+
+```bash
+fly ips allocate-v4
+```
+
+Public exposure means anyone on the internet can attempt to reach port 5432 — make sure `POSTGRES_PASSWORD` is
+strong and consider adding [Fly.io's per-service firewall rules](https://fly.io/docs/networking/services/).

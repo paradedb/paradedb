@@ -60,13 +60,12 @@ LIMIT 2;
          Output: id, ((metadata ->> 'rating'::text))::integer
          Table: json_topk_test
          Index: json_topk_idx
-         Worker Selection: Cost model
          Exec Method: TopKScanExecState
          Scores: false
             TopK Order By: rating desc nulls last
             TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 -- Verify results
 SELECT id, (metadata->>'rating')::int AS rating

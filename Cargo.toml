@@ -31,7 +31,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "b4a8ae8004ef532edfb047b50792687c4241372b", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "bc19e4cb01a2788fd74e36f2e736d1be1f0d6ddd", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -44,7 +44,7 @@ pgrx-tests = "=0.19.0"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "b4a8ae8004ef532edfb047b50792687c4241372b" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "bc19e4cb01a2788fd74e36f2e736d1be1f0d6ddd" }
 
 # datafusion 54.0.0 + the null-aware anti-join dynamic-filter fix (paradedb/datafusion PR #2, backported
 # to a 54.0.0 branch so it stays on arrow 58). Patch every datafusion crate, or two `datafusion-common`

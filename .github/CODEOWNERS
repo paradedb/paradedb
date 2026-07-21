@@ -5,6 +5,7 @@
 /benchmarks/                                                   @paradedb/pg_search-maintainers
 /docker/                                                       @paradedb/pg_search-maintainers
 /docs/                                                         @paradedb/pg_search-maintainers
+/dst/                                                          @paradedb/pg_search-maintainers
 /pg_search/                                                    @paradedb/pg_search-maintainers
 /scripts/                                                      @paradedb/pg_search-maintainers
 /stressgres/                                                   @paradedb/pg_search-maintainers

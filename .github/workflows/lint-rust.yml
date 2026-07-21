@@ -92,6 +92,16 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
+      # The `dst` crate compiles to nothing unless its `enabled` feature is set, so the
+      # workspace-wide runs above never see the code that links the SDK. Lint that half too.
+      - name: Run Clippy (dst, enabled)
+        run: cargo clippy --package dst --all-targets --features enabled -- -D warnings --no-deps
+
+      - name: Run Rustdoc (dst, enabled)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --package dst --features enabled --no-deps --document-private-items
+
       - name: Install cargo-machete
         run: cargo install -j $(nproc) cargo-machete --locked --debug
 

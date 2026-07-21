@@ -13,8 +13,10 @@ concurrency:
   group: publish-stressgres-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# id-token: write lets cosign sign and attest the image keylessly via Sigstore.
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish-stressgres-docker:
@@ -54,6 +56,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Build and Push Docker Image to Docker Hub
+        id: build-push
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -63,6 +66,45 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise.
+      - name: Sign Image with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign --recursive "index.docker.io/paradedb/stressgres@${{ steps.build-push.outputs.digest }}"
+
+      # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
+      - name: Attest Build Provenance with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          IMAGE_REF: index.docker.io/paradedb/stressgres@${{ steps.build-push.outputs.digest }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.workflow_ref }}
+          SOURCE_URI: git+${{ github.server_url }}/${{ github.repository }}@${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg builder "$BUILDER_ID" \
+            --arg uri "$SOURCE_URI" \
+            --arg sha "$SOURCE_SHA" \
+            --arg runid "$RUN_ID" \
+            '{
+              builder: { id: $builder },
+              buildType: "https://github.com/actions/runner",
+              invocation: {
+                configSource: {
+                  uri: $uri,
+                  digest: { sha1: $sha },
+                  entryPoint: ".github/workflows/publish-stressgres-docker.yml"
+                }
+              },
+              metadata: { buildInvocationId: $runid },
+              materials: [{ uri: $uri, digest: { sha1: $sha } }]
+            }' > provenance.json
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
       - name: Notify Slack on Failure
         if: failure()

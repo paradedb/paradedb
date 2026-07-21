@@ -229,7 +229,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=601, output_bytes=9.4 KB, output_batches=1, rows_pruned=0, rows_scanned=601]
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
 (18 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;
@@ -310,9 +310,9 @@ LIMIT 10;
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=43.0 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=601, output_bytes=9.4 KB, output_batches=1, rows_pruned=0, rows_scanned=601]
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=301, output_bytes=4.7 KB, output_batches=1, rows_pruned=0, rows_scanned=301]
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.09 K, output_bytes=17.1 KB, output_batches=1, rows_pruned=6, rows_scanned=1.10 K]
 (21 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;

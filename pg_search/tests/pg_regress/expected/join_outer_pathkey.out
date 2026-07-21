@@ -74,7 +74,6 @@ AND p.id NOT IN (
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                                   QUERY PLAN                                                                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -112,7 +111,6 @@ AND p.id NOT IN (
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id  |  description  
 -----+---------------
  100 | A fine widget
@@ -202,7 +200,6 @@ WHERE p.id IN (
 AND p.description @@@ 'widget OR gizmo'
 ORDER BY p.id
 LIMIT 5;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -232,7 +229,6 @@ WHERE p.id IN (
 AND p.description @@@ 'widget OR gizmo'
 ORDER BY p.id
 LIMIT 5;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id  |  description  
 -----+---------------
  100 | A fine widget

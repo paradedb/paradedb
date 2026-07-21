@@ -64,7 +64,7 @@ ANALYZE mpp_files;
 ANALYZE mpp_pages;
 
 -- =====================================================================
--- Pass 1: serial baseline (enable_mpp = off)
+-- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
 --
 -- Scalar COUNT(*) without GROUP BY: PG's planner doesn't parallelize
 -- scalar aggregates on small datasets (no natural Partial+Final split
@@ -72,7 +72,7 @@ ANALYZE mpp_pages;
 -- result is the correctness baseline for pass 2.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
@@ -100,7 +100,7 @@ ORDER BY f.title
 LIMIT 5;
 
 -- =====================================================================
--- Pass 2: MPP path (enable_mpp = on). Same queries, same expected results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same queries, same expected results.
 --
 -- The scalar COUNT(*) case still falls back to serial — PG won't
 -- parallelize scalar aggregates at this scale even with the parallel-
@@ -109,7 +109,7 @@ LIMIT 5;
 -- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)

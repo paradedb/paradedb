@@ -40,7 +40,7 @@ use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_distributed::TaskKey;
 
 use crate::gucs::{
-    enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
+    mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
 use crate::postgres::ParallelScanState;
@@ -52,12 +52,11 @@ use crate::postgres::ParallelScanState;
 /// have a queue for the second partition.
 const MIN_TOTAL_WORKER_COUNT: i32 = 3;
 
-/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >=
-/// MIN_TOTAL_WORKER_COUNT`. Customscan path-builders gate `parallel_workers` on this.
-/// Also requires that the system has enough `max_parallel_workers` and
-/// `max_parallel_workers_per_gather` to launch the requested number of producers.
+/// True iff `paradedb.mpp_worker_count >= MIN_TOTAL_WORKER_COUNT` and the system has
+/// enough `max_parallel_workers` and `max_parallel_workers_per_gather` to launch
+/// the requested number of producers. Customscan path-builders gate `parallel_workers` on this.
 pub fn mpp_is_active() -> bool {
-    let active = enable_mpp() && gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT;
+    let active = gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT;
     if !active {
         return false;
     }
@@ -158,7 +157,7 @@ pub struct MppLeaderState {
     /// success path.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// The shared `ParallelScanState` the leader populated in DSM. The leader runs the top fragment
-    /// itself, and a non-partitioning source can land there (e.g. the SEMI/ANTI broadcast strategy),
+    /// itself, and a scan source can land there (e.g. under MPP's broadcast or shuffle strategy),
     /// where the scan claims per-source segments against this state just like a worker. The leader
     /// stashes it on its custom state so the codec installs it into those providers. Null until
     /// `launch` sets it.

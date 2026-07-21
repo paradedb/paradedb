@@ -282,7 +282,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}, metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=6.00 K, output_bytes=140.6 KB, output_batches=1, rows_pruned=0, rows_scanned=6.00 K]
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.92 K, output_bytes=115.3 KB, output_batches=2, rows_pruned=5.08 K, rows_scanned=10.00 K]
 (15 rows)
 
 SELECT ts_outer.id, ts_multi.id
@@ -439,11 +439,11 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@1 < 10], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=10]
            :     VisibilityFilterExec: tables=[ts_multi, ts_outer], metrics=[output_rows=4.00 K, output_bytes=190.5 KB, output_batches=1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4.00 K, output_bytes=256.0 KB, output_batches=1, build_mem_used=800.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=40, input_batches=1, input_rows=4.00 K, avg_fanout=100% (4.00 K/4.00 K), probe_hit_rate=100% (4.00 K/4.00 K)]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1], metrics=[output_rows=4.00 K, output_bytes=256.0 KB, output_batches=1, array_map_created_count=1, build_input_batches=1, build_input_rows=40, input_batches=2, input_rows=4.00 K, build_mem_used=800, avg_fanout=100% (4.00 K/4.00 K), probe_hit_rate=100% (4.00 K/4.00 K)]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":40}}}]}}, metrics=[output_rows=40, output_bytes=640.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=4.00 K, output_bytes=93.8 KB, output_batches=1, rows_pruned=0, rows_scanned=4.00 K]
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.00 K, output_bytes=93.8 KB, output_batches=2, rows_pruned=6.00 K, rows_scanned=10.00 K]
 (15 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;

@@ -52,7 +52,7 @@ LIMIT 10;
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all", metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=linear, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
 (16 rows)
 
 SELECT t1.val, t2.val
@@ -139,7 +139,7 @@ LIMIT 10;
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.50 K, output_bytes=23.4 KB, output_batches=1, rows_pruned=0, rows_scanned=1.50 K]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[output_rows=2.00 K, output_bytes=31.2 KB, output_batches=1, rows_pruned=0, rows_scanned=2.00 K]
 (16 rows)
 
 SELECT t1.val, t2.val

@@ -910,9 +910,8 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -946,7 +945,6 @@ WHERE j.id @@@ paradedb.parse('title:developer')
   )
 ORDER BY p.id
 LIMIT 50;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id | name  
 ----+-------
   1 | Alice
@@ -1047,7 +1045,6 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                              
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1085,7 +1082,6 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  profile_id 
 ------------
           1

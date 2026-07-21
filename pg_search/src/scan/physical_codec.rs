@@ -67,9 +67,6 @@ pub struct PgSearchPhysicalExtensionCodec {
     /// Worker's `ParallelScanState`, used to resolve the scan's MVCC segment set and to claim
     /// segments at runtime.
     parallel_state: Option<*mut ParallelScanState>,
-    /// Canonical segment ID sets for non-partitioning sources, indexed by position in the
-    /// non-partitioning source list. Mirrors the logical codec.
-    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     /// Canonical segment ID sets for all join sources, indexed by `plan_position`. Injected into
     /// `SearchPredicateUDF` on decode, same as the logical codec.
     index_segment_ids: Vec<HashSet<SegmentId>>,
@@ -99,7 +96,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             TAG_PG_SEARCH_SCAN => PgSearchScanPlan::decode_for_dispatch(
                 payload,
                 self.parallel_state,
-                &self.non_partitioning_segment_ids,
                 self.expr_context,
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
@@ -124,7 +120,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     payload,
                     input,
                     ffhelpers,
-                    &self.non_partitioning_segment_ids,
                     self.parallel_state,
                 )
             }
@@ -140,7 +135,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     ffhelpers,
                     resolvers,
                     ctx,
-                    &self.non_partitioning_segment_ids,
                     &self.index_segment_ids,
                     self.parallel_state,
                 )
@@ -404,13 +398,11 @@ pub fn deserialize_physical_plan_with_runtime(
     bytes: &[u8],
     ctx: &TaskContext,
     parallel_state: Option<*mut ParallelScanState>,
-    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
-        non_partitioning_segment_ids,
         index_segment_ids,
         expr_context,
     });

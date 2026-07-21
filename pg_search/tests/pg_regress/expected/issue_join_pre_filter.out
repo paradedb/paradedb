@@ -36,27 +36,25 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                                 QUERY PLAN                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Gather Merge
-         Workers Planned: 1
-         ->  Parallel Custom Scan (ParadeDB Join Scan)
-               Relation Tree: u INNER p
-               Join Cond: p.owner_user_id = u.id
-               Limit: 10
-               Order By: pdb.score() desc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[score@1 DESC], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[u, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@1)], projection=[ctid_0@3, score@0, ctid_1@1]
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
-(18 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: u INNER p
+         Join Cond: p.owner_user_id = u.id
+         Limit: 10
+         Order By: pdb.score() desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[score@1 DESC], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[u, p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+           :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
 
 -- Reproduce the bug
 SELECT
@@ -72,18 +70,18 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-  id   |        title         |   relevance   
--------+----------------------+---------------
-  2000 | how using get create | 0.00019978978
-  3000 | how using get create | 0.00019978978
-  4000 | how using get create | 0.00019978978
-  5000 | how using get create | 0.00019978978
-  6000 | how using get create | 0.00019978978
-  7000 | how using get create | 0.00019978978
-  8000 | how using get create | 0.00019978978
-  9000 | how using get create | 0.00019978978
- 10000 | how using get create | 0.00019978978
-  1000 | how using get create | 0.00019978978
+  id  |        title         |   relevance   
+------+----------------------+---------------
+    1 | how using get create | 0.00019978978
+    2 | how using get create | 0.00019978978
+    3 | how using get create | 0.00019978978
+    4 | how using get create | 0.00019978978
+    5 | how using get create | 0.00019978978
+    6 | how using get create | 0.00019978978
+    7 | how using get create | 0.00019978978
+    8 | how using get create | 0.00019978978
+    9 | how using get create | 0.00019978978
+ 1000 | how using get create | 0.00019978978
 (10 rows)
 
 -- Teardown

@@ -22,11 +22,3 @@ JOIN comments c ON p.id = c.post_id
 WHERE p.body ||| 'code'
 GROUP BY p.title
 ORDER BY p.title;
-
--- MPP aggregate scan (GroupByAggOnBinaryJoin shape; default mpp_worker_count=4)
-SET statement_timeout TO '600s'; SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT p.title, COUNT(*), SUM(c.score)
-FROM stackoverflow_posts p
-JOIN comments c ON p.id = c.post_id
-WHERE p.body ||| 'code'
-GROUP BY p.title
-ORDER BY p.title;

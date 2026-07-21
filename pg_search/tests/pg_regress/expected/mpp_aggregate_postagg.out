@@ -9,8 +9,8 @@
 --   - HAVING + ORDER BY + LIMIT
 --   - aggregation over a HashJoin with broadcast build subtree
 --
--- Each pass runs the same query in serial mode (enable_mpp=off) then MPP
--- mode (enable_mpp=on). The expected.out compares them byte-for-byte, so
+-- Each pass runs the same query in serial mode (max_parallel_workers_per_gather=0) then MPP
+-- mode (max_parallel_workers_per_gather=4). The expected.out compares them byte-for-byte, so
 -- any MPP-vs-serial divergence shows up as a regression.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -62,7 +62,7 @@ ANALYZE mpp_postagg_pages;
 -- =====================================================================
 -- Scenario 1: GROUP BY one key with multiple aggregates.
 -- =====================================================================
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.category,
        COUNT(*) AS row_count,
        SUM(p.size_bytes) AS total_bytes,
@@ -81,7 +81,7 @@ ORDER BY f.category;
  cat-4    |       200 |      395076 |         3 |      4083
 (5 rows)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category,
        COUNT(*) AS row_count,
@@ -148,7 +148,7 @@ ORDER BY f.category;
 -- =====================================================================
 -- Scenario 2: GROUP BY multiple keys.
 -- =====================================================================
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -169,7 +169,7 @@ LIMIT 10;
  cat-0    | file-140 |              5
 (10 rows)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -237,7 +237,7 @@ LIMIT 10;
 -- =====================================================================
 -- Scenario 3: HAVING + ORDER BY + LIMIT — late aggregate filtering.
 -- =====================================================================
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -252,7 +252,7 @@ LIMIT 3;
  cat-3    | 200 | 395772
 (3 rows)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -316,11 +316,11 @@ LIMIT 3;
 
 -- =====================================================================
 -- Scenario 4: Scalar COUNT(*) — falls back to serial (planner caps the
--- task_count for scalar aggregates), but confirms MPP-on doesn't break
--- the serial fallback path. The EXPLAIN under enable_mpp=on documents
+-- task_count for scalar aggregates), but confirms parallel-on doesn't break
+-- the serial fallback path. The EXPLAIN under parallel-on documents
 -- that the scalar shape does not produce a multi-stage MPP plan.
 -- =====================================================================
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
@@ -329,7 +329,7 @@ WHERE f.content @@@ 'Section';
   1000
 (1 row)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -393,7 +393,7 @@ WITH (
     text_fields='{"name": {"fast": true}, "description": {}}'
 );
 ANALYZE mpp_postagg_categories;
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f
 JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -410,7 +410,7 @@ ORDER BY c.name;
  cat-4 |       200 |      395076
 (5 rows)
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f

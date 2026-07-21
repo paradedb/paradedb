@@ -184,6 +184,11 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
           cargo pgrx init --pg${{ env.PG_VERSION }}=$PG_CONFIG_PATH
 
+      # The only place `dst` runs with its `enabled` feature on — everywhere else the crate
+      # compiles to nothing, so this is the one run that exercises the SDK-backed path.
+      - name: Run dst Unit Tests
+        run: RUST_BACKTRACE=1 cargo test --package dst --features enabled
+
       # The Antithesis build adds a sancov pass (-Cpasses=sancov-module) for coverage instrumentation.
       # ThinLTO drops Rust symbols under that pass, producing a pg_search.so that fails to dlopen, so disable LTO here.
       - name: Package pg_search Extension with pgrx

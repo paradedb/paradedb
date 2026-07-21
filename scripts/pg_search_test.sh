@@ -20,4 +20,4 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "${SCRIPT_DIR}/pg_search_common.sh" "$@"
 
 # Run the test suite with backtrace enabled and pass any non-build arguments
-RUST_BACKTRACE=1 cargo test --package tests --package tokenizers --package dst "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+RUST_BACKTRACE=1 cargo test --package tests --package tokenizers "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"

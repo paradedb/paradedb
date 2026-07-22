@@ -87,7 +87,12 @@ pub struct ScannerConfig {
 }
 
 /// State for a scan partition.
+///
 /// Uses `Arc<FFHelper>` so the same FFHelper can be shared across multiple partitions.
+///
+/// Lazily claims segments from `ParallelScanState`. `source_idx = Some(i)` claims from source
+/// `i`'s pool for MPP sources; `None` uses the single-counter `checkout_segment_for_source(0)`
+/// for basescan and non-MPP parallel joins.
 pub struct ScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
     pub source_idx: Option<usize>,
@@ -96,6 +101,26 @@ pub struct ScanState {
     pub ffhelper: Arc<FFHelper>,
     pub visibility: Box<VisibilityChecker>,
     pub reader: SearchIndexReader,
+}
+
+/// Execution state for a single `PgSearchScanPlan`.
+///
+/// In multi-partition distributed execution, operators like `NestedLoopJoinExec` or `datafusion-distributed`'s
+/// worker fragment runner execute all partitions of a plan concurrently across tasks.
+/// For plans initialized with a `ScanState`, the first `execute()` takes the reader. If the plan has multiple
+/// partitions (`partition_count > 1`), subsequent calls up to `partition_count` yield an empty stream (`Empty`).
+/// Once all budget calls are spent, the state transitions to `Consumed`.
+#[derive(Default)]
+pub enum ExecutionState {
+    /// Initialized with state, ready to execute.
+    Ready(Box<UnsafeSendSync<ScanState>>),
+    /// Reader has been taken, but remaining partitions may still be executed (yielding empty streams).
+    Empty { remaining_partitions: usize },
+    /// Initialized without state (used in tests or empty placeholders).
+    #[default]
+    Uninitialized,
+    /// All expected partition executions have completed; subsequent execute() calls return an error.
+    Consumed,
 }
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
@@ -112,7 +137,7 @@ pub struct PgSearchScanPlan {
     /// requirements. This is safe because we are running in a single-threaded
     /// environment (Postgres), which also means that the duration for which we
     /// hold this Mutex does not impact performance.
-    state: Mutex<Option<UnsafeSendSync<ScanState>>>,
+    state: Mutex<ExecutionState>,
     /// Estimated row count, computed once at construction.
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the state has been consumed.
@@ -215,8 +240,13 @@ impl PgSearchScanPlan {
             })
             .unwrap_or(0);
 
+        let exec_state = match state {
+            Some(s) => ExecutionState::Ready(Box::new(UnsafeSendSync(s))),
+            None => ExecutionState::Uninitialized,
+        };
+
         Self {
-            state: Mutex::new(state.map(UnsafeSendSync)),
+            state: Mutex::new(exec_state),
             planner_estimated_rows,
             segment_count,
             properties,
@@ -256,9 +286,14 @@ impl PgSearchScanPlan {
             .state
             .lock()
             .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
-        let state = state_guard.as_ref().ok_or_else(|| {
-            DataFusionError::Internal("PgSearchScan dispatch: partition already consumed".into())
-        })?;
+        let state = match &*state_guard {
+            ExecutionState::Ready(state) => state,
+            _ => {
+                return Err(DataFusionError::Internal(
+                    "PgSearchScan dispatch: partition already consumed or uninitialized".into(),
+                ));
+            }
+        };
         let (source_idx, planner_estimated_rows, scanner_config) = (
             state.0.source_idx,
             state.0.planner_estimated_rows,
@@ -465,7 +500,7 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "PgSearchScan: segments={}", self.segment_count,)?;
+        write!(f, "PgSearchScan: segments={}", self.segment_count)?;
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
@@ -555,16 +590,49 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
-        // Handle the case where no state was provided (test cases) or already consumed.
-        let state_opt = state_guard.take();
-        if state_opt.is_none() {
-            let schema = self.properties.eq_properties.schema().clone();
-            return Ok(Box::pin(unsafe {
-                UnsafeSendStream::new(futures::stream::empty(), schema)
-            }));
-        }
+        // Handle state transitions for execution.
+        let partition_count = self.properties.output_partitioning().partition_count();
+        let exec_state = std::mem::take(&mut *state_guard);
+        let scan_state = match exec_state {
+            ExecutionState::Ready(state) => {
+                if partition_count > 1 {
+                    *state_guard = ExecutionState::Empty {
+                        remaining_partitions: partition_count - 1,
+                    };
+                } else {
+                    *state_guard = ExecutionState::Consumed;
+                }
+                state.0
+            }
+            ExecutionState::Empty {
+                remaining_partitions,
+            } => {
+                if remaining_partitions > 1 {
+                    *state_guard = ExecutionState::Empty {
+                        remaining_partitions: remaining_partitions - 1,
+                    };
+                } else {
+                    *state_guard = ExecutionState::Consumed;
+                }
+                let schema = self.properties.eq_properties.schema().clone();
+                return Ok(Box::pin(unsafe {
+                    UnsafeSendStream::new(futures::stream::empty(), schema)
+                }));
+            }
+            ExecutionState::Uninitialized => {
+                let schema = self.properties.eq_properties.schema().clone();
+                return Ok(Box::pin(unsafe {
+                    UnsafeSendStream::new(futures::stream::empty(), schema)
+                }));
+            }
+            ExecutionState::Consumed => {
+                return Err(DataFusionError::Internal(
+                    "PgSearchScanPlan partition executed more than once".into(),
+                ));
+            }
+        };
 
-        let UnsafeSendSync(ScanState {
+        let ScanState {
             parallel_state,
             source_idx,
             planner_estimated_rows,
@@ -572,7 +640,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             ffhelper,
             mut visibility,
             mut reader,
-        }) = state_opt.unwrap();
+        } = scan_state;
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -703,21 +771,16 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            let state = self
-                .state
-                .lock()
-                .map_err(|e| {
-                    DataFusionError::Internal(format!(
-                        "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
-                    ))
-                })?
-                .take()
-                .map(|s| s.0);
+            let state = std::mem::take(&mut *self.state.lock().map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
+                ))
+            })?);
 
             let resolved_query = self.resolved_query.clone();
 
             let new_plan = Arc::new(PgSearchScanPlan {
-                state: Mutex::new(state.map(UnsafeSendSync)),
+                state: Mutex::new(state),
                 planner_estimated_rows: self.planner_estimated_rows,
                 segment_count: self.segment_count,
                 properties: self.properties.clone(),

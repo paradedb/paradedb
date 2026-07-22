@@ -386,8 +386,15 @@ jobs:
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
         run: |
           set -euo pipefail
+          # TEMP: the current cohere snapshot bakes pg_search 0.25.1, which is newer than the
+          # 0.25.0 the runner builds from this branch, so `ALTER EXTENSION ... UPDATE` cannot
+          # downgrade. Recreate the extension at the built version instead — the snapshot is
+          # heap-only at this point (no bm25 index yet), so the DROP is safe and this guarantees
+          # the built pg_search's vector opclasses. Revert to the ALTER once the snapshots are
+          # regenerated at 0.25.0.
+          # psql "postgresql://localhost:288${{ env.pg_version }}/postgres" -c "ALTER EXTENSION pg_search UPDATE;"
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER EXTENSION pg_search UPDATE;"
+            -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search;"
 
       - name: Benchmark "cohere" Dataset (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -465,8 +472,15 @@ jobs:
         if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
         run: |
           set -euo pipefail
+          # TEMP: the current cohere snapshot bakes pg_search 0.25.1, which is newer than the
+          # 0.25.0 the runner builds from this branch, so `ALTER EXTENSION ... UPDATE` cannot
+          # downgrade. Recreate the extension at the built version instead — the snapshot is
+          # heap-only at this point (no bm25 index yet), so the DROP is safe and this guarantees
+          # the built pg_search's vector opclasses. Revert to the ALTER once the snapshots are
+          # regenerated at 0.25.0.
+          # psql "postgresql://localhost:288${{ env.pg_version }}/postgres" -c "ALTER EXTENSION pg_search UPDATE;"
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER EXTENSION pg_search UPDATE;"
+            -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search;"
 
       - name: Benchmark "cohere" Dataset (10M)
         if: ${{ env.RUN_COHERE == 'true' }}

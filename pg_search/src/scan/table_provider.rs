@@ -406,6 +406,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
         ffhelper: Arc<FFHelper>,
+        partition_count: usize,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let deferred = self.deferred_fields();
         let deferred_ctid_plan_position = self.deferred_ctid_plan_position();
@@ -428,6 +429,7 @@ impl PgSearchTableProvider {
             ffhelper_arg,
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
+            partition_count,
         )))
     }
 
@@ -456,6 +458,7 @@ impl PgSearchTableProvider {
         resolved_query: SearchQueryInput,
         planner_estimated_rows: u64,
         source_idx: Option<usize>,
+        partition_count: usize,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -474,7 +477,13 @@ impl PgSearchTableProvider {
             reader: reader.clone(),
         };
 
-        self.create_scan(Some(state), schema, resolved_query, ffhelper)
+        self.create_scan(
+            Some(state),
+            schema,
+            resolved_query,
+            ffhelper,
+            partition_count,
+        )
     }
 }
 
@@ -617,6 +626,14 @@ impl PgSearchTableProvider {
 
         let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
 
+        let segment_count = reader.segment_readers().len();
+        let target_partitions = _state.config().target_partitions();
+        // The output partitions of the scan equal min(segments, target_partitions).
+        // This instructs datafusion-distributed to split the query into exactly this many
+        // tasks for this leaf, routing multi-segment tables to parallel workers while keeping
+        // small 1-segment tables serial.
+        let partition_count = std::cmp::min(segment_count, target_partitions).max(1);
+
         self.create_lazy_scan(
             parallel_state,
             &reader,
@@ -628,6 +645,7 @@ impl PgSearchTableProvider {
             query,
             total_estimated_rows,
             self.source_idx,
+            partition_count,
         )
     }
 }

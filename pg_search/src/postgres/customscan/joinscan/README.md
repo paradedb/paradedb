@@ -15,6 +15,8 @@ ProjectionExec
         PgSearchScan (files)          ← lazy scan, deferred columns, receives dynamic filters
 ```
 
+When parallel execution is enabled in PostgreSQL, JoinScan exclusively relies on Massively Parallel Processing (MPP) via `datafusion-distributed` to parallelize queries. DataFusion's in-process multithreading is completely bypassed because PostgreSQL has already launched independent parallel worker processes. Instead, the above physical plan is intercepted by the `DistributedPlanner` and sliced into network stages (`DistributedExec`), mapping distributed tasks 1:1 with PostgreSQL workers.
+
 [`SegmentedTopKExec`][topk-exec] publishes dynamic filter thresholds that are pushed down through the join to the probe-side scan, pruning rows at the scanner level. It also performs the final materialized sort and LIMIT, so `TantivyLookupExec` only decodes K rows (not K×segments).
 
 ## How It Works
@@ -40,6 +42,8 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 2. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 3. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
 
+If `max_parallel_workers_per_gather > 0` and PostgreSQL has planned parallel execution, `DistributedPlanner` converts the finalized physical plan into an MPP execution tree (`DistributedExec`), slicing it into isolated tasks.
+
 ### 4. Deferred Columns
 
 String columns are emitted as a [2-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
@@ -55,6 +59,16 @@ There are two primary pruning mechanisms for dynamic filters that are pushed dow
 ### 6. Execution Result
 
 After all input is consumed, `SegmentedTopKExec` materializes sort column values, performs the final sort, and emits exactly K rows. `TantivyLookupExec` decodes deferred strings for those K rows only. JoinScanState extracts CTIDs and fetches heap tuples — the only point where the PostgreSQL heap is accessed.
+
+### 7. MPP Execution and Parallelism
+
+JoinScan does not use DataFusion's standard in-process multithreading. Since PostgreSQL already coordinates execution across independent backend processes via the `Gather` node, relying on thread-level parallelism inside a Postgres worker would result in `Workers * Threads` explosions.
+
+Instead, MPP via `datafusion-distributed` is our **only** mechanism for parallelizing joins. We map PostgreSQL parallel workers to distributed tasks based on segment count:
+
+1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`.
+2. **Task Estimation**: During MPP planning, [`PgSearchScanTaskEstimator`](../mpp/task_estimator.rs) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
+3. **Execution Routing**: This elegantly routes large multi-segment tables to scale out efficiently across all available PostgreSQL parallel workers without artificial `RepartitionExec` boundaries. Conversely, tables with a single segment evaluate to exactly 1 task; `datafusion-distributed` detects the absence of parallel work, avoids MPP planning overhead entirely, and falls back to running the query via local serial execution on a single worker (safely bypassing unnecessary network stage boundaries).
 
 ## Key Files
 

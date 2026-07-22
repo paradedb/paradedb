@@ -174,6 +174,8 @@ impl PgSearchScanPlan {
     /// * `resolved_query` - The filter-combined, param-solved query the readers were opened
     ///   with. Used for EXPLAIN and shipped on dispatch.
     /// * `sort_order` - Optional sort order declaration for equivalence properties
+    /// * `partition_count` - Number of distributed tasks/partitions this scan natively supports
+    ///   (usually `min(segments, target_partitions)`).
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: Option<ScanState>,
@@ -184,19 +186,19 @@ impl PgSearchScanPlan {
         ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
         deferred_ctid_plan_position: Option<usize>,
+        partition_count: usize,
     ) -> Self {
         let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
         if needs_ffhelper && ffhelper.is_none() {
             panic!("deferred lookup/visibility requires an FFHelper, but ffhelper is None");
         }
-        // Ensure we always return exactly one partition to satisfy DataFusion distribution
-        // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
+        // Output partitioning tells DataFusion-Distributed how many tasks this leaf can naturally split into.
         // If state is None, execute() will return an EmptyStream for this single partition.
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
-            Partitioning::UnknownPartitioning(1),
+            Partitioning::UnknownPartitioning(partition_count),
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
@@ -282,6 +284,7 @@ impl PgSearchScanPlan {
             batch_size_hint: scanner_config.batch_size_hint,
             source_idx,
             planner_estimated_rows,
+            partition_count: self.properties.output_partitioning().partition_count(),
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -382,6 +385,7 @@ impl PgSearchScanPlan {
             ffhelper_arg,
             descriptor.indexrelid,
             deferred_ctid_plan_position,
+            descriptor.partition_count,
         )))
     }
 }
@@ -406,6 +410,7 @@ struct ScanDispatchDescriptor {
     /// single-counter checkout (basescan and non-MPP parallel joins). All-sources position.
     source_idx: Option<usize>,
     planner_estimated_rows: u64,
+    partition_count: usize,
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.
@@ -842,6 +847,7 @@ mod tests {
             None,
             0,
             Some(1),
+            1,
         );
     }
 
@@ -856,6 +862,7 @@ mod tests {
             None,
             0,
             None,
+            1,
         );
     }
 }

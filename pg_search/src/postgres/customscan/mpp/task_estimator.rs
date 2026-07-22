@@ -15,103 +15,55 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Delta from upstream: caps `BroadcastExec` subtrees at `task_count = 1`.
-//!
-//! Upstream DF-D's default estimator returns `Desired(n_workers)` for memory leaves, so a
-//! `NetworkBroadcastExec` built over the canonical-replica all-gather step would get
-//! `input_task_count = n_workers`. Every producer task would re-emit the full build side and the
-//! consumer's `select_all` would over-count by `n_workers`. This estimator caps the build subtree
-//! at one task, so the wire-layer `FragmentRouting::Broadcast` only ever sees `task_idx == 0`.
-//!
-//! Registered first in the DF-D `CombinedTaskEstimator` chain, which returns the first `Some(_)`.
-//! Returns `None` for everything that isn't a `BroadcastExec`, so the default leaf estimator
-//! handles the fallthrough.
-
 use std::sync::Arc;
 
 use datafusion::config::ConfigOptions;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{BroadcastExec, TaskEstimation, TaskEstimator};
+use datafusion_distributed::{TaskEstimation, TaskEstimator};
 
-/// Caps every [`BroadcastExec`] subtree at `task_count = 1`.
+/// `PgSearchScanTaskEstimator` intercepts `PgSearchScanPlan` during distributed planning
+/// and requests a number of tasks equal to `partition_count = min(segment_count, target_partitions)`.
 ///
-/// Targeting `BroadcastExec` directly (instead of marking the leaf) survives DataFusion's
-/// HashJoin build/probe reordering: the `BroadcastExec` always sits above whichever side ends up
-/// as the build, so the cap lands at the right point regardless.
+/// This correctly maps PostgreSQL parallel workers to tasks, ensuring that tables with 1 segment
+/// do not force MPP planning and fall back to local serial execution, whereas large tables
+/// scale out efficiently across all available Postgres parallel workers.
 #[derive(Debug)]
-pub struct BroadcastBuildSideOneTaskEstimator;
+pub(crate) struct PgSearchScanTaskEstimator;
 
-impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
+impl TaskEstimator for PgSearchScanTaskEstimator {
     fn task_estimation(
         &self,
         plan: &Arc<dyn ExecutionPlan>,
-        _: &ConfigOptions,
+        _cfg: &ConfigOptions,
     ) -> Option<TaskEstimation> {
-        if plan.is::<BroadcastExec>() {
-            Some(TaskEstimation::maximum(1))
-        } else {
-            None
+        if plan.name() != "PgSearchScan" {
+            return None;
         }
+
+        let partition_count = plan.properties().output_partitioning().partition_count();
+
+        Some(TaskEstimation::desired(partition_count))
     }
 
     fn scale_up_leaf_node(
         &self,
-        _: &Arc<dyn ExecutionPlan>,
-        _: usize,
-        _: &ConfigOptions,
+        plan: &Arc<dyn ExecutionPlan>,
+        task_count: usize,
+        _cfg: &ConfigOptions,
     ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
-        Ok(None)
-    }
-}
+        if plan.name() != "PgSearchScan" {
+            return Ok(None);
+        }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion::physical_plan::empty::EmptyExec;
+        // `Arc::clone` works perfectly here. Each worker decodes its own copy
+        // anyway, and `execute()` dynamically claims segments from the
+        // parallel state so there is no conflict.
+        let variants = (0..task_count)
+            .map(|_| Arc::clone(plan))
+            .collect::<Vec<_>>();
 
-    fn cfg() -> ConfigOptions {
-        ConfigOptions::default()
-    }
-
-    fn empty_leaf() -> Arc<dyn ExecutionPlan> {
-        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
-        Arc::new(EmptyExec::new(schema))
-    }
-
-    #[test]
-    fn broadcast_exec_is_capped_at_one() {
-        let inner = empty_leaf();
-        let broadcast: Arc<dyn ExecutionPlan> = Arc::new(BroadcastExec::new(inner, 1));
-        let est = BroadcastBuildSideOneTaskEstimator;
-        let out = est.task_estimation(&broadcast, &cfg()).expect("estimation");
-        // `TaskEstimation::maximum(1)` is what propagates up to
-        // `NetworkBroadcastExec::input_task_count = 1`.
-        assert_eq!(out.task_count.as_usize(), 1);
-        // `task_count` is `Maximum`, not `Desired`. Confirm the variant so an accidental
-        // refactor that promotes it to `Desired` (and therefore loses the "hard cap" behaviour)
-        // breaks the test.
-        assert!(matches!(
-            out.task_count,
-            datafusion_distributed::TaskCountAnnotation::Maximum(1)
-        ));
-    }
-
-    #[test]
-    fn non_broadcast_node_falls_through() {
-        let plan = empty_leaf();
-        let est = BroadcastBuildSideOneTaskEstimator;
-        assert!(est.task_estimation(&plan, &cfg()).is_none());
-    }
-
-    #[test]
-    fn scale_up_is_a_no_op() {
-        let inner = empty_leaf();
-        let broadcast: Arc<dyn ExecutionPlan> = Arc::new(BroadcastExec::new(inner, 1));
-        let est = BroadcastBuildSideOneTaskEstimator;
-        assert!(est
-            .scale_up_leaf_node(&broadcast, 7, &cfg())
-            .unwrap()
-            .is_none());
+        Ok(Some(Arc::new(
+            datafusion_distributed::DistributedLeafExec::try_new(Arc::clone(plan), variants)?,
+        )))
     }
 }

@@ -80,7 +80,7 @@ WHERE vector_format = 'ivf';
 -- the distance gate cannot stop early. The twice-merged replicated index
 -- must return every distinct row exactly once — replicas deduped, nothing
 -- lost, nothing doubled.
-SET paradedb.vector_cluster_max_probes = 65536;
+SET paradedb.vector_cluster_max_probe_fraction = 1.0;
 SELECT count(*) AS returned, count(DISTINCT id) AS distinct_ids
 FROM (
     SELECT id
@@ -89,6 +89,6 @@ FROM (
     ORDER BY vec <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'
     LIMIT 60000
 ) q;
-RESET paradedb.vector_cluster_max_probes;
+RESET paradedb.vector_cluster_max_probe_fraction;
 
 DROP TABLE remerge;

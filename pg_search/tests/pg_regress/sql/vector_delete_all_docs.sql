@@ -66,7 +66,7 @@ FROM paradedb.index_info('delvec_idx');
 
 -- Vector ORDER BY on the emptied field: no error, zero results. Exhaustive
 -- probing, so the empty result cannot be an artifact of probe pruning.
-SET paradedb.vector_cluster_max_probes = 65536;
+SET paradedb.vector_cluster_max_probe_fraction = 1.0;
 SELECT count(*) AS vector_results
 FROM (
     SELECT id
@@ -75,7 +75,7 @@ FROM (
     ORDER BY vec <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'
     LIMIT 50000
 ) q;
-RESET paradedb.vector_cluster_max_probes;
+RESET paradedb.vector_cluster_max_probe_fraction;
 
 -- The index still serves non-vector queries over the surviving docs:
 -- 12000 original vector-less rows plus 6000 fresh ones.

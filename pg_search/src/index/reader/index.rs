@@ -67,24 +67,20 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 /// visible). The summed line preserves the per-segment invariant
 /// `visited == pruned_filter + pruned_dead + pruned_seen + scored`.
 ///
-/// Line-grammar note: tantivy's `ProbeStats::centroids_ranked` is surfaced
-/// as `router_scored=`, NOT `centroids_ranked=`. The field's semantics
-/// changed when query routing moved to beam search over the persisted RNG
-/// (it now counts centroids the router actually scored — the beam's visit
-/// set, or all of them on the linear fallback — where it used to always be
-/// the full centroid count). The rename makes stale downstream parsers
-/// break loudly instead of silently misreading the new number.
+/// Line-grammar note: tantivy's `ProbeStats::routing.visited_count` is
+/// surfaced as `router_scored=`. It counts centroids the router actually
+/// scored — the beam's visit set when routing went through the persisted
+/// RNG, or all of them on the linear fallback.
 ///
 /// The two trailing compound tokens reuse `termination=`'s `key:N` comma
 /// style and sit at the end of the line so prefix parsers are unaffected.
 /// They always print, zeros included — the grammar is constant-shape.
-/// `postings=` buckets probed IVF clusters by posting-fetch mode (one bulk
-/// whole-cluster read / one stride-sized read per surviving row / skipped
-/// outright when the gate pre-pass leaves zero survivors); the three
-/// buckets partition the probed clusters, so `bulk + row + skipped ==
-/// clusters_probed` — asserted in the unit tests. `exact=` counts
-/// flat-path ranged reads (`chunked` covered a run of ≥2 surviving rows,
-/// `single` exactly one). At 0% selectivity the empty-filter short-circuit
+/// `postings=` buckets probed IVF clusters by posting-fetch outcome (one
+/// stride-sized read per surviving row / skipped outright when the gate
+/// pre-pass leaves zero survivors); the two buckets partition the probed
+/// clusters, so `row + skipped == clusters_probed` — asserted in the unit
+/// tests. `exact_rows=` counts flat-path stride-sized row reads (one per
+/// survivor scored). At 0% selectivity the empty-filter short-circuit
 /// returns before the probe loop, so every posting counter is zero by
 /// design and the partition invariant holds trivially (0 == 0 clusters
 /// probed).
@@ -98,8 +94,8 @@ fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
     let mut router_scored = 0usize;
     let mut min_candidates = 0usize;
     let (mut ceiling, mut gate, mut exhausted) = (0usize, 0usize, 0usize);
-    let (mut postings_bulk, mut postings_row, mut postings_skipped) = (0usize, 0usize, 0usize);
-    let (mut exact_chunked, mut exact_single) = (0usize, 0usize);
+    let (mut postings_row, mut postings_skipped) = (0usize, 0usize);
+    let mut exact_rows = 0usize;
     for s in per_segment {
         visited += s.vectors_visited;
         pruned_filter += s.pruned_filter;
@@ -107,26 +103,24 @@ fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
         pruned_seen += s.pruned_seen;
         scored += s.candidates_scored;
         clusters_probed += s.probed_clusters.len();
-        router_scored += s.centroids_ranked;
+        router_scored += s.routing.visited_count;
         min_candidates += s.min_candidates;
         match s.termination {
             ProbeTermination::Ceiling => ceiling += 1,
             ProbeTermination::Gate => gate += 1,
             ProbeTermination::Exhausted => exhausted += 1,
         }
-        postings_bulk += s.postings_bulk;
         postings_row += s.postings_row;
         postings_skipped += s.postings_skipped;
-        exact_chunked += s.exact_reads_chunked;
-        exact_single += s.exact_reads_single;
+        exact_rows += s.exact_rows_read;
     }
     format!(
         "probe_stats visited={visited} pruned_filter={pruned_filter} \
          pruned_dead={pruned_dead} pruned_seen={pruned_seen} scored={scored} \
          clusters_probed={clusters_probed} router_scored={router_scored} \
          min_candidates={min_candidates} termination=ceiling:{ceiling},gate:{gate},exhausted:{exhausted} \
-         postings=bulk:{postings_bulk},row:{postings_row},skipped:{postings_skipped} \
-         exact=chunked:{exact_chunked},single:{exact_single}"
+         postings=row:{postings_row},skipped:{postings_skipped} \
+         exact_rows={exact_rows}"
     )
 }
 
@@ -1035,7 +1029,7 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector.clone())
                     .with_adaptive_params(AdaptiveProbeParams {
                         epsilon: crate::gucs::vector_cluster_probe_epsilon(),
-                        max_probe_count: crate::gucs::vector_cluster_max_probes(),
+                        max_probe_fraction: crate::gucs::vector_cluster_max_probe_fraction(),
                         ..Default::default()
                     });
                 // Probe-stats NOTICE (GUC `paradedb.log_probe_stats`, off by
@@ -1708,10 +1702,11 @@ impl ErasedFeatures {
 #[cfg(test)]
 mod probe_stats_tests {
     use super::*;
+    use tantivy::vector::IvfSearchMetrics;
 
     fn seg(termination: ProbeTermination) -> ProbeStats {
         // visited (25) == pruned_filter(5) + pruned_dead(2) + pruned_seen(8) + scored(10);
-        // postings bulk(1) + row(1) + skipped(1) == probed_clusters.len() (3).
+        // postings row(2) + skipped(1) == probed_clusters.len() (3).
         ProbeStats {
             probed_clusters: vec![0, 1, 2],
             candidates_scored: 10,
@@ -1719,12 +1714,13 @@ mod probe_stats_tests {
             pruned_filter: 5,
             pruned_dead: 2,
             pruned_seen: 8,
-            postings_bulk: 1,
-            postings_row: 1,
+            postings_row: 2,
             postings_skipped: 1,
-            exact_reads_chunked: 0,
-            exact_reads_single: 0,
-            centroids_ranked: 9,
+            exact_rows_read: 0,
+            routing: IvfSearchMetrics {
+                visited_count: 9,
+                graph: None,
+            },
             min_candidates: 16,
             termination,
         }
@@ -1755,7 +1751,7 @@ mod probe_stats_tests {
         // holds (visited 50 == 10+4+16+20).
         assert_eq!(
             line,
-            "probe_stats visited=50 pruned_filter=10 pruned_dead=4 pruned_seen=16 scored=20 clusters_probed=6 router_scored=18 min_candidates=32 termination=ceiling:1,gate:1,exhausted:0 postings=bulk:2,row:2,skipped:2 exact=chunked:0,single:0"
+            "probe_stats visited=50 pruned_filter=10 pruned_dead=4 pruned_seen=16 scored=20 clusters_probed=6 router_scored=18 min_candidates=32 termination=ceiling:1,gate:1,exhausted:0 postings=row:4,skipped:2 exact_rows=0"
         );
     }
 
@@ -1763,34 +1759,31 @@ mod probe_stats_tests {
     fn format_probe_stats_empty() {
         assert_eq!(
             format_probe_stats(&[]),
-            "probe_stats visited=0 pruned_filter=0 pruned_dead=0 pruned_seen=0 scored=0 clusters_probed=0 router_scored=0 min_candidates=0 termination=ceiling:0,gate:0,exhausted:0 postings=bulk:0,row:0,skipped:0 exact=chunked:0,single:0"
+            "probe_stats visited=0 pruned_filter=0 pruned_dead=0 pruned_seen=0 scored=0 clusters_probed=0 router_scored=0 min_candidates=0 termination=ceiling:0,gate:0,exhausted:0 postings=row:0,skipped:0 exact_rows=0"
         );
     }
 
-    /// The two trailing compound tokens: `postings=` sums the per-segment
-    /// fetch-mode buckets, `exact=` the flat-path read shapes, and the
-    /// emitted line upholds the partition invariant `bulk + row + skipped
-    /// == clusters_probed` (an IVF segment's buckets partition its probed
-    /// clusters; a flat segment contributes zero to all four sides).
+    /// The two trailing tokens: `postings=` sums the per-segment fetch-mode
+    /// buckets, `exact_rows=` the flat-path row reads, and the emitted line
+    /// upholds the partition invariant `row + skipped == clusters_probed`
+    /// (an IVF segment's buckets partition its probed clusters; a flat
+    /// segment contributes zero to all three sides).
     #[test]
     fn format_probe_stats_posting_and_exact_tokens() {
         // One IVF-shaped segment plus one flat-shaped segment, which fills
-        // only the `exact_reads_*` counters (everything else default).
+        // only the `exact_rows_read` counter (everything else default).
         let flat = ProbeStats {
-            exact_reads_chunked: 4,
-            exact_reads_single: 7,
+            exact_rows_read: 11,
             ..Default::default()
         };
         let line = format_probe_stats(&[seg(ProbeTermination::Exhausted), flat]);
         assert_eq!(
             line,
-            "probe_stats visited=25 pruned_filter=5 pruned_dead=2 pruned_seen=8 scored=10 clusters_probed=3 router_scored=9 min_candidates=16 termination=ceiling:0,gate:0,exhausted:2 postings=bulk:1,row:1,skipped:1 exact=chunked:4,single:7"
+            "probe_stats visited=25 pruned_filter=5 pruned_dead=2 pruned_seen=8 scored=10 clusters_probed=3 router_scored=9 min_candidates=16 termination=ceiling:0,gate:0,exhausted:2 postings=row:2,skipped:1 exact_rows=11"
         );
         // Partition invariant, parsed back off the emitted line.
         assert_eq!(
-            compound(&line, "postings", "bulk")
-                + compound(&line, "postings", "row")
-                + compound(&line, "postings", "skipped"),
+            compound(&line, "postings", "row") + compound(&line, "postings", "skipped"),
             scalar(&line, "clusters_probed"),
         );
     }

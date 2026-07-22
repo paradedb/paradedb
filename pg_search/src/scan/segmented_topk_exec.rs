@@ -1785,9 +1785,10 @@ impl SegmentedTopKState {
         // A NULL must match the RowConverter's declared field type:
         // convert_columns rejects mismatches ("expected BinaryView got
         // Utf8View" for a NULL in a Bytes-backed NUMERIC sort key).
-        let typed_null = |sort_col: &SortCol| -> ScalarValue {
+        // If the type is unsupported, propagate the error rather than
+        // substituting a differently typed NULL that the converter will reject.
+        let typed_null = |sort_col: &SortCol| -> Result<ScalarValue> {
             ScalarValue::try_from(&sort_col.mat_type)
-                .unwrap_or_else(|_| ScalarValue::Utf8View(None))
         };
 
         // Batch-convert all ordinal survivors' rows in a single convert_rows call.
@@ -1834,7 +1835,7 @@ impl SegmentedTopKState {
                                     if str_col.ord_to_str(term_ord, &mut s).is_ok() {
                                         ScalarValue::Utf8View(Some(s))
                                     } else {
-                                        ScalarValue::Utf8View(None)
+                                        typed_null(sort_col)?
                                     }
                                 }
                                 FFType::Bytes(bytes_col) => {
@@ -1842,25 +1843,24 @@ impl SegmentedTopKState {
                                     if bytes_col.ord_to_bytes(term_ord, &mut b).is_ok() {
                                         ScalarValue::BinaryView(Some(b))
                                     } else {
-                                        ScalarValue::BinaryView(None)
+                                        typed_null(sort_col)?
                                     }
                                 }
-                                _ => typed_null(sort_col),
+                                _ => typed_null(sort_col)?,
                             }
                         } else {
-                            typed_null(sort_col)
+                            typed_null(sort_col)?
                         }
                     } else {
                         // NULL ordinal pass-through
-                        typed_null(sort_col)
+                        typed_null(sort_col)?
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.
                     let batch = &self.batches[*batch_idx];
                     let val = sort_col.expr.expr.evaluate(batch)?;
                     let arr = val.into_array(batch.num_rows())?;
-                    ScalarValue::try_from_array(&arr, *row_idx)
-                        .unwrap_or_else(|_| typed_null(sort_col))
+                    ScalarValue::try_from_array(&arr, *row_idx).or_else(|_| typed_null(sort_col))?
                 };
                 column_values[i].push(value);
             }

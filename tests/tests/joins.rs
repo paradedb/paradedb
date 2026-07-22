@@ -476,7 +476,8 @@ fn joinscan_nullable_numeric_composite_sort_matches_fallback(
     .execute(&mut conn);
 
     // NULLS LAST exercises the crash; NULLS FIRST forces NULL rows into the
-    // final top-k so their sort placement is verified too.
+    // final top-k so their sort placement is verified too. The p.id tiebreaker
+    // is evaluated directly; a deferred second key remains uncovered until #5567.
     for nulls in ["LAST", "FIRST"] {
         let query = format!(
             r#"

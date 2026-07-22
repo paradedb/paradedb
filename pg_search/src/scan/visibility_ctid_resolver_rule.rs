@@ -145,7 +145,7 @@ mod tests {
     fn matches_scan_by_deferred_ctid_plan_position() {
         let ffhelper = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
-            vec![],
+            None,
             empty_schema(),
             SearchQueryInput::All,
             None,
@@ -191,7 +191,7 @@ mod tests {
         let schema = sort_schema();
         let ffhelper = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
-            vec![],
+            None,
             schema.clone(),
             SearchQueryInput::All,
             None,
@@ -225,7 +225,7 @@ mod tests {
         let schema = sort_schema();
         let ffhelper_scan = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
-            vec![],
+            None,
             schema.clone(),
             SearchQueryInput::All,
             None,

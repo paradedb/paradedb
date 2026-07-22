@@ -86,29 +86,17 @@ pub struct ScannerConfig {
     pub score_needed: bool,
 }
 
-/// Recipe for a scan partition.
-pub enum ScanRecipe {
-    /// Lazy claim from `ParallelScanState`. `source_idx = Some(i)` claims from source
-    /// `i`'s pool for MPP sources; `None` uses the single-counter `checkout_segment_for_source(0)`
-    /// for basescan and non-MPP parallel joins.
-    Lazy {
-        parallel_state: Option<*mut ParallelScanState>,
-        source_idx: Option<usize>,
-        planner_estimated_rows: u64,
-        scanner_config: ScannerConfig,
-    },
-}
-
 /// State for a scan partition.
 /// Uses `Arc<FFHelper>` so the same FFHelper can be shared across multiple partitions.
-pub struct ScanPartition {
-    pub recipe: ScanRecipe,
+pub struct ScanState {
+    pub parallel_state: Option<*mut ParallelScanState>,
+    pub source_idx: Option<usize>,
+    pub planner_estimated_rows: u64,
+    pub scanner_config: ScannerConfig,
     pub ffhelper: Arc<FFHelper>,
     pub visibility: Box<VisibilityChecker>,
     pub reader: SearchIndexReader,
 }
-
-pub type ScanState = ScanPartition;
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
@@ -117,18 +105,22 @@ pub type ScanState = ScanPartition;
 /// `ParallelScanState` when running in parallel (load-balancing across workers as they
 /// process data) or chained sequentially when serial.
 pub struct PgSearchScanPlan {
-    /// Segments to scan, indexed by partition.
+    /// State for this single-partition scan.
     ///
-    /// We use a Mutex to allow taking ownership of the scanners during `execute()`.
+    /// We use a Mutex to allow taking ownership of the scanner during `execute()`.
     /// We wrap the state in `UnsafeSendSync` to satisfy `ExecutionPlan`'s `Send` + `Sync`
     /// requirements. This is safe because we are running in a single-threaded
     /// environment (Postgres), which also means that the duration for which we
     /// hold this Mutex does not impact performance.
-    states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
-    /// Estimated row counts for each partition, computed once at construction.
+    state: Mutex<Option<UnsafeSendSync<ScanState>>>,
+    /// Estimated row count, computed once at construction.
     /// Stored separately so `partition_statistics` is deterministic, even after
-    /// the states have been consumed.
-    partition_row_counts: Vec<u64>,
+    /// the state has been consumed.
+    planner_estimated_rows: u64,
+    /// Number of segments this plan will process, derived at construction time
+    /// from ParallelScanState or the reader, and kept around for EXPLAIN after
+    /// the state is consumed.
+    segment_count: usize,
     properties: Arc<PlanProperties>,
     resolved_query: SearchQueryInput,
     /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
@@ -177,14 +169,14 @@ impl PgSearchScanPlan {
     ///
     /// # Arguments
     ///
-    /// * `states` - The list of pre-opened segments (one per partition)
+    /// * `state` - The pre-opened scan state (or None for tests)
     /// * `schema` - Arrow schema for the output
     /// * `resolved_query` - The filter-combined, param-solved query the readers were opened
     ///   with. Used for EXPLAIN and shipped on dispatch.
     /// * `sort_order` - Optional sort order declaration for equivalence properties
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        states: Vec<ScanState>,
+        state: Option<ScanState>,
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
         sort_order: Option<&SortByField>,
@@ -197,42 +189,34 @@ impl PgSearchScanPlan {
         if needs_ffhelper && ffhelper.is_none() {
             panic!("deferred lookup/visibility requires an FFHelper, but ffhelper is None");
         }
-        // Ensure we always return at least one partition to satisfy DataFusion distribution
+        // Ensure we always return exactly one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
-        // If states is empty, execute() will return an EmptyStream for this single partition.
-        let partition_count = states.len().max(1);
+        // If state is None, execute() will return an EmptyStream for this single partition.
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
-            Partitioning::UnknownPartitioning(partition_count),
+            Partitioning::UnknownPartitioning(1),
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
 
-        let partition_row_counts: Vec<u64> = if states.is_empty() {
-            vec![0]
-        } else {
-            states
-                .iter()
-                .map(|s| {
-                    let ScanRecipe::Lazy {
-                        planner_estimated_rows,
-                        ..
-                    } = &s.recipe;
-                    *planner_estimated_rows
-                })
-                .collect()
-        };
-
-        let wrapped_states: Vec<Option<UnsafeSendSync<ScanState>>> = states
-            .into_iter()
-            .map(|s| Some(UnsafeSendSync(s)))
-            .collect();
+        let planner_estimated_rows = state
+            .as_ref()
+            .map(|s| s.planner_estimated_rows)
+            .unwrap_or(0);
+        let segment_count = state
+            .as_ref()
+            .map(|s| match s.parallel_state {
+                Some(ps) => unsafe { (*ps).source_segment_count(s.source_idx.unwrap_or(0)) },
+                None => s.reader.segment_ids().len(),
+            })
+            .unwrap_or(0);
 
         Self {
-            states: Mutex::new(wrapped_states),
-            partition_row_counts,
+            state: Mutex::new(state.map(UnsafeSendSync)),
+            planner_estimated_rows,
+            segment_count,
             properties,
             resolved_query,
             dynamic_filters: Vec::new(),
@@ -266,29 +250,18 @@ impl PgSearchScanPlan {
     /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
-        let states = self
-            .states
+        let state_guard = self
+            .state
             .lock()
-            .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan states: {e}")))?;
-        // The dispatch path only ships the single-partition lazy scan (the MPP natural-shape
-        // leaf). Sorted/eager multi-partition scans aren't dispatched yet.
-        if states.len() != 1 {
-            return Err(DataFusionError::NotImplemented(format!(
-                "PgSearchScan dispatch: expected 1 partition, found {}",
-                states.len()
-            )));
-        }
-        let state = states[0].as_ref().ok_or_else(|| {
+            .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
+        let state = state_guard.as_ref().ok_or_else(|| {
             DataFusionError::Internal("PgSearchScan dispatch: partition already consumed".into())
         })?;
-        let ScanRecipe::Lazy {
-            source_idx,
-            planner_estimated_rows,
-            scanner_config,
-            ..
-        } = &state.0.recipe;
-        let (source_idx, planner_estimated_rows, scanner_config) =
-            (*source_idx, *planner_estimated_rows, scanner_config.clone());
+        let (source_idx, planner_estimated_rows, scanner_config) = (
+            state.0.source_idx,
+            state.0.planner_estimated_rows,
+            state.0.scanner_config.clone(),
+        );
 
         let schema = self.properties.eq_properties.schema().clone();
         let schema_proto: datafusion_proto::protobuf::Schema =
@@ -383,12 +356,10 @@ impl PgSearchScanPlan {
             score_needed: descriptor.score_needed,
         };
         let state = ScanState {
-            recipe: ScanRecipe::Lazy {
-                parallel_state,
-                source_idx: descriptor.source_idx,
-                planner_estimated_rows: descriptor.planner_estimated_rows,
-                scanner_config,
-            },
+            parallel_state,
+            source_idx: descriptor.source_idx,
+            planner_estimated_rows: descriptor.planner_estimated_rows,
+            scanner_config,
             ffhelper: Arc::clone(&ffhelper),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader,
@@ -403,7 +374,7 @@ impl PgSearchScanPlan {
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
-            vec![state],
+            Some(state),
             schema,
             query,
             descriptor.sort_order.as_ref(),
@@ -492,11 +463,7 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "PgSearchScan: segments={}",
-            self.states.lock().unwrap().len(),
-        )?;
+        write!(f, "PgSearchScan: segments={}", self.segment_count,)?;
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
@@ -533,17 +500,8 @@ impl ExecutionPlan for PgSearchScanPlan {
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
         let num_rows = match partition {
-            Some(i) => {
-                if i >= self.partition_row_counts.len() {
-                    Precision::Absent
-                } else {
-                    Precision::Inexact(self.partition_row_counts[i] as usize)
-                }
-            }
-            None => {
-                let sum: u64 = self.partition_row_counts.iter().sum();
-                Precision::Inexact(sum as usize)
-            }
+            Some(0) | None => Precision::Inexact(self.planner_estimated_rows as usize),
+            Some(_) => Precision::Absent,
         };
 
         let column_statistics = self
@@ -578,7 +536,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let mut states = self.states.lock().map_err(|e| {
+        let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
         })?;
 
@@ -590,8 +548,9 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
-        // Handle the case where no segments were claimed (EmptyStream).
-        if states.is_empty() {
+        // Handle the case where no state was provided (test cases) or already consumed.
+        let state_opt = state_guard.take();
+        if state_opt.is_none() {
             let schema = self.properties.eq_properties.schema().clone();
             return Ok(Box::pin(unsafe {
                 UnsafeSendStream::new(futures::stream::empty(), schema)
@@ -599,13 +558,14 @@ impl ExecutionPlan for PgSearchScanPlan {
         }
 
         let UnsafeSendSync(ScanState {
-            recipe,
+            parallel_state,
+            source_idx,
+            planner_estimated_rows,
+            scanner_config,
             ffhelper,
             mut visibility,
             mut reader,
-        }) = states[partition].take().ok_or_else(|| {
-            DataFusionError::Internal(format!("Partition {} has already been executed", partition))
-        })?;
+        }) = state_opt.unwrap();
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -640,12 +600,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
             }
 
-            let ScanRecipe::Lazy {
-                parallel_state,
-                source_idx,
-                planner_estimated_rows,
-                scanner_config,
-            } = recipe;
+
             let search_results = match parallel_state {
                 Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
                 None => reader.search(),
@@ -741,22 +696,23 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            let states: Vec<_> = self
-                .states
+            let state = self
+                .state
                 .lock()
                 .map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
                     ))
                 })?
-                .drain(..)
-                .collect();
+                .take()
+                .map(|s| s.0);
 
             let resolved_query = self.resolved_query.clone();
 
             let new_plan = Arc::new(PgSearchScanPlan {
-                states: Mutex::new(states),
-                partition_row_counts: self.partition_row_counts.clone(),
+                state: Mutex::new(state.map(UnsafeSendSync)),
+                planner_estimated_rows: self.planner_estimated_rows,
+                segment_count: self.segment_count,
                 properties: self.properties.clone(),
                 resolved_query,
                 dynamic_filters,
@@ -881,7 +837,7 @@ mod tests {
     #[should_panic(expected = "deferred lookup/visibility requires an FFHelper")]
     fn deferred_visibility_requires_ffhelper() {
         let _ = PgSearchScanPlan::new(
-            vec![],
+            None,
             empty_schema(),
             SearchQueryInput::All,
             None,
@@ -895,7 +851,7 @@ mod tests {
     #[pg_test]
     fn can_construct_plan() {
         let _ = PgSearchScanPlan::new(
-            vec![],
+            None,
             empty_schema(),
             SearchQueryInput::All,
             None,

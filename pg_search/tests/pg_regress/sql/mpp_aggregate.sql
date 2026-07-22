@@ -35,16 +35,6 @@ CREATE TABLE mpp_pages (
     size_bytes INTEGER
 );
 
-INSERT INTO mpp_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-
-INSERT INTO mpp_pages (file_id, page_text, size_bytes)
-SELECT (g % 200) + 1,
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
-
 CREATE INDEX mpp_files_idx ON mpp_files
 USING bm25 (id, title, content)
 WITH (
@@ -59,6 +49,30 @@ WITH (
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {}}'
 );
+
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+
+RESET paradedb.global_mutable_segment_rows;
 
 ANALYZE mpp_files;
 ANALYZE mpp_pages;

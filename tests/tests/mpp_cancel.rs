@@ -39,18 +39,6 @@ CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age i
 CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
 CREATE TABLE mpp_orders   (id bigserial primary key, uuid uuid, name text, age int);
 
-INSERT INTO mpp_users (uuid, name, age, category)
-SELECT gen_random_uuid(), (ARRAY['bob','alice','carol','dave'])[1 + (g % 4)], g % 50, 'c' || (g % 5)
-FROM generate_series(1, 20000) AS g;
-
-INSERT INTO mpp_products (uuid, name, age)
-SELECT gen_random_uuid(), (ARRAY['bob','alice'])[1 + (g % 2)], g % 50
-FROM generate_series(1, 20000) AS g;
-
-INSERT INTO mpp_orders (uuid, name, age)
-SELECT gen_random_uuid(), 'x', g % 50
-FROM generate_series(1, 20000) AS g;
-
 CREATE INDEX mpp_users_idx ON mpp_users USING bm25 (id, uuid, name, age, category)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true},"category":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
@@ -59,6 +47,34 @@ WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast
 
 CREATE INDEX mpp_orders_idx ON mpp_orders USING bm25 (id, uuid, name, age)
 WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_users (uuid, name, age, category)
+SELECT gen_random_uuid(), (ARRAY['bob','alice','carol','dave'])[1 + (g % 4)], g % 50, 'c' || (g % 5)
+FROM generate_series(1, 10000) AS g;
+
+INSERT INTO mpp_users (uuid, name, age, category)
+SELECT gen_random_uuid(), (ARRAY['bob','alice','carol','dave'])[1 + (g % 4)], g % 50, 'c' || (g % 5)
+FROM generate_series(10001, 20000) AS g;
+
+INSERT INTO mpp_products (uuid, name, age)
+SELECT gen_random_uuid(), (ARRAY['bob','alice'])[1 + (g % 2)], g % 50
+FROM generate_series(1, 10000) AS g;
+
+INSERT INTO mpp_products (uuid, name, age)
+SELECT gen_random_uuid(), (ARRAY['bob','alice'])[1 + (g % 2)], g % 50
+FROM generate_series(10001, 20000) AS g;
+
+INSERT INTO mpp_orders (uuid, name, age)
+SELECT gen_random_uuid(), 'x', g % 50
+FROM generate_series(1, 10000) AS g;
+
+INSERT INTO mpp_orders (uuid, name, age)
+SELECT gen_random_uuid(), 'x', g % 50
+FROM generate_series(10001, 20000) AS g;
+
+RESET paradedb.global_mutable_segment_rows;
 
 ANALYZE mpp_users;
 ANALYZE mpp_products;

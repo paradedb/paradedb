@@ -26,7 +26,8 @@ WITH (
 );
 
 -- Insert enough data to make the terms aggregation result > 1MB
-INSERT INTO large_agg_test (data) SELECT md5(g::text) FROM generate_series(1, 50000) g;
+INSERT INTO large_agg_test (data) SELECT md5(g::text) FROM generate_series(1, 25000) g;
+INSERT INTO large_agg_test (data) SELECT md5(g::text) FROM generate_series(25001, 50000) g;
 
 ANALYZE large_agg_test;
 
@@ -75,7 +76,8 @@ WITH (
     text_fields = '{"name": {}}'
 );
 
-INSERT INTO delete_agg_test VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e');
+INSERT INTO delete_agg_test VALUES (1, 'a'), (2, 'b');
+INSERT INTO delete_agg_test VALUES (3, 'c'), (4, 'd'), (5, 'e');
 
 ANALYZE delete_agg_test;
 
@@ -136,7 +138,8 @@ WITH (
     text_fields = '{"category": {"fast": true}}'
 );
 
-INSERT INTO mvcc_agg_test (category) VALUES ('A'), ('B'), ('A');
+INSERT INTO mvcc_agg_test (category) VALUES ('A'), ('B');
+INSERT INTO mvcc_agg_test (category) VALUES ('A');
 
 ANALYZE mvcc_agg_test;
 
@@ -177,7 +180,8 @@ WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 
 INSERT INTO triple_pipe_agg_test (description, category) VALUES
     ('running shoes for men', 'footwear'),
-    ('running shoes for women', 'footwear'),
+    ('running shoes for women', 'footwear');
+INSERT INTO triple_pipe_agg_test (description, category) VALUES
     ('casual walking shoes', 'footwear'),
     ('running shorts', 'apparel'),
     ('running jacket', 'apparel');

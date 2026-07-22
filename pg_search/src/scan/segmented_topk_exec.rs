@@ -1125,8 +1125,6 @@ impl SegmentedTopKState {
             .collect();
 
         let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
-<<<<<<< HEAD
-=======
 
         // A NULL must match the RowConverter's declared field type:
         // convert_columns rejects mismatches ("expected BinaryView got
@@ -1137,50 +1135,20 @@ impl SegmentedTopKState {
             ScalarValue::try_from(&sort_col.mat_type)
         };
 
-        // Batch-convert all ordinal survivors' rows in a single convert_rows call.
-        // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
-        let ord_rows: Vec<_> = candidates
-            .iter()
-            .filter_map(|(_, _, ord_info)| ord_info.as_ref().map(|(_, row_val)| row_val.row()))
-            .collect();
->>>>>>> f7bbb667d (fix: sorting by a nullable NUMERIC field in the Join Scan crashed (#5568))
-
         // For each candidate, resolve materialized ScalarValues and convert to OwnedRow.
         let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
 
         for (idx, (batch_idx, row_idx, ord_info)) in candidates.iter().enumerate() {
             let mut values = Vec::with_capacity(self.sort_exprs.len());
 
-<<<<<<< HEAD
-            for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
-                let is_deferred = sort_expr
-                    .expr
-                    .as_any()
-                    .downcast_ref::<datafusion::physical_expr::expressions::Column>()
-                    .and_then(|c| {
-                        self.deferred_columns
-                            .iter()
-                            .find(|d| d.sort_col_idx == c.index())
-                    });
-
-                let value = if let Some(deferred) = is_deferred {
+            for (i, sort_col) in sort_cols.iter().enumerate() {
+                let value = if let Some(deferred) = sort_col.deferred {
                     if let Some((seg_ord, ord_row)) = ord_info {
                         // Ordinal survivor: convert ordinal back to string.
                         let arrays = self
                             .row_converter
                             .convert_rows(std::iter::once(ord_row.row()))
                             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-=======
-        let mut ord_pos = 0;
-        for (batch_idx, row_idx, ord_info) in candidates.iter() {
-            for (i, sort_col) in sort_cols.iter().enumerate() {
-                let value = if let Some(deferred) = sort_col.deferred {
-                    if let Some((seg_ord, _)) = ord_info {
-                        // Ordinal survivor: use pre-batched arrays with our sequential counter.
-                        let arrays = all_ord_arrays
-                            .as_ref()
-                            .expect("all_ord_arrays is None for ordinal survivor");
->>>>>>> f7bbb667d (fix: sorting by a nullable NUMERIC field in the Join Scan crashed (#5568))
                         let term_ord = arrays[i]
                             .as_any()
                             .downcast_ref::<UInt64Array>()
@@ -1211,7 +1179,6 @@ impl SegmentedTopKState {
                             typed_null(sort_col)?
                         }
                     } else {
-<<<<<<< HEAD
                         // Pass-through row: extract materialized value from
                         // UnionArray State 2 child.
                         let batch = &self.batches[*batch_idx];
@@ -1228,21 +1195,17 @@ impl SegmentedTopKState {
                                     let child = union_arr.child(2);
                                     let ci = offsets[*row_idx] as usize;
                                     ScalarValue::try_from_array(child, ci)
-                                        .unwrap_or(ScalarValue::Utf8View(None))
+                                        .or_else(|_| typed_null(sort_col))?
                                 } else {
                                     // NULL ordinal pass-through
-                                    ScalarValue::Utf8View(None)
+                                    typed_null(sort_col)?
                                 }
                             } else {
-                                ScalarValue::Utf8View(None)
+                                typed_null(sort_col)?
                             }
                         } else {
-                            ScalarValue::Utf8View(None)
+                            typed_null(sort_col)?
                         }
-=======
-                        // NULL ordinal pass-through
-                        typed_null(sort_col)?
->>>>>>> f7bbb667d (fix: sorting by a nullable NUMERIC field in the Join Scan crashed (#5568))
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.

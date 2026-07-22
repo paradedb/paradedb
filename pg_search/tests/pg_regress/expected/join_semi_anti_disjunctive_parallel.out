@@ -133,11 +133,11 @@ LIMIT 5000;
            :   │       CoalescePartitionsExec
            :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :   │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=1, partitions=3
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :     │   PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
            :     └──────────────────────────────────────────────────
 (26 rows)
 
@@ -253,11 +253,11 @@ LIMIT 5000;
            :   │       CoalescePartitionsExec
            :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :   │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=1, partitions=3
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :     │   PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
            :     └──────────────────────────────────────────────────
 (26 rows)
 

@@ -131,11 +131,11 @@ ORDER BY f.category;
            :     │       CoalescePartitionsExec
            :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :       │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
 (31 rows)
 
@@ -218,11 +218,11 @@ LIMIT 10;
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-                 :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (33 rows)
 
@@ -304,11 +304,11 @@ LIMIT 3;
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-                 :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (35 rows)
 
@@ -365,11 +365,11 @@ WHERE f.content @@@ 'Section';
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :   │       PgSearchScan: segments=2, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-     :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
 (23 rows)
 
@@ -466,15 +466,15 @@ ORDER BY c.name;
            :     │         CoalescePartitionsExec
            :     │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │           PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, query="all"
+           :       │   PgSearchScan: segments=2, query="all"
            :       └──────────────────────────────────────────────────
            :       ┌───── Stage 2 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :       │   PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
 (38 rows)
 

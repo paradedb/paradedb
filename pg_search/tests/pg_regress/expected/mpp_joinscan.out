@@ -94,9 +94,9 @@ LIMIT 10;
            :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT f.title, p.size_bytes
@@ -155,11 +155,11 @@ LIMIT 10;
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :   │           PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=1, partitions=3
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     └──────────────────────────────────────────────────
 (28 rows)
 
@@ -249,11 +249,11 @@ LIMIT 10;
            :   │         CoalescePartitionsExec
            :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :   │           PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :   └──────────────────────────────────────────────────
            :     ┌───── Stage 1 ── tasks=1, partitions=3
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
+           :     │   PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
            :     └──────────────────────────────────────────────────
 (28 rows)
 
@@ -306,9 +306,9 @@ LIMIT 10;
            :     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[p, f]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
+           :           PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (17 rows)
 
 SELECT f.title, p.size_bytes

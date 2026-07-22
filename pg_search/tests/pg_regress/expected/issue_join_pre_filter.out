@@ -50,10 +50,10 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[u, p]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+           :           PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
            :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 -- Reproduce the bug

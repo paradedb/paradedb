@@ -86,9 +86,9 @@ WHERE f.content @@@ 'Section';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
      :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 SELECT COUNT(*)
@@ -125,9 +125,9 @@ LIMIT 5;
                  :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
@@ -178,11 +178,11 @@ WHERE f.content @@@ 'Section';
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :   │       PgSearchScan: segments=2, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-     :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
 (23 rows)
 
@@ -231,11 +231,11 @@ LIMIT 5;
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-                 :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │   PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (34 rows)
 

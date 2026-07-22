@@ -150,11 +150,11 @@ LIMIT 48;
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@5, age@1)], projection=[ctid_0@0, id@1, name@2, ctid_1@3, id@4, ctid_2@6, id@8]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (20 rows)
 
 -- And it must return the correct rows (DISTINCT + LIMIT).

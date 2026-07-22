@@ -21,6 +21,8 @@ use datafusion::config::ConfigOptions;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{TaskEstimation, TaskEstimator};
 
+use crate::scan::execution_plan::PgSearchScanPlan;
+
 /// `PgSearchScanTaskEstimator` intercepts `PgSearchScanPlan` during distributed planning
 /// and requests a number of tasks equal to `partition_count = min(segment_count, target_partitions)`.
 ///
@@ -36,9 +38,7 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
         plan: &Arc<dyn ExecutionPlan>,
         _cfg: &ConfigOptions,
     ) -> Option<TaskEstimation> {
-        if plan.name() != "PgSearchScan" {
-            return None;
-        }
+        let _ = plan.downcast_ref::<PgSearchScanPlan>()?;
 
         let partition_count = plan.properties().output_partitioning().partition_count();
 
@@ -51,13 +51,12 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
         task_count: usize,
         _cfg: &ConfigOptions,
     ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
-        if plan.name() != "PgSearchScan" {
+        if plan.downcast_ref::<PgSearchScanPlan>().is_none() {
             return Ok(None);
         }
 
-        // `Arc::clone` works perfectly here. Each worker decodes its own copy
-        // anyway, and `execute()` dynamically claims segments from the
-        // parallel state so there is no conflict.
+        // Each worker decodes its own copy, and `execute()` dynamically claims segments from the
+        // parallel state.
         let variants = (0..task_count)
             .map(|_| Arc::clone(plan))
             .collect::<Vec<_>>();

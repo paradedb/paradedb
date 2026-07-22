@@ -54,6 +54,7 @@ use datafusion_distributed::PartitionSink;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
+use crate::postgres::customscan::mpp::task_estimator::PgSearchScanTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
@@ -154,9 +155,7 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
-        .with_distributed_task_estimator(
-            crate::postgres::customscan::mpp::task_estimator::PgSearchScanTaskEstimator,
-        )
+        .with_distributed_task_estimator(PgSearchScanTaskEstimator)
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")

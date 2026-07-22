@@ -192,7 +192,7 @@ impl PgSearchScanPlan {
         if needs_ffhelper && ffhelper.is_none() {
             panic!("deferred lookup/visibility requires an FFHelper, but ffhelper is None");
         }
-        // Output partitioning tells DataFusion-Distributed how many tasks this leaf can naturally split into.
+        // Output partitioning tells datafusion-distributed how many tasks this leaf can naturally split into.
         // If state is None, execute() will return an EmptyStream for this single partition.
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
@@ -502,7 +502,12 @@ impl ExecutionPlan for PgSearchScanPlan {
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
         let num_rows = match partition {
-            Some(0) | None => Precision::Inexact(self.planner_estimated_rows as usize),
+            None => Precision::Inexact(self.planner_estimated_rows as usize),
+            Some(p) if p < self.segment_count => {
+                let rows_per_partition =
+                    self.planner_estimated_rows as usize / self.segment_count.max(1);
+                Precision::Inexact(rows_per_partition)
+            }
             Some(_) => Precision::Absent,
         };
 

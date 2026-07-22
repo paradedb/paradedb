@@ -72,24 +72,44 @@ WITH (
     numeric_fields = '{ "age": { "fast": true } }',
     target_segment_count = 2
 );
+SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO js_parallel_distinct_users (uuid, name, age)
 SELECT
     '550e8400-e29b-41d4-a716-446655440000'::uuid,
     CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
     i
-FROM generate_series(1, 100) AS g(i);
+FROM generate_series(1, 50) AS g(i);
+INSERT INTO js_parallel_distinct_users (uuid, name, age)
+SELECT
+    '550e8400-e29b-41d4-a716-446655440000'::uuid,
+    CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
+    i
+FROM generate_series(51, 100) AS g(i);
 INSERT INTO js_parallel_distinct_products (uuid, name, age)
 SELECT
     '550e8400-e29b-41d4-a716-446655440000'::uuid,
     CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
     i
-FROM generate_series(1, 100) AS g(i);
+FROM generate_series(1, 50) AS g(i);
+INSERT INTO js_parallel_distinct_products (uuid, name, age)
+SELECT
+    '550e8400-e29b-41d4-a716-446655440000'::uuid,
+    CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
+    i
+FROM generate_series(51, 100) AS g(i);
 INSERT INTO js_parallel_distinct_orders (uuid, name, age)
 SELECT
     '550e8400-e29b-41d4-a716-446655440000'::uuid,
     CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
     i
-FROM generate_series(1, 100) AS g(i);
+FROM generate_series(1, 50) AS g(i);
+INSERT INTO js_parallel_distinct_orders (uuid, name, age)
+SELECT
+    '550e8400-e29b-41d4-a716-446655440000'::uuid,
+    CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
+    i
+FROM generate_series(51, 100) AS g(i);
+RESET paradedb.global_mutable_segment_rows;
 ANALYZE js_parallel_distinct_users;
 ANALYZE js_parallel_distinct_products;
 ANALYZE js_parallel_distinct_orders;

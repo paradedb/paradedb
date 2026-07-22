@@ -242,8 +242,8 @@ pub fn vector_cluster_max_probe_fraction() -> f32 {
 /// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
 /// past the best centroid the IVF probe loop keeps probing clusters. Lower
 /// epsilon probes fewer clusters, decreasing latency at the expense of
-/// recall. Default `7.0`, SPANN's recall@10-tuned value.
-static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(7.0);
+/// recall. Default `0.5`.
+static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
 
 pub fn vector_cluster_probe_epsilon() -> f32 {
     VECTOR_CLUSTER_PROBE_EPSILON.get() as f32

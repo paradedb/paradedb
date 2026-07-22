@@ -414,6 +414,10 @@ pub fn launch_mpp_commit(
     timing.leader_setup_us = t_setup.elapsed().as_micros() as u64;
     leader.timing = timing;
 
+    // Registered here (not in `leader_setup`) because this is the first point with both the segment
+    // (`finish`) and the senders (`leader`) in hand.
+    unsafe { leader.register_control_senders_on_detach(finish.dsm_segment()) };
+
     // Release the workers into ring attach + plan wait.
     go.store(GO_RUN, Ordering::Release);
 

@@ -131,6 +131,18 @@ pub struct MppLaunchTiming {
     pub workers: u32,
 }
 
+/// The leader's control senders behind their shared lock. The scan state and mesh cancel path
+/// share this `Arc`; `DsmDetachState` retains another reference so the detach callback can clear
+/// the stored senders while the DSM is still mapped.
+pub type ControlSenders = std::sync::Mutex<Vec<Option<MppSender>>>;
+
+/// State retained by PostgreSQL until DSM detach. The callback marks the shared mesh dead before
+/// clearing stored senders, so escaped sender clones can later drop without touching unmapped DSM.
+struct DsmDetachState {
+    alive: shm::AliveFlag,
+    control_senders: Arc<ControlSenders>,
+}
+
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
 /// state and consults it during `exec_custom_scan`.
 ///
@@ -142,15 +154,18 @@ pub struct MppLeaderState {
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
     /// The leader's outbound senders, one per peer inbox; the control-plane path for `SetPlan`
-    /// frames. Held for the query's lifetime so no ring observes a sender count of zero before
-    /// every worker attaches (the rings latch `detached` permanently at zero).
+    /// frames and stream cancel messages. Held for the query's lifetime so no ring observes a
+    /// sender count of zero before every worker attaches (the rings latch `detached` permanently at
+    /// zero).
     ///
-    /// Dropping one of these decrements a counter inside the DSM ring, so they must never
-    /// outlive the mapping: [`MppLeaderState::release_control_senders`] clears them from
-    /// `shutdown_custom_scan` on the success path, and a transaction-abort callback (registered
-    /// in [`leader_setup`]) clears them on the error path, both before PG detaches the DSM.
-    /// The scan state's own drop runs after detach and must find this empty.
-    pub control_senders: Arc<std::sync::Mutex<Vec<Option<MppSender>>>>,
+    /// While the mesh is live, dropping one of these decrements a counter inside its DSM ring.
+    /// [`MppLeaderState::release_control_senders`] clears them from `shutdown_custom_scan` on the
+    /// success path. [`release_control_senders_on_detach`] covers every other path — abort, and a
+    /// `proc_exit` from `pg_terminate_backend` that skips shutdown — by marking the mesh dead and
+    /// clearing this vector before PG unmaps the segment. Escaped sender clones can then drop
+    /// safely without accessing DSM. The scan state's own drop runs after detach and must find
+    /// this vector empty.
+    pub control_senders: Arc<ControlSenders>,
     /// The builder handle owning the launched producer workers. The leader controls the launch, so
     /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
     /// the workers and destroy the parallel context. `None` until `launch` installs it on the
@@ -225,24 +240,9 @@ pub unsafe fn leader_setup(
     }
     let control_senders = Arc::new(std::sync::Mutex::new(attach.outbound_senders));
     // Hand the senders to the mesh too, so its early-termination cancel can reach the producers.
-    // The mesh shares this `Arc`, so clearing it below releases both views before the DSM unmaps.
+    // The mesh shares this `Arc`, so clearing either view releases both before the DSM unmaps.
     mesh.set_cancel_senders(Arc::clone(&control_senders));
-    // On abort, `AbortTransaction` unmaps the DSM before these callbacks run, so the senders must
-    // not touch their ring headers as they drop. The mesh's liveness flag is process-local, so
-    // flip it here (every ring handle reads it) and the senders' drop skips the freed-ring write
-    // while their heap is still freed. `PreCommit` covers a subtransaction rollback where no abort
-    // fires; the success path releases the senders in `shutdown_custom_scan` while the segment is
-    // still mapped, so the vec is empty by then.
-    let make_detacher = || {
-        let alive = mesh.detached_flag();
-        let senders = Arc::clone(&control_senders);
-        move || {
-            alive.store(false, std::sync::atomic::Ordering::Release);
-            senders.lock().unwrap().clear();
-        }
-    };
-    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, make_detacher());
-    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::PreCommit, make_detacher());
+    // Released before the DSM unmaps via [`release_control_senders_on_detach`], registered by `launch`.
     Ok(MppLeaderState {
         mesh,
         control_senders,
@@ -252,11 +252,135 @@ pub unsafe fn leader_setup(
     })
 }
 
+/// `on_dsm_detach` callback that invalidates the leader's mesh handles and releases its stored
+/// DSM-backed control senders while the MPP segment is still mapped.
+///
+/// While the mesh is live, dropping a sender decrements an atomic inside its DSM ring. The
+/// callback first marks every handle dead and then clears the stored senders while the mapping is
+/// live; an escaped clone can subsequently drop without touching DSM. `on_dsm_detach` runs on
+/// every teardown path. A transaction-abort callback can't replace it: it fires after
+/// `AtEOXact_Parallel` has already detached the DSM, and a backend FATAL skips
+/// `shutdown_custom_scan` entirely.
+///
+/// `arg` is the detach-state `Arc` converted into a raw pointer at registration;
+/// [`Arc::from_raw`] reclaims that reference exactly once. The success path may already have
+/// emptied the sender vector, in which case clearing it again is a no-op.
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn release_control_senders_on_detach(
+    _seg: *mut pg_sys::dsm_segment,
+    arg: pg_sys::Datum,
+) {
+    let state = unsafe { Arc::from_raw(arg.cast_mut_ptr::<DsmDetachState>()) };
+    release_control_senders_on_detach_impl(&state);
+}
+
+fn release_control_senders_on_detach_impl(state: &DsmDetachState) {
+    // `send_set_plan` can retain a sender clone after releasing the vector lock. Invalidate every
+    // handle before clearing the known senders so escaped clones no-op if dropped after DSM unmaps.
+    state
+        .alive
+        .store(false, std::sync::atomic::Ordering::Release);
+
+    // Tolerate a poisoned mutex rather than panic across the C boundary; the Vec data is still
+    // valid to clear.
+    let mut guard = state
+        .control_senders
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // The current sender drop path is panic-free. `catch_unwind` contains any future panic so it
+    // cannot unwind through PostgreSQL's C teardown.
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        guard.clear();
+    }));
+}
+
 impl MppLeaderState {
+    /// Register the DSM detach cleanup for the leader mesh liveness flag and senders. PostgreSQL
+    /// stores the raw pointer; [`release_control_senders_on_detach`] turns it back into the same
+    /// `Arc` and drops it.
+    ///
+    /// # Safety
+    /// `seg` must be the live DSM segment that owns the ring memory targeted by
+    /// `self.control_senders`.
+    pub unsafe fn register_control_senders_on_detach(&self, seg: *mut pg_sys::dsm_segment) {
+        let state = Arc::new(DsmDetachState {
+            alive: self.mesh.detached_flag(),
+            control_senders: Arc::clone(&self.control_senders),
+        });
+        unsafe {
+            pg_sys::on_dsm_detach(
+                seg,
+                Some(release_control_senders_on_detach),
+                pg_sys::Datum::from(Arc::into_raw(state) as *mut c_void),
+            );
+        }
+    }
+
     /// Drop the DSM-backed control senders while the mapping is still attached. Called from
-    /// `shutdown_custom_scan`; the abort callback covers the error path. Idempotent.
+    /// `shutdown_custom_scan` on the success path; [`release_control_senders_on_detach`] (registered
+    /// via `on_dsm_detach`) covers every other teardown path. Idempotent.
     pub fn release_control_senders(&self) {
+        // Unlike the detach callback, a poisoned lock panics here on purpose: this runs on the
+        // success path inside the executor, where poison means a real bug and an ERROR is safe
+        // to raise. The callback can't afford that mid-`dsm_detach`.
         self.control_senders.lock().unwrap().clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion_distributed::shm::{MppFrameHeader, NoInterrupt};
+    use std::sync::atomic::Ordering;
+
+    struct NoopWakeup;
+
+    impl Wakeup for NoopWakeup {
+        fn wake(&self, _token: u64) {}
+    }
+
+    #[test]
+    fn dsm_detach_marks_mesh_before_a_set_plan_clone_can_drop() {
+        // Sender Drop may touch ring memory while the mesh is live, so keep the backing region
+        // alive through the final drop.
+        let region_bytes = shm::dsm_region_bytes(3, 64 * 1024, 0).unwrap();
+        let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+        let attach = unsafe {
+            shm::leader_setup(
+                region.as_mut_ptr().cast(),
+                3,
+                64 * 1024,
+                &[],
+                Arc::new(NoopWakeup),
+                1,
+                Arc::new(NoInterrupt),
+                true,
+            )
+            .unwrap()
+        };
+        // Model the sender clone `send_set_plan` can retain after releasing the control-sender
+        // lock; clearing the stored vector does not release this clone.
+        let delayed_set_plan_sender = attach
+            .outbound_senders
+            .iter()
+            .flatten()
+            .next()
+            .unwrap()
+            .clone_with_header(MppFrameHeader::set_plan(0, 0, 0));
+        let mesh = attach.mesh;
+        let state = DsmDetachState {
+            alive: mesh.detached_flag(),
+            control_senders: Arc::new(std::sync::Mutex::new(attach.outbound_senders)),
+        };
+
+        release_control_senders_on_detach_impl(&state);
+
+        assert!(state.control_senders.lock().unwrap().is_empty());
+        assert!(
+            !mesh.detached_flag().load(Ordering::Acquire),
+            "DSM detach must invalidate mesh handles before delayed SetPlan senders can drop"
+        );
+        drop(delayed_set_plan_sender);
     }
 }
 

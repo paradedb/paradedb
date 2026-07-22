@@ -18,8 +18,12 @@
 use std::sync::Arc;
 
 use datafusion::config::ConfigOptions;
+use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::joins::{
+    CrossJoinExec, HashJoinExec, NestedLoopJoinExec, PartitionMode,
+};
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{TaskEstimation, TaskEstimator};
+use datafusion_distributed::{BroadcastExec, TaskEstimation, TaskEstimator};
 
 use crate::scan::execution_plan::PgSearchScanPlan;
 
@@ -65,5 +69,148 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
         Ok(Some(Arc::new(
             datafusion_distributed::DistributedLeafExec::try_new(Arc::clone(plan), variants)?,
         )))
+    }
+}
+
+/// Caps at one task every collect-build join whose build child is not a
+/// [`BroadcastExec`].
+///
+/// A CollectLeft [`HashJoinExec`] (and the build loop of
+/// [`NestedLoopJoinExec`] / [`CrossJoinExec`]) needs the complete build input
+/// in every task. Our leaf scans claim segments from per-source work-stealing
+/// pools, so in a multi-task stage each task sees only the segments it
+/// happened to claim. `insert_broadcast_execs` replicates the build side only
+/// for join types where that cannot duplicate output rows; when it declines
+/// (Left / Full / LeftSemi / LeftAnti build sides), the join must collapse to
+/// a single task or per-task builds are silently incomplete.
+///
+/// The check targets the direct build child (through the
+/// `CoalescePartitionsExec` wrapper), not the whole subtree: a broadcast
+/// buried deeper inside the build input replicates only that inner input, not
+/// the build side of this join.
+#[derive(Debug)]
+pub struct CollectBuildNoBroadcastOneTaskEstimator;
+
+fn build_child_is_broadcast(join: &dyn ExecutionPlan) -> bool {
+    let Some(mut node) = join.children().first().copied() else {
+        return false;
+    };
+    while let Some(coalesce) = node.downcast_ref::<CoalescePartitionsExec>() {
+        node = coalesce.input();
+    }
+    node.is::<BroadcastExec>()
+}
+
+impl TaskEstimator for CollectBuildNoBroadcastOneTaskEstimator {
+    fn task_estimation(
+        &self,
+        plan: &Arc<dyn ExecutionPlan>,
+        _: &ConfigOptions,
+    ) -> Option<TaskEstimation> {
+        let collects_build = if let Some(hj) = plan.downcast_ref::<HashJoinExec>() {
+            hj.partition_mode() == &PartitionMode::CollectLeft
+        } else {
+            plan.is::<NestedLoopJoinExec>() || plan.is::<CrossJoinExec>()
+        };
+        if collects_build && !build_child_is_broadcast(plan.as_ref()) {
+            Some(TaskEstimation::maximum(1))
+        } else {
+            None
+        }
+    }
+
+    fn scale_up_leaf_node(
+        &self,
+        _: &Arc<dyn ExecutionPlan>,
+        _: usize,
+        _: &ConfigOptions,
+    ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::common::{JoinType, NullEquality};
+    use datafusion::physical_expr::expressions::Column;
+    use datafusion::physical_expr::PhysicalExpr;
+    use datafusion::physical_plan::empty::EmptyExec;
+
+    fn cfg() -> ConfigOptions {
+        ConfigOptions::default()
+    }
+
+    fn empty_leaf() -> Arc<dyn ExecutionPlan> {
+        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
+        Arc::new(EmptyExec::new(schema))
+    }
+
+    fn hash_join(
+        left: Arc<dyn ExecutionPlan>,
+        right: Arc<dyn ExecutionPlan>,
+        mode: PartitionMode,
+    ) -> Arc<dyn ExecutionPlan> {
+        let on = vec![(
+            Arc::new(Column::new("x", 0)) as Arc<dyn PhysicalExpr>,
+            Arc::new(Column::new("x", 0)) as Arc<dyn PhysicalExpr>,
+        )];
+        Arc::new(
+            HashJoinExec::try_new(
+                left,
+                right,
+                on,
+                None,
+                &JoinType::Left,
+                None,
+                mode,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn collect_left_without_broadcast_is_capped_at_one() {
+        let join = hash_join(empty_leaf(), empty_leaf(), PartitionMode::CollectLeft);
+        let est = CollectBuildNoBroadcastOneTaskEstimator;
+        let out = est.task_estimation(&join, &cfg()).expect("estimation");
+        assert!(matches!(
+            out.task_count,
+            datafusion_distributed::TaskCountAnnotation::Maximum(1)
+        ));
+    }
+
+    #[test]
+    fn collect_left_with_broadcast_build_falls_through() {
+        let build: Arc<dyn ExecutionPlan> = Arc::new(CoalescePartitionsExec::new(Arc::new(
+            BroadcastExec::new(empty_leaf(), 1),
+        )));
+        let join = hash_join(build, empty_leaf(), PartitionMode::CollectLeft);
+        let est = CollectBuildNoBroadcastOneTaskEstimator;
+        assert!(est.task_estimation(&join, &cfg()).is_none());
+    }
+
+    #[test]
+    fn partitioned_hash_join_falls_through() {
+        let join = hash_join(empty_leaf(), empty_leaf(), PartitionMode::Partitioned);
+        let est = CollectBuildNoBroadcastOneTaskEstimator;
+        assert!(est.task_estimation(&join, &cfg()).is_none());
+    }
+
+    #[test]
+    fn nested_loop_join_without_broadcast_is_capped_at_one() {
+        let join: Arc<dyn ExecutionPlan> = Arc::new(
+            NestedLoopJoinExec::try_new(empty_leaf(), empty_leaf(), None, &JoinType::Left, None)
+                .unwrap(),
+        );
+        let est = CollectBuildNoBroadcastOneTaskEstimator;
+        let out = est.task_estimation(&join, &cfg()).expect("estimation");
+        assert!(matches!(
+            out.task_count,
+            datafusion_distributed::TaskCountAnnotation::Maximum(1)
+        ));
     }
 }

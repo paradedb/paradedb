@@ -11,7 +11,7 @@
 -- ivfflat/vchord `lists`). It is a float, so it is written as a literal here rather than a `{{ }}`
 -- param (the benchmark resolves params as ::bigint). 0.01 is the extension default, kept explicit to
 -- document the operating point. Recall is tuned at query time via the probe knobs
--- (paradedb.vector_cluster_max_probes / _probe_epsilon) in queries/pg_search/*.sql.
+-- (paradedb.vector_cluster_max_probe_fraction / _probe_epsilon) in queries/pg_search/*.sql.
 -- `target_segment_count` fixes the build at 8 segments: the probe knobs are tuned for ~95%
 -- recall@10 at this count, whereas the runner's default (~48) overshoots to ~99%. This is honored
 -- because the cohere snapshot bakes in `global_target_segment_count = 0` (a non-zero global would

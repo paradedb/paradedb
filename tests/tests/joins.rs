@@ -431,3 +431,82 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
 
     Ok(())
 }
+
+#[rstest]
+fn joinscan_nullable_numeric_composite_sort_matches_fallback(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    // Regression test for https://github.com/paradedb/paradedb/issues/5560:
+    // ORDER BY a nullable NUMERIC composite field crashed SegmentedTopKExec with
+    // "RowConverter column schema mismatch, expected BinaryView got Utf8View".
+    // NULL sort keys were materialized as Utf8View nulls while the NUMERIC
+    // column (a Bytes fast field) was declared BinaryView to the RowConverter.
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    SET max_parallel_workers_per_gather = 0;
+    SET enable_hashjoin = off;
+    SET enable_mergejoin = off;
+    SET enable_nestloop = off;
+
+    DROP TABLE IF EXISTS nn_parent;
+    DROP TABLE IF EXISTS nn_child;
+    DROP TYPE IF EXISTS nn_ps;
+    CREATE TABLE nn_parent (id int PRIMARY KEY, kind text, score_num numeric);
+    CREATE TABLE nn_child  (id bigint PRIMARY KEY, parent_id bigint);
+
+    -- deterministic scores (not random()) so Join Scan and fallback results compare equal
+    INSERT INTO nn_parent
+    SELECT g,
+           CASE WHEN g % 3 = 0 THEN 'novel' ELSE 'manga' END,
+           CASE WHEN g % 4 = 0 THEN NULL ELSE ((g * 37) % 1000)::numeric / 1000 END
+    FROM generate_series(1, 2000) g;
+    INSERT INTO nn_child SELECT g, ((g * 7) % 2000) + 1 FROM generate_series(1, 400) g;
+
+    CREATE TYPE nn_ps AS (kind pdb.literal_normalized, score_num numeric);
+    CREATE INDEX nn_parent_bm25 ON nn_parent USING bm25 (id, (ROW(kind, score_num)::nn_ps))
+    WITH (key_field = 'id');
+    CREATE INDEX nn_child_bm25 ON nn_child USING bm25 (id, parent_id)
+    WITH (key_field = 'id');
+    ANALYZE nn_parent;
+    ANALYZE nn_child;
+    "#
+    .execute(&mut conn);
+
+    // NULLS LAST exercises the crash; NULLS FIRST forces NULL rows into the
+    // final top-k so their sort placement is verified too. The p.id tiebreaker
+    // is evaluated directly; a deferred second key remains uncovered until #5567.
+    for nulls in ["LAST", "FIRST"] {
+        let query = format!(
+            r#"
+            SELECT p.id
+            FROM nn_parent p JOIN nn_child c ON c.parent_id = p.id
+            WHERE p.kind @@@ pdb.term('manga') AND c.id @@@ pdb.all()
+            ORDER BY p.score_num DESC NULLS {nulls}, p.id
+            LIMIT 5
+            "#
+        );
+
+        let explain_lines: Vec<String> =
+            format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+        let explain = explain_lines.join("\n");
+        assert!(
+            explain.contains("Custom Scan (ParadeDB Join Scan)"),
+            "{explain}"
+        );
+        assert!(explain.contains("SegmentedTopKExec"), "{explain}");
+
+        "SET paradedb.enable_join_custom_scan = on; DISCARD PLANS;".execute(&mut conn);
+        let joinscan_rows = query.as_str().fetch_result::<(i32,)>(&mut conn)?;
+
+        "SET paradedb.enable_join_custom_scan = off; DISCARD PLANS;".execute(&mut conn);
+        let fallback_rows = query.as_str().fetch_result::<(i32,)>(&mut conn)?;
+
+        "SET paradedb.enable_join_custom_scan = on;".execute(&mut conn);
+
+        assert_eq!(joinscan_rows, fallback_rows, "NULLS {nulls}");
+        assert_eq!(joinscan_rows.len(), 5, "NULLS {nulls}");
+    }
+
+    Ok(())
+}

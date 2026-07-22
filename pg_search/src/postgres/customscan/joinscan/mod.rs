@@ -168,6 +168,7 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
+use arrow_array::Array;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -403,11 +404,11 @@ unsafe fn is_limit_pushdown_safe(
         .map(|s| s.scan_info.heap_rti)
         .collect();
 
-    // 2. Did JoinScan absorb ALL base relations?
-    #[cfg(feature = "pg15")]
+    // 2. Did JoinScan absorb ALL base relations? `all_baserels`, not
+    // `all_query_rels`: the latter also carries outer-join relids (PG16+),
+    // which are join identities rather than relations and can never appear
+    // in `absorbed_rtis`.
     let all_rels = (*root).all_baserels;
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-    let all_rels = (*root).all_query_rels;
 
     let mut absorbed_bms: *mut pg_sys::Bitmapset = std::ptr::null_mut();
     for rti in &absorbed_rtis {
@@ -1958,6 +1959,28 @@ impl JoinScan {
 
         join_keys.extend(join_conditions.equi_keys.clone());
 
+        // For outer joins, a non-equi ON condition (is_pushed_down == false)
+        // decides which rows match, and an unmatched preserved row must still
+        // be null-extended. The join-level predicate pipeline applies such
+        // clauses as scan-level or post-join filters, either of which changes
+        // the set of null-extended rows, so decline. WHERE clauses
+        // (is_pushed_down == true) are post-join filters by definition and
+        // stay safe.
+        let is_outer = matches!(
+            jointype,
+            pg_sys::JoinType::JOIN_LEFT | pg_sys::JoinType::JOIN_RIGHT | pg_sys::JoinType::JOIN_FULL
+        );
+        if is_outer
+            && join_conditions
+                .other_conditions
+                .iter()
+                .any(|&ri| !(*ri).is_pushed_down)
+        {
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: outer joins support only equi-join conditions in the ON clause",
+            )));
+        }
+
         // For Semi/Anti with additional conditions that cannot ride the
         // MultiTablePredicate pipeline (setrefs would fail to resolve inner-side
         // Vars once the inner relation is pruned), try to absorb each condition
@@ -2058,7 +2081,7 @@ impl JoinScan {
         if !unsupported.is_empty() {
             return Err(warn(
                 JoinDeclineReason::new(
-                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
+                    "JoinScan not used: unsupported join type",
                 )
                 .with_details(
                     unsupported
@@ -2148,6 +2171,10 @@ impl JoinScan {
         let result_slot = state.custom_state().result_slot?;
         let output_columns = state.custom_state().output_columns.clone();
         let mut fetched_sources = crate::api::HashSet::default();
+        // Sources whose ctid is NULL in this row: the row is null-extended by
+        // an outer join on that side, so there is no heap tuple to fetch and
+        // every column from that source must come out NULL.
+        let mut null_extended_sources = crate::api::HashSet::default();
 
         // Fetch tuples for all RTIs referenced in the output columns
         for col_info in &output_columns {
@@ -2156,16 +2183,22 @@ impl JoinScan {
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Pruned => continue,
             };
-            if !fetched_sources.contains(&plan_position) {
+            if !fetched_sources.contains(&plan_position)
+                && !null_extended_sources.contains(&plan_position)
+            {
                 let ctid = {
                     let batch = state.custom_state().current_batch.as_ref()?;
                     let rel_state = state.custom_state().relations.get(&plan_position)?;
                     let ctid_col = batch.column(rel_state.ctid_col_idx?);
-                    ctid_col
+                    let ctid_array = ctid_col
                         .as_any()
                         .downcast_ref::<arrow_array::UInt64Array>()
-                        .expect("ctid should be u64")
-                        .value(row_idx)
+                        .expect("ctid should be u64");
+                    if ctid_array.is_null(row_idx) {
+                        null_extended_sources.insert(plan_position);
+                        continue;
+                    }
+                    ctid_array.value(row_idx)
                 };
                 let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
                 if !rel_state
@@ -2194,12 +2227,20 @@ impl JoinScan {
                 break;
             }
             match col_info {
-                privdat::OutputColumnInfo::Score { .. } => {
+                privdat::OutputColumnInfo::Score { plan_position, .. } => {
+                    if null_extended_sources.contains(plan_position) {
+                        *nulls.add(i) = true;
+                        continue;
+                    }
                     let score_col = batch.column(i);
                     let score = if let Some(score_array) = score_col
                         .as_any()
                         .downcast_ref::<arrow_array::Float32Array>(
                     ) {
+                        if score_array.is_null(row_idx) {
+                            *nulls.add(i) = true;
+                            continue;
+                        }
                         score_array.value(row_idx)
                     } else {
                         0.0
@@ -2220,6 +2261,10 @@ impl JoinScan {
                     original_attno,
                     ..
                 } => {
+                    if null_extended_sources.contains(plan_position) {
+                        *nulls.add(i) = true;
+                        continue;
+                    }
                     let rel_state = state.custom_state().relations.get(plan_position)?;
                     let source_slot = rel_state.fetch_slot;
                     if *original_attno <= 0

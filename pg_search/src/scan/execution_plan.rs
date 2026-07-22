@@ -747,24 +747,18 @@ impl ExecutionPlan for PgSearchScanPlan {
             if filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
                 saw_dynamic = true;
                 let incoming = &filter_result.filter;
-                let existing = dynamic_filters.iter_mut().find(|f| {
-                    match (f.expression_id(), incoming.expression_id()) {
-                        (Some(a), Some(b)) => a == b,
-                        _ => std::ptr::addr_eq(Arc::as_ptr(f), Arc::as_ptr(incoming)),
+                let id = incoming.expression_id();
+                match dynamic_filters.iter_mut().find(|f| f.expression_id() == id) {
+                    Some(slot) if Arc::ptr_eq(incoming, slot) => {
+                        *slot = Arc::clone(incoming);
+                        changed = true;
                     }
-                });
-                match existing {
-                    Some(slot) => {
-                        if !std::ptr::addr_eq(Arc::as_ptr(slot), Arc::as_ptr(incoming)) {
-                            *slot = Arc::clone(incoming);
-                            changed = true;
-                        }
-                    }
+                    Some(_) => {}
                     None => {
                         dynamic_filters.push(Arc::clone(incoming));
                         changed = true;
                     }
-                }
+                };
                 filters.push(PushedDown::Yes);
             } else {
                 filters.push(filter_result.any());

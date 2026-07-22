@@ -59,7 +59,7 @@ SET paradedb.mpp_queue_size TO '32MB';
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_after_32mb;
 SET paradedb.mpp_queue_size TO '1GB';
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_after_1gb;
-SET paradedb.mpp_queue_size TO '64MB';
+SET paradedb.mpp_queue_size TO '16MB';
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_back_to_default;
 
 -- Out-of-range queue size must fail (GUC min=64kB, max=1GB).

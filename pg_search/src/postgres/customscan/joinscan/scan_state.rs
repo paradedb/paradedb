@@ -661,15 +661,8 @@ struct DistinctDeferrable {
 fn distinct_deferrable_columns(
     join_clause: &JoinCSClause,
     source: &JoinSource,
-    is_partitioning_source: bool,
 ) -> Vec<DistinctDeferrable> {
     if !join_clause.has_distinct || join_clause.output_projection.is_none() {
-        return Vec::new();
-    }
-    // The partitioning source's segments are claimed per worker, so a lookup running in a
-    // different fragment could not resolve every group's doc address. Non-partitioning
-    // sources replicate their canonical segment set to every worker.
-    if is_partitioning_source {
         return Vec::new();
     }
 
@@ -777,22 +770,20 @@ fn distinct_deferrable_columns(
 /// and the `(alias, decode)` entry the lookup node above it re-derives the value from.
 ///
 /// `col_alias` is the group-output name the sort and projection stages resolve against.
-/// `plan_pos` is the source's position in the join plan; `partitioning_idx` is the partitioning
-/// source. The non-partitioning index is recomputed the same way the source build does, so a
-/// worker-side rebuild lands on the same canonical segment set the addresses were packed against.
+/// `plan_pos` is the source's position in the join plan, the same index the worker's
+/// `ParallelScanState` resolves segment lists by, so a worker-side rebuild lands on the same
+/// segment view the addresses were packed against.
 fn build_distinct_address_deferral(
     proj_idx: usize,
     plan_pos: usize,
     source: &JoinSource,
     deferrable: &DistinctDeferrable,
-    partitioning_idx: usize,
     col_alias: &str,
 ) -> (Expr, Expr, (String, DeferredField)) {
     let addr_name = format!("__distinct_addr_{}", proj_idx + 1);
     let addr_copy = col(CtidColumn::new(plan_pos).to_string()).alias(&addr_name);
     let addr_agg = min(col(&addr_name)).alias(col_alias);
 
-    let np_source_idx = (0..plan_pos).filter(|i| *i != partitioning_idx).count();
     let lookup = (
         col_alias.to_string(),
         DeferredField {
@@ -805,7 +796,7 @@ fn build_distinct_address_deferral(
             rebuild: Some(DeferredLookupRebuild {
                 field_name: deferrable.name.clone(),
                 field_type: deferrable.field_type,
-                np_source_idx: Some(np_source_idx),
+                source_idx: Some(plan_pos),
             }),
         },
     );
@@ -882,12 +873,10 @@ fn apply_distinct_group_by(
     };
 
     let plan_sources = join_clause.plan.sources();
-    let partitioning_idx = join_clause.partitioning_source_index();
     // (plan_position, deferrables) per source, computed once.
     let source_deferrables: Vec<Vec<DistinctDeferrable>> = plan_sources
         .iter()
-        .enumerate()
-        .map(|(pos, s)| distinct_deferrable_columns(join_clause, s, pos == partitioning_idx))
+        .map(|s| distinct_deferrable_columns(join_clause, s))
         .collect();
 
     let mut group_exprs: Vec<Expr> = Vec::new();
@@ -912,14 +901,8 @@ fn apply_distinct_group_by(
                         .map(|d| (pos, s, d))
                 });
             if let Some((pos, source, d)) = deferrable {
-                let (addr_copy, addr_agg, lookup) = build_distinct_address_deferral(
-                    i,
-                    pos,
-                    source,
-                    d,
-                    partitioning_idx,
-                    &col_alias,
-                );
+                let (addr_copy, addr_agg, lookup) =
+                    build_distinct_address_deferral(i, pos, source, d, &col_alias);
                 addr_copies.push(addr_copy);
                 addr_aggs.push(addr_agg);
                 lookups.push(lookup);
@@ -1264,7 +1247,7 @@ fn build_source_df<'a>(
         // select below): they never participate in the group keys, so nothing between the
         // scan and the aggregate needs their values.
         let distinct_deferred: Vec<DistinctDeferrable> = if join_clause.has_distinct {
-            distinct_deferrable_columns(join_clause, source, is_parallel)
+            distinct_deferrable_columns(join_clause, source)
         } else {
             Vec::new()
         };

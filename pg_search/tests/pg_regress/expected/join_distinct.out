@@ -732,16 +732,19 @@ LIMIT 10;
                Distinct: true
                Order By: pdb.score() desc, p.id asc, p.name asc
                DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(22 rows)
+                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@4 as col_2, col_3@1 as col_3, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[col_3@1 DESC, col_1@0 ASC NULLS LAST, col_2@4 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     TantivyLookupExec: decode=[name]
+                 :       AggregateExec: mode=Single, gby=[id@3 as col_1, score@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(__distinct_addr_2) as col_2]
+                 :         VisibilityFilterExec: tables=[s, p]
+                 :           ProjectionExec: expr=[ctid_0@0 as ctid_0, score@1 as score, ctid_1@2 as ctid_1, id@3 as id, ctid_1@2 as __distinct_addr_2]
+                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5]
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
+                 :               ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
+                 :                 CooperativeExec
+                 :                   PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(25 rows)
 
 SELECT DISTINCT
     p.id,

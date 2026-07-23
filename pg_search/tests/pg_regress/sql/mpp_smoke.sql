@@ -19,11 +19,13 @@ LOAD 'pg_search';
 -- GUCs must be visible after the extension loads.
 SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_worker_count;
+SHOW paradedb.mpp_min_rows;
 SHOW paradedb.mpp_queue_size;
 
 -- Defaults: the debug knob stays off.
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default;
+SELECT current_setting('paradedb.mpp_min_rows')::int AS mpp_min_rows_default;
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
 
 -- Toggle the boolean GUCs and verify they stick.
@@ -36,6 +38,11 @@ SET paradedb.mpp_worker_count TO 2;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_two;
 SET paradedb.mpp_worker_count TO 4;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_four;
+
+-- Size gate: zero must be accepted (regress suites rely on it to engage
+-- MPP on tiny tables).
+SET paradedb.mpp_min_rows TO 0;
+SELECT current_setting('paradedb.mpp_min_rows')::int AS mpp_min_rows_zero;
 
 -- Out-of-range worker count must fail (GUC min=1, max=64).
 DO $$
@@ -88,4 +95,5 @@ SET paradedb.mpp_debug TO off;
 
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_worker_count;
+RESET paradedb.mpp_min_rows;
 RESET paradedb.mpp_queue_size;

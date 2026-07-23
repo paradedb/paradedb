@@ -168,7 +168,6 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
-use arrow_array::Array;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -182,6 +181,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
@@ -1968,7 +1968,9 @@ impl JoinScan {
         // stay safe.
         let is_outer = matches!(
             jointype,
-            pg_sys::JoinType::JOIN_LEFT | pg_sys::JoinType::JOIN_RIGHT | pg_sys::JoinType::JOIN_FULL
+            pg_sys::JoinType::JOIN_LEFT
+                | pg_sys::JoinType::JOIN_RIGHT
+                | pg_sys::JoinType::JOIN_FULL
         );
         if is_outer
             && join_conditions
@@ -2080,10 +2082,7 @@ impl JoinScan {
         let unsupported = plan.unsupported_join_types();
         if !unsupported.is_empty() {
             return Err(warn(
-                JoinDeclineReason::new(
-                    "JoinScan not used: unsupported join type",
-                )
-                .with_details(
+                JoinDeclineReason::new("JoinScan not used: unsupported join type").with_details(
                     unsupported
                         .iter()
                         .map(|t| t.to_string().to_uppercase())

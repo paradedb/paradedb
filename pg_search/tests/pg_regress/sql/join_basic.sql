@@ -135,7 +135,7 @@ LIMIT 5;
 -- TEST 4: JoinScan should NOT be proposed for non-INNER joins (for now)
 -- =============================================================================
 
--- LEFT JOIN with LIMIT - should NOT use JoinScan (M1 only handles INNER JOIN)
+-- LEFT JOIN with LIMIT - uses JoinScan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

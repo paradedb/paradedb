@@ -256,7 +256,7 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b, r)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
  book_id |                                                                       book_snippet                                                                       |         book_positions          |   author_snippet    | author_positions |                                               review_snippet                                                |         review_positions         | book_score | author_score | review_score 
 ---------+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------+---------------------+------------------+-------------------------------------------------------------------------------------------------------------+----------------------------------+------------+--------------+--------------
        1 |                                                                                                                                                          |                                 | J.K. <b>Rowling</b> | {{5,12}}         | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {{10,14},{29,36},{60,64}}        |          0 |    1.5404451 |     0.494645

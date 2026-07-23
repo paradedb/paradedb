@@ -85,7 +85,7 @@ AND EXISTS(
 )
 ORDER BY u.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: t, u)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: t, u)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: t, u)
  id | name  
 ----+-------
   1 | Alice
@@ -112,7 +112,7 @@ AND EXISTS(
 )
 ORDER BY u.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, id, t, ti, u)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: d, id, t, ti, u)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: d, id, t, ti, u)
  id | name 
 ----+------
 (0 rows)

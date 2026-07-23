@@ -150,7 +150,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.5552412 |          0
@@ -166,7 +166,7 @@ FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -489,7 +489,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id, b.id;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |   0.66167223 | 0.27030534

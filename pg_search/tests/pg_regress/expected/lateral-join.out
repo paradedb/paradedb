@@ -303,7 +303,7 @@ LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content @@@ 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, au)
+WARNING:  JoinScan not used: join keys must be fast fields (tables: a, au)
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -331,7 +331,7 @@ LEFT JOIN authors au ON a.author_id = au.id
 WHERE a.content @@@ 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, au)
+WARNING:  JoinScan not used: join keys must be fast fields (tables: a, au)
  id |            title             |   score   | author_name 
 ----+------------------------------+-----------+-------------
  11 | Computer Vision Applications | 2.2999182 | Jane Smith

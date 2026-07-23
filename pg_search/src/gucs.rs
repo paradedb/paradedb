@@ -220,10 +220,10 @@ static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::n
 /// clusters): with the default 0.01 centroid ratio that is ~1% of ~1% of
 /// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
 /// recall@1 within ~1% of clusters). `1.0` probes every cluster.
-static VECTOR_CLUSTER_MAX_PROBE_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.01);
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.01);
 
-pub fn vector_cluster_max_probe_fraction() -> f32 {
-    VECTOR_CLUSTER_MAX_PROBE_FRACTION.get() as f32
+pub fn vector_cluster_max_probe() -> f32 {
+    VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
 /// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
@@ -444,10 +444,10 @@ pub fn init() {
     );
 
     GucRegistry::define_float_guc(
-        c"paradedb.vector_cluster_max_probe_fraction",
+        c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
         c"Fraction of a segment's IVF clusters probed per vector ORDER BY query, resolved per-segment as ceil(fraction * cluster_count) and floored at one cluster. A fraction rather than an absolute count so the ceiling tracks each segment's own cluster count instead of scanning small segments exhaustively and barely probing large ones. 1.0 probes every cluster. Lower values reduce latency at the cost of recall.",
-        &VECTOR_CLUSTER_MAX_PROBE_FRACTION,
+        &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
         GucContext::Userset,

@@ -1030,7 +1030,7 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector.clone())
                     .with_adaptive_params(AdaptiveProbeParams {
                         epsilon: crate::gucs::vector_cluster_probe_epsilon(),
-                        max_probe_fraction: crate::gucs::vector_cluster_max_probe_fraction(),
+                        max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });
                 // Probe-stats NOTICE (GUC `paradedb.log_probe_stats`, off by

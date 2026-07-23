@@ -131,3 +131,25 @@ CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING bm25
     STORAGE public.vector;
 CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING bm25 AS
     STORAGE public.vector;
+
+-- Adds ivf_cluster_radii(index regclass): a read-only set-returning function
+-- that surfaces the stored per-cluster IVF radii (`.centroids` slot [3]), one
+-- row per cluster per segment — the observation instrument for the
+-- radius-aware probe gate. Radii are NATIVE-only (rank-0 members; replica
+-- spill excluded); segments written before the radius slot report zeros, and
+-- segments written by the earlier replica-inclusive fold report those larger,
+-- conservative values. Computes nothing new and adds no on-disk state.
+-- The CREATE below is the SchemaBot/pgrx canonical text verbatim (the schema
+-- checker compares statements textually); the DROP keeps the script re-runnable.
+DROP FUNCTION IF EXISTS ivf_cluster_radii(regclass);
+CREATE  FUNCTION "ivf_cluster_radii"(
+	"index" regclass /* PgRelation */
+) RETURNS TABLE (
+	"segno" TEXT,  /* String */
+	"field" TEXT,  /* String */
+	"cluster_ord" INT,  /* i32 */
+	"radius" real  /* f32 */
+)
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'ivf_cluster_radii_wrapper';

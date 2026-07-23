@@ -24,7 +24,7 @@
 //! ensuring that we only replace window functions with ParadeDB placeholders
 //! when we are certain that the query can be executed as a Top K query.
 
-use crate::api::FieldName;
+use crate::api::{FieldName, QueryVector};
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
 use crate::postgres::catalog::{
@@ -53,19 +53,15 @@ pub enum SortExpressionType {
     /// Sorting by an expression that matched an indexed expression in `pg_index.indexprs`.
     IndexedExpression,
     /// Sorting by vector distance: `ORDER BY col <-> '[...]'`.
-    /// Carries the resolved query vector (if a `Const`), the `Param` ID
-    /// to resolve at execution time (if a parameterized generic plan),
-    /// or a serialized non-`Var`, non-volatile operand expression
-    /// (`query_vector_expr`) to evaluate once at execution time (e.g.
-    /// `current_setting('...')::vector`), plus the metric implied by the
-    /// operator (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct).
+    /// Carries the query-vector operand — already concrete for a `Const`, or
+    /// one of the deferred forms resolved at execution time (see
+    /// [`QueryVector`]) — plus the metric implied by the operator
+    /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct).
     /// Query vectors are passed through to tantivy raw — the storage
     /// layer owns unit-norm policy for the doc side, and the cosine
     /// scoring kernel handles non-unit queries via `inv_norm_q`.
     VectorDistance {
-        query_vector: Vec<f32>,
-        query_vector_param_id: Option<i32>,
-        query_vector_expr: Option<String>,
+        query_vector: QueryVector,
         metric: VectorMetric,
     },
     /// Sorting by a vector distance operator whose implied metric
@@ -361,9 +357,7 @@ unsafe fn extract_vector_distance(
         return Some((
             var_node,
             SortExpressionType::VectorDistance {
-                query_vector,
-                query_vector_param_id: None,
-                query_vector_expr: None,
+                query_vector: QueryVector::Resolved(query_vector),
                 metric: op_metric,
             },
         ));
@@ -380,9 +374,7 @@ unsafe fn extract_vector_distance(
         return Some((
             var_node,
             SortExpressionType::VectorDistance {
-                query_vector: Vec::new(),
-                query_vector_param_id: Some((*param).paramid),
-                query_vector_expr: None,
+                query_vector: QueryVector::Param((*param).paramid),
                 metric: op_metric,
             },
         ));
@@ -405,9 +397,7 @@ unsafe fn extract_vector_distance(
     Some((
         var_node,
         SortExpressionType::VectorDistance {
-            query_vector: Vec::new(),
-            query_vector_param_id: None,
-            query_vector_expr: Some(serialized),
+            query_vector: QueryVector::Expr(serialized),
             metric: op_metric,
         },
     ))
@@ -627,8 +617,6 @@ where
                     }
                     SortExpressionType::VectorDistance {
                         ref query_vector,
-                        query_vector_param_id,
-                        ref query_vector_expr,
                         metric,
                     } => {
                         if let Some(field_name) = field_name_opt {
@@ -637,8 +625,6 @@ where
                                 name: field_name,
                                 rti,
                                 query_vector: query_vector.clone(),
-                                query_vector_param_id,
-                                query_vector_expr: query_vector_expr.clone(),
                                 metric,
                             });
                             found_valid_member = true;

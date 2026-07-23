@@ -1027,7 +1027,7 @@ impl SearchIndexReader {
                 let tantivy_field = field.field();
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
-                    .order_by_similarity(tantivy_field, query_vector.clone())
+                    .order_by_similarity(tantivy_field, query_vector.expect_resolved().to_vec())
                     .with_adaptive_params(AdaptiveProbeParams {
                         epsilon: crate::gucs::vector_cluster_probe_epsilon(),
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),

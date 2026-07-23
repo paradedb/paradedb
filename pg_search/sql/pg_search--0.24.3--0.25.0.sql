@@ -6,14 +6,15 @@
 -- ERROR: required extension "vector" is not installed
 -- so run CREATE EXTENSION vector first; no mid-script failure is possible.
 
--- index_info gains vector_* columns, changing its RETURNS TABLE shape, so it must be
+-- index_info's RETURNS TABLE shape changed since the last release that recreated it
+-- (xmax is now xid, xmin was dropped, and a mutable column was added), so it must be
 -- dropped and recreated. Both index_layer_info views depend on it, so drop them first
 -- and recreate them (verbatim from their base definitions) afterward.
 DROP VIEW IF EXISTS pdb.index_layer_info;
 DROP VIEW IF EXISTS paradedb.index_layer_info;
 
 DROP FUNCTION IF EXISTS index_info(index regclass, show_invisible bool);
-CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT 'false') RETURNS TABLE(index_name text, visible bool, recyclable bool, xmax xid, segno text, mutable bool, byte_size pg_catalog."numeric", num_docs pg_catalog."numeric", num_deleted pg_catalog."numeric", termdict_bytes pg_catalog."numeric", postings_bytes pg_catalog."numeric", positions_bytes pg_catalog."numeric", fast_fields_bytes pg_catalog."numeric", fieldnorms_bytes pg_catalog."numeric", store_bytes pg_catalog."numeric", deletes_bytes pg_catalog."numeric", vector_field text, vector_format text, vector_num_vectors pg_catalog."numeric", vector_num_centroids pg_catalog."numeric", vector_min_cluster_size pg_catalog."numeric", vector_max_cluster_size pg_catalog."numeric", vector_avg_cluster_size pg_catalog.float8, vector_empty_clusters pg_catalog."numeric") AS 'MODULE_PATHNAME', 'index_info_wrapper' LANGUAGE c STRICT;
+CREATE OR REPLACE FUNCTION index_info(index regclass, show_invisible bool DEFAULT 'false') RETURNS TABLE(index_name text, visible bool, recyclable bool, xmax xid, segno text, mutable bool, byte_size pg_catalog."numeric", num_docs pg_catalog."numeric", num_deleted pg_catalog."numeric", termdict_bytes pg_catalog."numeric", postings_bytes pg_catalog."numeric", positions_bytes pg_catalog."numeric", fast_fields_bytes pg_catalog."numeric", fieldnorms_bytes pg_catalog."numeric", store_bytes pg_catalog."numeric", deletes_bytes pg_catalog."numeric") AS 'MODULE_PATHNAME', 'index_info_wrapper' LANGUAGE c STRICT;
 
 create view paradedb.index_layer_info as
 select relname::text,
@@ -121,6 +122,29 @@ CREATE  FUNCTION "ivf_cluster_sizes"(
 STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'ivf_cluster_sizes_wrapper';
+
+-- Adds vector_info(index regclass, field text): the per-segment vector statistics
+-- for a single vector field, split out of index_info so each vector field can be
+-- inspected explicitly. The CREATE below is the SchemaBot/pgrx canonical text
+-- verbatim; the DROP keeps the script re-runnable.
+DROP FUNCTION IF EXISTS vector_info(regclass, text);
+CREATE  FUNCTION "vector_info"(
+	"index" regclass, /* PgRelation */
+	"field" TEXT /* String */
+) RETURNS TABLE (
+	"segno" TEXT,  /* String */
+	"vector_field" TEXT,  /* String */
+	"vector_format" TEXT,  /* String */
+	"vector_num_vectors" NUMERIC,  /* AnyNumeric */
+	"vector_num_centroids" NUMERIC,  /* Option < AnyNumeric > */
+	"vector_min_cluster_size" NUMERIC,  /* Option < AnyNumeric > */
+	"vector_max_cluster_size" NUMERIC,  /* Option < AnyNumeric > */
+	"vector_avg_cluster_size" double precision,  /* Option < f64 > */
+	"vector_empty_clusters" NUMERIC  /* Option < AnyNumeric > */
+)
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'vector_info_wrapper';
 
 -- Vector opclasses (pgvector convention). Pure metric tags: STORAGE only,
 -- no strategy operators or support functions. bm25 reads the metric back at

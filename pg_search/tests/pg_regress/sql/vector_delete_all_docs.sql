@@ -49,7 +49,7 @@ SELECT g,
 FROM generate_series(1, 24000) g;
 
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
-FROM paradedb.index_info('delvec_idx');
+FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Kill every vector-bearing doc. VACUUM records the deletes so the next
 -- merge sees those docs as dead.
@@ -67,7 +67,7 @@ FROM generate_series(24001, 30000) g;
 
 -- An IVF segment now exists whose vector field is empty.
 SELECT bool_or(vector_format = 'ivf' AND vector_num_vectors = 0) AS ivf_with_empty_vector_field
-FROM paradedb.index_info('delvec_idx');
+FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Vector ORDER BY on the emptied field: no error, zero results. Exhaustive
 -- probing, so the empty result cannot be an artifact of probe pruning.

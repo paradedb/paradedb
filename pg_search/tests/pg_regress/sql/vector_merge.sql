@@ -45,19 +45,20 @@ FROM generate_series(1, 15000) g;
 
 -- The merge produced a clustered segment...
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
-FROM paradedb.index_info('remerge_idx');
+FROM paradedb.vector_info('remerge_idx', 'vec');
 
 -- ...whose reported vector count is distinct docs (= its doc count), not the
 -- 3x posting-row total that replication writes...
-SELECT bool_and(vector_num_vectors = num_docs) AS num_vectors_is_distinct_docs
-FROM paradedb.index_info('remerge_idx')
-WHERE vector_format = 'ivf';
+SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
+FROM paradedb.vector_info('remerge_idx', 'vec') v
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
 
 -- ...while the per-cluster sizes deliberately stay memberships: their sum
 -- strictly exceeds the distinct-doc count under replication.
 SELECT (SELECT sum(size) FROM paradedb.ivf_cluster_sizes('remerge_idx'))
      > (SELECT sum(vector_num_vectors)
-        FROM paradedb.index_info('remerge_idx')
+        FROM paradedb.vector_info('remerge_idx', 'vec')
         WHERE vector_format = 'ivf') AS cluster_sizes_are_memberships;
 
 -- Wave 2: make the replicated IVF segment a merge SOURCE. The layer must
@@ -69,11 +70,12 @@ SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::v
 FROM generate_series(15001, 50000) g;
 
 SELECT bool_or(vector_format = 'ivf') AS still_has_ivf
-FROM paradedb.index_info('remerge_idx');
+FROM paradedb.vector_info('remerge_idx', 'vec');
 
-SELECT bool_and(vector_num_vectors = num_docs) AS num_vectors_is_distinct_docs
-FROM paradedb.index_info('remerge_idx')
-WHERE vector_format = 'ivf';
+SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
+FROM paradedb.vector_info('remerge_idx', 'vec') v
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
 
 -- Exhaustive probing: the ceiling clamps to each segment's cluster count,
 -- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so

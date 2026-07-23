@@ -46,7 +46,7 @@ SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::v
 FROM generate_series(1, 15000) g;
 -- The merge produced a clustered segment...
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
-FROM paradedb.index_info('remerge_idx');
+FROM paradedb.vector_info('remerge_idx', 'vec');
  has_ivf 
 ---------
  t
@@ -54,9 +54,10 @@ FROM paradedb.index_info('remerge_idx');
 
 -- ...whose reported vector count is distinct docs (= its doc count), not the
 -- 3x posting-row total that replication writes...
-SELECT bool_and(vector_num_vectors = num_docs) AS num_vectors_is_distinct_docs
-FROM paradedb.index_info('remerge_idx')
-WHERE vector_format = 'ivf';
+SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
+FROM paradedb.vector_info('remerge_idx', 'vec') v
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
  num_vectors_is_distinct_docs 
 ------------------------------
  t
@@ -66,7 +67,7 @@ WHERE vector_format = 'ivf';
 -- strictly exceeds the distinct-doc count under replication.
 SELECT (SELECT sum(size) FROM paradedb.ivf_cluster_sizes('remerge_idx'))
      > (SELECT sum(vector_num_vectors)
-        FROM paradedb.index_info('remerge_idx')
+        FROM paradedb.vector_info('remerge_idx', 'vec')
         WHERE vector_format = 'ivf') AS cluster_sizes_are_memberships;
  cluster_sizes_are_memberships 
 -------------------------------
@@ -81,15 +82,16 @@ INSERT INTO remerge
 SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
 FROM generate_series(15001, 50000) g;
 SELECT bool_or(vector_format = 'ivf') AS still_has_ivf
-FROM paradedb.index_info('remerge_idx');
+FROM paradedb.vector_info('remerge_idx', 'vec');
  still_has_ivf 
 ---------------
  t
 (1 row)
 
-SELECT bool_and(vector_num_vectors = num_docs) AS num_vectors_is_distinct_docs
-FROM paradedb.index_info('remerge_idx')
-WHERE vector_format = 'ivf';
+SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
+FROM paradedb.vector_info('remerge_idx', 'vec') v
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
  num_vectors_is_distinct_docs 
 ------------------------------
  t

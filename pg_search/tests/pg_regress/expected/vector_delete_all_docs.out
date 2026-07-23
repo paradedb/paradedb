@@ -50,7 +50,7 @@ SELECT g,
        END
 FROM generate_series(1, 24000) g;
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
-FROM paradedb.index_info('delvec_idx');
+FROM paradedb.vector_info('delvec_idx', 'vec');
  has_ivf 
 ---------
  t
@@ -70,7 +70,7 @@ SELECT g, md5(g::text), NULL
 FROM generate_series(24001, 30000) g;
 -- An IVF segment now exists whose vector field is empty.
 SELECT bool_or(vector_format = 'ivf' AND vector_num_vectors = 0) AS ivf_with_empty_vector_field
-FROM paradedb.index_info('delvec_idx');
+FROM paradedb.vector_info('delvec_idx', 'vec');
  ivf_with_empty_vector_field 
 -----------------------------
  t

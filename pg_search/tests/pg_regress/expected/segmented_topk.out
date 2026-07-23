@@ -667,7 +667,7 @@ LIMIT 5;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=25.81 K, output_bytes=932.8 KB, output_batches=4, rows_pruned=4.19 K, rows_scanned=30.00 K]
+           :           PgSearchScan: segments=4, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query="all", metrics=[output_rows=25.81 K, output_bytes=932.8 KB, output_batches=4, rows_pruned=4.19 K, rows_scanned=30.00 K]
 (15 rows)
 
 SELECT f.id, f.title

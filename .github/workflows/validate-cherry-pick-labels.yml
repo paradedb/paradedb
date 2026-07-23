@@ -6,6 +6,9 @@ on:
       - main
     types: [opened, synchronize, labeled, unlabeled]
 
+permissions:
+  contents: read
+
 jobs:
   validate-cherry-pick-labels:
     name: Validate Cherry Pick Labels

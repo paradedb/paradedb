@@ -368,7 +368,6 @@ WHERE id IN (
 AND id @@@ 'id:1'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -399,7 +398,6 @@ WHERE id IN (
 AND id @@@ 'id:1'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    category    
 ----+----------------
   1 | other_category

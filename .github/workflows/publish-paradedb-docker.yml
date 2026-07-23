@@ -5,7 +5,7 @@
 # the pg_search .deb has been published to GitHub Releases. Stable releases publish Docker images for
 # all of our supported PostgreSQL versions, while beta releases only publish the default PostgreSQL
 # version we run as default (currently 18). This workflow also publishes the non-runnable
-# paradedb/paradedb-extension image for Postgres 18+ deployments that mount Postgres extension images.
+# extension image for Postgres 18+ deployments that mount Postgres extension images.
 # Once the runnable Docker images are published, notify ORM wrapper repositories via repository_dispatch
 # so they can run compatibility checks against the new version. This is done in
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
@@ -31,11 +31,10 @@ concurrency:
   group: publish-paradedb-docker-${{ github.event.inputs.version || github.ref }}
   cancel-in-progress: true
 
-# Used by actions/attest-build-provenance to sign the builds
+# id-token: write lets cosign sign and attest the images keylessly via Sigstore.
 permissions:
   contents: write
   id-token: write
-  attestations: write
   pull-requests: write
 
 jobs:
@@ -201,7 +200,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: paradedb/paradedb
+          images: paradedb/${{ github.event.repository.name }}
           tags: |
             type=raw,value=${{ matrix.pg_version }}-${{ needs.generate-dockerfiles.outputs.tag }}
             type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }}-pg${{ matrix.pg_version }}
@@ -230,12 +229,62 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
+      - name: Scan Image for Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          subject-name: index.docker.io/paradedb/paradedb
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
+          image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Gate Release on Critical Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          skip-files: usr/local/bin/gosu
+          exit-code: "1"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise
+      - name: Sign Image with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign --recursive "index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}"
+
+      # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
+      - name: Attest Build Provenance with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          IMAGE_REF: index.docker.io/paradedb/${{ github.event.repository.name }}@${{ steps.build-push.outputs.digest }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.workflow_ref }}
+          SOURCE_URI: git+${{ github.server_url }}/${{ github.repository }}@${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg builder "$BUILDER_ID" \
+            --arg uri "$SOURCE_URI" \
+            --arg sha "$SOURCE_SHA" \
+            --arg runid "$RUN_ID" \
+            '{
+              builder: { id: $builder },
+              buildType: "https://github.com/actions/runner",
+              invocation: {
+                configSource: {
+                  uri: $uri,
+                  digest: { sha1: $sha },
+                  entryPoint: ".github/workflows/publish-paradedb-docker.yml"
+                }
+              },
+              metadata: { buildInvocationId: $runid },
+              materials: [{ uri: $uri, digest: { sha1: $sha } }]
+            }' > provenance.json
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
   # Beta (`-rc.`) releases publish only the runnable PG 18 image, not the mountable extension image.
   publish-extension-image:
@@ -252,7 +301,7 @@ jobs:
         # see a mounted /share/extension directory.
         pg_version: [18]
     env:
-      image_name: paradedb/paradedb-extension
+      image_name: paradedb/${{ github.event.repository.name }}-extension
       image_os: trixie
 
     steps:
@@ -324,12 +373,61 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
+      - name: Scan Image for Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          subject-name: index.docker.io/${{ env.image_name }}
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
+          image-ref: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Gate Release on Critical Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the image digest. Works without GitHub Enterprise
+      - name: Sign Image with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign --recursive "index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}"
+
+      # Signed SLSA provenance over the image digest via Sigstore. Works without GitHub Enterprise.
+      - name: Attest Build Provenance with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          IMAGE_REF: index.docker.io/${{ env.image_name }}@${{ steps.build-push.outputs.digest }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.workflow_ref }}
+          SOURCE_URI: git+${{ github.server_url }}/${{ github.repository }}@${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg builder "$BUILDER_ID" \
+            --arg uri "$SOURCE_URI" \
+            --arg sha "$SOURCE_SHA" \
+            --arg runid "$RUN_ID" \
+            '{
+              builder: { id: $builder },
+              buildType: "https://github.com/actions/runner",
+              invocation: {
+                configSource: {
+                  uri: $uri,
+                  digest: { sha1: $sha },
+                  entryPoint: ".github/workflows/publish-paradedb-docker.yml"
+                }
+              },
+              metadata: { buildInvocationId: $runid },
+              materials: [{ uri: $uri, digest: { sha1: $sha } }]
+            }' > provenance.json
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "$IMAGE_REF"
 
   # Skip for beta (`-rc.`) releases, since we don't want to open Dockerfile-update PRs for prereleases
   open-dockerfile-prs:

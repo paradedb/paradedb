@@ -63,13 +63,6 @@ runs:
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
-    # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
-    # benchmark-action publish actions running in other jobs
-    - name: Sleep before publish
-      if: github.ref == 'refs/heads/main'
-      shell: bash
-      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
-
     - name: Publish Benchmark Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -89,7 +82,7 @@ runs:
 
     - name: Upload Benchmark Results to Slack (push only)
       if: github.ref == 'refs/heads/main'
-      uses: slackapi/slack-github-action@v3
+      uses: slackapi/slack-github-action@v4
       with:
         method: chat.postMessage
         token: ${{ inputs.slack_oauth_token }}

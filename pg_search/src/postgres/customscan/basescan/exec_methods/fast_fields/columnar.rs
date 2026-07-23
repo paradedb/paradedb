@@ -347,21 +347,18 @@ impl ColumnarExecState {
 
         // Create PgSearchScanPlan and execute via DataFusion
         let state_partition = ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
-                parallel_state: state.parallel_state,
-                source_idx: None,
-                // Basescan is never an MPP source, so there is no non-partitioning position.
-                non_partitioning_index: None,
-                planner_estimated_rows: 0,
-                scanner_config,
-            },
+            parallel_state: state.parallel_state,
+            source_idx: None,
+            // Basescan is never an MPP source.
+            planner_estimated_rows: 0,
+            scanner_config,
             ffhelper: Arc::clone(ffhelper),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: search_reader.clone(),
         };
 
         let plan = PgSearchScanPlan::new(
-            vec![state_partition],
+            Some(state_partition),
             build_arrow_schema(&self.scanner_fast_fields),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),

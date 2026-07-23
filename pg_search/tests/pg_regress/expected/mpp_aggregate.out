@@ -29,14 +29,6 @@ CREATE TABLE mpp_pages (
     page_text TEXT,
     size_bytes INTEGER
 );
-INSERT INTO mpp_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-INSERT INTO mpp_pages (file_id, page_text, size_bytes)
-SELECT (g % 200) + 1,
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
 CREATE INDEX mpp_files_idx ON mpp_files
 USING bm25 (id, title, content)
 WITH (
@@ -50,17 +42,35 @@ WITH (
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {}}'
 );
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+RESET paradedb.global_mutable_segment_rows;
 ANALYZE mpp_files;
 ANALYZE mpp_pages;
 -- =====================================================================
--- Pass 1: serial baseline (enable_mpp = off)
+-- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
 --
 -- Scalar COUNT(*) without GROUP BY: PG's planner doesn't parallelize
 -- scalar aggregates on small datasets (no natural Partial+Final split
 -- available), so this only exercises the serial customscan path. The
 -- result is the correctness baseline for pass 2.
 -- =====================================================================
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -76,9 +86,9 @@ WHERE f.content @@@ 'Section';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
      :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 SELECT COUNT(*)
@@ -115,9 +125,9 @@ LIMIT 5;
                  :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
@@ -136,7 +146,7 @@ LIMIT 5;
 (5 rows)
 
 -- =====================================================================
--- Pass 2: MPP path (enable_mpp = on). Same queries, same expected results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same queries, same expected results.
 --
 -- The scalar COUNT(*) case still falls back to serial — PG won't
 -- parallelize scalar aggregates at this scale even with the parallel-
@@ -144,7 +154,7 @@ LIMIT 5;
 -- Parallel Custom Scan` shape with `Workers Planned > 0`, exercising
 -- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
 -- =====================================================================
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -168,11 +178,11 @@ WHERE f.content @@@ 'Section';
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :   │       PgSearchScan: segments=2, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-     :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
 (23 rows)
 
@@ -221,11 +231,11 @@ LIMIT 5;
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-                 :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │   PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (34 rows)
 

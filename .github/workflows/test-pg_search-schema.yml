@@ -9,15 +9,19 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/test-pg_search-schema.yml"
       - ".github/scripts/check_migration_diff.py"
+      - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:
   group: test-pg_search-schema-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test-pg_search-schema:

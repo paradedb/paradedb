@@ -385,7 +385,6 @@ impl SegmentedTopKExec {
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         ctx: &TaskContext,
-        non_partitioning_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -418,13 +417,7 @@ impl SegmentedTopKExec {
                             first.canonical.indexrelid
                         ))
                     })?;
-                    let mvcc = rebuild_mvcc(
-                        LookupRebuildContext {
-                            non_partitioning_segment_ids,
-                            parallel_state,
-                        },
-                        first_rb,
-                    )?;
+                    let mvcc = rebuild_mvcc(LookupRebuildContext { parallel_state }, first_rb)?;
                     open_rebuilt_ffhelper(first.canonical.indexrelid, &entries, mvcc)?
                 }
             },
@@ -1744,11 +1737,17 @@ impl SegmentedTopKState {
         // 3. Materialize sort column values for each candidate and build a
         //    second RowConverter using materialized data types (Utf8View/BinaryView
         //    for deferred columns, original type for non-deferred).
-        let materialized_sort_fields: Vec<SortField> = self
+        struct SortCol<'a> {
+            expr: &'a datafusion::physical_expr::PhysicalSortExpr,
+            deferred: Option<&'a DeferredSortColumn>,
+            mat_type: arrow_schema::DataType,
+        }
+
+        let sort_cols: Vec<SortCol> = self
             .sort_exprs
             .iter()
             .map(|expr| {
-                let is_deferred = expr
+                let deferred = expr
                     .expr
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
@@ -1756,9 +1755,8 @@ impl SegmentedTopKState {
                             .iter()
                             .find(|d| d.sort_col_idx == c.index())
                     });
-                let data_type = if let Some(deferred) = is_deferred {
-                    let col = self.ffhelper.column(0, deferred.canonical.ff_index);
-                    match col {
+                let mat_type = if let Some(deferred) = deferred {
+                    match self.ffhelper.column(0, deferred.canonical.ff_index) {
                         FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
                         _ => arrow_schema::DataType::Utf8View,
                     }
@@ -1767,48 +1765,77 @@ impl SegmentedTopKState {
                         .data_type(&self.schema)
                         .unwrap_or(arrow_schema::DataType::Utf8View)
                 };
-                SortField::new_with_options(data_type, expr.options)
+                SortCol {
+                    expr,
+                    deferred,
+                    mat_type,
+                }
+            })
+            .collect();
+
+        let materialized_sort_fields: Vec<SortField> = sort_cols
+            .iter()
+            .map(|sort_col| {
+                SortField::new_with_options(sort_col.mat_type.clone(), sort_col.expr.options)
             })
             .collect();
 
         let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
 
-        // For each candidate, resolve materialized ScalarValues and convert to OwnedRow.
-        let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
+        // A NULL must match the RowConverter's declared field type:
+        // convert_columns rejects mismatches ("expected BinaryView got
+        // Utf8View" for a NULL in a Bytes-backed NUMERIC sort key).
+        // If the type is unsupported, propagate the error rather than
+        // substituting a differently typed NULL that the converter will reject.
+        let typed_null = |sort_col: &SortCol| -> Result<ScalarValue> {
+            ScalarValue::try_from(&sort_col.mat_type)
+        };
 
-        for (idx, (batch_idx, row_idx, ord_info)) in candidates.iter().enumerate() {
-            let mut values = Vec::with_capacity(self.sort_exprs.len());
+        // Batch-convert all ordinal survivors' rows in a single convert_rows call.
+        // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
+        let ord_rows: Vec<_> = candidates
+            .iter()
+            .filter_map(|(_, _, ord_info)| ord_info.as_ref().map(|(_, row_val)| row_val.row()))
+            .collect();
 
-            for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
-                let is_deferred = sort_expr
-                    .expr
-                    .downcast_ref::<datafusion::physical_expr::expressions::Column>()
-                    .and_then(|c| {
-                        self.deferred_columns
-                            .iter()
-                            .find(|d| d.sort_col_idx == c.index())
-                    });
+        let all_ord_arrays: Option<Vec<ArrayRef>> = if !ord_rows.is_empty() {
+            Some(
+                self.row_converter
+                    .convert_rows(ord_rows)
+                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+            )
+        } else {
+            None
+        };
 
-                let value = if let Some(deferred) = is_deferred {
-                    if let Some((seg_ord, ord_row)) = ord_info {
-                        // Ordinal survivor: convert ordinal back to string.
-                        let arrays = self
-                            .row_converter
-                            .convert_rows(std::iter::once(ord_row.row()))
-                            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        // Build column-major ScalarValues and batch-convert all candidates at once.
+        let mut column_values: Vec<Vec<ScalarValue>> = (0..self.sort_exprs.len())
+            .map(|_| Vec::with_capacity(candidates.len()))
+            .collect();
+
+        let mut ord_pos = 0;
+        for (batch_idx, row_idx, ord_info) in candidates.iter() {
+            for (i, sort_col) in sort_cols.iter().enumerate() {
+                let value = if let Some(deferred) = sort_col.deferred {
+                    if let Some((seg_ord, _)) = ord_info {
+                        // Ordinal survivor: use pre-batched arrays with our sequential counter.
+                        let arrays = all_ord_arrays
+                            .as_ref()
+                            .expect("all_ord_arrays is None for ordinal survivor");
                         let term_ord = arrays[i]
                             .as_any()
                             .downcast_ref::<UInt64Array>()
-                            .map(|a| a.value(0));
+                            .map(|a| a.value(ord_pos));
                         if let Some(term_ord) = term_ord {
-                            let col = self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
-                            match col {
+                            let ff_col =
+                                self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
+                            match ff_col {
                                 FFType::Text(str_col) => {
                                     let mut s = String::new();
                                     if str_col.ord_to_str(term_ord, &mut s).is_ok() {
                                         ScalarValue::Utf8View(Some(s))
                                     } else {
-                                        ScalarValue::Utf8View(None)
+                                        typed_null(sort_col)?
                                     }
                                 }
                                 FFType::Bytes(bytes_col) => {
@@ -1816,38 +1843,44 @@ impl SegmentedTopKState {
                                     if bytes_col.ord_to_bytes(term_ord, &mut b).is_ok() {
                                         ScalarValue::BinaryView(Some(b))
                                     } else {
-                                        ScalarValue::BinaryView(None)
+                                        typed_null(sort_col)?
                                     }
                                 }
-                                _ => ScalarValue::Utf8View(None),
+                                _ => typed_null(sort_col)?,
                             }
                         } else {
-                            ScalarValue::Utf8View(None)
+                            typed_null(sort_col)?
                         }
                     } else {
                         // NULL ordinal pass-through
-                        ScalarValue::Utf8View(None)
+                        typed_null(sort_col)?
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.
                     let batch = &self.batches[*batch_idx];
-                    let val = sort_expr.expr.evaluate(batch)?;
+                    let val = sort_col.expr.expr.evaluate(batch)?;
                     let arr = val.into_array(batch.num_rows())?;
-                    ScalarValue::try_from_array(&arr, *row_idx)
-                        .unwrap_or(ScalarValue::Utf8View(None))
+                    ScalarValue::try_from_array(&arr, *row_idx).or_else(|_| typed_null(sort_col))?
                 };
-                values.push(value);
+                column_values[i].push(value);
             }
 
-            // Convert ScalarValues to arrays and then to an OwnedRow.
-            let arrays: Vec<ArrayRef> = values
-                .iter()
-                .map(|v| v.to_array())
-                .collect::<Result<Vec<_>>>()?;
-            let converted = mat_row_converter
-                .convert_columns(&arrays)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-            mat_rows.push((idx, converted.row(0).owned()));
+            if ord_info.is_some() {
+                ord_pos += 1;
+            }
+        }
+
+        // Batch convert all candidates in a single convert_columns call.
+        let arrays: Vec<ArrayRef> = column_values
+            .into_iter()
+            .map(|col| ScalarValue::iter_to_array(col))
+            .collect::<Result<Vec<_>>>()?;
+        let converted = mat_row_converter
+            .convert_columns(&arrays)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
+        for idx in 0..candidates.len() {
+            mat_rows.push((idx, converted.row(idx).owned()));
         }
 
         // 4. Sort candidates by materialized OwnedRow and take top K.

@@ -69,7 +69,8 @@ INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(600001, 70
 INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(700001, 800000) i;
 INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(800001, 900000) i;
 INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(900001, 1000000) i;
-INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(1, 5000) x;
+INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(1, 2500) x;
+INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(2501, 5000) x;
 RESET paradedb.global_mutable_segment_rows;
 ANALYZE;
 -- The query uses EXISTS and NOT IN subqueries (no explicit JOIN).
@@ -79,6 +80,7 @@ ANALYZE;
 --
 -- Before the fix, parallel workers panic with:
 -- "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments"
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id
 FROM js_rti_items i
 WHERE i.overview @@@ 'software'
@@ -95,7 +97,57 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: i.id
+         Relation Tree: (i ANTI e) SEMI p
+         Join Cond: i.id = p.company_id, i.id = e.company_id
+         Limit: 10
+         Order By: i.id desc
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+           : │   SortPreservingMergeExec: [id@1 DESC], fetch=10
+           : │     SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
+           : │       VisibilityFilterExec: tables=[i]
+           : │         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+           : │           CoalescePartitionsExec
+           : │             [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           : │             PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── tasks=3, partitions=9
+           :   │ HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@1)]
+           :   │   CoalescePartitionsExec
+           :   │     [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
+           :   │   RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :   │     PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=1, partitions=3
+           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+           :     │   PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     └──────────────────────────────────────────────────
+(31 rows)
+
+SELECT i.id
+FROM js_rti_items i
+WHERE i.overview @@@ 'software'
+  AND i.id NOT IN (
+      SELECT DISTINCT e.company_id
+      FROM js_rti_excluded e
+      WHERE e.id @@@ pdb.all()
+        AND e.technology_name === ARRAY['Marketo']
+  )
+  AND EXISTS (
+      SELECT p.id
+      FROM js_rti_people p
+      WHERE p.company_id = i.id
+  )
+ORDER BY i.id DESC
+LIMIT 10;
    id   
 --------
  100000

@@ -23,7 +23,7 @@ if (input) {
       url: "https://www.paradedb.com/brand/paradedb-logo-light.svg",
     },
     description:
-      "You want better search, not the burden of Elasticsearch. ParadeDB is the modern Elastic alternative built as a Postgres extension.",
+      "One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.",
     email: "hello@paradedb.com",
     contactPoint: [
       {

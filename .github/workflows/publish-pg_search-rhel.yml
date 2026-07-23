@@ -22,11 +22,10 @@ concurrency:
   group: publish-pg_search-rhel-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-# Used by actions/attest-build-provenance to sign the builds
+# id-token: write lets cosign sign the builds keylessly via Sigstore.
 permissions:
   contents: write
   id-token: write
-  attestations: write
 
 jobs:
   publish-pg_search-rhel:
@@ -184,7 +183,7 @@ jobs:
           echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install dependencies
-          dnf install -y sudo wget git ca-certificates gcc llvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
+          dnf install -y sudo wget git ca-certificates gcc llvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel gettext
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -314,7 +313,7 @@ jobs:
           Release:        1%{?dist}
           Summary:        Full-text search for PostgreSQL using BM25
           License:        GNU Affero General Public License v3.0
-          URL:            https://github.com/paradedb/paradedb
+          URL:            ${{ github.server_url }}/${{ github.repository }}
 
           BuildRequires:  postgresql${{ matrix.pg_version }}-devel
           BuildRequires:  openblas-devel
@@ -356,11 +355,16 @@ jobs:
           echo "Building RPM package..."
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: |
-            ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the .rpm. Works without GitHub Enterprise;
+      # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
+      - name: Sign .rpm with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          RPM: rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+        run: cosign sign-blob --yes --bundle "$HOME/${RPM}.cosign.bundle" "$HOME/$RPM"
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -369,7 +373,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            /repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -383,6 +387,15 @@ jobs:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          overwrite: true
+
+      - name: Upload pg_search .rpm Cosign Bundle to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
+          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
           overwrite: true
 
       - name: Notify Slack on Failure

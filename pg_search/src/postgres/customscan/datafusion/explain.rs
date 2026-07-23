@@ -25,9 +25,14 @@
 //! predicate-tree EXPLAIN can both reach them.
 
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinLevelExpr, RelationAlias};
 use crate::postgres::deparse::node_to_string_fallback;
+use datafusion::physical_plan::metrics::MetricValue;
+use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
+use datafusion_distributed::{display_plan_ascii, DistributedExec};
 use pgrx::pg_sys;
+use std::sync::Arc;
 
 /// Format a PostgreSQL expression node for EXPLAIN output.
 /// Returns a human-readable description of the expression.
@@ -136,4 +141,106 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
             format_expr_for_explain(node.cast())
         },
     }
+}
+
+/// Recursively formats a DataFusion physical plan as a string, appending
+/// collected metrics.  When `include_timing` is false, timing metrics
+/// (`elapsed_compute`, named `Time` values) are stripped so that regression
+/// test output remains stable.  Pass `true` (e.g. for EXPLAIN ANALYZE VERBOSE)
+/// to include everything.
+// TODO(#4152): PG parallel workers each run their own `exec_custom_scan` with their
+// own plan instance, so these metrics only cover the leader's share.
+fn render_plan_with_metrics(
+    plan: &dyn ExecutionPlan,
+    indent: usize,
+    include_timing: bool,
+    lines: &mut Vec<String>,
+) {
+    use std::fmt::Write;
+
+    let mut line = format!("{:indent$}", "", indent = indent * 2);
+
+    struct Fmt<'a>(&'a dyn ExecutionPlan);
+    impl std::fmt::Display for Fmt<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.0.fmt_as(DisplayFormatType::Default, f)
+        }
+    }
+    write!(line, "{}", Fmt(plan)).unwrap();
+
+    if let Some(metrics) = plan.metrics() {
+        let aggregated = metrics
+            .aggregate_by_name()
+            .sorted_for_display()
+            .timestamps_removed();
+        let parts: Vec<String> = aggregated
+            .iter()
+            .filter(|m| {
+                include_timing
+                    || !matches!(
+                        m.value(),
+                        MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
+                    )
+            })
+            .map(|m| m.to_string())
+            .collect();
+        if !parts.is_empty() {
+            write!(line, ", metrics=[{}]", parts.join(", ")).unwrap();
+        }
+    }
+
+    lines.push(line);
+    for child in plan.children() {
+        render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
+    }
+}
+
+/// Renders a physical plan for EXPLAIN.
+/// For EXPLAIN ANALYZE, renders with metrics. For plain EXPLAIN, renders with
+/// ASCII boxes for DistributedExec or a tree format for non-distributed plans.
+pub fn explain_physical_plan(plan: &Arc<dyn ExecutionPlan>, explainer: &mut Explainer) {
+    explainer.add_text("DataFusion Physical Plan", "");
+    if plan.is::<DistributedExec>() {
+        // TODO: `display_plan_ascii` does not currently support stripping `elapsed_compute`
+        // or other timing data, so MPP EXPLAIN ANALYZE will include timing metrics even when
+        // `TIMING OFF` is requested. This makes regression tests flake. We should upstream
+        // a feature to `datafusion-distributed` to optionally strip these metrics.
+        let rendered = display_plan_ascii(plan.as_ref(), explainer.is_analyze());
+        for line in rendered.lines() {
+            explainer.add_text("  ", line);
+        }
+    } else if explainer.is_analyze() {
+        let mut lines = Vec::new();
+        render_plan_with_metrics(plan.as_ref(), 0, explainer.is_verbose(), &mut lines);
+        for line in lines {
+            explainer.add_text("  ", line);
+        }
+    } else {
+        let rendered = datafusion::physical_plan::displayable(plan.as_ref())
+            .indent(false)
+            .to_string();
+        for line in rendered.lines() {
+            explainer.add_text("  ", line);
+        }
+    }
+}
+
+/// Merges MPP worker metrics if we are the leader. If the merge times out or fails,
+/// it appends a warning to the explainer and returns the original plan.
+pub fn get_plan_with_merged_metrics(
+    plan: &Arc<dyn ExecutionPlan>,
+    is_leader: bool,
+    has_runtime: bool,
+    explainer: &mut Explainer,
+) -> Arc<dyn ExecutionPlan> {
+    if is_leader && has_runtime {
+        if let Some(merged) = crate::postgres::customscan::mpp::glue::merge_worker_metrics(plan) {
+            return merged;
+        }
+        explainer.add_text(
+            "  (worker metrics incomplete; a worker may not have reported)",
+            "",
+        );
+    }
+    Arc::clone(plan)
 }

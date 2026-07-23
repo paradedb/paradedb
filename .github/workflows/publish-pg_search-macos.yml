@@ -22,11 +22,10 @@ concurrency:
   group: publish-pg_search-macos-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
-# Used by actions/attest-build-provenance to sign the builds
+# id-token: write lets cosign sign the builds keylessly via Sigstore.
 permissions:
   contents: write
   id-token: write
-  attestations: write
 
 jobs:
   publish-pg_search-macos:
@@ -66,9 +65,17 @@ jobs:
             pg_version: 18
 
     steps:
-      # We force reinstall git to make sure it is in PATH
+      # Force reinstall git to make sure it is in PATH. gettext provides envsubst,
+      # which sigstore/cosign-installer needs and which isn't on PATH by default.
       - name: Install Dependencies
-        run: brew reinstall git
+        run: |
+          # The GitHub macOS runner images ship with aws/tap pre-tapped but untrusted,
+          # which makes Homebrew print a "taps are not trusted" warning on every brew
+          # invocation. We don't use it, so untap it to keep the logs clean.
+          brew untap aws/tap || true
+          brew reinstall git
+          brew install gettext
+          echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
@@ -257,10 +264,16 @@ jobs:
           xcrun stapler staple "$PKG"
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the .pkg. Works without GitHub Enterprise;
+      # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
+      - name: Sign .pkg with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+          PKG: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+        run: cosign sign-blob --yes --bundle "${PKG}.cosign.bundle" "$PKG"
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -269,7 +282,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            /repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -283,6 +296,15 @@ jobs:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           asset_name: pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          overwrite: true
+
+      - name: Upload pg_search .pkg Cosign Bundle to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg.cosign.bundle
+          asset_name: pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg.cosign.bundle
           overwrite: true
 
       - name: Notify Slack on Failure

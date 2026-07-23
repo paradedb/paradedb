@@ -1,0 +1,25 @@
+[package]
+name = "dst"
+description = "Deterministic simulation testing hooks shared by pg_search and Stressgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Off by default: with `enabled` unset the whole crate compiles to nothing — the assertion
+# macros expand to a dead `if false { … }` that still type-checks their arguments,
+# `GhostState<T>` is a zero-sized type, and `init()` is a no-op, so a build that does not opt
+# in never links the Antithesis SDK. Turning `enabled` on pulls in the SDK and dispatches for
+# real.
+enabled = ["dep:antithesis_sdk"]
+
+[dependencies]
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "full",
+], optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"

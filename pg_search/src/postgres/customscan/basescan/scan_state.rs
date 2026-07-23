@@ -206,7 +206,6 @@ impl BaseScanState {
 
         ParallelScanArgs {
             all_sources: vec![segment_readers],
-            partitioning_source_idx: 0,
             query,
             with_aggregates,
         }

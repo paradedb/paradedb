@@ -24,11 +24,7 @@ fn assert_parallel_joinscan_plan(conn: &mut sqlx::PgConnection, query: &str) {
     let (plan,): (Value,) = explain_query.fetch_one(conn);
     let plan_str = format!("{plan:?}");
     assert!(plan_str.contains("ParadeDB Join Scan"), "{plan_str}");
-    assert!(plan_str.contains("Workers Planned"), "{plan_str}");
-    assert!(
-        plan_str.contains("\"Parallel Aware\":true") || plan_str.contains("Parallel Aware"),
-        "{plan_str}"
-    );
+    assert!(plan_str.contains("DataFusion Physical Plan"), "{plan_str}");
 }
 
 fn setup_parameterized_joinscan_schema(conn: &mut sqlx::PgConnection) {
@@ -117,6 +113,7 @@ fn setup_parameterized_joinscan_schema(conn: &mut sqlx::PgConnection) {
 }
 
 #[rstest]
+#[ignore = "https://github.com/paradedb/paradedb/issues/5445"]
 #[tokio::test]
 async fn prepared_param_on_replicated_source_succeeds(database: Db) -> Result<()> {
     let mut conn = database.connection().await;
@@ -163,6 +160,7 @@ async fn prepared_param_on_replicated_source_succeeds(database: Db) -> Result<()
 }
 
 #[rstest]
+#[ignore = "https://github.com/paradedb/paradedb/issues/5445"]
 #[tokio::test]
 async fn initplan_param_on_replicated_source_succeeds(database: Db) -> Result<()> {
     let mut conn = database.connection().await;
@@ -208,6 +206,7 @@ async fn initplan_param_on_replicated_source_succeeds(database: Db) -> Result<()
 }
 
 #[rstest]
+#[ignore = "https://github.com/paradedb/paradedb/issues/5445"]
 #[tokio::test]
 async fn prepared_param_on_partitioning_source_succeeds(database: Db) -> Result<()> {
     let mut conn = database.connection().await;

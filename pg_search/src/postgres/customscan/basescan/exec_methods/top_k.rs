@@ -32,7 +32,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::parallel::checkout_segment;
+use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -177,7 +177,8 @@ impl TopKScanExecState {
                 let mut claimed_segments = Vec::new();
                 Box::new(std::iter::from_fn(move || {
                     check_for_interrupts!();
-                    let maybe_segment_id = unsafe { checkout_segment(parallel_state) };
+                    let maybe_segment_id =
+                        unsafe { checkout_segment_for_source(parallel_state, 0) };
                     let Some(segment_id) = maybe_segment_id else {
                         // No more segments: record that we successfully claimed all segments, and
                         // then conclude iteration.

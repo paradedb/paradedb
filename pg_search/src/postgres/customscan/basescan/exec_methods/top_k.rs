@@ -83,6 +83,9 @@ pub struct TopKScanExecState {
     window_aggregates: Vec<WindowAggregateInfo>,
     /// Cached per-segment ctid fast-field reader.
     ctid_cache: Option<(SegmentOrdinal, FFType)>,
+    /// [antithesis correctness] Whether this is the score-DESC collector and the bm25 score of
+    /// the previously-emitted result.
+    topk_score_state: dst::GhostState<(bool, Option<f32>)>,
 }
 
 impl TopKScanExecState {
@@ -114,6 +117,13 @@ impl TopKScanExecState {
             1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
         } * crate::gucs::limit_fetch_multiplier();
 
+        let topk_score_state = dst::GhostState::new(|| {
+            let is_score_desc = orderby_info
+                .as_ref()
+                .is_some_and(|oi| SearchIndexReader::orderby_uses_score_desc_topk_collector(oi));
+            (is_score_desc, None)
+        });
+
         // Resolve K eagerly when both sides are static; otherwise leave it as
         // None and resolve in `init` from the LimitOffset carried on
         // ExecMethodType::TopK.
@@ -133,6 +143,7 @@ impl TopKScanExecState {
             scale_factor,
             window_aggregates: Vec::new(),
             ctid_cache: None,
+            topk_score_state,
         }
     }
 
@@ -512,6 +523,40 @@ impl ExecMethod for TopKScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
+
+                    // [antithesis correctness] For a single `ORDER BY pdb.score() DESC` TopK, the
+                    // scored path returns rows in non-increasing bm25 order (both within a chunk and
+                    // across MVCC re-query chunks, since a higher offset only yields lower scores).
+                    // Guard to finite scores to avoid crying wolf on NaN, and only to the exact
+                    // score-DESC collector shape (field/ASC/multi-feature sorts do NOT order by bm25).
+                    let curr_score = scored.bm25;
+                    dst::observe!(self.topk_score_state, |topk_score_state: &(
+                        bool,
+                        Option<f32>
+                    )| {
+                        let (is_score_desc, last_topk_score) = *topk_score_state;
+                        if is_score_desc {
+                            if let Some(prev_score) = last_topk_score {
+                                if prev_score.is_finite() && curr_score.is_finite() {
+                                    dst::assert_always!(
+                                        prev_score >= curr_score,
+                                        "pg_search: TopK score-DESC results are non-increasing",
+                                        &::serde_json::json!({
+                                            "previous_score": prev_score,
+                                            "current_score": curr_score,
+                                        })
+                                    );
+                                }
+                            }
+                        }
+                    });
+                    self.topk_score_state.mutate(|topk_score_state| {
+                        let (is_score_desc, last_topk_score) = topk_score_state;
+                        if *is_score_desc {
+                            *last_topk_score = Some(curr_score);
+                        }
+                    });
+
                     let searcher = self.search_reader.as_ref().unwrap().searcher();
                     let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
                     return ExecState::FromHeap {
@@ -553,6 +598,8 @@ impl ExecMethod for TopKScanExecState {
         self.search_reader = state.search_reader.clone();
         self.search_results = TopKSearchResults::empty();
         self.ctid_cache = None;
+        self.topk_score_state
+            .mutate(|topk_score_state| topk_score_state.1 = None);
 
         // Get window aggregates from state if available
         if let ExecMethodType::TopK {

@@ -788,6 +788,19 @@ pub mod v2 {
                     break;
                 };
 
+                // [antithesis correctness] a drained freelist's recyclable xid must never exceed the draining transaction's xid: reusing a block whose when_recyclable is in the future relative to the current transaction could hand out a block a live snapshot still needs (MVCC/visibility corruption). get_lte(&xid) guarantees found_xid <= xid, and xid only ever decreases from current_xid, so found_xid <= current_xid must always hold.
+                dst::observe!(|| {
+                    dst::assert_always!(
+                        found_xid <= current_xid,
+                        "pg_search: FSM drained block recyclable-xid within transaction horizon",
+                        &::serde_json::json!({
+                            "found_xid": found_xid,
+                            "current_xid": current_xid,
+                            "search_horizon_xid": xid,
+                        })
+                    );
+                });
+
                 let head_blockno = tag as pg_sys::BlockNumber;
                 let mut blockno = head_blockno;
                 let mut cnt = 0;
@@ -867,7 +880,22 @@ pub mod v2 {
                         // get all that we can/need from this page
                         while contents.len > 0 && blocks.len() < many {
                             contents.len -= 1;
-                            blocks.push(contents.entries[contents.len as usize]);
+                            let drained = contents.entries[contents.len as usize];
+                            // [antithesis correctness] every freelist entry within [0, len) was written by extend from a real allocated block chain, so a drained block handed back for reuse must be a valid block number. An InvalidBlockNumber here means metadata corruption (e.g. an inflated len reading uninitialized trailing slots) and would cause the caller to initialize/reuse a bogus block -> corruption.
+                            dst::observe!(|| {
+                                dst::assert_always!(
+                                    drained != pg_sys::InvalidBlockNumber,
+                                    "pg_search: FSM drained block is a valid block number",
+                                    &::serde_json::json!({
+                                        "drained_blockno": drained,
+                                        "invalid_blockno": pg_sys::InvalidBlockNumber,
+                                        "freelist_blockno": blockno,
+                                        "head_blockno": head_blockno,
+                                        "found_xid": found_xid,
+                                    })
+                                );
+                            });
+                            blocks.push(drained);
                             modified = true;
                         }
                         cnt += contents.len as usize;

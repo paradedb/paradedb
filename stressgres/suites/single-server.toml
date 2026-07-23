@@ -162,6 +162,21 @@ SELECT assert((pdb.agg('{"value_count": {"field": "id"}}'::jsonb)->>'value')::nu
 """
 
 [[jobs]]
+refresh_ms = 5
+title = "Score-ordered TopK"
+log_tps = true
+# Drives the score-DESC TopK collector so the `pg_search: TopK score-DESC results are
+# non-increasing` property gets exercised. `@@@` forces the bm25 custom scan and
+# `ORDER BY paradedb.score(id) DESC LIMIT` selects the TopK score collector; the match
+# returns several rows with distinct scores, so the non-increasing check is meaningful.
+on_connect = """
+SET paradedb.enable_custom_scan = on;
+"""
+sql = """
+SELECT id FROM test WHERE message @@@ 'beer' ORDER BY paradedb.score(id) DESC LIMIT 10;
+"""
+
+[[jobs]]
 refresh_ms = 25
 title = "Update random values"
 log_tps = true

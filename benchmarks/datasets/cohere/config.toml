@@ -46,3 +46,8 @@ vchord_probes_10pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 100
 vchord_probes_10pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 10000000 THEN 300 ELSE greatest(1, round(0.04 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 vchord_probes_1pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 vchord_probes_1pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
+
+# pg_search resolves its probe knobs as inlined literals in queries/pg_search/*.sql, not [params]:
+# the ceiling (paradedb.vector_cluster_max_probe_fraction) and gate (paradedb.vector_cluster_probe_epsilon)
+# are fractions, and the runner casts [params] to ::bigint, which would truncate them to 0. The ceiling
+# is fixed at 0.05 across all three arms; epsilon is tuned per arm for ~95% recall@10 on cohere 1M.

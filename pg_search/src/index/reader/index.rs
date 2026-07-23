@@ -72,7 +72,7 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 /// scored — the beam's visit set when routing went through the persisted
 /// RNG, or all of them on the linear fallback.
 ///
-/// The two trailing compound tokens reuse `termination=`'s `key:N` comma
+/// The trailing compound tokens reuse `termination=`'s `key:N` comma
 /// style and sit at the end of the line so prefix parsers are unaffected.
 /// They always print, zeros included — the grammar is constant-shape.
 /// `postings=` buckets probed IVF clusters by posting-fetch outcome (one
@@ -84,6 +84,16 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 /// returns before the probe loop, so every posting counter is zero by
 /// design and the partition invariant holds trivially (0 == 0 clusters
 /// probed).
+///
+/// Candidate-gate telemetry rides at the very end (again so prefix
+/// parsers are unaffected): `heap_saturated=` counts segments whose top-N
+/// heap ended full (its complement is per-segment starvation),
+/// `gate_armed_at_ceiling=` counts segments where the gate's Terminate
+/// condition held on the very yield the Ceiling fired on (the two stops
+/// tied; Ceiling won by the checked-first contract), and `radius_skips=`
+/// sums clusters the gate skipped without probing. Under the `centroid`
+/// gate mode all three are structurally zero except `heap_saturated`,
+/// which is mode-agnostic.
 fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
     let mut visited = 0usize;
     let mut pruned_filter = 0usize;
@@ -96,6 +106,9 @@ fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
     let (mut ceiling, mut gate, mut exhausted) = (0usize, 0usize, 0usize);
     let (mut postings_row, mut postings_skipped) = (0usize, 0usize);
     let mut exact_rows = 0usize;
+    let mut heap_saturated = 0usize;
+    let mut gate_armed_at_ceiling = 0usize;
+    let mut radius_skips = 0usize;
     for s in per_segment {
         visited += s.vectors_visited;
         pruned_filter += s.pruned_filter;
@@ -113,6 +126,9 @@ fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
         postings_row += s.postings_row;
         postings_skipped += s.postings_skipped;
         exact_rows += s.exact_rows_read;
+        heap_saturated += usize::from(s.heap_saturated);
+        gate_armed_at_ceiling += usize::from(s.gate_armed_at_ceiling);
+        radius_skips += s.radius_skips;
     }
     format!(
         "probe_stats visited={visited} pruned_filter={pruned_filter} \
@@ -120,7 +136,8 @@ fn format_probe_stats(per_segment: &[ProbeStats]) -> String {
          clusters_probed={clusters_probed} router_scored={router_scored} \
          min_candidates={min_candidates} termination=ceiling:{ceiling},gate:{gate},exhausted:{exhausted} \
          postings=row:{postings_row},skipped:{postings_skipped} \
-         exact_rows={exact_rows}"
+         exact_rows={exact_rows} heap_saturated={heap_saturated} \
+         gate_armed_at_ceiling={gate_armed_at_ceiling} radius_skips={radius_skips}"
     )
 }
 
@@ -1030,6 +1047,7 @@ impl SearchIndexReader {
                     .with_adaptive_params(AdaptiveProbeParams {
                         epsilon: crate::gucs::vector_cluster_probe_epsilon(),
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe_fraction(),
+                        gate_mode: crate::gucs::vector_probe_gate_mode(),
                         ..Default::default()
                     });
                 // Probe-stats NOTICE (GUC `paradedb.log_probe_stats`, off by
@@ -1723,6 +1741,10 @@ mod probe_stats_tests {
             },
             min_candidates: 16,
             termination,
+            heap_saturated: true,
+            gate_armed_at_probe: Some(1),
+            gate_armed_at_ceiling: termination == ProbeTermination::Ceiling,
+            radius_skips: 4,
         }
     }
 
@@ -1748,10 +1770,12 @@ mod probe_stats_tests {
         let line =
             format_probe_stats(&[seg(ProbeTermination::Gate), seg(ProbeTermination::Ceiling)]);
         // Scalars summed; termination tallied per variant; summed invariant
-        // holds (visited 50 == 10+4+16+20).
+        // holds (visited 50 == 10+4+16+20). `heap_saturated` counts
+        // segments (both), `gate_armed_at_ceiling` counts only the segment
+        // whose stop was the ceiling, `radius_skips` sums.
         assert_eq!(
             line,
-            "probe_stats visited=50 pruned_filter=10 pruned_dead=4 pruned_seen=16 scored=20 clusters_probed=6 router_scored=18 min_candidates=32 termination=ceiling:1,gate:1,exhausted:0 postings=row:4,skipped:2 exact_rows=0"
+            "probe_stats visited=50 pruned_filter=10 pruned_dead=4 pruned_seen=16 scored=20 clusters_probed=6 router_scored=18 min_candidates=32 termination=ceiling:1,gate:1,exhausted:0 postings=row:4,skipped:2 exact_rows=0 heap_saturated=2 gate_armed_at_ceiling=1 radius_skips=8"
         );
     }
 
@@ -1759,7 +1783,7 @@ mod probe_stats_tests {
     fn format_probe_stats_empty() {
         assert_eq!(
             format_probe_stats(&[]),
-            "probe_stats visited=0 pruned_filter=0 pruned_dead=0 pruned_seen=0 scored=0 clusters_probed=0 router_scored=0 min_candidates=0 termination=ceiling:0,gate:0,exhausted:0 postings=row:0,skipped:0 exact_rows=0"
+            "probe_stats visited=0 pruned_filter=0 pruned_dead=0 pruned_seen=0 scored=0 clusters_probed=0 router_scored=0 min_candidates=0 termination=ceiling:0,gate:0,exhausted:0 postings=row:0,skipped:0 exact_rows=0 heap_saturated=0 gate_armed_at_ceiling=0 radius_skips=0"
         );
     }
 
@@ -1779,7 +1803,7 @@ mod probe_stats_tests {
         let line = format_probe_stats(&[seg(ProbeTermination::Exhausted), flat]);
         assert_eq!(
             line,
-            "probe_stats visited=25 pruned_filter=5 pruned_dead=2 pruned_seen=8 scored=10 clusters_probed=3 router_scored=9 min_candidates=16 termination=ceiling:0,gate:0,exhausted:2 postings=row:2,skipped:1 exact_rows=11"
+            "probe_stats visited=25 pruned_filter=5 pruned_dead=2 pruned_seen=8 scored=10 clusters_probed=3 router_scored=9 min_candidates=16 termination=ceiling:0,gate:0,exhausted:2 postings=row:2,skipped:1 exact_rows=11 heap_saturated=1 gate_armed_at_ceiling=0 radius_skips=4"
         );
         // Partition invariant, parsed back off the emitted line.
         assert_eq!(

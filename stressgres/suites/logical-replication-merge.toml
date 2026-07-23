@@ -55,7 +55,7 @@ postgresql_conf = "Subscriber"
 [server.setup]
 sql = """
 DROP TABLE IF EXISTS test CASCADE;
-CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,

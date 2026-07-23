@@ -4,7 +4,7 @@ name = "Primary"
 
 [server.setup]
 sql = """
-CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 SET maintenance_work_mem = '8GB';
 
 CREATE OR REPLACE FUNCTION uuid_generate()

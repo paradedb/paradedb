@@ -27,6 +27,7 @@ use std::fmt::{Display, Formatter};
 #[derive(PostgresEnum, Serialize)]
 pub enum TestTable {
     Items,
+    ItemsNoEmbedding,
     Orders,
     Parts,
     Deliveries,
@@ -37,6 +38,7 @@ impl Display for TestTable {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match self {
             TestTable::Items => write!(f, "Items"),
+            TestTable::ItemsNoEmbedding => write!(f, "ItemsNoEmbedding"),
             TestTable::Orders => write!(f, "Orders"),
             TestTable::Parts => write!(f, "Parts"),
             TestTable::Deliveries => write!(f, "Deliveries"),
@@ -89,8 +91,20 @@ fn create_bm25_test_table(
             .is_empty();
 
         if table_not_found {
+            // `Items` ships a hardcoded 8-dim embedding of `description`; `ItemsNoEmbedding`
+            // is the same schema without it, for tests sensitive to physical table layout.
+            let with_embedding = matches!(table_type, TestTable::Items);
             match table_type {
-                TestTable::Items => {
+                TestTable::Items | TestTable::ItemsNoEmbedding => {
+                    if with_embedding {
+                        client.update("CREATE EXTENSION IF NOT EXISTS vector", None, &[])?;
+                    }
+
+                    let embedding_column = if with_embedding {
+                        ",\n                                embedding VECTOR(8)"
+                    } else {
+                        ""
+                    };
                     client.update(
                         &format!(
                             "CREATE TABLE {full_table_name} (
@@ -103,7 +117,7 @@ fn create_bm25_test_table(
                                 created_at TIMESTAMP,
                                 last_updated_date DATE,
                                 latest_available_time TIME,
-                                weight_range INT4RANGE
+                                weight_range INT4RANGE{embedding_column}
                             )"
                         ),
                         None,
@@ -111,9 +125,14 @@ fn create_bm25_test_table(
                     )?;
 
                     for record in mock_items_data() {
+                        let (embedding_column, embedding_value) = if with_embedding {
+                            (", embedding", format!(", '{}'", mock_embedding(record.0)))
+                        } else {
+                            ("", String::new())
+                        };
                         client.update(
                             &format!(
-                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range{embedding_column}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9{embedding_value})"
                             ),
                             Some(1),
                             &[
@@ -259,6 +278,24 @@ fn create_bm25_test_table(
 
         Ok(())
     })
+}
+
+// Deterministic toy "embedding" of a description: bytes are folded into 8
+// buckets and L2-normalized. Not a real model — just stable, description-derived
+// values so the quickstart can demonstrate vector(8) search over mock_items.
+fn mock_embedding(description: &str) -> String {
+    let mut dims = [0f32; 8];
+    for (i, byte) in description.bytes().enumerate() {
+        dims[i % 8] += byte as f32;
+    }
+    let norm = dims.iter().map(|d| d * d).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for d in &mut dims {
+            *d /= norm;
+        }
+    }
+    let values: Vec<String> = dims.iter().map(|d| format!("{d:.4}")).collect();
+    format!("[{}]", values.join(","))
 }
 
 #[inline]

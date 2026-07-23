@@ -307,7 +307,8 @@ def check_pushdown(conn, sql, qvec, label):
 
 def write_csv(records, path):
     cols = ["filter", "sel_pct", "mode", "rung", "probe_fraction", "eps", "k",
-            "recall", "p50ms", "p95ms", "p99ms", "qps"]
+            "recall", "p50ms", "p95ms", "p99ms", "qps",
+            "repeats", "p50_spread", "p95_spread"]
     # extend with probe-stats columns iff any record carries them
     if records and any("ps_queries" in r for r in records):
         cols = cols + PROBE_COLS
@@ -422,6 +423,12 @@ def main():
     ap.add_argument("--ks", default="10",
                     help="comma-separated K values, e.g. '1,10,100' (recall@K + 4*K floor)")
     ap.add_argument("--n-q", type=int, default=1000)
+    ap.add_argument("--repeats", type=int, default=3,
+                    help="latency passes per cell: each repeat runs the full query "
+                         "set; the cell reports the MEDIAN across repeats of each "
+                         "percentile, with max-min spread in the CSV "
+                         "(p50_spread/p95_spread). Recall and probe_stats are "
+                         "repeat-invariant (deterministic scans).")
     ap.add_argument("--gt-cache", default="gt_cache")
     ap.add_argument("--recompute-gt", action="store_true")
     ap.add_argument("--warmup-n", type=int, default=50,
@@ -446,7 +453,7 @@ def main():
                 "filters": "none,sel50,sel10,sel1",
                 "probe_fractions": "0.05", "probes": None, "fanouts": None,
                 "gate_modes": "centroid,candidate", "rung_label": None,
-                "epsilons": "0.5", "ks": "10", "n_q": 1000,
+                "epsilons": "0.5", "ks": "10", "n_q": 1000, "repeats": 3,
                 "gt_cache": "gt_cache", "recompute_gt": False, "warmup_n": 50,
                 "outdir": ".", "no_plot": False, "no_csv": False,
                 "probe_stats": False}
@@ -612,36 +619,55 @@ def main():
                             # per-QUERY, not per-backend.
                             cell_ps = [] if probe_lines is not None else None
 
-                            lats, recs = [], []
+                            # --repeats: each repeat is a full pass over the
+                            # query set with its own percentile readings; the
+                            # cell reports the median-across-repeats of each
+                            # percentile (single-pass wobble was ±1 ms in the
+                            # eps=0 sweep) plus the max-min spread. Recall is
+                            # deterministic across repeats; probe_stats pool
+                            # across repeats (per-query means are unchanged).
+                            # cell_ps intentionally pools across repeats.
+                            rep_p50, rep_p95, rep_p99 = [], [], []
+                            all_lats, recs = [], []
                             cell_t0 = time.time()
-                            for qi, (qid, e) in enumerate(queries, 1):
-                                q = vlit(e)
-                                ps_q0 = len(probe_lines) if probe_lines is not None else 0
-                                t0 = time.perf_counter()
-                                got = [r[0] for r in conn.execute(sql, {"q": q}).fetchall()]
-                                lats.append((time.perf_counter() - t0) * 1000.0)
-                                if qi % 100 == 0 and qi < len(queries):
-                                    rate = (time.time() - cell_t0) / qi
-                                    print(f"\r[sweep]   cell {filt}/{mode}/k{k}/"
-                                          f"eps{eps}/f{frac}: {qi}/{len(queries)} "
-                                          f"({rate*1000:.0f}ms/q, ~{rate*(len(queries)-qi):.0f}s left)",
-                                          end="", flush=True)
-                                truth = gt[qid][:k]
-                                k_eff = min(k, len(truth)) or 1
-                                recs.append(len(set(truth) & set(got)) / k_eff)
-                                if probe_lines is not None and len(probe_lines) > ps_q0:
-                                    merged = {}
-                                    for d in probe_lines[ps_q0:]:
-                                        for kk, vv in d.items():
-                                            merged[kk] = merged.get(kk, 0) + vv
-                                    cell_ps.append(merged)
+                            for rep in range(max(1, args.repeats)):
+                                lats, recs = [], []
+                                for qi, (qid, e) in enumerate(queries, 1):
+                                    q = vlit(e)
+                                    ps_q0 = len(probe_lines) if probe_lines is not None else 0
+                                    t0 = time.perf_counter()
+                                    got = [r[0] for r in conn.execute(sql, {"q": q}).fetchall()]
+                                    lats.append((time.perf_counter() - t0) * 1000.0)
+                                    if qi % 100 == 0 and qi < len(queries):
+                                        rate = (time.time() - cell_t0) / (rep * len(queries) + qi)
+                                        left = rate * ((max(1, args.repeats) - rep) * len(queries) - qi)
+                                        print(f"\r[sweep]   cell {filt}/{mode}/k{k}/"
+                                              f"eps{eps}/f{frac} rep{rep + 1}: {qi}/{len(queries)} "
+                                              f"({rate*1000:.0f}ms/q, ~{left:.0f}s left)",
+                                              end="", flush=True)
+                                    truth = gt[qid][:k]
+                                    k_eff = min(k, len(truth)) or 1
+                                    recs.append(len(set(truth) & set(got)) / k_eff)
+                                    if probe_lines is not None and len(probe_lines) > ps_q0:
+                                        merged = {}
+                                        for d in probe_lines[ps_q0:]:
+                                            for kk, vv in d.items():
+                                                merged[kk] = merged.get(kk, 0) + vv
+                                        cell_ps.append(merged)
+                                lats.sort()
+                                rep_p50.append(pct(lats, .50))
+                                rep_p95.append(pct(lats, .95))
+                                rep_p99.append(pct(lats, .99))
+                                all_lats.extend(lats)
 
                             if len(queries) >= 100:
                                 print("\r" + " " * 78 + "\r", end="")
-                            lats.sort()
-                            mean_ms = sum(lats) / len(lats)
+                            mean_ms = sum(all_lats) / len(all_lats)
                             recall = sum(recs) / len(recs)
-                            p50, p95, p99 = pct(lats, .50), pct(lats, .95), pct(lats, .99)
+                            med = lambda xs: sorted(xs)[len(xs) // 2]
+                            p50, p95, p99 = med(rep_p50), med(rep_p95), med(rep_p99)
+                            p50_spread = max(rep_p50) - min(rep_p50)
+                            p95_spread = max(rep_p95) - min(rep_p95)
                             qps = 1000.0 / mean_ms
                             rows_out.append(
                                 f"{filt:>7}{sel*100:>7.2f}{mode:>10}{frac:>7}{eps:>6}{k:>5}"
@@ -654,6 +680,9 @@ def main():
                                 "recall": round(recall, 4),
                                 "p50ms": round(p50, 2), "p95ms": round(p95, 2),
                                 "p99ms": round(p99, 2), "qps": round(qps, 1),
+                                "repeats": max(1, args.repeats),
+                                "p50_spread": round(p50_spread, 2),
+                                "p95_spread": round(p95_spread, 2),
                             }
                             if probe_lines is not None:
                                 agg = aggregate_probe_stats(cell_ps)

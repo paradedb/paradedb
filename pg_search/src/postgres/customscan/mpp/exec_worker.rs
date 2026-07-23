@@ -230,7 +230,9 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
     };
     if fragments.is_empty() {
-        pgrx::warning!(
+        // TODO(#5667): Wait to request parallel workers from Postgres until after the plan
+        // is generated so we only launch as many workers as we have fragments for.
+        pgrx::debug1!(
             "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
         );
         return;

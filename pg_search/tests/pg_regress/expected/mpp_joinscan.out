@@ -172,7 +172,6 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
   title  | size_bytes 
 ---------+------------
  file-1  |        616
@@ -209,7 +208,6 @@ FROM mpp_explain_analyze_lines(
    LIMIT 10'
 ) AS line
 WHERE line LIKE '%output_rows%';
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  worker_metrics_shown 
 ----------------------
  t
@@ -273,7 +271,6 @@ WHERE f.content @@@ 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
   title   | size_bytes 
 ----------+------------
  file-10  |        153

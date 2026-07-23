@@ -110,6 +110,12 @@ pub struct ScanState {
 /// For plans initialized with a `ScanState`, the first `execute()` takes the reader. If the plan has multiple
 /// partitions (`partition_count > 1`), subsequent calls up to `partition_count` yield an empty stream (`Empty`).
 /// Once all budget calls are spent, the state transitions to `Consumed`.
+///
+/// Because all tasks/variants in a single process share the exact same `ExecutionState` instance (cloned via `Arc`),
+/// this state machine is essential for correctness when a process hosts multiple tasks for the same scan stage.
+/// The first task to poll `execute()` takes the `Ready` state and returns a stream that dynamically claims segments
+/// from the `ParallelScanState`. The subsequent tasks encounter the `Empty` state and return empty streams, safely
+/// allowing the first stream to do all the work for that process's portion of segments.
 #[derive(Default)]
 pub enum ExecutionState {
     /// Initialized with state, ready to execute.
@@ -125,10 +131,11 @@ pub enum ExecutionState {
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// The plan exposes exactly one partition containing a lazily-evaluated
-/// `MultiSegmentSearchResults` stream. Segments are claimed dynamically from
-/// `ParallelScanState` when running in parallel (load-balancing across workers as they
-/// process data) or chained sequentially when serial.
+/// Under multi-partition distributed execution, this plan's `output_partitioning` declares
+/// a *capacity* (`min(segments, target_partitions)`). The partitions do not statically map
+/// to data; instead, tasks dynamically claim segments from the shared `ParallelScanState` as
+/// they process the stream returned by `execute()`. See `ExecutionState` for details on how
+/// multiple tasks safely share state within a single process.
 pub struct PgSearchScanPlan {
     /// State for this single-partition scan.
     ///
@@ -239,6 +246,13 @@ impl PgSearchScanPlan {
                 None => s.reader.segment_ids().len(),
             })
             .unwrap_or(0);
+
+        assert!(
+            partition_count <= segment_count.max(1),
+            "partition_count {} exceeds segment_count {}",
+            partition_count,
+            segment_count
+        );
 
         let exec_state = match state {
             Some(s) => ExecutionState::Ready(Box::new(UnsafeSendSync(s))),
@@ -536,14 +550,20 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
+        let partition_count = self.properties.output_partitioning().partition_count();
         let num_rows = match partition {
             None => Precision::Inexact(self.planner_estimated_rows as usize),
-            Some(p) if p < self.segment_count => {
+            Some(p) if p < partition_count => {
                 let rows_per_partition =
-                    self.planner_estimated_rows as usize / self.segment_count.max(1);
+                    self.planner_estimated_rows as usize / partition_count.max(1);
                 Precision::Inexact(rows_per_partition)
             }
-            Some(_) => Precision::Absent,
+            Some(p) => {
+                return Err(DataFusionError::Internal(format!(
+                    "Partition {} out of range (have {} partitions)",
+                    p, partition_count
+                )))
+            }
         };
 
         let column_statistics = self
@@ -641,6 +661,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             mut visibility,
             mut reader,
         } = scan_state;
+
+        assert!(
+            partition_count <= 1 || parallel_state.is_some(),
+            "PgSearchScanPlan executed with partition_count > 1 but without a ParallelScanState"
+        );
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters

@@ -549,7 +549,7 @@ impl TableProvider for PgSearchTableProvider {
 impl PgSearchTableProvider {
     async fn scan_inner(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
@@ -627,7 +627,7 @@ impl PgSearchTableProvider {
         let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
 
         let segment_count = reader.segment_readers().len();
-        let target_partitions = _state.config().target_partitions();
+        let target_partitions = state.config().target_partitions();
         // The output partitions of the scan equal min(segments, target_partitions).
         // This instructs datafusion-distributed to split the query into exactly this many
         // tasks for this leaf, routing multi-segment tables to parallel workers while keeping

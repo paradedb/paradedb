@@ -152,7 +152,6 @@ FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 GROUP BY f.category
 ORDER BY f.category;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  category | row_count | total_bytes | min_bytes | max_bytes 
 ----------+-----------+-------------+-----------+-----------
  cat-0    |       200 |      394380 |         4 |      4063
@@ -241,7 +240,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  category |  title   | pages_per_file 
 ----------+----------+----------------
  cat-0    | file-10  |              5
@@ -333,7 +331,6 @@ GROUP BY f.category
 HAVING COUNT(*) > 100
 ORDER BY s DESC
 LIMIT 3;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  category |  c  |   s    
 ----------+-----+--------
  cat-1    | 200 | 397780
@@ -395,7 +392,6 @@ WHERE f.content @@@ 'Section';
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  count 
 -------
   1000
@@ -511,7 +507,6 @@ JOIN mpp_postagg_categories c ON f.category = c.name
 WHERE f.content @@@ 'Section'
 GROUP BY c.name
 ORDER BY c.name;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  name  | row_count | total_bytes 
 -------+-----------+-------------
  cat-0 |       200 |      394380

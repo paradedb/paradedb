@@ -193,7 +193,6 @@ WHERE f.content @@@ 'Section';
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
  count 
 -------
   1000
@@ -254,7 +253,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-WARNING:  mpp worker (proc=3): no fragments assigned; skipping (worker emits zero rows)
   title   | count |  sum  
 ----------+-------+-------
  file-1   |     5 | 10040

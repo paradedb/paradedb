@@ -56,7 +56,8 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
         }
 
         // Each worker decodes its own copy, and `execute()` dynamically claims segments from the
-        // parallel state.
+        // parallel state. Variants in the same process share state: see `ExecutionState` for why
+        // this is safe.
         let variants = (0..task_count)
             .map(|_| Arc::clone(plan))
             .collect::<Vec<_>>();

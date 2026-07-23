@@ -45,7 +45,7 @@ Here's a complete example of setting up distributed search with Citus:
 
 ```sql
 CREATE EXTENSION citus;
-CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_search CASCADE;
 
 -- Create a table with a distribution key
 CREATE TABLE articles (

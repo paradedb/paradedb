@@ -521,8 +521,7 @@ unsafe fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetList
         }
         match nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
             Some(func_expr)
-                if is_unnest_func((*func_expr).funcid)
-                    && unnest_arg_is_paradedb_srf(func_expr) =>
+                if is_unnest_func((*func_expr).funcid) && unnest_arg_is_paradedb_srf(func_expr) =>
             {
                 found_safe = true
             }

@@ -91,8 +91,6 @@ fn create_bm25_test_table(
             .is_empty();
 
         if table_not_found {
-            // `Items` ships a hardcoded 8-dim embedding of `description`; `ItemsNoEmbedding`
-            // is the same schema without it, for tests sensitive to physical table layout.
             let with_embedding = matches!(table_type, TestTable::Items);
             match table_type {
                 TestTable::Items | TestTable::ItemsNoEmbedding => {

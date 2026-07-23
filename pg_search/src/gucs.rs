@@ -216,11 +216,11 @@ static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::n
 /// per-segment (`ceil(fraction * num_clusters)`, at least one cluster). A
 /// fraction rather than an absolute count because every segment can have a
 /// different cluster count — an absolute cap scans small segments
-/// exhaustively while barely probing large ones. Default 0.01 (1% of
-/// clusters): with the default 0.01 centroid ratio that is ~1% of ~1% of
+/// exhaustively while barely probing large ones. Default 0.02 (2% of
+/// clusters): with the default 0.01 centroid ratio that is ~2% of ~1% of
 /// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
 /// recall@1 within ~1% of clusters). `1.0` probes every cluster.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.01);
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
 
 pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32

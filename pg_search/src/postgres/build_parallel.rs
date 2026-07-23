@@ -360,8 +360,10 @@ impl<'a> WorkerBuildState<'a> {
         worker_number: i32,
         is_leader: bool,
     ) -> anyhow::Result<Self> {
-        // if we're making more than one segment, do an early cutoff based on doc count in case
-        // the memory budget is so high that all the docs fit into one segment
+        // If we're making more than one segment, do an early cutoff based on doc
+        // count in case the memory budget is so high that all the docs fit into one
+        // segment. For a single-segment target, leave it unbounded (memory-driven).
+        // Any vector-specific doc cap is applied in `SerialIndexWriter::open`.
         let max_docs_per_segment = if worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
@@ -519,8 +521,7 @@ impl<'a> WorkerBuildState<'a> {
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
-        let directory = MvccSatisfies::Mergeable.directory(&self.indexrel);
-        let mut merger = SearchIndexMerger::open(directory)?;
+        let mut merger = SearchIndexMerger::open(&self.indexrel, MvccSatisfies::Mergeable)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
         merger.merge_segments(&segment_ids_to_merge)?;
 

@@ -153,6 +153,7 @@ mod tests {
             Some(ffhelper.clone()),
             0,
             Some(7),
+            1,
         );
 
         let (_, found) = find_ffhelper_for_plan_position(&scan, 7)
@@ -199,6 +200,7 @@ mod tests {
             Some(ffhelper.clone()),
             0,
             None,
+            1,
         );
         let stk = SegmentedTopKExec::new(
             Arc::new(scan),
@@ -233,6 +235,7 @@ mod tests {
             Some(ffhelper_scan.clone()),
             0,
             Some(plan_pos),
+            1,
         );
 
         let vis_data = Arc::new(AbsorbedVisibilityData::new(

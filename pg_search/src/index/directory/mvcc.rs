@@ -77,6 +77,7 @@ impl MvccSatisfies {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 enum LoadedSegmentMetaEntry {
     Persisted {
         meta: SegmentMetaEntry,
@@ -190,9 +191,11 @@ impl MVCCDirectory {
 
         match meta_entry {
             LoadedSegmentMetaEntry::Persisted { entry, .. } => {
-                let file_entry = entry
-                    .file_entry(uuid_string, path)
-                    .expect("No such path for {entry:?}: {path:?}");
+                let Some(file_entry) = entry.file_entry(uuid_string, path) else {
+                    return Err(TantivyError::OpenDirectoryError(
+                        OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                    ));
+                };
                 Ok(Arc::new(unsafe {
                     SegmentComponentReader::new(&self.indexrel, file_entry)
                 }))
@@ -225,7 +228,15 @@ impl MVCCDirectory {
                         )
                         .expect("Failed to index mutable segment.")
                     })
-                    .get_file_handle(path)?;
+                    .get_file_handle(path)
+                    .map_err(|err| match err {
+                        OpenReadError::FileDoesNotExist(missing) => {
+                            TantivyError::OpenDirectoryError(OpenDirectoryError::DoesNotExist(
+                                missing,
+                            ))
+                        }
+                        other => other.into(),
+                    })?;
                 Ok(file_handle)
             }
         }
@@ -319,6 +330,15 @@ impl Directory for MVCCDirectory {
                                 starting_block: file_entry.starting_block,
                                 total_bytes: total_bytes.load(Ordering::Relaxed),
                             }
+                        } else if let TantivyError::OpenDirectoryError(
+                            OpenDirectoryError::DoesNotExist(missing),
+                        ) = err
+                        {
+                            // Not in the catalog and not an uncommitted write:
+                            // surface tantivy's missing-file variant so probing
+                            // readers (see `file_entry`) can take their absent
+                            // path instead of failing on an opaque IoError.
+                            return Err(OpenReadError::FileDoesNotExist(missing));
                         } else {
                             return Err(OpenReadError::IoError {
                                 io_error: io::Error::other(err.to_string()).into(),

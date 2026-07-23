@@ -4,7 +4,7 @@
 
 -- Load the pg_search extension
 DROP EXTENSION IF EXISTS pg_search CASCADE;
-CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_search CASCADE;
 
 -- Disable parallel workers for consistent test results
 SET max_parallel_workers_per_gather = 0;

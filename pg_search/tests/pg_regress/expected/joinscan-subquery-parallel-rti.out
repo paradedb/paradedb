@@ -97,8 +97,8 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -123,16 +123,21 @@ LIMIT 10;
            :     ┌───── Stage 1 ── tasks=1, partitions=9
            :     │ RepartitionExec: partitioning=Hash([id@1], 9), input_partitions=3
            :     │   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, company_id@0)], null_aware
-           :     │     PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │       PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     │     CoalescePartitionsExec
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
            :     ┌───── Stage 2 ── tasks=3, partitions=9
            :     │ RepartitionExec: partitioning=Hash([company_id@0], 9), input_partitions=3
-           :     │   RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │     PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           :     │     t1: PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           :     │     t2: PgSearchScan: segments=30, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
-(33 rows)
+(38 rows)
 
 SELECT i.id
 FROM js_rti_items i

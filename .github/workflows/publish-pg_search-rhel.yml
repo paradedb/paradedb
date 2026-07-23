@@ -271,7 +271,7 @@ jobs:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
           # Install PostgreSQL:
-          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel openblas-devel
 
       - name: Extract pgrx Version
         id: pgrx
@@ -316,7 +316,9 @@ jobs:
           URL:            ${{ github.server_url }}/${{ github.repository }}
 
           BuildRequires:  postgresql${{ matrix.pg_version }}-devel
+          BuildRequires:  openblas-devel
           Requires:       postgresql${{ matrix.pg_version }}-server
+          Requires:       openblas
 
           %description
           pg_search is a Postgres extension that enables full-text search over

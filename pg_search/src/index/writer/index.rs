@@ -32,6 +32,7 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::vector::clusterer::set_ivf_clusterer;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{direct_function_call, function_name, IntoDatum, PgLogLevel, PgSqlErrorCode};
@@ -95,6 +96,17 @@ impl PendingSegment {
 pub struct IndexWriterConfig {
     pub memory_budget: NonZeroUsize,
     pub max_docs_per_segment: Option<u32>,
+}
+
+pub const DEFAULT_MAX_DOCS_PER_SEGMENT: u32 = 1000;
+
+impl IndexWriterConfig {
+    pub fn new(memory_budget: NonZeroUsize) -> Self {
+        Self {
+            memory_budget,
+            max_docs_per_segment: None,
+        }
+    }
 }
 
 /// Pre-flight disk-space check run before each segment flush during an index build.
@@ -234,6 +246,28 @@ impl SerialIndexWriter {
         config: IndexWriterConfig,
         worker_number: i32,
     ) -> Result<Self> {
+        let schema = index_relation.schema()?;
+        let has_vector_field = schema.has_vector_field();
+        // The IVF backend needs a doc-count ceiling, so vector indexes cap at
+        // `DEFAULT_MAX_DOCS_PER_SEGMENT`. Non-vector indexes honor the caller's
+        // value verbatim (the parallel-build planner sets it to hit
+        // `target_segment_count`).
+        let max_docs_per_segment = if has_vector_field {
+            Some(
+                config
+                    .max_docs_per_segment
+                    .map_or(DEFAULT_MAX_DOCS_PER_SEGMENT, |n| {
+                        n.min(DEFAULT_MAX_DOCS_PER_SEGMENT)
+                    }),
+            )
+        } else {
+            config.max_docs_per_segment
+        };
+        let config = IndexWriterConfig {
+            max_docs_per_segment,
+            ..config
+        };
+
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!(
                 "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
@@ -245,7 +279,9 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
-        let schema = index_relation.schema()?;
+        if has_vector_field {
+            set_ivf_clusterer(&mut index, index_relation.options());
+        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -277,6 +313,9 @@ impl SerialIndexWriter {
 
         let settings = index_settings(index_relation.options(), &tantivy_schema);
         let mut index = Index::create(directory, tantivy_schema, settings)?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index, index_relation.options());
+        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
         // We bound the input size instead: see the method doc.
@@ -458,8 +497,16 @@ pub struct SearchIndexMerger {
 }
 
 impl SearchIndexMerger {
-    pub fn open(directory: MVCCDirectory) -> Result<SearchIndexMerger> {
-        let index = Index::open(directory.clone())?;
+    pub fn open(
+        indexrel: &PgSearchRelation,
+        mvcc_satisfies: MvccSatisfies,
+    ) -> Result<SearchIndexMerger> {
+        let directory = mvcc_satisfies.directory(indexrel);
+        let schema = indexrel.schema()?;
+        let mut index = Index::open(directory.clone())?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index, indexrel.options());
+        }
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),
@@ -566,19 +613,34 @@ mod tests {
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
 
-    fn get_relation_oid() -> pg_sys::Oid {
+    fn get_relation_oid(with_vector: bool) -> pg_sys::Oid {
         Spi::run("SET client_min_messages = 'debug1';").unwrap();
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run(
-            "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",
-        )
-        .unwrap();
-        Spi::get_one::<pg_sys::Oid>(
-            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
-        )
-        .expect("spi should succeed")
-        .unwrap()
+        if with_vector {
+            Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+            Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
+            Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
+            Spi::run(
+                "CREATE INDEX t_vec_idx ON t_vec USING bm25(id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
+            )
+            .unwrap();
+            Spi::get_one::<pg_sys::Oid>(
+                "SELECT oid FROM pg_class WHERE relname = 't_vec_idx' AND relkind = 'i';",
+            )
+            .expect("spi should succeed")
+            .unwrap()
+        } else {
+            Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+            Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+            Spi::run(
+                "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",
+            )
+            .unwrap();
+            Spi::get_one::<pg_sys::Oid>(
+                "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+            )
+            .expect("spi should succeed")
+            .unwrap()
+        }
     }
 
     fn simulate_index_writer(
@@ -609,7 +671,7 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_mem_budget() {
-        let relation_oid = get_relation_oid();
+        let relation_oid = get_relation_oid(false);
         let config = IndexWriterConfig {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             max_docs_per_segment: None,
@@ -627,12 +689,17 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_max_docs_per_segment() {
-        let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_docs_per_segment: Some(1000),
-        };
+        let relation_oid = get_relation_oid(true);
+        let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 25);
+    }
+
+    #[pg_test]
+    fn test_index_writer_max_docs_per_segment_requires_vector_field() {
+        let relation_oid = get_relation_oid(false);
+        let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 2);
     }
 }

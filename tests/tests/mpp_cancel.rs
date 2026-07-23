@@ -33,7 +33,7 @@ use tokio::time::sleep;
 // enough for the killer to land a signal mid-flight. A small join can finish before the signal and
 // miss the teardown bug entirely.
 const SETUP_SQL: &str = r#"
-CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
 CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age int, category text);
 CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
@@ -215,7 +215,7 @@ async fn mpp_signal_does_not_crash_backend(database: Db) -> Result<()> {
     // on this connection.
     let mut witness = database.connection().await;
     witness
-        .execute("CREATE EXTENSION IF NOT EXISTS pg_search;")
+        .execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
         .await?;
     assert_cluster_alive(&mut witness).await?;
     assert_query_plans_as_mpp(&mut setup).await?;

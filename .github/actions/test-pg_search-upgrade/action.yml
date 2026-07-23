@@ -75,7 +75,9 @@ runs:
     - name: Create pg_search Extension
       working-directory: pg_search/
       shell: bash
-      run: psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
+      run: |
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
 
     - name: Create Upgrade Test Databases
       working-directory: pg_search/
@@ -85,6 +87,7 @@ runs:
         for case_dir in "$UPGRADE_SQL_DIR"/*; do
           db="$(basename "$case_dir")"
           createdb -h localhost -p 288${{ inputs.pg_version }} "$db"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
           psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c 'CREATE EXTENSION pg_search;'
           psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -f "$case_dir/setup.sql"
         done
@@ -141,10 +144,12 @@ runs:
       run: |
         set -euo pipefail
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         for case_dir in "$UPGRADE_SQL_DIR"/*; do
           db="$(basename "$case_dir")"
           echo "Creating database $db"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         done
 
@@ -166,6 +171,7 @@ runs:
 
         # A brand-new database gets the full generated base schema for the new version
         createdb -h localhost -p "$PORT" schema_parity_fresh
+        psql -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -c 'CREATE EXTENSION IF NOT EXISTS vector;'
         psql -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -c 'CREATE EXTENSION pg_search;'
         psql -At -v ON_ERROR_STOP=1 -h localhost -p "$PORT" schema_parity_fresh -f "$SCHEMA_SNAPSHOT_SQL" > /tmp/fresh.schema
 

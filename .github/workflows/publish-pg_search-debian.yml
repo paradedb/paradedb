@@ -251,7 +251,7 @@ jobs:
 
           # Install PostgreSQL + build tooling
           DEBIAN_FRONTEND=noninteractive sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg libopenblas-dev
 
           # Add Postgres bin dir to PATH for subsequent steps
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
@@ -312,7 +312,7 @@ jobs:
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
-          echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ matrix.pg_version }}, libopenblas0' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 

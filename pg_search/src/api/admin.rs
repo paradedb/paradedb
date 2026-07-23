@@ -29,7 +29,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::pdb_query::pdb as pdb_query;
 use crate::query::SearchQueryInput;
-use crate::schema::IndexRecordOption;
+use crate::schema::{IndexRecordOption, SearchFieldType};
 use anyhow::Result;
 use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
@@ -381,6 +381,101 @@ fn index_info(
     }
 
     Ok(TableIterator::new(results))
+}
+
+/// Per-segment vector statistics for a single vector `field` of `index`, one row
+/// per segment that stores that field. Read-only companion to [`index_info`]:
+/// the vector columns were split out here so each vector field can be inspected
+/// explicitly rather than only the first one an index happens to carry. `segno`
+/// aligns with [`index_info`]'s so the two can be joined.
+///
+/// The cluster columns are IVF-only (`NULL` for flat segments). `*_cluster_size`
+/// and `vector_total_memberships` count posting rows, so under replication their
+/// totals exceed `vector_num_vectors`, which counts distinct docs.
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn vector_info(
+    index: PgRelation,
+    field: String,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(segno, String),
+            name!(vector_field, String),
+            name!(vector_format, String),
+            name!(vector_num_vectors, AnyNumeric),
+            name!(vector_num_centroids, Option<AnyNumeric>),
+            name!(vector_min_cluster_size, Option<AnyNumeric>),
+            name!(vector_max_cluster_size, Option<AnyNumeric>),
+            name!(vector_avg_cluster_size, Option<f64>),
+            name!(vector_empty_clusters, Option<AnyNumeric>),
+            name!(vector_total_memberships, Option<AnyNumeric>),
+        ),
+    >,
+> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function (read-only,
+    // AccessShareLock) so it is not dropped or altered while we read it —
+    // identical to `index_info`.
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index_kind = IndexKind::for_index(index.clone())?;
+    if !index.is_usable() {
+        return Ok(TableIterator::new(Vec::new()));
+    }
+
+    let mut rows = Vec::new();
+    for index in index_kind.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let resolved = search_reader
+            .schema()
+            .fields()
+            .find_map(|(f, field_entry)| {
+                (field_entry.name() == field
+                    && matches!(
+                        search_reader.schema().get_field_type(field_entry.name()),
+                        Some(SearchFieldType::Vector(..))
+                    ))
+                .then_some(f)
+            });
+        let Some(vector_field) = resolved else {
+            anyhow::bail!("`{field}` is not a vector field of the index");
+        };
+        for segment_reader in search_reader.segment_readers() {
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            let Some(info) = vector_index.info() else {
+                continue;
+            };
+            let cluster_stats = info.cluster_stats.as_ref();
+            // Summed here rather than read off `cluster_stats`, which only
+            // carries the average: this keeps the membership total exact.
+            let total_memberships = vector_index
+                .cluster_sizes()
+                .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
+            rows.push((
+                segment_reader.segment_id().short_uuid_string(),
+                field.clone(),
+                match info.format {
+                    tantivy::vector::VectorStorageFormat::Flat => "flat",
+                    tantivy::vector::VectorStorageFormat::Ivf => "ivf",
+                }
+                .to_string(),
+                info.num_vectors.into(),
+                info.num_centroids.map(Into::into),
+                cluster_stats.map(|stats| stats.min_cluster_size.into()),
+                cluster_stats.map(|stats| stats.max_cluster_size.into()),
+                cluster_stats.map(|stats| stats.avg_cluster_size),
+                cluster_stats.map(|stats| stats.empty_clusters.into()),
+                total_memberships.map(Into::into),
+            ));
+        }
+    }
+
+    Ok(TableIterator::new(rows))
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

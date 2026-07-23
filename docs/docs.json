@@ -57,6 +57,7 @@
                         "group": "Indexing",
                         "pages": [
                           "documentation/indexing/create-index",
+                          "documentation/indexing/indexing-vectors",
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
@@ -114,18 +115,34 @@
                           "documentation/full-text/phrase",
                           "documentation/full-text/term",
                           "documentation/full-text/fuzzy",
+                          "documentation/sorting/score",
+                          "documentation/sorting/boost",
                           "documentation/full-text/highlight",
-                          "documentation/full-text/proximity"
+                          "documentation/full-text/proximity",
+                          {
+                            "group": "Advanced Query Functions",
+                            "pages": [
+                              "documentation/query-builder/overview",
+                              "documentation/query-builder/compound/all",
+                              "documentation/query-builder/specialized/more-like-this",
+                              "documentation/query-builder/phrase/phrase-prefix",
+                              "documentation/query-builder/compound/query-parser",
+                              "documentation/query-builder/term/range-term",
+                              "documentation/query-builder/term/regex",
+                              "documentation/query-builder/phrase/regex-phrase"
+                            ]
+                          }
                         ]
                       },
                       {
-                        "group": "Sorting",
+                        "group": "Vector Search",
                         "pages": [
-                          "documentation/sorting/score",
-                          "documentation/sorting/boost",
-                          "documentation/sorting/topk"
+                          "documentation/vector/overview",
+                          "documentation/vector/querying",
+                          "documentation/vector/tuning"
                         ]
                       },
+                      "documentation/sorting/topk",
                       "documentation/filtering",
                       {
                         "group": "Aggregates",
@@ -163,19 +180,6 @@
                         "group": "Joins",
                         "pages": [
                           "documentation/joins/overview"
-                        ]
-                      },
-                      {
-                        "group": "Advanced Query Functions",
-                        "pages": [
-                          "documentation/query-builder/overview",
-                          "documentation/query-builder/compound/all",
-                          "documentation/query-builder/specialized/more-like-this",
-                          "documentation/query-builder/phrase/phrase-prefix",
-                          "documentation/query-builder/compound/query-parser",
-                          "documentation/query-builder/term/range-term",
-                          "documentation/query-builder/term/regex",
-                          "documentation/query-builder/phrase/regex-phrase"
                         ]
                       },
                       {

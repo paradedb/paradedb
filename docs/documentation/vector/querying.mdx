@@ -1,0 +1,95 @@
+---
+title: Querying Vectors
+description: Run nearest-neighbor vector search inside the BM25 index
+canonical: https://docs.paradedb.com/documentation/vector/querying
+---
+
+<Note>
+  This is a beta feature available in versions `0.25.0` and above. See [How
+  Vector Search Works](/documentation/vector/overview) for background, and
+  [Indexing Vectors](/documentation/indexing/indexing-vectors) to set up the
+  index used in these examples.
+</Note>
+
+Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query — a [Top K](/documentation/sorting/topk) query — over a vector column in the BM25 index.
+
+## Approximate Nearest Neighbors
+
+ParadeDB only accelerates a query when one of its search operators is present at the same level as the `ORDER BY ... LIMIT`. Any of the following qualify:
+
+| Operator | Meaning                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------- |
+| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
+| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
+| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
+| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
+
+When you are not filtering, pair `@@@` with `pdb.all()`, which matches every row:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY embedding <=> '[1, 2, 3]'
+LIMIT 5;
+```
+
+The `<=>` operator computes cosine distance, so this returns the five rows whose embeddings are nearest the query vector `[1, 2, 3]`.
+
+This operator must match the operator class the column was indexed with. Otherwise, ParadeDB cannot use the index to order results and falls back to a slower brute force sort.
+
+| Operator | Distance      | Operator class      |
+| -------- | ------------- | ------------------- |
+| `<->`    | L2            | `vector_l2_ops`     |
+| `<=>`    | Cosine        | `vector_cosine_ops` |
+| `<#>`    | Inner product | `vector_ip_ops`     |
+
+## Filtered Vector Search
+
+To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the search operators above.
+For instance, the following query finds the nearest neighbors among results whose `category` contains the term `Footwear`.
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE category === 'Footwear'
+ORDER BY embedding <=> '[1, 2, 3]'
+LIMIT 5;
+```
+
+<Note>
+  Every field you filter on (e.g. `category` above) must also be part of the
+  BM25 index. Filters on unindexed fields cannot be evaluated inside the index
+  scan, forcing Postgres to recheck them afterward and eliminating the benefit
+  of combining vector search with [filtering](/documentation/filtering).
+</Note>
+
+## Verifying Pushdown
+
+Use `EXPLAIN` to confirm ParadeDB is executing the search. Look for a `Custom Scan (ParadeDB Base Scan)` with an `Exec Method` of `TopKScanExecState`:
+
+```sql
+EXPLAIN SELECT id
+FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY embedding <=> '[1, 2, 3]'
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+                               QUERY PLAN
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: embedding <=> vector asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+```
+</Accordion>
+
+If you do not see a `TopKScanExecState`, the query fell back to a less efficient sort. This usually means the distance operator does not match the index operator class, the query is missing a `LIMIT`, or an `ORDER BY` or filter field is not indexed.

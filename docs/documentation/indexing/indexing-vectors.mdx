@@ -1,0 +1,103 @@
+---
+title: Indexing Vectors
+description: Add pgvector's vector type to the index
+canonical: https://docs.paradedb.com/documentation/indexing/indexing-vectors
+---
+
+<Note>
+  This is a beta feature available in versions `0.25.0` and above. See [How
+  Vector Search Works](/documentation/vector/overview) for background.
+</Note>
+
+<Note>
+  Make sure the [pgvector](https://github.com/pgvector/pgvector) extension is
+  installed first. ParadeDB uses pgvector's vector types, but not its HNSW or
+  IVF indexes.
+</Note>
+
+The BM25 index can index pgvector's `vector` type alongside your text and other columns. This lets you combine vector search with full text search and filters in a single index.
+
+To start, let's add a vector column to the `mock_items` table and populate it with mock embeddings.
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+ALTER TABLE mock_items ADD COLUMN embedding vector(3);
+
+UPDATE mock_items
+SET embedding = ARRAY[id, id + 1, id + 2]::vector;
+```
+
+## Create the Index
+
+To include a vector field in the index, simply add it alongside the other fields you wish to index.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, embedding vector_cosine_ops)
+WITH (key_field='id');
+```
+
+{/\* TODO: uncomment and fill in these tabs once the ORMs support indexing vectors in a BM25 index.
+
+```ts Drizzle
+// TODO: bm25 vector index example
+```
+
+```python Django
+# TODO: bm25 vector index example
+```
+
+```python SQLAlchemy
+# TODO: bm25 vector index example
+```
+
+\*/}
+
+</CodeGroup>
+
+The desired distance function is encoded into the index definition. Use `vector_l2_ops` for L2 distance,
+`vector_ip_ops` for inner product, or `vector_cosine_ops` for cosine distance.
+
+<Note>
+  Only pgvector's `vector` type is supported. The `halfvec`, `sparsevec`, and
+  `bit` types are not yet indexable.
+</Note>
+
+<Note>
+  If you track index build progress with
+  [`pg_stat_progress_create_index`](https://www.postgresql.org/docs/current/progress-reporting.html#CREATE-INDEX-PROGRESS-REPORTING),
+  you may notice progress appear to "stop" at intervals. This is expected:
+  vectors are clustered with k-means at these points, which is computationally
+  expensive.
+</Note>
+
+## Index Options
+
+ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
+recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and indexed. All are set at index build time and apply to every vector field in the index. An example:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, embedding vector_cosine_ops)
+WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
+```
+
+<ParamField body="centroid_ratio" default={0.01}>
+  The number of IVF centroids to build, as a fraction of the number of indexed
+  vectors (`num_centroids = centroid_ratio * num_vectors`). More centroids
+  produce smaller clusters, improving recall at the cost of a slower, more
+  memory-intensive build. Must be between `0.000001` and `1.0`.
+</ParamField>
+<ParamField body="training_samples_per_centroid" default={32}>
+  The number of vectors sampled per centroid to train the k-means clustering at
+  build time. Higher values yield better-quality centroids at the cost of a
+  slower build. Must be between `1` and `100000`.
+</ParamField>
+<ParamField body="cluster_replication" default={1}>
+  The number of clusters each vector is written into: its primary cluster plus
+  up to `cluster_replication - 1` next-nearest clusters. Higher values improve
+  recall for filtered queries at the cost of a larger index. `1` disables
+  replication.
+</ParamField>

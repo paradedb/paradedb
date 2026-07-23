@@ -1,0 +1,32 @@
+---
+title: Tuning Recall and Latency
+description: Trade recall against latency for vector search
+canonical: https://docs.paradedb.com/documentation/vector/tuning
+---
+
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall — how often the true nearest neighbors are returned — at the cost of higher latency. Two session-level settings control this tradeoff:
+
+```sql
+SET paradedb.vector_cluster_probe_epsilon = 0.5;
+SET paradedb.vector_cluster_max_probe = 0.02;
+```
+
+<ParamField body="paradedb.vector_cluster_probe_epsilon" default={0.5}>
+  The primary recall driver. A higher epsilon improves recall by probing more
+  clusters at the expense of higher latency. Think of epsilon as an early
+  termination value, where lower epsilon terminates early more aggressively.
+  When tuning this value, we recommend sweeping in increments of `0.1`. Must be
+  between `0.0` and `100.0`.
+</ParamField>
+
+<ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
+  A control for tail latency. This setting enforces a ceiling on how many clusters a query may probe. For instance, at the default value of `0.02`, at most 2% of clusters are probed. Must be between `0.000001` and `1.0`, where `1.0` effectively means "no ceiling."
+
+Note that setting this value to `1.0` does not equal exhaustive search, since the epsilon value still drives early termination.
+
+</ParamField>
+
+<Note>
+  Recall also depends on the index's `centroid_ratio`, set at build time. See
+  [Index Options](/documentation/indexing/indexing-vectors#index-options).
+</Note>

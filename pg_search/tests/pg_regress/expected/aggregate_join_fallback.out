@@ -200,7 +200,6 @@ LEFT JOIN fb_tags t ON p.id = t.product_id
 LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, t)
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -227,7 +226,6 @@ LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, r, t)
   category   | count | count 
 -------------+-------+-------
  Clothing    |     1 |     1

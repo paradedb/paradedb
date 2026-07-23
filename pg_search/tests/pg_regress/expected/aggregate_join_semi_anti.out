@@ -70,7 +70,7 @@ WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -95,7 +95,7 @@ WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
      job_title     | doc_count 
 -------------------+-----------
  Senior Programmer |        10
@@ -114,7 +114,7 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
   AND c.job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, cl)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, cl)
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -143,7 +143,7 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
   AND c.job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, cl)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, cl)
      job_title     | doc_count 
 -------------------+-----------
  Senior Programmer |         7
@@ -167,7 +167,7 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -196,7 +196,7 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
      job_title     | doc_count 
 -------------------+-----------
  Senior Programmer |         7
@@ -215,7 +215,7 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_cccf, asa_contact_list)
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: asa_cccf, asa_contact_list)
      job_title     | doc_count 
 -------------------+-----------
@@ -395,7 +395,7 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
                                                                                      QUERY PLAN                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -424,7 +424,7 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
  label | doc_count 
 -------+-----------
 (0 rows)
@@ -439,7 +439,7 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
 WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
  label | doc_count 
 -------+-----------
@@ -459,7 +459,7 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
+WARNING:  JoinScan not used: unsupported join type (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: asa_excl_include, asa_excl_inner, asa_excl_outer)
        label       | doc_count 
 -------------------+-----------
  Senior Programmer |         4

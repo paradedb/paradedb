@@ -2718,7 +2718,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
-version = "0.24.3"
+version = "0.25.0"
 dependencies = [
  "antithesis_sdk",
  "serde_json",

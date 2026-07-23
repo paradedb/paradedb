@@ -22,6 +22,7 @@ use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::VersionInfo;
 use crate::api::HashSet;
+use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -42,7 +43,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
-use pgrx::{check_for_interrupts, pg_sys};
+use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
@@ -113,6 +114,139 @@ struct ParallelAggregation {
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
 }
+
+/// Resolve the executor's official MVCC snapshot for aggregate execution.
+///
+/// Prefer `EState.es_snapshot` (JoinScan's pattern) so segment freeze and heap
+/// visibility share one query cut. See #5548.
+unsafe fn aggregate_query_snapshot(planstate: Option<*mut pg_sys::PlanState>) -> pg_sys::Snapshot {
+    if let Some(ps) = planstate {
+        if !ps.is_null() {
+            if let Some(estate) = (*ps).state.as_ref() {
+                if !estate.es_snapshot.is_null() {
+                    return estate.es_snapshot;
+                }
+            }
+        }
+    }
+    pg_sys::GetActiveSnapshot()
+}
+
+/// RAII pin that keeps a single MVCC snapshot active for the whole aggregate
+/// (segment discovery → parallel DSM serialization → worker collect).
+///
+/// Without this, `SearchIndexReader::open_with_context` can freeze segments under
+/// one cut while a later `GetActiveSnapshot()` for `VisibilityChecker` observes a
+/// newer READ COMMITTED cut, undercounting rows mid-UPDATE (#5548).
+struct AggregateMvccSnapshotPin {
+    pushed: bool,
+}
+
+impl AggregateMvccSnapshotPin {
+    /// Establish `snapshot` as the active cut for the duration of aggregate
+    /// execution. Returns the active snapshot pointer that callers must pass to
+    /// `VisibilityChecker` (Postgres may copy on push).
+    ///
+    /// # Safety
+    /// `snapshot` must remain valid for the pin's lifetime (estate snapshot or
+    /// already-active parallel-worker snapshot).
+    unsafe fn bind(snapshot: pg_sys::Snapshot) -> (Self, pg_sys::Snapshot) {
+        if snapshot.is_null() {
+            pgrx::error!("pg_search aggregate requires an active MVCC snapshot");
+        }
+
+        // Push only when the active stack is empty or points at a different cut.
+        // PushActiveSnapshot copies, so after a push GetActiveSnapshot() is the
+        // copy — that copy is what materialization and visibility must both use.
+        let need_push =
+            !pg_sys::ActiveSnapshotSet() || !std::ptr::eq(pg_sys::GetActiveSnapshot(), snapshot);
+        if need_push {
+            pg_sys::PushActiveSnapshot(snapshot);
+        }
+
+        (Self { pushed: need_push }, pg_sys::GetActiveSnapshot())
+    }
+}
+
+crate::impl_safe_drop!(AggregateMvccSnapshotPin, |self| {
+    if self.pushed {
+        unsafe {
+            pg_sys::PopActiveSnapshot();
+        }
+    }
+});
+
+/// Advisory-lock key used as the #5548 race gate (see `aggregate_concurrent` test).
+///
+/// Protocol: the test holds `pg_advisory_lock(5548)` before `COUNT(*)`. After
+/// segment materialization this guard unlocks (immediately visible to other
+/// backends — unlike an in-transaction SPI UPDATE of a gate table), sleeps, then
+/// pushes a fresh READ COMMITTED snapshot so a *late* `GetActiveSnapshot()` would
+/// observe concurrent UPDATEs. The production fix ignores that fresh cut.
+const AGGREGATE_MVCC_RACE_GATE_KEY: i64 = 5548;
+
+/// Test-only RAII guard that widens the #5548 race window.
+///
+/// When `paradedb.aggregate_mvcc_race_delay_ms > 0`:
+/// 1. Unlocks `AGGREGATE_MVCC_RACE_GATE_KEY` so the concurrent writer may UPDATE
+/// 2. Sleeps so those UPDATEs can commit and index a new ctid
+/// 3. Pushes a fresh READ COMMITTED snapshot (`GetTransactionSnapshot`)
+///
+/// The production fix captures the visibility snapshot *before* this runs and
+/// passes that pointer to `VisibilityChecker`, so the fresh cut is ignored.
+/// Default delay is 0 → this is a no-op in production.
+struct AggregateMvccRaceWindow {
+    pushed: bool,
+}
+
+impl AggregateMvccRaceWindow {
+    unsafe fn maybe_open() -> Self {
+        let delay_ms = gucs::aggregate_mvcc_race_delay_ms();
+        if delay_ms <= 0 {
+            return Self { pushed: false };
+        }
+
+        // Only the leader / serial backend should sleep; parallel workers would
+        // multiply the delay. ParallelWorkerNumber == -1 is the leader.
+        if pg_sys::ParallelWorkerNumber >= 0 {
+            return Self { pushed: false };
+        }
+
+        pgrx::warning!(
+            "paradedb.aggregate_mvcc_race_delay_ms={delay_ms}: widening #5548 freeze→recheck window"
+        );
+
+        // Release the session advisory lock held by the regression test. This is
+        // immediately visible to a blocked writer (SPI UPDATE of a gate row is
+        // not — it stays uncommitted until COUNT finishes).
+        let unlocked = direct_function_call::<bool>(
+            pg_sys::pg_advisory_unlock_int8,
+            &[AGGREGATE_MVCC_RACE_GATE_KEY.into_datum()],
+        )
+        .unwrap_or(false);
+        if !unlocked {
+            pgrx::warning!(
+                "paradedb.aggregate_mvcc_race_delay_ms: advisory unlock({AGGREGATE_MVCC_RACE_GATE_KEY}) returned false \
+                 (test must hold pg_advisory_lock({AGGREGATE_MVCC_RACE_GATE_KEY}) before COUNT)"
+            );
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms as u64));
+        // Fresh RC cut: concurrent commits that landed during the sleep are now
+        // visible to GetActiveSnapshot(), matching the torn-read failure mode.
+        pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
+        pgrx::warning!("paradedb.aggregate_mvcc_race_delay_ms: pushed fresh snapshot after delay");
+        Self { pushed: true }
+    }
+}
+
+crate::impl_safe_drop!(AggregateMvccRaceWindow, |self| {
+    if self.pushed {
+        unsafe {
+            pg_sys::PopActiveSnapshot();
+        }
+    }
+});
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
@@ -257,6 +391,26 @@ impl<'a> ParallelAggregationWorker<'a> {
             standalone_context.as_ptr()
         };
 
+        // Reuse the already-bound active cut (leader pin or parallel-worker
+        // restore). Only bind if somehow nothing is active — never nest a second
+        // PushActiveSnapshot of es_snapshot on top of the leader's copy (#5548).
+        let _snapshot_pin;
+        let snapshot = unsafe {
+            if pg_sys::ActiveSnapshotSet() {
+                _snapshot_pin = None;
+                let snap = pg_sys::GetActiveSnapshot();
+                if snap.is_null() {
+                    pgrx::error!("pg_search aggregate requires an active MVCC snapshot");
+                }
+                snap
+            } else {
+                let (pin, snap) =
+                    AggregateMvccSnapshotPin::bind(aggregate_query_snapshot(planstate));
+                _snapshot_pin = Some(pin);
+                snap
+            }
+        };
+
         let reader = SearchIndexReader::open_with_context(
             &indexrel,
             self.query.clone(),
@@ -298,11 +452,21 @@ impl<'a> ParallelAggregationWorker<'a> {
             let heaprel = indexrel
                 .heap_relation()
                 .expect("index should belong to a heap relation");
+            // Force mutable-segment materialization under the pre-race active
+            // snapshot before we optionally widen the window. Otherwise collect()
+            // would materialize after a fresh PushActiveSnapshot and hide #5548.
+            let _ = reader.searcher().num_docs();
+            for seg in reader.segment_readers() {
+                let _ = crate::index::fast_fields_helper::FFType::new_ctid(seg.fast_fields());
+            }
+
+            // Widen the freeze→recheck window when the test GUC is set. The
+            // `snapshot` binding above must stay the one used for visibility —
+            // not GetActiveSnapshot() after this guard opens (#5548).
+            let _race_window = unsafe { AggregateMvccRaceWindow::maybe_open() };
             let mvcc_collector = MVCCFilterCollector::new(
                 base_collector,
-                VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
-                    pg_sys::GetActiveSnapshot()
-                }),
+                VisibilityChecker::with_rel_and_snap(&heaprel, snapshot),
             );
             reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {
@@ -418,6 +582,11 @@ pub fn execute_aggregate(
             AggregateRequest::Sql(clause) => clause.use_min_sentinel_fields(),
             _ => HashSet::default(),
         };
+        // Pin the query snapshot BEFORE freezing segments and BEFORE
+        // InitializeParallelDSM serializes the active snapshot to workers, so
+        // every participant rechecks heap visibility against the same cut (#5548).
+        let (_snapshot_pin, _bound_snapshot) =
+            AggregateMvccSnapshotPin::bind(aggregate_query_snapshot(Some(planstate)));
         let reader = SearchIndexReader::open_with_context(
             index,
             query.clone(),

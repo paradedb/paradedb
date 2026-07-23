@@ -75,6 +75,11 @@ static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>:
 /// For testing, ensures the same handling of null aggregates as Postgres
 static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Test-only: milliseconds to sleep between aggregate segment freeze and heap
+/// MVCC recheck, then push a fresh READ COMMITTED snapshot. Widens the #5548
+/// race window (Antithesis does this via fault injection). Default 0 = no-op.
+static AGGREGATE_MVCC_RACE_DELAY_MS: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 /// The number of fast-field columns below-which the ColumnarExecState will be used, rather
 /// than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -485,6 +490,19 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.aggregate_mvcc_race_delay_ms",
+        c"test-only delay between aggregate segment freeze and heap MVCC recheck",
+        c"Meant for internal testing of issue #5548. When > 0, sleeps then pushes a \
+          fresh READ COMMITTED snapshot so a late GetActiveSnapshot() can observe \
+          concurrent UPDATEs. Default 0 (no-op). Do not enable in production.",
+        &AGGREGATE_MVCC_RACE_DELAY_MS,
+        0,
+        60_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.check_topk_scan",
         c"Validate Top K scan eligibility for LIMIT queries",
@@ -838,6 +856,10 @@ pub fn min_rows_per_worker() -> i32 {
 
 pub fn add_doc_count_to_aggs() -> bool {
     ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn aggregate_mvcc_race_delay_ms() -> i32 {
+    AGGREGATE_MVCC_RACE_DELAY_MS.get()
 }
 
 pub fn dynamic_filter_batch_size() -> i32 {

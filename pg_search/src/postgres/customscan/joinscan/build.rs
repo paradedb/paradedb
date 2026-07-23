@@ -419,7 +419,6 @@ impl JoinSourceCandidate {
         self
     }
 
-
     pub fn has_bm25_index(&self) -> bool {
         self.indexrelid.is_some()
     }

@@ -38,18 +38,6 @@ CREATE TABLE mpp_postagg_pages (
     size_bytes INTEGER
 );
 
-INSERT INTO mpp_postagg_files (title, category, content)
-SELECT 'file-' || g,
-       'cat-' || (g % 5),
-       'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-
-INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
-SELECT (g % 200) + 1,
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
-
 CREATE INDEX mpp_postagg_files_idx ON mpp_postagg_files
 USING bm25 (id, title, category, content)
 WITH (
@@ -65,8 +53,35 @@ WITH (
     text_fields='{"page_text": {}}'
 );
 
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_postagg_files (title, category, content)
+SELECT 'file-' || g,
+       'cat-' || (g % 5),
+       'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+
+INSERT INTO mpp_postagg_files (title, category, content)
+SELECT 'file-' || g,
+       'cat-' || (g % 5),
+       'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+
+INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+
+INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+
 ANALYZE mpp_postagg_files;
 ANALYZE mpp_postagg_pages;
+RESET paradedb.global_mutable_segment_rows;
 
 -- =====================================================================
 -- Scenario 1: GROUP BY one key with multiple aggregates.
@@ -210,10 +225,6 @@ CREATE TABLE mpp_postagg_categories (
     description TEXT
 );
 
-INSERT INTO mpp_postagg_categories (name, description)
-SELECT 'cat-' || g, 'Category ' || g || ' Section description'
-FROM generate_series(0, 4) AS g;
-
 CREATE INDEX mpp_postagg_categories_idx ON mpp_postagg_categories
 USING bm25 (id, name, description)
 WITH (
@@ -221,7 +232,18 @@ WITH (
     text_fields='{"name": {"fast": true}, "description": {}}'
 );
 
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_postagg_categories (name, description)
+SELECT 'cat-' || g, 'Category ' || g || ' Section description'
+FROM generate_series(0, 2) AS g;
+
+INSERT INTO mpp_postagg_categories (name, description)
+SELECT 'cat-' || g, 'Category ' || g || ' Section description'
+FROM generate_series(3, 4) AS g;
+
 ANALYZE mpp_postagg_categories;
+RESET paradedb.global_mutable_segment_rows;
 
 SET max_parallel_workers_per_gather TO 0;
 

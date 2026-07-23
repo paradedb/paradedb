@@ -181,9 +181,9 @@ ORDER BY p.id DESC LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(supplier_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT p.id

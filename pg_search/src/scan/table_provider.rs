@@ -402,7 +402,7 @@ impl PgSearchTableProvider {
     #[allow(clippy::too_many_arguments)]
     fn create_scan(
         &self,
-        segments: Vec<ScanState>,
+        state: Option<ScanState>,
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
         ffhelper: Arc<FFHelper>,
@@ -420,7 +420,7 @@ impl PgSearchTableProvider {
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
-            segments,
+            state,
             schema,
             resolved_query,
             None,
@@ -464,20 +464,17 @@ impl PgSearchTableProvider {
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
         };
-        let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
+        let state = ScanState {
             parallel_state,
             source_idx,
             planner_estimated_rows,
             scanner_config,
-        };
-        let state = ScanState {
-            recipe,
             ffhelper: ffhelper.clone(),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: reader.clone(),
         };
 
-        self.create_scan(vec![state], schema, resolved_query, ffhelper)
+        self.create_scan(Some(state), schema, resolved_query, ffhelper)
     }
 }
 

@@ -65,11 +65,19 @@ USING bm25 (
 
 INSERT INTO mpp_topk_users (id, about_me, display_name)
 SELECT i, 'about java code', 'David John Alex'
-FROM generate_series(1, 5000) i;
+FROM generate_series(1, 2500) i;
+
+INSERT INTO mpp_topk_users (id, about_me, display_name)
+SELECT i, 'about java code', 'David John Alex'
+FROM generate_series(2501, 5000) i;
 
 INSERT INTO mpp_topk_posts (id, owner_user_id, title, body, tags)
 SELECT i, (i % 5000) + 1, 'title ' || lpad(i::text, 6, '0') || ' code', 'body code text', 'tag'
-FROM generate_series(1, 50000) i;
+FROM generate_series(1, 25000) i;
+
+INSERT INTO mpp_topk_posts (id, owner_user_id, title, body, tags)
+SELECT i, (i % 5000) + 1, 'title ' || lpad(i::text, 6, '0') || ' code', 'body code text', 'tag'
+FROM generate_series(25001, 50000) i;
 
 RESET paradedb.global_mutable_segment_rows;
 ANALYZE;

@@ -473,7 +473,7 @@ LIMIT 3;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
                  :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -575,7 +575,7 @@ LIMIT 3;
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
                  :       CooperativeExec
-                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
+                 :         PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
                  :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (16 rows)

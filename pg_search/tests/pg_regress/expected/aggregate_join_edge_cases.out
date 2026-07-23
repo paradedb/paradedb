@@ -204,7 +204,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
            :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -269,7 +269,7 @@ ORDER BY p.category;
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     CooperativeExec
@@ -334,7 +334,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@1, supplier_name@3]
            :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     CooperativeExec
@@ -437,7 +437,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@0, category@0)], projection=[metadata.brand@1]
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
            :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (15 rows)
@@ -505,7 +505,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, category@0)], projection=[metadata.brand@0]
            :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, id@0)], projection=[metadata.brand@1, category@3]
            :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :     CooperativeExec

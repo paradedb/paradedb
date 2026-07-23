@@ -1737,11 +1737,17 @@ impl SegmentedTopKState {
         // 3. Materialize sort column values for each candidate and build a
         //    second RowConverter using materialized data types (Utf8View/BinaryView
         //    for deferred columns, original type for non-deferred).
-        let materialized_sort_fields: Vec<SortField> = self
+        struct SortCol<'a> {
+            expr: &'a datafusion::physical_expr::PhysicalSortExpr,
+            deferred: Option<&'a DeferredSortColumn>,
+            mat_type: arrow_schema::DataType,
+        }
+
+        let sort_cols: Vec<SortCol> = self
             .sort_exprs
             .iter()
             .map(|expr| {
-                let is_deferred = expr
+                let deferred = expr
                     .expr
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
                     .and_then(|c| {
@@ -1749,9 +1755,8 @@ impl SegmentedTopKState {
                             .iter()
                             .find(|d| d.sort_col_idx == c.index())
                     });
-                let data_type = if let Some(deferred) = is_deferred {
-                    let col = self.ffhelper.column(0, deferred.canonical.ff_index);
-                    match col {
+                let mat_type = if let Some(deferred) = deferred {
+                    match self.ffhelper.column(0, deferred.canonical.ff_index) {
                         FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
                         _ => arrow_schema::DataType::Utf8View,
                     }
@@ -1760,11 +1765,32 @@ impl SegmentedTopKState {
                         .data_type(&self.schema)
                         .unwrap_or(arrow_schema::DataType::Utf8View)
                 };
-                SortField::new_with_options(data_type, expr.options)
+                SortCol {
+                    expr,
+                    deferred,
+                    mat_type,
+                }
+            })
+            .collect();
+
+        let materialized_sort_fields: Vec<SortField> = sort_cols
+            .iter()
+            .map(|sort_col| {
+                SortField::new_with_options(sort_col.mat_type.clone(), sort_col.expr.options)
             })
             .collect();
 
         let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
+
+        // A NULL must match the RowConverter's declared field type:
+        // convert_columns rejects mismatches ("expected BinaryView got
+        // Utf8View" for a NULL in a Bytes-backed NUMERIC sort key).
+        // If the type is unsupported, propagate the error rather than
+        // substituting a differently typed NULL that the converter will reject.
+        let typed_null = |sort_col: &SortCol| -> Result<ScalarValue> {
+            ScalarValue::try_from(&sort_col.mat_type)
+        };
+
         // Batch-convert all ordinal survivors' rows in a single convert_rows call.
         // We collect `Row<'_>` directly to avoid cloning `OwnedRow`.
         let ord_rows: Vec<_> = candidates
@@ -1789,17 +1815,8 @@ impl SegmentedTopKState {
 
         let mut ord_pos = 0;
         for (batch_idx, row_idx, ord_info) in candidates.iter() {
-            for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
-                let is_deferred = sort_expr
-                    .expr
-                    .downcast_ref::<datafusion::physical_expr::expressions::Column>()
-                    .and_then(|c| {
-                        self.deferred_columns
-                            .iter()
-                            .find(|d| d.sort_col_idx == c.index())
-                    });
-
-                let value = if let Some(deferred) = is_deferred {
+            for (i, sort_col) in sort_cols.iter().enumerate() {
+                let value = if let Some(deferred) = sort_col.deferred {
                     if let Some((seg_ord, _)) = ord_info {
                         // Ordinal survivor: use pre-batched arrays with our sequential counter.
                         let arrays = all_ord_arrays
@@ -1810,14 +1827,15 @@ impl SegmentedTopKState {
                             .downcast_ref::<UInt64Array>()
                             .map(|a| a.value(ord_pos));
                         if let Some(term_ord) = term_ord {
-                            let col = self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
-                            match col {
+                            let ff_col =
+                                self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
+                            match ff_col {
                                 FFType::Text(str_col) => {
                                     let mut s = String::new();
                                     if str_col.ord_to_str(term_ord, &mut s).is_ok() {
                                         ScalarValue::Utf8View(Some(s))
                                     } else {
-                                        ScalarValue::Utf8View(None)
+                                        typed_null(sort_col)?
                                     }
                                 }
                                 FFType::Bytes(bytes_col) => {
@@ -1825,25 +1843,24 @@ impl SegmentedTopKState {
                                     if bytes_col.ord_to_bytes(term_ord, &mut b).is_ok() {
                                         ScalarValue::BinaryView(Some(b))
                                     } else {
-                                        ScalarValue::BinaryView(None)
+                                        typed_null(sort_col)?
                                     }
                                 }
-                                _ => ScalarValue::Utf8View(None),
+                                _ => typed_null(sort_col)?,
                             }
                         } else {
-                            ScalarValue::Utf8View(None)
+                            typed_null(sort_col)?
                         }
                     } else {
                         // NULL ordinal pass-through
-                        ScalarValue::Utf8View(None)
+                        typed_null(sort_col)?
                     }
                 } else {
                     // Non-deferred column: evaluate directly from the batch.
                     let batch = &self.batches[*batch_idx];
-                    let val = sort_expr.expr.evaluate(batch)?;
+                    let val = sort_col.expr.expr.evaluate(batch)?;
                     let arr = val.into_array(batch.num_rows())?;
-                    ScalarValue::try_from_array(&arr, *row_idx)
-                        .unwrap_or(ScalarValue::Utf8View(None))
+                    ScalarValue::try_from_array(&arr, *row_idx).or_else(|_| typed_null(sort_col))?
                 };
                 column_values[i].push(value);
             }

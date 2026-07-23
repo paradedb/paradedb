@@ -34,16 +34,6 @@ CREATE TABLE mpp_postagg_pages (
     page_text TEXT,
     size_bytes INTEGER
 );
-INSERT INTO mpp_postagg_files (title, category, content)
-SELECT 'file-' || g,
-       'cat-' || (g % 5),
-       'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
-SELECT (g % 200) + 1,
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
 CREATE INDEX mpp_postagg_files_idx ON mpp_postagg_files
 USING bm25 (id, title, category, content)
 WITH (
@@ -57,8 +47,30 @@ WITH (
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {}}'
 );
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_postagg_files (title, category, content)
+SELECT 'file-' || g,
+       'cat-' || (g % 5),
+       'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+INSERT INTO mpp_postagg_files (title, category, content)
+SELECT 'file-' || g,
+       'cat-' || (g % 5),
+       'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
 ANALYZE mpp_postagg_files;
 ANALYZE mpp_postagg_pages;
+RESET paradedb.global_mutable_segment_rows;
 -- =====================================================================
 -- Scenario 1: GROUP BY one key with multiple aggregates.
 -- =====================================================================
@@ -119,11 +131,11 @@ ORDER BY f.category;
            :     │       CoalescePartitionsExec
            :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :       │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
 (31 rows)
 
@@ -206,11 +218,11 @@ LIMIT 10;
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-                 :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (33 rows)
 
@@ -292,11 +304,11 @@ LIMIT 3;
                  :     │       CoalescePartitionsExec
                  :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
                  :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :     │         PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=1, partitions=3
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-                 :       │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
 (35 rows)
 
@@ -353,11 +365,11 @@ WHERE f.content @@@ 'Section';
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
      :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :   │       PgSearchScan: segments=2, dynamic_filters=1, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=3
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-     :     │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     │   PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
 (23 rows)
 
@@ -383,16 +395,21 @@ CREATE TABLE mpp_postagg_categories (
     name TEXT,
     description TEXT
 );
-INSERT INTO mpp_postagg_categories (name, description)
-SELECT 'cat-' || g, 'Category ' || g || ' Section description'
-FROM generate_series(0, 4) AS g;
 CREATE INDEX mpp_postagg_categories_idx ON mpp_postagg_categories
 USING bm25 (id, name, description)
 WITH (
     key_field='id',
     text_fields='{"name": {"fast": true}, "description": {}}'
 );
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_postagg_categories (name, description)
+SELECT 'cat-' || g, 'Category ' || g || ' Section description'
+FROM generate_series(0, 2) AS g;
+INSERT INTO mpp_postagg_categories (name, description)
+SELECT 'cat-' || g, 'Category ' || g || ' Section description'
+FROM generate_series(3, 4) AS g;
 ANALYZE mpp_postagg_categories;
+RESET paradedb.global_mutable_segment_rows;
 SET max_parallel_workers_per_gather TO 0;
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f
@@ -449,15 +466,15 @@ ORDER BY c.name;
            :     │         CoalescePartitionsExec
            :     │           [Stage 2] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
            :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :     │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     │           PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
            :       ┌───── Stage 1 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, query="all"
+           :       │   PgSearchScan: segments=2, query="all"
            :       └──────────────────────────────────────────────────
            :       ┌───── Stage 2 ── tasks=1, partitions=3
            :       │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :       │   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :       │   PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :       └──────────────────────────────────────────────────
 (38 rows)
 

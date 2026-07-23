@@ -951,6 +951,13 @@ impl ParallelScanState {
             .map(|b| SegmentId::from_bytes(*b))
             .collect()
     }
+
+    /// Return the total number of segments for a given source, waiting for initialization
+    /// if called before the leader has populated the shared state.
+    pub fn source_segment_count(&mut self, source_idx: usize) -> usize {
+        self.wait_for_initialization();
+        self.payload.source_ids(source_idx).len()
+    }
 }
 
 extern "C" {

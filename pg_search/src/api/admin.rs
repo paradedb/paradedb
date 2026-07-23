@@ -388,6 +388,10 @@ fn index_info(
 /// the vector columns were split out here so each vector field can be inspected
 /// explicitly rather than only the first one an index happens to carry. `segno`
 /// aligns with [`index_info`]'s so the two can be joined.
+///
+/// The cluster columns are IVF-only (`NULL` for flat segments). `*_cluster_size`
+/// and `vector_total_memberships` count posting rows, so under replication their
+/// totals exceed `vector_num_vectors`, which counts distinct docs.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -406,6 +410,7 @@ fn vector_info(
             name!(vector_max_cluster_size, Option<AnyNumeric>),
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
+            name!(vector_total_memberships, Option<AnyNumeric>),
         ),
     >,
 > {
@@ -441,10 +446,16 @@ fn vector_info(
             anyhow::bail!("`{field}` is not a vector field of the index");
         };
         for segment_reader in search_reader.segment_readers() {
-            let Some(info) = segment_reader.vector_index(vector_field)?.info() else {
+            let vector_index = segment_reader.vector_index(vector_field)?;
+            let Some(info) = vector_index.info() else {
                 continue;
             };
             let cluster_stats = info.cluster_stats.as_ref();
+            // Summed here rather than read off `cluster_stats`, which only
+            // carries the average: this keeps the membership total exact.
+            let total_memberships = vector_index
+                .cluster_sizes()
+                .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
                 field.clone(),
@@ -459,72 +470,8 @@ fn vector_info(
                 cluster_stats.map(|stats| stats.max_cluster_size.into()),
                 cluster_stats.map(|stats| stats.avg_cluster_size),
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
+                total_memberships.map(Into::into),
             ));
-        }
-    }
-
-    Ok(TableIterator::new(rows))
-}
-
-/// Returns the raw per-cluster IVF posting-list sizes for `index`, one row per
-/// cluster per segment. Read-only companion to [`vector_info`]: where that
-/// collapses the per-cluster distribution into min/max/avg, this surfaces the
-/// full array so tooling can plot the real cluster-size distribution.
-/// Segments without an IVF vector field contribute no rows.
-#[allow(clippy::type_complexity)]
-#[pg_extern]
-fn ivf_cluster_sizes(
-    index: PgRelation,
-) -> anyhow::Result<
-    TableIterator<
-        'static,
-        (
-            name!(segno, String),
-            name!(field, String),
-            name!(cluster_ord, i32),
-            name!(size, i64),
-        ),
-    >,
-> {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function (read-only,
-    // AccessShareLock) so it is not dropped or altered while we read it —
-    // identical to `index_info`.
-    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let index_kind = IndexKind::for_index(index.clone())?;
-    if !index.is_usable() {
-        return Ok(TableIterator::new(Vec::new()));
-    }
-
-    let mut rows = Vec::new();
-    for index in index_kind.partitions() {
-        if !index.is_usable() {
-            continue;
-        }
-        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-        let vector_field = search_reader
-            .schema()
-            .fields()
-            .find_map(|(field, field_entry)| {
-                let field_name: FieldName = field_entry.name().into();
-                matches!(
-                    search_reader.schema().get_field_type(field_entry.name()),
-                    Some(SearchFieldType::Vector(..))
-                )
-                .then_some((field, field_name.to_string()))
-            });
-        let Some((field, field_name)) = vector_field else {
-            continue;
-        };
-        for segment_reader in search_reader.segment_readers() {
-            let Some(sizes) = segment_reader.vector_index(field)?.cluster_sizes() else {
-                continue;
-            };
-            let segno = segment_reader.segment_id().short_uuid_string();
-            for (i, size) in sizes.into_iter().enumerate() {
-                rows.push((segno.clone(), field_name.clone(), i as i32, size as i64));
-            }
         }
     }
 

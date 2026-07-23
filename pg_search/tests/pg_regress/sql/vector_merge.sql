@@ -54,12 +54,12 @@ FROM paradedb.vector_info('remerge_idx', 'vec') v
 JOIN paradedb.index_info('remerge_idx') i USING (segno)
 WHERE v.vector_format = 'ivf';
 
--- ...while the per-cluster sizes deliberately stay memberships: their sum
+-- ...while the per-cluster sizes deliberately stay memberships: their total
 -- strictly exceeds the distinct-doc count under replication.
-SELECT (SELECT sum(size) FROM paradedb.ivf_cluster_sizes('remerge_idx'))
-     > (SELECT sum(vector_num_vectors)
-        FROM paradedb.vector_info('remerge_idx', 'vec')
-        WHERE vector_format = 'ivf') AS cluster_sizes_are_memberships;
+SELECT sum(vector_total_memberships) > sum(vector_num_vectors)
+         AS cluster_sizes_are_memberships
+FROM paradedb.vector_info('remerge_idx', 'vec')
+WHERE vector_format = 'ivf';
 
 -- Wave 2: make the replicated IVF segment a merge SOURCE. The layer must
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus

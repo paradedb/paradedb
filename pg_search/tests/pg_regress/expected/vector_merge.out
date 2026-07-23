@@ -63,12 +63,12 @@ WHERE v.vector_format = 'ivf';
  t
 (1 row)
 
--- ...while the per-cluster sizes deliberately stay memberships: their sum
+-- ...while the per-cluster sizes deliberately stay memberships: their total
 -- strictly exceeds the distinct-doc count under replication.
-SELECT (SELECT sum(size) FROM paradedb.ivf_cluster_sizes('remerge_idx'))
-     > (SELECT sum(vector_num_vectors)
-        FROM paradedb.vector_info('remerge_idx', 'vec')
-        WHERE vector_format = 'ivf') AS cluster_sizes_are_memberships;
+SELECT sum(vector_total_memberships) > sum(vector_num_vectors)
+         AS cluster_sizes_are_memberships
+FROM paradedb.vector_info('remerge_idx', 'vec')
+WHERE vector_format = 'ivf';
  cluster_sizes_are_memberships 
 -------------------------------
  t

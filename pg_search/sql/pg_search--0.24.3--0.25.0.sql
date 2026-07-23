@@ -21,30 +21,12 @@ STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'index_created_by_wrapper';
 
--- Adds ivf_cluster_sizes(index regclass): a read-only set-returning function
--- that surfaces the raw per-cluster IVF posting-list sizes, one row per cluster
--- per segment. This is the un-collapsed distribution behind vector_info's
--- vector_min/max/avg_cluster_size columns; it computes nothing new and adds no
--- on-disk state.
--- The CREATE below is the SchemaBot/pgrx canonical text verbatim (the schema
--- checker compares statements textually); the DROP keeps the script re-runnable.
-DROP FUNCTION IF EXISTS ivf_cluster_sizes(regclass);
-CREATE  FUNCTION "ivf_cluster_sizes"(
-	"index" regclass /* PgRelation */
-) RETURNS TABLE (
-	"segno" TEXT,  /* String */
-	"field" TEXT,  /* String */
-	"cluster_ord" INT,  /* i32 */
-	"size" bigint  /* i64 */
-)
-STRICT
-LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'ivf_cluster_sizes_wrapper';
-
 -- Adds vector_info(index regclass, field text): the per-segment vector statistics
 -- for a single vector field, split out of index_info so each vector field can be
--- inspected explicitly. The CREATE below is the SchemaBot/pgrx canonical text
--- verbatim; the DROP keeps the script re-runnable.
+-- inspected explicitly. The cluster columns are IVF-only and count posting rows,
+-- so under replication their totals exceed vector_num_vectors (distinct docs).
+-- The CREATE below is the SchemaBot/pgrx canonical text verbatim (the schema
+-- checker compares statements textually); the DROP keeps the script re-runnable.
 DROP FUNCTION IF EXISTS vector_info(regclass, text);
 CREATE  FUNCTION "vector_info"(
 	"index" regclass, /* PgRelation */
@@ -58,7 +40,8 @@ CREATE  FUNCTION "vector_info"(
 	"vector_min_cluster_size" NUMERIC,  /* Option < AnyNumeric > */
 	"vector_max_cluster_size" NUMERIC,  /* Option < AnyNumeric > */
 	"vector_avg_cluster_size" double precision,  /* Option < f64 > */
-	"vector_empty_clusters" NUMERIC  /* Option < AnyNumeric > */
+	"vector_empty_clusters" NUMERIC,  /* Option < AnyNumeric > */
+	"vector_total_memberships" NUMERIC  /* Option < AnyNumeric > */
 )
 STRICT
 LANGUAGE c /* Rust */

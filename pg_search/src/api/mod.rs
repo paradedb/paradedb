@@ -377,14 +377,90 @@ impl QueryVector {
         }
     }
 
-    /// The concrete vector, panicking if resolution was skipped. Callers on
-    /// the search path use this so an unresolved operand fails loudly here
-    /// rather than silently searching with an empty vector.
-    pub fn expect_resolved(&self) -> &[f32] {
-        self.resolved().expect(
-            "vector ORDER BY query vector was never resolved \
-             (see OrderByInfo::resolve_query_vector)",
-        )
+    /// Resolve a deferred operand into [`Self::Resolved`], so downstream search
+    /// code sees a concrete vector. Two deferred forms are handled:
+    ///
+    ///   * [`Self::Param`] — a bound `Param` (`<-> $1` style, generic-plan
+    ///     prepared statement), looked up in the executor's
+    ///     `es_param_list_info`; and
+    ///   * [`Self::Expr`] — a serialized non-`Var`, non-volatile operand
+    ///     expression (e.g. `current_setting('cohere.qvec')::vector`),
+    ///     deserialized and evaluated once against `planstate`'s ExprContext.
+    ///
+    /// No-op when already [`Self::Resolved`] (a literal `Const`, or a second
+    /// call), which makes this idempotent.
+    pub unsafe fn resolve(
+        &mut self,
+        estate: *mut pgrx::pg_sys::EState,
+        planstate: *mut pgrx::pg_sys::PlanState,
+    ) {
+        let paramid = match self {
+            QueryVector::Resolved(_) => return,
+            QueryVector::Expr(expr_str) => {
+                use crate::postgres::customscan::expr_eval::PreparedPgExpr;
+                let prepared = PreparedPgExpr::from_serialized(expr_str, &[]);
+                let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), planstate);
+                let econtext = (*planstate).ps_ExprContext;
+                assert!(
+                    !econtext.is_null(),
+                    "planstate has no ExprContext to evaluate vector ORDER BY operand"
+                );
+                let mut isnull = false;
+                let datum = pg_sys::ExecEvalExpr(expr_state, econtext, &mut isnull);
+                assert!(!isnull, "vector ORDER BY operand evaluated to NULL");
+                let floats = PgVector::from_datum(datum, false)
+                    .expect("vector ORDER BY operand should not be NULL")
+                    .0;
+                *self = QueryVector::Resolved(floats);
+                return;
+            }
+            QueryVector::Param(paramid) => *paramid,
+        };
+
+        let param_list = (*estate).es_param_list_info;
+        assert!(
+            !param_list.is_null(),
+            "es_param_list_info is NULL but vector ORDER BY references Param ${paramid}"
+        );
+        let idx = (paramid - 1) as usize;
+        assert!(
+            idx < (*param_list).numParams as usize,
+            "vector ORDER BY param_id {paramid} out of range (numParams={})",
+            (*param_list).numParams
+        );
+
+        // Materialize the param value. If the slot is already evaluated
+        // (PREPARE/EXECUTE-style binding sets PARAM_FLAG_CONST up front),
+        // read it directly. Otherwise (plpgsql SPI's lazy path) invoke
+        // `paramFetch` with a stack-local workspace, matching what the
+        // normal executor does in `ExecEvalParamExtern`. Passing
+        // `prm=NULL` to plpgsql's fetch callback crashes — it writes into
+        // the caller-provided buffer when non-null and expects one for
+        // out-of-band reads.
+        let slot = &(*param_list)
+            .params
+            .as_slice((*param_list).numParams as usize)[idx];
+        let (value, isnull) = if (slot.pflags & pg_sys::PARAM_FLAG_CONST as u16) != 0 {
+            (slot.value, slot.isnull)
+        } else if let Some(fetch) = (*param_list).paramFetch {
+            let mut prmdata = pg_sys::ParamExternData {
+                value: pg_sys::Datum::null(),
+                isnull: true,
+                pflags: 0,
+                ptype: pg_sys::InvalidOid,
+            };
+            let prm = fetch(param_list, paramid, false, &mut prmdata);
+            assert!(!prm.is_null(), "paramFetch returned NULL for ${paramid}");
+            ((*prm).value, (*prm).isnull)
+        } else {
+            (slot.value, slot.isnull)
+        };
+        assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
+
+        let floats = PgVector::from_datum(value, false)
+            .expect("vector ORDER BY parameter should not be NULL")
+            .0;
+        *self = QueryVector::Resolved(floats);
     }
 }
 
@@ -487,100 +563,26 @@ impl OrderByInfo {
                 query_vector,
                 metric,
                 ..
-            } => Some((name, query_vector.expect_resolved(), *metric)),
+            } => {
+                let floats = query_vector
+                    .resolved()
+                    .expect("vector ORDER BY query vector was never resolved");
+                Some((name, floats, *metric))
+            }
             _ => None,
         }
     }
 
-    /// Resolve a deferred vector ORDER BY operand into
-    /// [`QueryVector::Resolved`], so downstream search code sees a concrete
-    /// vector. Two deferred forms are handled:
-    ///
-    ///   * [`QueryVector::Param`] — a bound `Param` (`<-> $1` style,
-    ///     generic-plan prepared statement), looked up in the executor's
-    ///     `es_param_list_info`; and
-    ///   * [`QueryVector::Expr`] — a serialized non-`Var`, non-volatile operand
-    ///     expression (e.g. `current_setting('cohere.qvec')::vector`),
-    ///     deserialized and evaluated once against `planstate`'s ExprContext.
-    ///
-    /// No-op for an already-[`QueryVector::Resolved`] operand (a literal
-    /// `Const`, or a second call) and for every other `OrderByFeature` variant,
-    /// which makes this idempotent.
+    /// Resolve this ORDER BY's deferred query-vector operand, if it has one.
+    /// Thin adapter over [`QueryVector::resolve`]; a no-op for every
+    /// non-`VectorDistance` feature.
     pub unsafe fn resolve_query_vector(
         &mut self,
         estate: *mut pgrx::pg_sys::EState,
         planstate: *mut pgrx::pg_sys::PlanState,
     ) {
-        let OrderByFeature::VectorDistance { query_vector, .. } = &mut self.feature else {
-            return;
-        };
-
-        let paramid = match query_vector {
-            QueryVector::Resolved(_) => return,
-            QueryVector::Expr(expr_str) => {
-                use crate::postgres::customscan::expr_eval::PreparedPgExpr;
-                let prepared = PreparedPgExpr::from_serialized(expr_str, &[]);
-                let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), planstate);
-                let econtext = (*planstate).ps_ExprContext;
-                assert!(
-                    !econtext.is_null(),
-                    "planstate has no ExprContext to evaluate vector ORDER BY operand"
-                );
-                let mut isnull = false;
-                let datum = pg_sys::ExecEvalExpr(expr_state, econtext, &mut isnull);
-                assert!(!isnull, "vector ORDER BY operand evaluated to NULL");
-                let floats = PgVector::from_datum(datum, false)
-                    .expect("vector ORDER BY operand should not be NULL")
-                    .0;
-                *query_vector = QueryVector::Resolved(floats);
-                return;
-            }
-            QueryVector::Param(paramid) => *paramid,
-        };
-
-        let param_list = (*estate).es_param_list_info;
-        assert!(
-            !param_list.is_null(),
-            "es_param_list_info is NULL but vector ORDER BY references Param ${paramid}"
-        );
-        let idx = (paramid - 1) as usize;
-        assert!(
-            idx < (*param_list).numParams as usize,
-            "vector ORDER BY param_id {paramid} out of range (numParams={})",
-            (*param_list).numParams
-        );
-
-        // Materialize the param value. If the slot is already evaluated
-        // (PREPARE/EXECUTE-style binding sets PARAM_FLAG_CONST up front),
-        // read it directly. Otherwise (plpgsql SPI's lazy path) invoke
-        // `paramFetch` with a stack-local workspace, matching what the
-        // normal executor does in `ExecEvalParamExtern`. Passing
-        // `prm=NULL` to plpgsql's fetch callback crashes — it writes into
-        // the caller-provided buffer when non-null and expects one for
-        // out-of-band reads.
-        let slot = &(*param_list)
-            .params
-            .as_slice((*param_list).numParams as usize)[idx];
-        let (value, isnull) = if (slot.pflags & pg_sys::PARAM_FLAG_CONST as u16) != 0 {
-            (slot.value, slot.isnull)
-        } else if let Some(fetch) = (*param_list).paramFetch {
-            let mut prmdata = pg_sys::ParamExternData {
-                value: pg_sys::Datum::null(),
-                isnull: true,
-                pflags: 0,
-                ptype: pg_sys::InvalidOid,
-            };
-            let prm = fetch(param_list, paramid, false, &mut prmdata);
-            assert!(!prm.is_null(), "paramFetch returned NULL for ${paramid}");
-            ((*prm).value, (*prm).isnull)
-        } else {
-            (slot.value, slot.isnull)
-        };
-        assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
-
-        let floats = PgVector::from_datum(value, false)
-            .expect("vector ORDER BY parameter should not be NULL")
-            .0;
-        *query_vector = QueryVector::Resolved(floats);
+        if let OrderByFeature::VectorDistance { query_vector, .. } = &mut self.feature {
+            query_vector.resolve(estate, planstate);
+        }
     }
 }

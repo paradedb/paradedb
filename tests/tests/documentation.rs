@@ -165,7 +165,6 @@ fn quickstart(mut conn: PgConnection) {
 
     r#"
     CREATE EXTENSION IF NOT EXISTS vector;
-    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
     "#
     .execute(&mut conn);
     r#"
@@ -173,7 +172,7 @@ fn quickstart(mut conn: PgConnection) {
     SET embedding = ('[' ||
         ((m.id + 1) % 10 + 1)::integer || ',' ||
         ((m.id + 2) % 10 + 1)::integer || ',' ||
-        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+        ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;
     "#
     .execute(&mut conn);
     let rows: Vec<(String, i32, String, Vector)> = r#"
@@ -185,9 +184,18 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].0, "Ergonomic metal keyboard");
     assert_eq!(rows[1].0, "Plastic Keyboard");
     assert_eq!(rows[2].0, "Sleek running shoes");
-    assert_eq!(rows[0].3, Vector::from(vec![3.0, 4.0, 5.0]));
-    assert_eq!(rows[1].3, Vector::from(vec![4.0, 5.0, 6.0]));
-    assert_eq!(rows[2].3, Vector::from(vec![5.0, 6.0, 7.0]));
+    assert_eq!(
+        rows[0].3,
+        Vector::from(vec![3.0, 4.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
+    assert_eq!(
+        rows[1].3,
+        Vector::from(vec![4.0, 5.0, 6.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
+    assert_eq!(
+        rows[2].3,
+        Vector::from(vec![5.0, 6.0, 7.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
 
     r#"
     CREATE INDEX on mock_items
@@ -197,7 +205,7 @@ fn quickstart(mut conn: PgConnection) {
     let rows: Vec<(String, String, i32, Vector)> = r#"
     SELECT description, category, rating, embedding
     FROM mock_items
-    ORDER BY embedding <=> '[1,2,3]', description
+    ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]', description
     LIMIT 3;
     "#
     .fetch(&mut conn);
@@ -205,9 +213,18 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].0, "Artistic ceramic vase");
     assert_eq!(rows[1].0, "Designer wall paintings");
     assert_eq!(rows[2].0, "Handcrafted wooden frame");
-    assert_eq!(rows[0].3, Vector::from(vec![1.0, 2.0, 3.0]));
-    assert_eq!(rows[1].3, Vector::from(vec![1.0, 2.0, 3.0]));
-    assert_eq!(rows[2].3, Vector::from(vec![1.0, 2.0, 3.0]));
+    assert_eq!(
+        rows[0].3,
+        Vector::from(vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
+    assert_eq!(
+        rows[1].3,
+        Vector::from(vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
+    assert_eq!(
+        rows[2].3,
+        Vector::from(vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
 }
 
 #[rstest]
@@ -1961,13 +1978,12 @@ fn hybrid_search(mut conn: PgConnection) {
     WITH (key_field='id');
 
     CREATE EXTENSION IF NOT EXISTS vector;
-    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
     SET embedding = ('[' ||
         ((m.id + 1) % 10 + 1)::integer || ',' ||
         ((m.id + 2) % 10 + 1)::integer || ',' ||
-        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+        ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;
     "#
     .execute(&mut conn);
 
@@ -1983,9 +1999,9 @@ fn hybrid_search(mut conn: PgConnection) {
         ) AS bm25_score
     ),
     semantic_search AS (
-        SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]') AS rank
         FROM mock_items
-        ORDER BY embedding <=> '[1,2,3]'
+        ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]'
         LIMIT 20
     )
     SELECT
@@ -2008,31 +2024,31 @@ fn hybrid_search(mut conn: PgConnection) {
             1,
             BigDecimal::from_str("0.03062178588125292193").unwrap(),
             String::from("Ergonomic metal keyboard"),
-            Vector::from(vec![3.0, 4.0, 5.0]),
+            Vector::from(vec![3.0, 4.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ),
         (
             2,
             BigDecimal::from_str("0.02990695613646433318").unwrap(),
             String::from("Plastic Keyboard"),
-            Vector::from(vec![4.0, 5.0, 6.0]),
+            Vector::from(vec![4.0, 5.0, 6.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ),
         (
             19,
             BigDecimal::from_str("0.01639344262295081967").unwrap(),
             String::from("Artistic ceramic vase"),
-            Vector::from(vec![1.0, 2.0, 3.0]),
+            Vector::from(vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ),
         (
             29,
             BigDecimal::from_str("0.01639344262295081967").unwrap(),
             String::from("Designer wall paintings"),
-            Vector::from(vec![1.0, 2.0, 3.0]),
+            Vector::from(vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ),
         (
             39,
             BigDecimal::from_str("0.01639344262295081967").unwrap(),
             String::from("Handcrafted wooden frame"),
-            Vector::from(vec![1.0, 2.0, 3.0]),
+            Vector::from(vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ),
     ];
 

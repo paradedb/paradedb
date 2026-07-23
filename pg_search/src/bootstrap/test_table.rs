@@ -27,6 +27,7 @@ use std::fmt::{Display, Formatter};
 #[derive(PostgresEnum, Serialize)]
 pub enum TestTable {
     Items,
+    ItemsNoEmbedding,
     Orders,
     Parts,
     Deliveries,
@@ -37,6 +38,7 @@ impl Display for TestTable {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match self {
             TestTable::Items => write!(f, "Items"),
+            TestTable::ItemsNoEmbedding => write!(f, "ItemsNoEmbedding"),
             TestTable::Orders => write!(f, "Orders"),
             TestTable::Parts => write!(f, "Parts"),
             TestTable::Deliveries => write!(f, "Deliveries"),
@@ -89,8 +91,18 @@ fn create_bm25_test_table(
             .is_empty();
 
         if table_not_found {
+            let with_embedding = matches!(table_type, TestTable::Items);
             match table_type {
-                TestTable::Items => {
+                TestTable::Items | TestTable::ItemsNoEmbedding => {
+                    if with_embedding {
+                        client.update("CREATE EXTENSION IF NOT EXISTS vector", None, &[])?;
+                    }
+
+                    let embedding_column = if with_embedding {
+                        ",\n                                embedding VECTOR(8)"
+                    } else {
+                        ""
+                    };
                     client.update(
                         &format!(
                             "CREATE TABLE {full_table_name} (
@@ -103,7 +115,7 @@ fn create_bm25_test_table(
                                 created_at TIMESTAMP,
                                 last_updated_date DATE,
                                 latest_available_time TIME,
-                                weight_range INT4RANGE
+                                weight_range INT4RANGE{embedding_column}
                             )"
                         ),
                         None,
@@ -111,9 +123,14 @@ fn create_bm25_test_table(
                     )?;
 
                     for record in mock_items_data() {
+                        let (embedding_column, embedding_value) = if with_embedding {
+                            (", embedding", format!(", '{}'", record.9))
+                        } else {
+                            ("", String::new())
+                        };
                         client.update(
                             &format!(
-                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range{embedding_column}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9{embedding_value})"
                             ),
                             Some(1),
                             &[
@@ -273,6 +290,7 @@ fn mock_items_data() -> Vec<(
     Date,
     Time,
     Range<i32>,
+    &'static str,
 )> {
     vec![
         (
@@ -285,6 +303,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-03").unwrap(),
             Time::from_str("09:12:34").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
+            "[0.013747,0.275260,-0.820081,-0.088759,0.334551,0.292097,-0.084229,-0.198224]",
         ),
         (
             "Plastic Keyboard",
@@ -296,6 +315,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-16").unwrap(),
             Time::from_str("13:27:09").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Inclusive(9)),
+            "[0.012114,0.510939,-0.785573,0.003402,0.201446,0.195153,-0.125991,0.164678]",
         ),
         (
             "Sleek running shoes",
@@ -307,6 +327,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-29").unwrap(),
             Time::from_str("10:55:43").unwrap(),
             Range::new(RangeBound::Inclusive(2), RangeBound::Exclusive(10)),
+            "[-0.017080,0.467566,-0.757486,0.134082,0.339330,0.044030,0.185394,-0.194613]",
         ),
         (
             "White jogging shoes",
@@ -318,6 +339,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-22").unwrap(),
             Time::from_str("16:38:02").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Exclusive(11)),
+            "[-0.042016,0.399574,-0.663812,-0.071006,0.430261,0.210370,0.392919,-0.095506]",
         ),
         (
             "Generic shoes",
@@ -329,6 +351,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-03").unwrap(),
             Time::from_str("08:45:11").unwrap(),
             Range::new(RangeBound::Inclusive(3), RangeBound::Infinite),
+            "[-0.286090,0.368785,-0.810201,0.011777,0.132327,0.199342,0.056281,-0.255287]",
         ),
         (
             "Compact digital camera",
@@ -340,6 +363,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-26").unwrap(),
             Time::from_str("11:20:35").unwrap(),
             Range::new(RangeBound::Exclusive(1), RangeBound::Inclusive(9)),
+            "[0.192255,0.148959,-0.826215,-0.036278,-0.031085,0.000193,0.070958,-0.500900]",
         ),
         (
             "Hardcover book on history",
@@ -351,6 +375,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-19").unwrap(),
             Time::from_str("14:59:27").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Inclusive(11)),
+            "[0.180652,0.237757,-0.845183,-0.175107,0.174689,0.257565,-0.188089,-0.183318]",
         ),
         (
             "Organic green tea",
@@ -362,6 +387,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-01").unwrap(),
             Time::from_str("09:18:45").unwrap(),
             Range::new(RangeBound::Exclusive(2), RangeBound::Exclusive(9)),
+            "[-0.180339,0.311079,-0.746309,0.199163,0.063495,0.073963,-0.494147,-0.142765]",
         ),
         (
             "Modern wall clock",
@@ -373,6 +399,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-25").unwrap(),
             Time::from_str("12:37:52").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Infinite),
+            "[0.210198,0.154962,-0.807460,-0.133120,0.101520,0.140358,0.386951,-0.286971]",
         ),
         (
             "Colorful kids toy",
@@ -384,6 +411,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-06").unwrap(),
             Time::from_str("15:29:12").unwrap(),
             Range::new(RangeBound::Inclusive(3), RangeBound::Exclusive(11)),
+            "[-0.113454,0.519705,-0.661959,-0.101069,0.025229,0.125561,-0.001951,-0.502219]",
         ),
         (
             "Soft cotton shirt",
@@ -395,6 +423,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-30").unwrap(),
             Time::from_str("08:10:17").unwrap(),
             Range::new(RangeBound::Inclusive(4), RangeBound::Exclusive(10)),
+            "[0.240812,0.343087,-0.805771,0.089726,-0.032232,0.174167,-0.256043,-0.264673]",
         ),
         (
             "Innovative wireless earbuds",
@@ -406,6 +435,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-23").unwrap(),
             Time::from_str("10:05:39").unwrap(),
             Range::new(RangeBound::Exclusive(2), RangeBound::Inclusive(8)),
+            "[-0.080216,0.194348,-0.881002,0.162080,0.303501,0.028384,-0.081238,-0.232037]",
         ),
         (
             "Sturdy hiking boots",
@@ -417,6 +447,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-07").unwrap(),
             Time::from_str("13:45:22").unwrap(),
             Range::new(RangeBound::Inclusive(3), RangeBound::Exclusive(9)),
+            "[-0.278831,0.208544,-0.803739,0.279712,0.369904,0.096324,-0.059708,-0.069681]",
         ),
         (
             "Elegant glass table",
@@ -428,6 +459,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-28").unwrap(),
             Time::from_str("17:22:58").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Exclusive(10)),
+            "[-0.082145,0.416424,-0.800947,-0.327356,0.261584,-0.024049,0.042189,-0.019515]",
         ),
         (
             "Refreshing face wash",
@@ -439,6 +471,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-29").unwrap(),
             Time::from_str("09:52:04").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Infinite),
+            "[0.034705,0.239483,-0.882926,0.092522,0.234872,-0.040837,0.119964,-0.286532]",
         ),
         (
             "High-resolution DSLR",
@@ -450,6 +483,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-23").unwrap(),
             Time::from_str("14:30:19").unwrap(),
             Range::new(RangeBound::Exclusive(2), RangeBound::Exclusive(11)),
+            "[0.285554,0.310700,-0.819018,0.070856,0.225115,-0.229637,-0.089132,0.186440]",
         ),
         (
             "Paperback romantic novel",
@@ -461,6 +495,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-04").unwrap(),
             Time::from_str("10:08:57").unwrap(),
             Range::new(RangeBound::Inclusive(3), RangeBound::Inclusive(9)),
+            "[0.230803,0.227814,-0.764656,-0.090599,0.025157,0.226187,-0.340781,-0.366059]",
         ),
         (
             "Freshly ground coffee beans",
@@ -472,6 +507,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-25").unwrap(),
             Time::from_str("08:40:15").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
+            "[0.085049,0.101883,-0.918864,-0.111129,0.273488,0.072625,-0.091506,-0.193089]",
         ),
         (
             "Artistic ceramic vase",
@@ -483,6 +519,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-21").unwrap(),
             Time::from_str("15:17:29").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Exclusive(11)),
+            "[0.134580,0.297808,-0.852239,0.014472,0.223534,0.017951,-0.009123,-0.341034]",
         ),
         (
             "Interactive board game",
@@ -494,6 +531,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-02").unwrap(),
             Time::from_str("12:25:06").unwrap(),
             Range::new(RangeBound::Exclusive(3), RangeBound::Exclusive(10)),
+            "[0.127982,0.492142,-0.764924,-0.023066,0.229990,0.045856,0.075451,-0.308360]",
         ),
         (
             "Slim-fit denim jeans",
@@ -505,6 +543,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-30").unwrap(),
             Time::from_str("16:54:33").unwrap(),
             Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(8)),
+            "[0.197377,-0.205968,-0.892619,-0.224507,-0.133416,-0.001279,-0.188535,-0.134541]",
         ),
         (
             "Fast charging power bank",
@@ -516,6 +555,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-19").unwrap(),
             Time::from_str("11:35:52").unwrap(),
             Range::new(RangeBound::Exclusive(4), RangeBound::Inclusive(9)),
+            "[0.207739,0.367225,-0.774436,0.131898,0.409067,-0.121126,-0.039155,-0.145953]",
         ),
         (
             "Comfortable slippers",
@@ -527,6 +567,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-17").unwrap(),
             Time::from_str("09:20:37").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Inclusive(9)),
+            "[-0.206288,0.572354,-0.714623,0.120633,0.168308,0.274744,0.003270,0.028192]",
         ),
         (
             "Classic leather sofa",
@@ -538,6 +579,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-08").unwrap(),
             Time::from_str("14:45:27").unwrap(),
             Range::new(RangeBound::Exclusive(2), RangeBound::Exclusive(10)),
+            "[-0.234628,0.065473,-0.867242,-0.055602,0.006776,-0.109428,-0.382065,-0.165736]",
         ),
         (
             "Anti-aging serum",
@@ -549,6 +591,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-10").unwrap(),
             Time::from_str("10:30:15").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Infinite),
+            "[-0.019110,-0.057627,-0.929571,-0.036740,0.227351,0.089859,-0.056188,-0.260658]",
         ),
         (
             "Portable tripod stand",
@@ -560,6 +603,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-09").unwrap(),
             Time::from_str("15:20:48").unwrap(),
             Range::new(RangeBound::Inclusive(3), RangeBound::Inclusive(11)),
+            "[-0.186837,0.115800,-0.793012,-0.331453,0.407497,0.102769,0.055952,-0.182230]",
         ),
         (
             "Mystery detective novel",
@@ -571,6 +615,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-05").unwrap(),
             Time::from_str("11:55:23").unwrap(),
             Range::new(RangeBound::Exclusive(4), RangeBound::Exclusive(9)),
+            "[0.065804,-0.072932,-0.899088,0.134864,0.237981,0.055288,-0.090989,-0.309568]",
         ),
         (
             "Organic breakfast cereal",
@@ -582,6 +627,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-03").unwrap(),
             Time::from_str("07:40:59").unwrap(),
             Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(10)),
+            "[0.005331,0.270409,-0.717601,-0.041141,-0.154310,-0.156883,-0.426518,-0.424105]",
         ),
         (
             "Designer wall paintings",
@@ -593,6 +639,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-01").unwrap(),
             Time::from_str("14:18:37").unwrap(),
             Range::new(RangeBound::Exclusive(2), RangeBound::Inclusive(9)),
+            "[0.223116,0.278920,-0.839319,-0.072784,0.007243,-0.180849,0.262090,-0.247424]",
         ),
         (
             "Robot building kit",
@@ -604,6 +651,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-05-01").unwrap(),
             Time::from_str("16:25:42").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
+            "[-0.304641,0.358616,-0.730933,0.231342,0.209916,0.259518,-0.188091,-0.209795]",
         ),
         (
             "Sporty tank top",
@@ -615,6 +663,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-28").unwrap(),
             Time::from_str("12:09:53").unwrap(),
             Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(9)),
+            "[-0.166826,0.219880,-0.857260,0.249994,0.156614,-0.136412,-0.050026,-0.284237]",
         ),
         (
             "Bluetooth-enabled speaker",
@@ -626,6 +675,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-28").unwrap(),
             Time::from_str("09:34:11").unwrap(),
             Range::new(RangeBound::Inclusive(4), RangeBound::Exclusive(8)),
+            "[-0.115133,-0.029575,-0.806071,0.025679,0.460650,-0.078361,-0.269488,0.210944]",
         ),
         (
             "Winter woolen socks",
@@ -637,6 +687,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-27").unwrap(),
             Time::from_str("14:55:08").unwrap(),
             Range::new(RangeBound::Exclusive(3), RangeBound::Inclusive(9)),
+            "[0.015772,0.242298,-0.913427,0.054438,0.147715,0.017361,-0.221913,-0.179898]",
         ),
         (
             "Rustic bookshelf",
@@ -648,6 +699,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-25").unwrap(),
             Time::from_str("08:20:47").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
+            "[-0.165415,0.132113,-0.898147,-0.303050,0.147599,-0.115115,-0.147060,0.003475]",
         ),
         (
             "Moisturizing lip balm",
@@ -659,6 +711,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-24").unwrap(),
             Time::from_str("13:48:29").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Exclusive(11)),
+            "[0.262279,-0.068510,-0.882136,0.164562,0.005592,-0.275725,-0.147090,-0.153558]",
         ),
         (
             "Lightweight camera bag",
@@ -670,6 +723,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-24").unwrap(),
             Time::from_str("17:10:55").unwrap(),
             Range::new(RangeBound::Inclusive(3), RangeBound::Exclusive(9)),
+            "[0.001849,-0.009700,-0.883651,0.112157,0.331538,0.202440,0.126173,-0.199159]",
         ),
         (
             "Historical fiction book",
@@ -681,6 +735,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-22").unwrap(),
             Time::from_str("10:35:40").unwrap(),
             Range::new(RangeBound::Exclusive(2), RangeBound::Inclusive(8)),
+            "[0.063854,0.086140,-0.861102,-0.193388,0.321135,0.319594,-0.023897,0.061387]",
         ),
         (
             "Pure honey jar",
@@ -692,6 +747,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-22").unwrap(),
             Time::from_str("15:22:14").unwrap(),
             Range::new(RangeBound::Inclusive(4), RangeBound::Exclusive(9)),
+            "[0.082462,0.102008,-0.917573,0.182863,0.030252,-0.179037,-0.257788,-0.089396]",
         ),
         (
             "Handcrafted wooden frame",
@@ -703,6 +759,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-21").unwrap(),
             Time::from_str("08:55:06").unwrap(),
             Range::new(RangeBound::Infinite, RangeBound::Exclusive(10)),
+            "[0.182882,0.320314,-0.897928,0.002444,0.159097,-0.151881,-0.032191,0.090862]",
         ),
         (
             "Plush teddy bear",
@@ -714,6 +771,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-19").unwrap(),
             Time::from_str("11:40:59").unwrap(),
             Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(9)),
+            "[-0.236903,0.374606,-0.769857,-0.230782,-0.128262,-0.084558,-0.290299,-0.223007]",
         ),
         (
             "Warm woolen sweater",
@@ -725,6 +783,7 @@ fn mock_items_data() -> Vec<(
             Date::from_str("2023-04-18").unwrap(),
             Time::from_str("14:28:37").unwrap(),
             Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(10)),
+            "[-0.145696,0.227357,-0.886308,-0.088362,0.094946,-0.050334,-0.237952,-0.256052]",
         ),
     ]
 }

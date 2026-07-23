@@ -2,7 +2,9 @@ version: 2
 
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/.github/actions/*"
+      - "/.github/workflows"
     schedule:
       interval: "monthly"
     ignore:
@@ -22,6 +24,18 @@ updates:
   #       update-types: ["version-update:semver-patch"]
   #   groups:
   #     docker-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
+  #   directory: "/dst"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     dst-dependencies:
   #       patterns:
   #         - "*"
 

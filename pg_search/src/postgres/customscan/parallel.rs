@@ -153,6 +153,9 @@ pub fn max_useful_workers(
         return 0;
     }
 
+    // Only the pg15+ `debug_parallel_query` block below mutates this; on pg15
+    // that block is compiled out, leaving the binding immutable.
+    #[cfg_attr(feature = "pg15", allow(unused_mut))]
     let mut nworkers = clamp_to_gather_limits(segment_count.saturating_sub(1));
 
     #[cfg(not(feature = "pg15"))]
@@ -165,8 +168,11 @@ pub fn max_useful_workers(
     nworkers
 }
 
-pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
-    (*pscan_state).checkout_segment()
+pub unsafe fn checkout_segment_for_source(
+    pscan_state: *mut ParallelScanState,
+    source_idx: usize,
+) -> Option<SegmentId> {
+    (*pscan_state).checkout_segment_for_source(source_idx)
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {

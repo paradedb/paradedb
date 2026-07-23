@@ -265,7 +265,7 @@ fn test_scan_statement_with_sl_comment() {
     let input = r#"
 DROP EXTENSION IF EXISTS pg_search CASCADE;
 DROP TABLE IF EXISTS test CASCADE;
-CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_search CASCADE;
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,

@@ -12,10 +12,11 @@ on:
       - ".github/workflows/test-pg_search-nix.yml"
       - "nix/**"
       - "tokenizers/Cargo.toml"
-      - "Cargo.toml"
       - "Cargo.lock"
-      - "flake.nix"
+      - "Cargo.toml"
       - "flake.lock"
+      - "flake.nix"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:

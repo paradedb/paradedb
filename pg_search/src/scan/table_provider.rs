@@ -28,13 +28,11 @@ use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
-use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
@@ -77,11 +75,10 @@ pub struct PgSearchTableProvider {
     schema: OnceLock<SchemaRef>,
     #[serde(skip)]
     late_materialization_schema: OnceLock<SchemaRef>,
-    is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
     /// re-injected by the execution codec during deserialization if
-    /// `is_parallel` is true.
+    /// `source_idx` is some.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
     /// Postgres expression context, skipped during serialization and
@@ -92,19 +89,6 @@ pub struct PgSearchTableProvider {
     /// that need to solve runtime Postgres expressions before opening a real reader.
     #[serde(skip)]
     planstate: Option<*mut pg_sys::PlanState>,
-    /// Position of this source in the non-partitioning source list (0-based), or `None`
-    /// if this is the partitioning source or a serial scan.
-    ///
-    /// This is serialized so the execution codec can inject the correct canonical
-    /// segment IDs in both the leader and parallel workers.
-    non_partitioning_index: Option<usize>,
-    /// Canonical segment IDs for replicated-parallel execution.
-    ///
-    /// When `Some`, `scan()` uses `MvccSatisfies::ParallelWorker(ids)` instead of
-    /// `MvccSatisfies::Snapshot`. Injected by the execution codec based on
-    /// `non_partitioning_index`; `None` for the partitioning source and serial scans.
-    #[serde(skip)]
-    canonical_segment_ids: Option<HashSet<SegmentId>>,
     /// The visibility strategy for this source.
     ///
     /// `Deferred { plan_position }` means the scan emits packed DocAddresses in its
@@ -130,12 +114,10 @@ pub struct PgSearchTableProvider {
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
 
-    /// Source position in the MPP unified-sources array. When set, the codec's
+    /// Source position in the unified-sources array. When set, the codec's
     /// `parallel_state` routes per-source claims via
-    /// `checkout_segment_for_source(source_idx)`, so `NetworkShuffleExec` doesn't
-    /// receive N copies. `None` for serial, the partitioning source, and non-MPP
-    /// parallel hash join.
-    mpp_source_idx: Option<usize>,
+    /// `checkout_segment_for_source(source_idx)`. `None` for serial scans.
+    source_idx: Option<usize>,
 }
 
 mod atomic_bool_serde {
@@ -162,21 +144,22 @@ unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
 impl PgSearchTableProvider {
-    pub fn new(scan_info: ScanInfo, fields: Vec<WhichFastField>, is_parallel: bool) -> Self {
+    pub fn new(
+        scan_info: ScanInfo,
+        fields: Vec<WhichFastField>,
+        source_idx: Option<usize>,
+    ) -> Self {
         Self {
             scan_info,
             fields,
             schema: OnceLock::new(),
             late_materialization_schema: OnceLock::new(),
-            is_parallel,
             parallel_state: None,
             expr_context: None,
             planstate: None,
-            non_partitioning_index: None,
-            canonical_segment_ids: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
-            mpp_source_idx: None,
+            source_idx,
         }
     }
 
@@ -186,33 +169,10 @@ impl PgSearchTableProvider {
             .store(true, Ordering::Relaxed);
     }
 
-    pub(crate) fn is_parallel(&self) -> bool {
-        self.is_parallel
-    }
-
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
-        // Non-partitioning MPP sources need `parallel_state` for
-        // `checkout_segment_for_source`, but `is_parallel` stays false so the
-        // logical-plan rules (partitioning-source-only segment ordering) keep working.
-        assert!(self.is_parallel || self.mpp_source_idx.is_some());
+        // Parallel scans need `parallel_state` to claim segments.
+        assert!(self.source_idx.is_some());
         self.parallel_state = parallel_state;
-    }
-
-    /// Mark this provider as a non-partitioning source at position `idx` in the
-    /// non-partitioning source list. The execution codec uses this index to
-    /// inject the correct canonical segment IDs during deserialization.
-    pub(crate) fn set_non_partitioning_index(&mut self, idx: usize) {
-        self.non_partitioning_index = Some(idx);
-    }
-
-    /// Return the position of this provider in the non-partitioning source list, or `None`.
-    pub(crate) fn non_partitioning_index(&self) -> Option<usize> {
-        self.non_partitioning_index
-    }
-
-    /// Inject the canonical segment IDs for this replicated-parallel provider.
-    pub(crate) fn set_canonical_segment_ids(&mut self, ids: HashSet<SegmentId>) {
-        self.canonical_segment_ids = Some(ids);
     }
 
     pub(crate) fn set_expr_context(&mut self, expr_context: Option<*mut pg_sys::ExprContext>) {
@@ -223,13 +183,8 @@ impl PgSearchTableProvider {
         self.planstate = planstate;
     }
 
-    /// See [`PgSearchTableProvider::mpp_source_idx`] for what this gates.
-    pub(crate) fn set_mpp_source_idx(&mut self, idx: usize) {
-        self.mpp_source_idx = Some(idx);
-    }
-
-    pub(crate) fn mpp_source_idx(&self) -> Option<usize> {
-        self.mpp_source_idx
+    pub(crate) fn source_idx(&self) -> Option<usize> {
+        self.source_idx
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
@@ -328,14 +283,13 @@ impl PgSearchTableProvider {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
                     },
-                    // Resolvable from any fragment: a non-partitioning source reads the
-                    // replicated canonical set, the partitioning source reads the full list in
+                    // Resolvable from any fragment: reads the segment list from
                     // the worker's `ParallelScanState` (claiming only divides the scan, not a
                     // reader opened over the whole list).
                     rebuild: Some(crate::scan::late_materialization::DeferredLookupRebuild {
                         field_name: name.clone(),
                         field_type: *field_type,
-                        np_source_idx: self.non_partitioning_index,
+                        source_idx: self.source_idx,
                     }),
                 });
             }
@@ -448,7 +402,7 @@ impl PgSearchTableProvider {
     #[allow(clippy::too_many_arguments)]
     fn create_scan(
         &self,
-        segments: Vec<ScanState>,
+        state: Option<ScanState>,
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
         ffhelper: Arc<FFHelper>,
@@ -466,7 +420,7 @@ impl PgSearchTableProvider {
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
-            segments,
+            state,
             schema,
             resolved_query,
             None,
@@ -501,7 +455,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         resolved_query: SearchQueryInput,
         planner_estimated_rows: u64,
-        mpp_source_idx: Option<usize>,
+        source_idx: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -510,21 +464,17 @@ impl PgSearchTableProvider {
             batch_size_hint: None,
             score_needed: self.scan_info.score_needed,
         };
-        let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
+        let state = ScanState {
             parallel_state,
-            source_idx: mpp_source_idx,
-            non_partitioning_index: self.non_partitioning_index,
+            source_idx,
             planner_estimated_rows,
             scanner_config,
-        };
-        let state = ScanState {
-            recipe,
             ffhelper: ffhelper.clone(),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: reader.clone(),
         };
 
-        self.create_scan(vec![state], schema, resolved_query, ffhelper)
+        self.create_scan(Some(state), schema, resolved_query, ffhelper)
     }
 }
 
@@ -583,21 +533,13 @@ impl TableProvider for PgSearchTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        self.scan_inner(
-            self.canonical_segment_ids.clone(),
-            state,
-            projection,
-            filters,
-            limit,
-        )
-        .await
+        self.scan_inner(state, projection, filters, limit).await
     }
 }
 
 impl PgSearchTableProvider {
     async fn scan_inner(
         &self,
-        canonical_override: Option<HashSet<SegmentId>>,
         _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
@@ -612,8 +554,6 @@ impl PgSearchTableProvider {
         let expr_context = self.expr_context;
         let planstate = self.planstate;
         let parallel_state = self.parallel_state;
-        let canonical_segment_ids =
-            canonical_override.or_else(|| self.canonical_segment_ids.clone());
 
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);
@@ -637,45 +577,23 @@ impl PgSearchTableProvider {
             query.init_postgres_expressions(planstate);
             query.solve_postgres_expressions(expr_context);
         }
+        // MVCC dispatch by `source_idx`:
+        //
+        // Parallel worker or leader (`source_idx` Some):
+        // Retrieve the specific frozen segment IDs for this source from `ParallelScanState`.
+        //
+        // Serial (otherwise): Snapshot.
 
-        // MVCC dispatch by (`mpp_source_idx`, `parallel_state`, `canonical_segment_ids`):
-        //
-        // MPP non-partitioning (`mpp_source_idx` Some, `parallel_state` Some): every
-        // worker opens the leader's frozen segment set from `ParallelScanState`, then
-        // claims a slice via `checkout_segment_for_source`.
-        //
-        // Non-MPP parallel hash join (`canonical_segment_ids` Some): every worker opens
-        // the leader-snapshotted set, matching PG's worker scheduling.
-        //
-        // Partitioning source (`parallel_state` Some): leader uses Snapshot, workers use
-        // `ParallelWorker(partitioning_segment_ids)`.
-        //
-        // Serial (all None): Snapshot.
-        let mvcc_style = if let Some(source_idx) = self.mpp_source_idx {
-            if let Some(parallel_state) = parallel_state {
-                unsafe {
-                    let ids = (*parallel_state).segment_ids_for_source(source_idx);
-                    MvccSatisfies::ParallelWorker(ids)
-                }
-            } else if let Some(ids) = canonical_segment_ids.clone() {
-                // Codec injected canonical IDs without `parallel_state`. Fallback to the
-                // frozen set the leader recorded.
-                MvccSatisfies::ParallelWorker(ids)
-            } else {
-                MvccSatisfies::Snapshot
-            }
-        } else if let Some(ids) = canonical_segment_ids {
-            // Non-MPP parallel join scan: open the leader's frozen segment list from
-            // shared memory.
-            MvccSatisfies::ParallelWorker(ids)
-        } else if let Some(parallel_state) = parallel_state {
+        let mvcc_style = if let Some(parallel_state) = parallel_state {
             unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // Leader only sees snapshot-visible segments
                     MvccSatisfies::Snapshot
                 } else {
-                    // Workers see all segments listed in shared state
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                    let ids = (*parallel_state).segment_ids_for_source(
+                        self.source_idx.expect("parallel_state implies source_idx"),
+                    );
+                    MvccSatisfies::ParallelWorker(ids)
                 }
             }
         } else {
@@ -697,11 +615,7 @@ impl PgSearchTableProvider {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        // When parallel execution is planned, we expect `estimated_rows_per_worker` to be explicitly computed.
-        // For serial execution, it will also be computed (divided by 1).
-        let total_estimated_rows = self.scan_info.estimated_rows_per_worker.unwrap_or_else(|| {
-            panic!("PgSearchTableProvider requires `estimated_rows_per_worker` to be explicitly set during planning");
-        });
+        let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
 
         self.create_lazy_scan(
             parallel_state,
@@ -713,7 +627,7 @@ impl PgSearchTableProvider {
             projected_schema,
             query,
             total_estimated_rows,
-            self.mpp_source_idx,
+            self.source_idx,
         )
     }
 }

@@ -47,9 +47,6 @@ struct PgSearchExtensionCodec {
     expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
     planstate: Option<*mut PlanState>,
-    /// Canonical segment ID sets for non-partitioning sources, indexed by position in the
-    /// non-partitioning source list.
-    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     /// Canonical segment ID sets for all join sources, indexed by plan_position.
     index_segment_ids: Vec<HashSet<SegmentId>>,
 }
@@ -219,20 +216,10 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // Non-partitioning MPP sources also call `checkout_segment_for_source` against
+        // MPP sources also call `checkout_segment_for_source` against
         // `parallel_state`, so inject the pointer for them too.
-        if provider.is_parallel() || provider.mpp_source_idx().is_some() {
+        if provider.source_idx().is_some() {
             provider.set_parallel_state(self.parallel_state);
-        }
-        if let Some(np_idx) = provider.non_partitioning_index() {
-            if !self.non_partitioning_segment_ids.is_empty() {
-                let ids = self
-                    .non_partitioning_segment_ids
-                    .get(np_idx)
-                    .cloned()
-                    .expect("missing canonical segment IDs for non-partitioning source");
-                provider.set_canonical_segment_ids(ids);
-            }
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
@@ -362,14 +349,12 @@ pub fn deserialize_logical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     expr_context: Option<*mut ExprContext>,
     planstate: Option<*mut PlanState>,
-    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
-        non_partitioning_segment_ids,
         index_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)

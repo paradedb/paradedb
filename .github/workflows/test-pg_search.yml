@@ -12,18 +12,22 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tests/**"
       - "tokenizers/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:
   group: test-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test-pg_search:
@@ -297,10 +301,13 @@ jobs:
         if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
-          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto
-          # `--auto` promotes any output diff into the working tree, so a zero exit code
-          # doesn't mean the baselines matched. Fail if anything was promoted.
-          git diff --exit-code
+          # `--auto` promotes test diffs into the working tree, but the command still exits
+          # with a non-zero status code on failure. We catch this failure to print the diffs
+          # so they show up in CI, and then manually exit with an error.
+          cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto || {
+            git diff
+            exit 1
+          }
 
       - name: Stop PostgreSQL to flush coverage data (pgrx)
         if: matrix.pg_impl == 'pgrx' && always()

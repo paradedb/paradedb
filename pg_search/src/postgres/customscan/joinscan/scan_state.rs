@@ -22,43 +22,12 @@
 //!
 //! # Parallel Partitioning Strategy & Correctness
 //!
-//! `JoinScan` implements parallel execution by **partitioning the first (outermost) table**
-//! across workers while **replicating (fully scanning)** all subsequent tables in the join tree.
+//! `JoinScan` implements parallel execution using a **Massively Parallel Processing (MPP)**
+//! architecture. Instead of hardcoding which table is partitioned and which is replicated,
+//! the physical plan is evaluated by DataFusion, which dynamically hash-partitions tables by
+//! join key and shuffles intermediate rows between workers. This ensures that every row is
+//! scanned exactly once while achieving distributed execution.
 //!
-//! This is equivalent to a "Broadcast Join" or "Fragment-and-Replicate" strategy in distributed
-//! databases.
-//!
-//! ## Correctness
-//!
-//! This strategy relies on the distributive property of Inner Joins:
-//!
-//! (A_part1 JOIN B) UNION (A_part2 JOIN B) = (A_part1 UNION A_part2) JOIN B = A JOIN B
-//!
-//! Each worker computes a partial join result for its subset of `A`. When these partial results
-//! are gathered by PostgreSQL, the union forms the complete, correct result set.
-//!
-//! ## SAFETY WARNING
-//!
-//! This strategy is partitioning-correct for:
-//! 1.  **Inner Joins**: `JOIN_INNER`
-//! 2.  **Left Outer Joins** (where the Left/Outer table is partitioned)
-//! 3.  **Semi Joins** (where the Left table is partitioned)
-//! 4.  **Anti Joins** (where the Left table is partitioned)
-//!
-//! The current JoinScan planner is more conservative and only enables `INNER`,
-//! `SEMI`, and `ANTI` joins. `LEFT` is listed here to document the partitioning
-//! constraint for future work, not current planner support.
-//!
-//! It is **INCORRECT** and will produce duplicate or wrong results for:
-//! 1.  **Right Outer Joins**: Unmatched rows from the replicated Right table would be emitted
-//!     as `(NULL, b)` by *every* worker, causing duplicates.
-//! 2.  **Full Outer Joins**: Same duplicate issue for the replicated side.
-//! 3.  **Aggregations**: If DataFusion were performing global aggregations (e.g. `COUNT`),
-//!     each worker would emit a partial count, and PostgreSQL's `Gather` would treat them as
-//!     distinct rows rather than summing them.
-//!
-//! **Before enabling any JoinType other than `JOIN_INNER`, you must verify that the partitioning
-//! logic in `build_clause_df` respects these constraints.**
 
 use std::sync::Arc;
 
@@ -69,7 +38,6 @@ use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
-use tantivy::index::SegmentId;
 
 use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
@@ -221,20 +189,19 @@ pub struct JoinScanState {
     /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
     pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
 
+    /// Per-phase MPP launch timing, filled during exec when the query runs distributed, for
+    /// `EXPLAIN ANALYZE`. `None` when the query ran serially (no launch).
+    pub launch_timing: Option<crate::postgres::customscan::mpp::glue::MppLaunchTiming>,
+
+    /// When the distributed stream was built, used to time the first batch out (worker decode
+    /// plus first scan plus the network hop to the leader).
+    pub stream_built_at: Option<std::time::Instant>,
+
     /// Shared state for parallel execution.
     /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
     /// `initialize_worker_custom_scan` (in a worker), and then consumed in
     /// `exec_custom_scan` to initialize the DataFusion execution plan.
     pub parallel_state: Option<*mut ParallelScanState>,
-
-    /// Canonical segment ID sets for non-partitioning sources, in the same order the
-    /// sources appear in `join_clause.plan.sources()` (partitioning source excluded).
-    ///
-    /// Populated by `initialize_dsm_custom_scan` (leader) or `initialize_worker_custom_scan`
-    /// (worker) and injected during deserialization so that
-    /// non-partitioning `PgSearchTableProvider`s open each index with
-    /// `MvccSatisfies::ParallelWorker`, ensuring all workers see identical segments.
-    pub non_partitioning_segments: Vec<crate::api::HashSet<SegmentId>>,
 
     /// Captured source manifests held by the leader. Serves two purposes:
     /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan` and
@@ -253,9 +220,6 @@ pub struct JoinScanState {
     /// prepared on first exec before planning, launched once the plan's stages are committed.
     /// Stays `Inactive` on the serial path.
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
-    /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
-    /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
-    pub mpp_partitioning_source_idx: Option<usize>,
 }
 
 impl JoinScanState {
@@ -392,7 +356,8 @@ pub async fn build_joinscan_logical_plan(
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     let ctx = create_datafusion_session_context(SessionContextProfile::Join);
-    let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
+    let is_parallel = crate::postgres::customscan::mpp::glue::mpp_is_active();
+    let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
     df.into_optimized_plan()
 }
 
@@ -407,7 +372,7 @@ pub async fn build_joinscan_logical_plan(
 ///
 /// Wraps the provider in an `Arc`, registers it on `ctx`, and awaits
 /// `ctx.table(alias)`. Callers must finish configuring the provider
-/// (deferred outputs, non-partitioning index, etc.) before handing it in;
+/// (deferred outputs, MPP source index, etc.) before handing it in;
 /// this helper does not select or alias any columns.
 ///
 /// Shared by JoinScan and AggregateScan `build_source_df` implementations.
@@ -473,7 +438,7 @@ pub fn build_task_context(
 /// `build_clause_df` and pass it down by reference.
 struct RelNodeBuildCtx<'a> {
     ctx: &'a SessionContext,
-    partitioning_plan_position: usize,
+    is_parallel: bool,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
@@ -502,39 +467,7 @@ fn build_relnode_df<'a>(
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                // Use plan_position (globally unique) instead of heap_rti to identify
-                // the partitioning source. heap_rti values are local to each
-                // PlannerInfo and can collide when SubPlan-extracted sources (e.g.
-                // from NOT IN subqueries) share the same range-table index as the
-                // outer table.
-                //
-                // Invariant: plan_position is assigned as the DFS enumeration
-                // index in JoinCSClause::new (build.rs), and
-                // partitioning_source_index() returns the index into the same
-                // DFS-ordered sources() array. Both sources() and sources_mut()
-                // maintain left-first DFS order via collect_sources /
-                // collect_sources_mut, so plan_position == partitioning_plan_position
-                // iff this source is the chosen partitioning source.
-                let is_parallel = plan_position == rctx.partitioning_plan_position;
-
-                // Compute the position of this source among non-partitioning sources so execution
-                // can retrieve the correct canonical segment IDs during decode.
-                let np_idx = if !is_parallel {
-                    let partitioning_plan_idx = rctx.join_clause.partitioning_source_index();
-                    // Count non-partitioning sources that appear before this one in plan order.
-                    let np_pos = rctx
-                        .join_clause
-                        .plan
-                        .sources()
-                        .iter()
-                        .enumerate()
-                        .take(plan_position)
-                        .filter(|(i, _)| *i != partitioning_plan_idx)
-                        .count();
-                    Some(np_pos)
-                } else {
-                    None
-                };
+                let is_parallel = rctx.is_parallel;
 
                 let mut df = build_source_df(
                     rctx.ctx,
@@ -542,7 +475,6 @@ fn build_relnode_df<'a>(
                     plan_position,
                     rctx.join_clause,
                     is_parallel,
-                    np_idx,
                 )
                 .await?;
                 let alias =
@@ -591,19 +523,12 @@ fn build_relnode_df<'a>(
 /// qualified column references.
 type DistinctColMap = crate::api::HashMap<(pg_sys::Index, pg_sys::AttrNumber), String>;
 
-/// Recursively builds a DataFusion `DataFrame` for a given join clause.
-///
-/// This function constructs the logical plan for a join by:
-/// 1. Building DataFrames for the left (outer) and right (inner) sources.
-/// 2. Performing the configured join type on the specified equi-join keys.
-/// 3. Applying join-level filters (both search predicates and heap conditions).
-/// 4. Applying sorting and limits if specified.
-/// 5. Projecting the final output columns as defined by the join's output projection.
 fn build_clause_df<'a>(
     ctx: &'a SessionContext,
     join_clause: &'a JoinCSClause,
     private_data: &'a PrivateData,
     custom_exprs: *mut pg_sys::List,
+    is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         let plan_sources = join_clause.plan.sources();
@@ -612,8 +537,6 @@ fn build_clause_df<'a>(
                 "JoinScan requires at least 2 sources".into(),
             ));
         }
-
-        let partitioning_plan_position = join_clause.partitioning_source_index();
 
         let mapper = CombinedMapper {
             sources: &plan_sources,
@@ -633,7 +556,7 @@ fn build_clause_df<'a>(
 
         let rctx = RelNodeBuildCtx {
             ctx,
-            partitioning_plan_position,
+            is_parallel,
             join_clause,
             translated_exprs: &translated_exprs,
             ctid_map: &ctid_map,
@@ -983,7 +906,6 @@ fn build_source_df<'a>(
     plan_position: usize,
     join_clause: &'a JoinCSClause,
     is_parallel: bool,
-    np_idx: Option<usize>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
@@ -1047,19 +969,17 @@ fn build_source_df<'a>(
             }
         }
 
-        let mut provider =
-            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), is_parallel);
-
         // Both MPP and PG-parallel hash join need the canonical-segment-id
-        // replication so every worker sees the full build side, hence the outer
-        // `set_non_partitioning_index`. The MPP per-source claim counter goes on
-        // top of that and PG-parallel doesn't want it.
-        if let Some(idx) = np_idx {
-            provider.set_non_partitioning_index(idx);
-            if crate::postgres::customscan::mpp::glue::mpp_is_active() {
-                provider.set_mpp_source_idx(plan_position);
-            }
-        }
+        // replication so every worker sees the full build side. The MPP
+        // per-source claim counter goes on top of that and PG-parallel doesn't
+        // want it.
+        let source_idx = if is_parallel && crate::postgres::customscan::mpp::glue::mpp_is_active() {
+            Some(plan_position)
+        } else {
+            None
+        };
+        let mut provider =
+            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);
 
         // When DISTINCT is present, PostgreSQL expands the query path-keys
         // to include all DISTINCT columns.

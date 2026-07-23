@@ -38,11 +38,8 @@ pub enum OrderByStyle {
         pathkey: *mut pg_sys::PathKey,
         name: FieldName,
         rti: u32,
-        query_vector: Vec<f32>,
-        /// See `OrderByFeature::VectorDistance::query_vector_param_id`.
-        query_vector_param_id: Option<i32>,
-        /// See `OrderByFeature::VectorDistance::query_vector_expr`.
-        query_vector_expr: Option<String>,
+        /// See `OrderByFeature::VectorDistance::query_vector`.
+        query_vector: crate::api::QueryVector,
         /// See `OrderByFeature::VectorDistance::metric`.
         metric: crate::vector::metric::VectorMetric,
     },
@@ -108,16 +105,12 @@ impl From<&OrderByStyle> for OrderByInfo {
                 name,
                 rti,
                 query_vector,
-                query_vector_param_id,
-                query_vector_expr,
                 metric,
                 ..
             } => OrderByFeature::VectorDistance {
                 name: name.to_owned(),
                 rti: *rti,
                 query_vector: query_vector.clone(),
-                query_vector_param_id: *query_vector_param_id,
-                query_vector_expr: query_vector_expr.clone(),
                 metric: *metric,
             },
         };

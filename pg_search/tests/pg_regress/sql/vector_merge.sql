@@ -45,20 +45,21 @@ FROM generate_series(1, 15000) g;
 
 -- The merge produced a clustered segment...
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
-FROM paradedb.index_info('remerge_idx');
+FROM paradedb.vector_info('remerge_idx', 'vec');
 
 -- ...whose reported vector count is distinct docs (= its doc count), not the
 -- 3x posting-row total that replication writes...
-SELECT bool_and(vector_num_vectors = num_docs) AS num_vectors_is_distinct_docs
-FROM paradedb.index_info('remerge_idx')
-WHERE vector_format = 'ivf';
+SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
+FROM paradedb.vector_info('remerge_idx', 'vec') v
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
 
--- ...while the per-cluster sizes deliberately stay memberships: their sum
+-- ...while the per-cluster sizes deliberately stay memberships: their total
 -- strictly exceeds the distinct-doc count under replication.
-SELECT (SELECT sum(size) FROM paradedb.ivf_cluster_sizes('remerge_idx'))
-     > (SELECT sum(vector_num_vectors)
-        FROM paradedb.index_info('remerge_idx')
-        WHERE vector_format = 'ivf') AS cluster_sizes_are_memberships;
+SELECT sum(vector_total_memberships) > sum(vector_num_vectors)
+         AS cluster_sizes_are_memberships
+FROM paradedb.vector_info('remerge_idx', 'vec')
+WHERE vector_format = 'ivf';
 
 -- Wave 2: make the replicated IVF segment a merge SOURCE. The layer must
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus
@@ -69,18 +70,19 @@ SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::v
 FROM generate_series(15001, 50000) g;
 
 SELECT bool_or(vector_format = 'ivf') AS still_has_ivf
-FROM paradedb.index_info('remerge_idx');
+FROM paradedb.vector_info('remerge_idx', 'vec');
 
-SELECT bool_and(vector_num_vectors = num_docs) AS num_vectors_is_distinct_docs
-FROM paradedb.index_info('remerge_idx')
-WHERE vector_format = 'ivf';
+SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
+FROM paradedb.vector_info('remerge_idx', 'vec') v
+JOIN paradedb.index_info('remerge_idx') i USING (segno)
+WHERE v.vector_format = 'ivf';
 
 -- Exhaustive probing: the ceiling clamps to each segment's cluster count,
 -- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so
 -- the distance gate cannot stop early. The twice-merged replicated index
 -- must return every distinct row exactly once — replicas deduped, nothing
 -- lost, nothing doubled.
-SET paradedb.vector_cluster_max_probe_fraction = 1.0;
+SET paradedb.vector_cluster_max_probe = 1.0;
 SELECT count(*) AS returned, count(DISTINCT id) AS distinct_ids
 FROM (
     SELECT id
@@ -89,6 +91,6 @@ FROM (
     ORDER BY vec <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'
     LIMIT 60000
 ) q;
-RESET paradedb.vector_cluster_max_probe_fraction;
+RESET paradedb.vector_cluster_max_probe;
 
 DROP TABLE remerge;

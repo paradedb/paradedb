@@ -21,6 +21,10 @@ CREATE TABLE delvec (
 -- Same merge choreography as vector_merge.sql: immutable-only
 -- inserts, foreground-only merging, first candidate closes >= 10000 docs so
 -- the target is IVF.
+--
+-- cluster_replication = 1 pins primary-only assignment: the layer_sizes budget
+-- below is tuned to the on-disk vector footprint, which replica cells would
+-- inflate. This test exercises the empty-slots merge path, not replication.
 CREATE INDEX delvec_idx ON delvec
     USING bm25 (id, label, vec vector_l2_ops)
     WITH (
@@ -28,7 +32,8 @@ CREATE INDEX delvec_idx ON delvec
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',
-        background_layer_sizes = '0'
+        background_layer_sizes = '0',
+        cluster_replication = 1
     );
 
 -- Interleave vector-bearing (odd id) and vector-less (even id) rows so every
@@ -44,7 +49,7 @@ SELECT g,
 FROM generate_series(1, 24000) g;
 
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
-FROM paradedb.index_info('delvec_idx');
+FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Kill every vector-bearing doc. VACUUM records the deletes so the next
 -- merge sees those docs as dead.
@@ -62,11 +67,11 @@ FROM generate_series(24001, 30000) g;
 
 -- An IVF segment now exists whose vector field is empty.
 SELECT bool_or(vector_format = 'ivf' AND vector_num_vectors = 0) AS ivf_with_empty_vector_field
-FROM paradedb.index_info('delvec_idx');
+FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Vector ORDER BY on the emptied field: no error, zero results. Exhaustive
 -- probing, so the empty result cannot be an artifact of probe pruning.
-SET paradedb.vector_cluster_max_probe_fraction = 1.0;
+SET paradedb.vector_cluster_max_probe = 1.0;
 SELECT count(*) AS vector_results
 FROM (
     SELECT id
@@ -75,7 +80,7 @@ FROM (
     ORDER BY vec <-> '[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]'
     LIMIT 50000
 ) q;
-RESET paradedb.vector_cluster_max_probe_fraction;
+RESET paradedb.vector_cluster_max_probe;
 
 -- The index still serves non-vector queries over the surviving docs:
 -- 12000 original vector-less rows plus 6000 fresh ones.

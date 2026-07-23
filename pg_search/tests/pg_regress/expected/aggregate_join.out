@@ -374,7 +374,7 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
            :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (14 rows)
@@ -430,7 +430,7 @@ ORDER BY t.tag_name;
            : AggregateExec: mode=Single, gby=[tag_name@1 as tag_name], aggr=[count(DISTINCT p_0.category) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
            :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (14 rows)
@@ -493,7 +493,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(t_1.tag_name) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
      :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (12 rows)
@@ -565,9 +565,9 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
            : AggregateExec: mode=Single, gby=[tag_name@0 as tag_name], aggr=[count(p_1.category) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(product_id@0, id@0)], projection=[tag_name@1, category@3]
            :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"tag_name","query_string":"tech OR orphan_tag","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"tag_name","query_string":"tech OR orphan_tag","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (14 rows)
 
 SELECT t.tag_name, COUNT(p.category)
@@ -1111,7 +1111,7 @@ GROUP BY p.category;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 -- AVG(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
@@ -1134,7 +1134,7 @@ GROUP BY p.category;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 -- COUNT(DISTINCT) should still show AggregateScan (this still works)
@@ -1157,7 +1157,7 @@ GROUP BY p.category;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 -- =====================================================================
@@ -1234,7 +1234,7 @@ WHERE p.description @@@ 'laptop' AND p.price > 500;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"excluded":500.0},"upper_bound":null}}]}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 SELECT COUNT(*), SUM(p.price)
@@ -1365,7 +1365,7 @@ GROUP BY p.category;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR toy","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (13 rows)
 
 SELECT p.category, BOOL_AND(p.in_stock)
@@ -1416,7 +1416,7 @@ GROUP BY p.category;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (13 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ')
@@ -1526,7 +1526,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (12 rows)
 
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
@@ -1610,7 +1610,7 @@ GROUP BY p.category;
      :       CooperativeExec
      :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
-     :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :         PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (14 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
@@ -1679,7 +1679,7 @@ GROUP BY p.category;
      :       CooperativeExec
      :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
-     :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :         PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (14 rows)
 
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
@@ -1837,7 +1837,7 @@ GROUP BY p.category;
      :     CooperativeExec
      :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (13 rows)
 
 -- Test 17.2: COUNT with FILTER — results
@@ -1914,6 +1914,29 @@ WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enabl
 (4 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- SECTION 28: EXPLAIN ANALYZE Metrics Output
+-- =====================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) (actual rows=1.00 loops=1)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0], metrics=[output_rows=1, output_bytes=8.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[], metrics=[output_rows=6, output_bytes=0.0 B, output_batches=1, array_map_created_count=1, build_input_batches=1, build_input_rows=3, input_batches=2, input_rows=9, build_mem_used=44, avg_fanout=100% (6/6), probe_hit_rate=66.67% (6/9)]
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=24.0 B, output_batches=1]
+     :     CooperativeExec
+     :       PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[output_rows=9, output_bytes=72.0 B, output_batches=2, rows_pruned=3, rows_scanned=12]
+(11 rows)
+
 -- =====================================================================
 -- Clean up
 -- =====================================================================

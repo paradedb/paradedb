@@ -74,6 +74,7 @@ pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
 pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
+pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 7;
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
@@ -770,8 +771,8 @@ impl BM25IndexOptionsData {
 
     /// Total cells a vector is written into (SPANN `ReplicaCount`): the primary
     /// plus up to `cluster_replication - 1` next-nearest cells, selected by
-    /// tantivy at merge time in the field's metric. `1` (the default) is
-    /// primary-only. Any non-positive value is treated as `1`.
+    /// tantivy at merge time in the field's metric. `1` is primary-only. Any
+    /// non-positive value is treated as `1`.
     pub fn cluster_replication(&self) -> usize {
         if self.cluster_replication <= 0 {
             1
@@ -1020,7 +1021,7 @@ pub unsafe fn init() {
         RELOPT_KIND_PDB,
         "cluster_replication".as_pg_cstr(),
         "Cells a vector is written into: primary + up to (value - 1) next-nearest cells (1 = no replication)".as_pg_cstr(),
-        1,
+        DEFAULT_CLUSTER_REPLICATION,
         1,
         i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,

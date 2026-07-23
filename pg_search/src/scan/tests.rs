@@ -90,17 +90,14 @@ mod tests {
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
         let partition = crate::scan::execution_plan::ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
-                parallel_state: None,
-                source_idx: None,
-                non_partitioning_index: None,
-                planner_estimated_rows: 0,
-                scanner_config: crate::scan::execution_plan::ScannerConfig {
-                    which_fast_fields: fields.clone(),
-                    heap_relid: heap_oid.into(),
-                    batch_size_hint: None,
-                    score_needed: false,
-                },
+            parallel_state: None,
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
@@ -108,7 +105,7 @@ mod tests {
         };
 
         let plan = PgSearchScanPlan::new(
-            vec![partition],
+            Some(partition),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
             None,
@@ -319,7 +316,6 @@ mod tests {
                 heaprelid: heap_oid,
                 indexrelid: index_oid,
                 query: crate::query::SearchQueryInput::All,
-                estimated_rows_per_worker: Some(100),
                 ..Default::default()
             };
 
@@ -327,7 +323,7 @@ mod tests {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
             }
 
-            Arc::new(PgSearchTableProvider::new(scan_info, fields, false))
+            Arc::new(PgSearchTableProvider::new(scan_info, fields, None))
         }
 
         /// Assert all filters get Exact pushdown

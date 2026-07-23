@@ -9,14 +9,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/lint-markdown.yml"
       - "**/*.md"
       - "**/*.mdx"
-      - ".github/workflows/lint-markdown.yml"
   workflow_dispatch:
 
 concurrency:
   group: lint-markdown-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   lint-markdown:
@@ -28,7 +31,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up NodeJS Environment
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
 
       - name: Install Prettier and markdownlint
         run: npm install -g prettier markdownlint-cli

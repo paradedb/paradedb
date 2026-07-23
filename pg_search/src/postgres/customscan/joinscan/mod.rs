@@ -155,7 +155,9 @@ use self::planning::{
 };
 use self::predicate::{all_vars_are_fast_fields_recursive, extract_join_level_conditions};
 use self::privdat::PrivateData;
-use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
+use crate::postgres::customscan::datafusion::explain::{
+    explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
+};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::utils::expr_contains_any_operator;
@@ -173,16 +175,14 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::{mpp_is_active, producer_worker_count};
+use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
@@ -191,12 +191,11 @@ use crate::postgres::ParallelScanArgs;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
-use datafusion::physical_plan::displayable;
-use datafusion::physical_plan::metrics::MetricValue;
-use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
-use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedExt};
+
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::DistributedExt;
 use pgrx::{pg_guard, pg_sys, PgList};
-use std::ffi::{c_void, CStr};
+use std::ffi::CStr;
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -354,18 +353,49 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 /// Check whether it is safe to push LIMIT into the JoinScan plan.
 ///
 /// Returns `true` when ALL of:
-/// 1. JoinScan absorbed every base relation in the query (no outer
+/// 1. No plan node above the join consumes the full row set: window
+///    functions, set-returning functions in the target list, and
+///    GROUP BY / GROUPING SETS / HAVING all need every joined row, so a
+///    LIMIT applied inside the scan starves them (issue #5561: an
+///    unpartitioned `count(*) OVER ()` returned the LIMIT instead of
+///    the true match count). `grouping_planner` sets `limit_tuples = -1` for exactly
+///    these queries; the parse flags are checked directly because
+///    `limit_tuples == -1` also means "parameterized LIMIT", which is
+///    safe to push.
+/// 2. JoinScan absorbed every base relation in the query (no outer
 ///    relations that could add post-filters above JoinScan).
-/// 2. Every SubPlan in `baserestrictinfo` of absorbed relations was also
+/// 3. Every SubPlan in `baserestrictinfo` of absorbed relations was also
 ///    absorbed into the `RelNode` tree (Semi/Anti/LeftMark joins).
 ///    Un-absorbed SubPlans would become Postgres post-filters above
 ///    the capped output.
-/// 3. No volatile functions in `baserestrictinfo` of absorbed relations
+/// 4. No volatile functions in `baserestrictinfo` of absorbed relations
 ///    (volatile functions can never be pushed into Tantivy).
+///
+/// DISTINCT is not declined here: JoinScan absorbs and implements it
+/// (#4669). `hasAggs` queries were already declined before this point.
 unsafe fn is_limit_pushdown_safe(
     root: *mut pg_sys::PlannerInfo,
     join_clause: &JoinCSClause,
 ) -> Result<(), JoinDeclineReason> {
+    // 1. Nothing above the join may need more rows than the LIMIT keeps.
+    let parse = (*root).parse;
+    if (*parse).hasWindowFuncs {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to window functions",
+        ));
+    }
+    if (*parse).hasTargetSRFs {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to set-returning functions in the target list",
+        ));
+    }
+    if !(*parse).groupClause.is_null() || !(*parse).groupingSets.is_null() || (*root).hasHavingQual
+    {
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to GROUP BY or HAVING",
+        ));
+    }
+
     let absorbed_rtis: Vec<pg_sys::Index> = join_clause
         .plan
         .sources()
@@ -373,7 +403,7 @@ unsafe fn is_limit_pushdown_safe(
         .map(|s| s.scan_info.heap_rti)
         .collect();
 
-    // 1. Did JoinScan absorb ALL base relations?
+    // 2. Did JoinScan absorb ALL base relations?
     #[cfg(feature = "pg15")]
     let all_rels = (*root).all_baserels;
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
@@ -389,7 +419,7 @@ unsafe fn is_limit_pushdown_safe(
         ));
     }
 
-    // 2. Every SubPlan in baserestrictinfo must have been absorbed.
+    // 3. Every SubPlan in baserestrictinfo must have been absorbed.
     let all_subplan_ids = collect_all_subplan_ids_from_baserestrictinfo(root, &absorbed_rtis);
     let absorbed_subplan_ids = collect_absorbed_subplan_ids(&join_clause.plan);
     for id in &all_subplan_ids {
@@ -400,7 +430,7 @@ unsafe fn is_limit_pushdown_safe(
         }
     }
 
-    // 3. No volatile functions (these can never be absorbed).
+    // 4. No volatile functions (these can never be absorbed).
     for rti in &absorbed_rtis {
         let rel = pg_sys::find_base_rel(root, *rti as i32);
         let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
@@ -505,7 +535,7 @@ pub unsafe fn try_create_subplan_join_paths(
     // No join-level predicate extraction needed for SubPlan-based paths.
 
     // Phase 2: finalize into CustomPath.
-    match JoinScan::finalize_clause_into_path(root, rel, join_clause, &limit_offset, false) {
+    match JoinScan::finalize_clause_into_path(root, rel, join_clause, &limit_offset) {
         Some(path) => vec![path],
         None => Vec::new(),
     }
@@ -631,19 +661,9 @@ impl JoinScan {
             }
         }
 
-        if join_clause.plan.has_semi_or_anti() {
-            if join_clause.partitioning_source_index() != 0 {
-                pgrx::warning!(
-                    "For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal \
-                     parallel partitioning strategy for this query. See \
-                     https://github.com/paradedb/paradedb/issues/4152"
-                );
-            }
-            join_clause = join_clause.with_forced_partitioning(0);
-        }
-
-        // Safety check: bail out if LIMIT pushdown is unsafe due to
-        // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
+        // Safety check: bail out if an upper plan node needs the full row set,
+        // or if un-absorbed relations/SubPlans or volatile predicates could
+        // change the capped output.
         if join_clause.limit_offset.is_some() {
             is_limit_pushdown_safe(root, &join_clause)?;
         }
@@ -655,6 +675,13 @@ impl JoinScan {
     /// extracting ORDER BY, computing costs/parallel workers, and building the
     /// `pg_sys::CustomPath` struct.
     ///
+    /// Row count estimates are NOT divided by the number of parallel workers here.
+    /// Since the custom scan natively manages its own parallel execution via MPP and
+    /// communicates directly with the leader without a Postgres `Gather` node, Postgres
+    /// sees a single path emitting the full `result_rows`. Similarly, DataFusion's
+    /// optimizer requires the undivided `estimated_rows_per_worker` to accurately assess
+    /// the full scale of the data and choose partitioned joins appropriately.
+    ///
     /// Returns `None` if ORDER BY extraction fails.
     #[allow(clippy::needless_update)]
     unsafe fn finalize_clause_into_path(
@@ -662,7 +689,6 @@ impl JoinScan {
         rel: *mut pg_sys::RelOptInfo,
         mut join_clause: JoinCSClause,
         limit_offset: &Option<LimitOffset>,
-        consider_parallel: bool,
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
         let current_sources = join_clause.plan.sources();
@@ -678,65 +704,10 @@ impl JoinScan {
 
         let startup_cost = crate::DEFAULT_STARTUP_COST;
         let total_cost = startup_cost + 1.0;
-        let mut result_rows = limit_offset
+        let result_rows = limit_offset
             .as_ref()
             .map(|lo| lo.planning_estimate())
             .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
-
-        let (segment_count, row_estimate) = {
-            let src = join_clause.partitioning_source();
-            (src.scan_info.segment_count, src.scan_info.estimate)
-        };
-
-        let use_mpp = mpp_is_active() && !JoinScan::source_queries_have_parameters(&join_clause);
-        let nworkers = if use_mpp {
-            // MPP needs exactly `producer_worker_count()` workers to match the n_procs x n_procs
-            // mesh dimensions. Override the heuristic-based parallel-worker count.
-            producer_worker_count() as usize
-        } else if consider_parallel {
-            let declares_sorted_output = !join_clause.order_by.is_empty();
-            compute_nworkers(
-                declares_sorted_output,
-                limit_offset.as_ref().map(|lo| lo.planning_estimate()),
-                row_estimate,
-                segment_count,
-                false,
-                false,
-                true,
-            )
-        } else {
-            0
-        };
-
-        if nworkers > 0 {
-            let processes = std::cmp::max(
-                1,
-                nworkers
-                    + if pg_sys::parallel_leader_participation {
-                        1
-                    } else {
-                        0
-                    },
-            );
-            result_rows /= processes as f64;
-            let processes = processes as u64;
-            let partitioning_idx = join_clause.partitioning_source_index();
-            for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
-                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                    source.scan_info.estimated_rows_per_worker = if idx == partitioning_idx {
-                        Some(n / processes)
-                    } else {
-                        Some(n)
-                    };
-                }
-            }
-        } else {
-            for source in join_clause.plan.sources_mut() {
-                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                    source.scan_info.estimated_rows_per_worker = Some(n);
-                }
-            }
-        }
 
         // --- Build CustomPath ---
 
@@ -772,105 +743,7 @@ impl JoinScan {
             custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
-        // For MPP the customscan launches its own producer workers from exec via the builder, so
-        // the path stays serial to PG (no Gather). Only the regular non-MPP parallel join is marked
-        // parallel-aware; `nworkers` still feeds the per-source row estimates above either way.
-        if nworkers > 0 && !use_mpp {
-            custom_path.path.parallel_aware = true;
-            custom_path.path.parallel_safe = true;
-            custom_path.path.parallel_workers =
-                nworkers.try_into().expect("nworkers should be a valid i32");
-        }
-
         Some(custom_path)
-    }
-}
-
-impl ParallelQueryCapable for JoinScan {
-    fn estimate_dsm_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> pg_sys::Size {
-        // Size DSM from actual execution-time segment counts (via manifests) rather
-        // than planning-time scan_info.segment_count, which can diverge under
-        // concurrent inserts.
-        Self::ensure_source_manifests(state);
-
-        let join_clause = &state.custom_state().join_clause;
-        let partitioning_idx = join_clause.partitioning_source_index();
-        let all_nsegments: Vec<usize> = state
-            .custom_state()
-            .source_manifests
-            .iter()
-            .map(SearchIndexManifest::segment_count)
-            .collect();
-
-        // Only the regular (non-MPP) parallel join drives these callbacks now; MPP launches its
-        // own workers via the builder, so the coordinate only needs the ParallelScanState block.
-        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false) as pg_sys::Size
-    }
-
-    fn initialize_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        coordinate: *mut c_void,
-    ) {
-        Self::ensure_source_manifests(state);
-
-        let join_clause = state.custom_state().join_clause.clone();
-        let partitioning_idx = join_clause.partitioning_source_index();
-
-        // MPP launches its own workers via the builder; these callbacks now serve only the regular
-        // parallel join, with the ParallelScanState at coordinate offset 0.
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
-        unsafe {
-            let all_sources: Vec<&[tantivy::SegmentReader]> = state
-                .custom_state()
-                .source_manifests
-                .iter()
-                .map(|manifest| manifest.segment_readers())
-                .collect();
-            let args = ParallelScanArgs {
-                all_sources,
-                partitioning_source_idx: partitioning_idx,
-                query: vec![], // JoinScan passes query via PrivateData, not shared state
-                with_aggregates: false,
-            };
-            (*pscan_state).create_and_populate(args);
-        }
-
-        // Read the canonical non-partitioning segment ID sets from shared memory.
-        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
-        state.custom_state_mut().parallel_state = Some(pscan_state);
-        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
-    }
-
-    fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-        unsafe {
-            (*pscan_state).reset();
-        }
-    }
-
-    fn initialize_worker_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _toc: *mut pg_sys::shm_toc,
-        coordinate: *mut c_void,
-    ) {
-        // Regular (non-MPP) parallel join: the leader put the ParallelScanState at coordinate
-        // offset 0. MPP workers are builder-launched and never reach this callback.
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
-        state.custom_state_mut().parallel_state = Some(pscan_state);
-
-        // Workers must wait for the leader to finish populating the segment pool.
-        unsafe { (*pscan_state).wait_for_initialization() };
-
-        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
-        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
     }
 }
 
@@ -927,39 +800,20 @@ impl JoinScan {
     /// Leader/serial uses manifests captured with the same snapshot.
     fn build_index_segment_ids(
         state: &mut CustomScanStateWrapper<Self>,
-        join_clause: &JoinCSClause,
+        _join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
     ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
         let mut ids_by_pos = vec![None; plan_sources.len()];
-        let partitioning_idx = join_clause.partitioning_source_index();
-        let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
 
-        if is_worker {
-            let non_partitioning_segs = &state.custom_state().non_partitioning_segments;
-            let mut np_counter = 0usize;
-            for (i, _source) in plan_sources.iter().enumerate() {
-                if i == partitioning_idx {
-                    if let Some(ps) = state.custom_state().parallel_state {
-                        let ids =
-                            unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
-                        ids_by_pos[i] = Some(ids);
-                    }
-                } else if let Some(ids) = non_partitioning_segs.get(np_counter) {
-                    ids_by_pos[i] = Some(ids.clone());
-                    np_counter += 1;
-                }
-            }
-        } else {
-            Self::ensure_source_manifests(state);
-            for (i, _source) in plan_sources.iter().enumerate() {
-                if let Some(manifest) = state.custom_state().source_manifests.get(i) {
-                    let ids: crate::api::HashSet<_> = manifest
-                        .segment_readers()
-                        .iter()
-                        .map(|r| r.segment_id())
-                        .collect();
-                    ids_by_pos[i] = Some(ids);
-                }
+        Self::ensure_source_manifests(state);
+        for (i, _source) in plan_sources.iter().enumerate() {
+            if let Some(manifest) = state.custom_state().source_manifests.get(i) {
+                let ids: crate::api::HashSet<_> = manifest
+                    .segment_readers()
+                    .iter()
+                    .map(|r| r.segment_id())
+                    .collect();
+                ids_by_pos[i] = Some(ids);
             }
         }
 
@@ -1022,7 +876,6 @@ impl JoinScan {
             return;
         };
         Self::ensure_source_manifests(state);
-        let partitioning_idx = state.custom_state().join_clause.partitioning_source_index();
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
             .custom_state()
             .source_manifests
@@ -1031,23 +884,18 @@ impl JoinScan {
             .collect();
         let args = ParallelScanArgs {
             all_sources,
-            partitioning_source_idx: partitioning_idx,
             query: vec![],
             with_aggregates: false,
         };
-        if let Some(prep) = crate::postgres::customscan::mpp::launch::prepare_mpp_join(
-            plan_bytes.len(),
-            args,
-            partitioning_idx,
-        ) {
-            // The leader runs the top fragment itself. When a non-partitioning source lands there
-            // (the SEMI/ANTI broadcast strategy), its scan claims per-source segments against the
+        if let Some(prep) =
+            crate::postgres::customscan::mpp::launch::prepare_mpp_join(plan_bytes.len(), args)
+        {
+            // The leader runs the top fragment itself. When a scan source lands there
+            // (e.g. under MPP's broadcast or shuffle strategy), its scan claims per-source segments against the
             // same shared state the workers use, so the codec needs this pointer to install it.
             // The canonical per-source segment sets feed the same deserialize the worker-bound
             // stages are serialized from.
             state.custom_state_mut().parallel_state = Some(prep.scan_ptr);
-            state.custom_state_mut().non_partitioning_segments =
-                prep.non_partitioning_segments.clone();
             state.custom_state_mut().mpp = MppLifecycle::Prepared(prep);
         }
     }
@@ -1068,18 +916,10 @@ impl CustomScan for JoinScan {
             ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::estimate_dsm_custom_scan::<Self>,
-            ),
-            InitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_dsm_custom_scan::<Self>,
-            ),
-            ReInitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::reinitialize_dsm_custom_scan::<Self>,
-            ),
-            InitializeWorkerCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_worker_custom_scan::<Self>,
-            ),
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
             ShutdownCustomScan: Some(
                 crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
             ),
@@ -1332,22 +1172,34 @@ impl CustomScan for JoinScan {
                 // Under MPP the worker fragments reported their metrics as mesh frames when
                 // they exited; fold them in so the stage boxes show more than the leader's
                 // own nodes.
-                let merged = match (
-                    state.custom_state().mpp.leader(),
-                    state.custom_state().runtime.as_ref(),
-                ) {
-                    (Some(_), Some(_runtime)) => {
-                        crate::postgres::customscan::mpp::glue::merge_worker_metrics(physical_plan)
-                    }
-                    _ => None,
-                };
-                let plan = merged.as_ref().unwrap_or(physical_plan);
-                explainer.add_text("DataFusion Physical Plan", "");
-                let mut lines = Vec::new();
-                render_plan_with_metrics(plan.as_ref(), 0, explainer.is_verbose(), &mut lines);
-                for line in &lines {
-                    explainer.add_text("  ", line);
-                }
+                let plan = get_plan_with_merged_metrics(
+                    physical_plan,
+                    state.custom_state().mpp.leader().is_some(),
+                    state.custom_state().runtime.is_some(),
+                    explainer,
+                );
+                explain_physical_plan(&plan, explainer);
+            }
+
+            // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
+            // DataFusion plan, so surface its per-phase breakdown separately when the query ran
+            // distributed.
+            if let Some(t) = state.custom_state().launch_timing {
+                explainer.add_text(
+                    "MPP Launch",
+                    format!(
+                        "workers={} prepare={}us plan={}us payload={}us attach={}us \
+                         leader_setup={}us exec={}us first_frame={}us",
+                        t.workers,
+                        t.prepare_us,
+                        t.plan_us,
+                        t.payload_us,
+                        t.attach_us,
+                        t.leader_setup_us,
+                        t.exec_us,
+                        t.first_frame_us,
+                    ),
+                );
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
@@ -1383,23 +1235,12 @@ impl CustomScan for JoinScan {
                 Some(expr_context.as_ptr()),
                 None,
                 vec![],
-                vec![],
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
                 .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
-            explainer.add_text("DataFusion Physical Plan", "");
-            let rendered = if physical_plan.is::<DistributedExec>() {
-                display_plan_ascii(physical_plan.as_ref(), false)
-            } else {
-                displayable(physical_plan.as_ref())
-                    .indent(false)
-                    .to_string()
-            };
-            for line in rendered.lines() {
-                explainer.add_text("  ", line);
-            }
+            explain_physical_plan(&physical_plan, explainer);
         }
     }
 
@@ -1427,9 +1268,6 @@ impl CustomScan for JoinScan {
             {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
-                    let partitioning_idx =
-                        state.custom_state().join_clause.partitioning_source_index();
-                    state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
                 }
             }
         }
@@ -1440,11 +1278,14 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let mut launch_us = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
         if state.custom_state().datafusion_stream.is_none() {
             // First exec call: build the MPP DSM before planning. The workers launch only after
             // the leader's plan is built and its stages serialize (`launch_mpp_commit` below),
             // so every planning fallback is a serial run with no workers to abort.
+            let t_prepare = std::time::Instant::now();
             Self::maybe_prepare_mpp(state);
+            launch_us.prepare_us = t_prepare.elapsed().as_micros() as u64;
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1508,10 +1349,7 @@ impl CustomScan for JoinScan {
                 // Raw pointers precomputed so the planning closure below never borrows `state`.
                 let runtime_context = state.runtime_context;
                 let build_plan = |ctx: &datafusion::prelude::SessionContext,
-                                  parallel_state: Option<*mut ParallelScanState>,
-                                  non_partitioning_segments: Vec<
-                    crate::api::HashSet<tantivy::index::SegmentId>,
-                >|
+                                  parallel_state: Option<*mut ParallelScanState>|
                  -> Arc<dyn ExecutionPlan> {
                     let logical_plan = deserialize_logical_plan_with_runtime(
                         &plan_bytes,
@@ -1519,7 +1357,6 @@ impl CustomScan for JoinScan {
                         parallel_state,
                         Some(runtime_context),
                         Some(planstate),
-                        non_partitioning_segments,
                         index_segment_ids.clone(),
                     )
                     .expect("Failed to deserialize logical plan");
@@ -1557,11 +1394,9 @@ impl CustomScan for JoinScan {
                 } else {
                     state.custom_state().parallel_state
                 };
-                let plan = build_plan(
-                    &plan_ctx,
-                    plan_parallel_state,
-                    state.custom_state().non_partitioning_segments.clone(),
-                );
+                let t_plan = std::time::Instant::now();
+                let plan = build_plan(&plan_ctx, plan_parallel_state);
+                launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
                 // Commit the MPP launch against the built plan: serialize its producer stages,
                 // spawn the workers, and hand the coordinator the same stages to dispatch. On a
@@ -1577,15 +1412,21 @@ impl CustomScan for JoinScan {
                                 let exec_ctx =
                                     Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                                         .with_distributed_dispatch_plan_source(source);
+                                launch_us.payload_us = leader.timing.payload_us;
+                                launch_us.attach_us = leader.timing.attach_us;
+                                launch_us.leader_setup_us = leader.timing.leader_setup_us;
+                                launch_us.workers = leader.timing.workers;
                                 state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
                                 (exec_ctx, plan)
                             }
                             None => {
+                                // Flush the single-threaded context's index mappings so the re-built
+                                // single-threaded plan scans the full base tables instead of hitting
+                                // the empty parallel claims pool.
                                 state.custom_state_mut().parallel_state = None;
-                                state.custom_state_mut().non_partitioning_segments = Vec::new();
                                 let serial_ctx =
                                     create_datafusion_session_context(SessionContextProfile::Join);
-                                let plan = build_plan(&serial_ctx, None, Vec::new());
+                                let plan = build_plan(&serial_ctx, None);
                                 (serial_ctx, plan)
                             }
                         }
@@ -1599,13 +1440,21 @@ impl CustomScan for JoinScan {
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
                 );
+                let t_exec = std::time::Instant::now();
                 let stream = {
                     let _guard = runtime.enter();
                     plan.execute(0, task_ctx)
                         .expect("Failed to execute DataFusion plan")
                 };
+                launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
-                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
+                // launch timing only when the query actually ran distributed (workers attached);
+                // a serial fallback never reaches `Launched` and leaves `workers` at zero.
+                if state.custom_state().mpp.is_launched() {
+                    state.custom_state_mut().launch_timing = Some(launch_us);
+                    state.custom_state_mut().stream_built_at = Some(std::time::Instant::now());
+                }
                 state.custom_state_mut().physical_plan = Some(plan.clone());
 
                 let schema = plan.schema();
@@ -1646,6 +1495,16 @@ impl CustomScan for JoinScan {
 
                 match next_batch {
                     Some(Ok(batch)) => {
+                        // First distributed batch out: fold the worker decode, first scan, and
+                        // network hop into the launch timing.
+                        if let Some(built) = state.custom_state().stream_built_at {
+                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut() {
+                                if t.first_frame_us == 0 {
+                                    t.first_frame_us = built.elapsed().as_micros() as u64;
+                                }
+                            }
+                            state.custom_state_mut().stream_built_at = None;
+                        }
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
@@ -1663,9 +1522,9 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().datafusion_stream = None;
         // Release the DSM-backed control senders before `recv`. A producer's `work_mem` overflow
         // (or any worker error) is re-raised in the leader from inside `recv`, which `longjmp`s
-        // out of this hook; a release placed after it would never run, leaving the senders to drop
-        // at xact commit, past the DSM's lifetime, where their `fetch_sub` faults. The query is
-        // done producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
+        // out of this hook; a release placed after it would never run, leaving the senders for the
+        // detach callback, which clears them while the mapping is still live. The query is done
+        // producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
         if let Some(leader) = state.custom_state().mpp.leader() {
             leader.release_control_senders();
         }
@@ -2258,13 +2117,11 @@ impl JoinScan {
         }
 
         // Phase 2: shared ORDER BY + cost + CustomPath construction.
-        let consider_parallel = (*outerrel).consider_parallel;
         let path = Self::finalize_clause_into_path(
             root,
             builder.args().joinrel,
             join_clause,
             &limit_offset,
-            consider_parallel,
         )
         .ok_or_else(|| {
             warn(JoinDeclineReason::new(
@@ -2381,62 +2238,5 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
-    }
-}
-
-/// Render a DataFusion physical plan tree with metrics.
-///
-/// Each node is rendered via its `DisplayAs` implementation, followed by
-/// collected metrics.  When `include_timing` is false, timing metrics
-/// (`elapsed_compute`, named `Time` values) are stripped so that regression
-/// test output remains stable.  Pass `true` (e.g. for EXPLAIN ANALYZE VERBOSE)
-/// to include everything.
-///
-/// TODO: In parallel mode each worker runs its own `exec_custom_scan` with its
-/// own plan instances, so the metrics stored on the leader's plan only reflect
-/// the leader's share of the work.  Once JoinScan parallelism is refactored
-/// (#4152), aggregate these across workers.
-fn render_plan_with_metrics(
-    plan: &dyn ExecutionPlan,
-    indent: usize,
-    include_timing: bool,
-    lines: &mut Vec<String>,
-) {
-    use std::fmt::Write;
-
-    let mut line = format!("{:indent$}", "", indent = indent * 2);
-
-    struct Fmt<'a>(&'a dyn ExecutionPlan);
-    impl std::fmt::Display for Fmt<'_> {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            self.0.fmt_as(DisplayFormatType::Default, f)
-        }
-    }
-    write!(line, "{}", Fmt(plan)).unwrap();
-
-    if let Some(metrics) = plan.metrics() {
-        let aggregated = metrics
-            .aggregate_by_name()
-            .sorted_for_display()
-            .timestamps_removed();
-        let parts: Vec<String> = aggregated
-            .iter()
-            .filter(|m| {
-                include_timing
-                    || !matches!(
-                        m.value(),
-                        MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
-                    )
-            })
-            .map(|m| m.to_string())
-            .collect();
-        if !parts.is_empty() {
-            write!(line, ", metrics=[{}]", parts.join(", ")).unwrap();
-        }
-    }
-
-    lines.push(line);
-    for child in plan.children() {
-        render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
     }
 }

@@ -9,14 +9,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/lint-rust.yml"
       - "**/*.rs"
       - "**/*.toml"
-      - ".github/workflows/lint-rust.yml"
   workflow_dispatch:
 
 concurrency:
   group: lint-rust-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   lint-rust:

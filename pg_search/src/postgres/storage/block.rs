@@ -290,6 +290,10 @@ pub struct SegmentMetaEntryImmutable {
 /// support serialized exactly these fields. bincode has no field framing, so trailing fields
 /// added later cannot be recovered via `#[serde(default)]`; the known prefix is decoded
 /// explicitly and any absent trailing vector entries are treated as `None`.
+///
+/// These fields MUST stay the exact leading prefix of [`SegmentMetaEntryImmutable`], in the same
+/// order. The decode that relies on this invariant lives in `From<PgItem> for SegmentMetaEntry`;
+/// keep the two in sync.
 #[derive(Deserialize)]
 struct SegmentMetaEntryImmutableV1 {
     postings: Option<FileEntry>,
@@ -778,6 +782,8 @@ impl From<PgItem> for SegmentMetaEntry {
         let content = match header.tag {
             SegmentMetaEntryTag::Immutable => {
                 let content_bytes = &bytes[bytes_read..];
+                // `SegmentMetaEntryImmutableV1` is the pre-vector field prefix; its doc comment
+                // documents the invariant this decode depends on. Keep the two in sync.
                 let (v1, v1_len): (SegmentMetaEntryImmutableV1, usize) =
                     bincode::serde::decode_from_slice(content_bytes, bincode::config::legacy())
                         .expect("expected to deserialize valid SegmentMetaEntryContent");

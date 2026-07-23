@@ -317,19 +317,20 @@ impl ExecMethod for TopKScanExecState {
             let estate = (*cstate).ss.ps.state;
             let planstate = std::ptr::addr_of_mut!((*cstate).ss.ps);
             if !estate.is_null() {
+                let resolve = |infos: &mut [OrderByInfo]| {
+                    for info in infos.iter_mut() {
+                        info.resolve_query_vector(estate, planstate);
+                    }
+                };
                 if let ExecMethodType::TopK {
                     orderby_info: Some(infos),
                     ..
                 } = &mut state.exec_method_type
                 {
-                    for info in infos.iter_mut() {
-                        info.resolve_query_vector(estate, planstate);
-                    }
+                    resolve(infos);
                 }
                 if let Some(infos) = self.orderby_info.as_mut() {
-                    for info in infos.iter_mut() {
-                        info.resolve_query_vector(estate, planstate);
-                    }
+                    resolve(infos);
                 }
             }
         }

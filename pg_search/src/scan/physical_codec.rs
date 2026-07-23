@@ -36,6 +36,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
     AsExecutionPlan, ComposedPhysicalExtensionCodec, PhysicalExtensionCodec,
+    PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use tantivy::index::SegmentId;
@@ -84,6 +85,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         buf: &[u8],
         inputs: &[Arc<dyn ExecutionPlan>],
         ctx: &TaskContext,
+        _proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let Some((&tag, payload)) = buf.split_first() else {
             return Err(DataFusionError::Internal(
@@ -143,7 +145,12 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         }
     }
 
-    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
+    fn try_encode(
+        &self,
+        node: Arc<dyn ExecutionPlan>,
+        buf: &mut Vec<u8>,
+        _proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<()> {
         if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
             buf.push(TAG_PG_SEARCH_SCAN);
             buf.extend_from_slice(&scan.encode_for_dispatch()?);
@@ -325,12 +332,18 @@ impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
         buf: &[u8],
         inputs: &[Arc<dyn ExecutionPlan>],
         ctx: &TaskContext,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        self.0.try_decode(buf, inputs, ctx)
+        self.0.try_decode(buf, inputs, ctx, proto_converter)
     }
 
-    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
-        self.0.try_encode(node, buf)
+    fn try_encode(
+        &self,
+        node: Arc<dyn ExecutionPlan>,
+        buf: &mut Vec<u8>,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<()> {
+        self.0.try_encode(node, buf, proto_converter)
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, _buf: &mut Vec<u8>) -> Result<()> {

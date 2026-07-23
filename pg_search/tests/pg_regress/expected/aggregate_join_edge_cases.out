@@ -435,7 +435,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
          Group By: metadata.brand
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[metadata.brand@1]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@0, category@0)], projection=[metadata.brand@1]
            :     CooperativeExec
            :       PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec

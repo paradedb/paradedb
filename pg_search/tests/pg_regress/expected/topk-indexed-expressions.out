@@ -295,7 +295,7 @@ ORDER BY upper(p.name) ASC
                  :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name@2]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (19 rows)
@@ -343,7 +343,7 @@ ORDER BY s.name ASC
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :           PgSearchScan: segments=1, dynamic_filters=3, query="all"
 (17 rows)
 
 SELECT p.name, s.name AS supplier_name

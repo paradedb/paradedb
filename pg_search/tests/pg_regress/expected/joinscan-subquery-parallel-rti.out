@@ -97,8 +97,8 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -111,30 +111,33 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            : │   SortPreservingMergeExec: [id@1 DESC], fetch=10
-           : │     SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
-           : │       VisibilityFilterExec: tables=[i]
-           : │         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
-           : │           CoalescePartitionsExec
-           : │             [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
-           : │           DistributedLeafExec:
-           : │             t0: PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 2 ── tasks=3, partitions=9
-           :   │ HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@1)]
-           :   │   CoalescePartitionsExec
-           :   │     [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=6, input_tasks=2
-           :   │   DistributedLeafExec:
-           :   │     t0: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :   │     t1: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :   │     t2: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :   ┌───── Stage 3 ── tasks=3, partitions=3
+           :   │ SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
+           :   │   VisibilityFilterExec: tables=[i]
+           :   │     HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, company_id@0)]
+           :   │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=1
+           :   │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=2, partitions=12
-           :     │ BroadcastExec: input_partitions=2, consumer_tasks=3, output_partitions=6
-           :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
-           :     │     t1: PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     ┌───── Stage 1 ── tasks=1, partitions=9
+           :     │ RepartitionExec: partitioning=Hash([id@1], 9), input_partitions=3
+           :     │   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, company_id@0)], null_aware
+           :     │     CoalescePartitionsExec
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
-(35 rows)
+           :     ┌───── Stage 2 ── tasks=3, partitions=9
+           :     │ RepartitionExec: partitioning=Hash([company_id@0], 9), input_partitions=3
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           :     │     t1: PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           :     │     t2: PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           :     └──────────────────────────────────────────────────
+(38 rows)
 
 SELECT i.id
 FROM js_rti_items i

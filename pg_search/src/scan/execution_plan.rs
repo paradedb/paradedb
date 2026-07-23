@@ -782,19 +782,45 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
         // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
         // join-key bounds from HashJoinExec). We accept and apply all of them.
-        let mut dynamic_filters = Vec::new();
+        //
+        // The pushdown pass can potentially run more than once. Producers assume
+        // pushed-down filters remain installed between passes and may not re-push
+        // already-pushed filters on subsequent passes. To handle this, we merge and
+        // dedupe the filter list on each pass.
+        //
+        // Dedupe by `expression_id`, not pointer identity: remapping a filter's
+        // columns on its way down the tree (`DynamicFilterPhysicalExpr::
+        // with_new_children`) mints a fresh wrapper per pass, but wrappers of the
+        // same logical filter share an id. On a match, keep the incoming wrapper —
+        // its column remap reflects the current tree shape.
+        let mut dynamic_filters = self.dynamic_filters.clone();
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+        let mut saw_dynamic = false;
+        let mut changed = false;
 
         for filter_result in &child_pushdown_result.parent_filters {
             if filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
-                dynamic_filters.push(Arc::clone(&filter_result.filter));
+                saw_dynamic = true;
+                let incoming = &filter_result.filter;
+                let id = incoming.expression_id();
+                match dynamic_filters.iter_mut().find(|f| f.expression_id() == id) {
+                    Some(slot) if Arc::ptr_eq(incoming, slot) => {
+                        *slot = Arc::clone(incoming);
+                        changed = true;
+                    }
+                    Some(_) => {}
+                    None => {
+                        dynamic_filters.push(Arc::clone(incoming));
+                        changed = true;
+                    }
+                };
                 filters.push(PushedDown::Yes);
             } else {
                 filters.push(filter_result.any());
             }
         }
 
-        if !dynamic_filters.is_empty() {
+        if changed {
             // Transfer state from the old plan to the new one.
             let state = std::mem::take(&mut *self.state.lock().map_err(|e| {
                 DataFusionError::Internal(format!(
@@ -828,6 +854,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
             )
+        } else if saw_dynamic {
+            // Every delivered dynamic filter was already installed by an earlier
+            // pass; acknowledge them without rebuilding the node.
+            Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                filters,
+            ))
         } else {
             Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
         }

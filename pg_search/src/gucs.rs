@@ -42,6 +42,11 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// When `true`, a vector (IVF) ORDER BY scan emits one `probe_stats …` NOTICE
+/// per query with the aggregated probe-loop counters. Off by default and
+/// zero-cost when off (no `ProbeStats` is collected).
+static LOG_PROBE_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
 static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -206,6 +211,31 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
+/// Per-segment ceiling on IVF clusters probed by a vector ORDER BY query,
+/// expressed as a fraction of the segment's own cluster count and resolved
+/// per-segment (`ceil(fraction * num_clusters)`, at least one cluster). A
+/// fraction rather than an absolute count because every segment can have a
+/// different cluster count — an absolute cap scans small segments
+/// exhaustively while barely probing large ones. Default 0.02 (2% of
+/// clusters): with the default 0.01 centroid ratio that is ~2% of ~1% of
+/// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
+/// recall@1 within ~1% of clusters). `1.0` probes every cluster.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+
+pub fn vector_cluster_max_probe() -> f32 {
+    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+}
+
+/// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
+/// past the best centroid the IVF probe loop keeps probing clusters. Lower
+/// epsilon probes fewer clusters, decreasing latency at the expense of
+/// recall. Default `0.5`.
+static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+
+pub fn vector_cluster_probe_epsilon() -> f32 {
+    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
+}
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -244,6 +274,17 @@ pub fn init() {
         c"Enable ParadeDB's experimental join custom scan",
         c"Enable ParadeDB's experimental join custom scan. Default is false.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.log_probe_stats",
+        c"Emit a NOTICE with IVF probe-loop counters per vector query",
+        c"When on, a vector (IVF) ORDER BY scan emits one `probe_stats ...` NOTICE per query \
+          with the aggregated probe counters (visited/pruned/scored/clusters/termination). \
+          Off by default and zero-cost when off.",
+        &LOG_PROBE_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -398,6 +439,28 @@ pub fn init() {
         c"Enable recursive estimates in EXPLAIN VERBOSE",
         c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
         &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_max_probe",
+        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Fraction of a segment's IVF clusters probed per vector ORDER BY query, resolved per-segment as ceil(fraction * cluster_count) and floored at one cluster. A fraction rather than an absolute count so the ceiling tracks each segment's own cluster count instead of scanning small segments exhaustively and barely probing large ones. 1.0 probes every cluster. Lower values reduce latency at the cost of recall.",
+        &VECTOR_CLUSTER_MAX_PROBE,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_probe_epsilon",
+        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
+        c"How far past the best centroid the IVF probe loop keeps probing clusters. Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
+        &VECTOR_CLUSTER_PROBE_EPSILON,
+        0.0,
+        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -596,6 +659,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn log_probe_stats() -> bool {
+    LOG_PROBE_STATS.get()
 }
 
 pub fn check_aggregate_scan() -> bool {

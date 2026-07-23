@@ -33,6 +33,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
+use crate::vector::metric::VectorMetric;
+use crate::vector::PgVector;
 use anyhow::Result;
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
@@ -714,13 +716,19 @@ pub unsafe fn extract_field_attributes(
         }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from_type_info(
+        let mut tantivy_type = SearchFieldType::try_from_type_info(
             pg_type,
             att_typmod,
             inner_typoid,
             created_by_version,
         )
         .unwrap_or_else(|e| panic!("{e}"));
+
+        if let SearchFieldType::Vector(oid, dims, _) = tantivy_type {
+            let metric =
+                VectorMetric::from_index_attr(indexrel, attno as usize).unwrap_or_default();
+            tantivy_type = SearchFieldType::Vector(oid, dims, metric);
+        }
 
         // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.literal` tokenizer
         let missing_tokenizer_cast = expression.is_some()
@@ -822,8 +830,14 @@ pub unsafe fn row_to_search_document<'a>(
                     &value.into_tantivy_value(created_by_version),
                 );
             }
+        } else if matches!(search_field.field_type(), SearchFieldType::Vector(..)) {
+            let vec = unsafe {
+                PgVector::from_datum(actual_datum, false)
+                    .expect("vector field datum should not be NULL")
+                    .0
+            };
+            document.add_vector(search_field.field(), &vec);
         } else {
-            // Check for NUMERIC field types that need special handling
             let tv = match search_field.field_type() {
                 SearchFieldType::Numeric64(_, scale) => {
                     TantivyValue::try_from_numeric_i64(actual_datum, scale)

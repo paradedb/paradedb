@@ -116,7 +116,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             lsof build-essential clang flex bison pkg-config ca-certificates git \
             libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
-            libcurl4-openssl-dev
+            libcurl4-openssl-dev libopenblas-dev
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
@@ -262,6 +262,12 @@ jobs:
           # can already contain a pg_search database from a previous run.
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
+
+      - name: Dump Postgres startup log on failure
+        if: failure()
+        run: |
+          echo "===== ~/.pgrx/${{ matrix.pg_version }}.log ====="
+          cat ~/.pgrx/${{ matrix.pg_version }}.log 2>/dev/null || echo "(log file not present)"
 
       # ---------- Tests ----------
       - name: Run pg_search Integration Tests (system)

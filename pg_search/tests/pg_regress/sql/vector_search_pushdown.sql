@@ -1,0 +1,165 @@
+-- Per-opclass coverage for vector ORDER BY pushdown.
+--
+-- For each pgvector opclass (vector_l2_ops, vector_cosine_ops,
+-- vector_ip_ops):
+--   1. Build a BM25 index that names the opclass on the vector column.
+--   2. EXPLAIN three queries — one per distance operator (<->, <=>, <#>).
+--      The matching operator must push down through TopK; the other two
+--      must fall back to a regular sort with the planner emitting the
+--      "vector metric / opclass mismatch" warning.
+--   3. Run each query to verify the actual ordering.
+--
+-- We use COSTS OFF for stable EXPLAIN diffs, and a 5-row corpus where
+-- the K=2 ordering is unambiguous under all three metrics.
+
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+CREATE TABLE vsp (
+    id    int PRIMARY KEY,
+    label text,
+    vec   vector(3)
+);
+
+INSERT INTO vsp VALUES
+    (1, 'east',  '[1,    0,   0]'),
+    (2, 'east2', '[0.9,  0,   0.1]'),
+    (3, 'north', '[0,    1,   0]'),
+    (4, 'up',    '[0,    0,   1]'),
+    (5, 'mid',   '[0.7,  0.7, 0]');
+
+
+-- ============================================================
+-- vector_l2_ops
+-- ============================================================
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_l2_ops)
+    WITH (key_field = id);
+
+-- match: <-> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+
+-- mismatch: <=> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+-- mismatch: <#> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- vector_cosine_ops
+-- ============================================================
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+-- mismatch: <-> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+
+-- match: <=> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+-- mismatch: <#> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- vector_ip_ops
+-- ============================================================
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_ip_ops)
+    WITH (key_field = id);
+
+-- mismatch: <-> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+
+-- mismatch: <=> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+-- match: <#> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- Runtime query-vector operand (not a Const, not a Param)
+-- ============================================================
+-- A stable, Var-free operand such as current_setting(...)::vector must push
+-- down through TopK (evaluated once at execution start), and must reflect the
+-- GUC's current value rather than a stale plan-time fold.
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+SET vsp.q = '[1,0,0]';
+
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+-- ... and returns the same ranking as the equivalent literal
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+
+-- changing the GUC changes the ranking (proves no stale plan-time fold)
+SET vsp.q = '[0,0,1]';
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- Parameterized query-vector operand (`<=> $1`)
+-- ============================================================
+-- A bound Param must push down through TopK and be resolved from the
+-- executor's parameter list at execution time. force_generic_plan keeps the
+-- Param unfolded in the plan; a custom plan would inline it as a Const and
+-- never exercise this path.
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE vsp_p(vector) AS
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> $1 LIMIT 2;
+
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) EXECUTE vsp_p('[1,0,0]');
+-- ... and returns the same ranking as the equivalent literal
+EXECUTE vsp_p('[1,0,0]');
+
+-- re-executing the same generic plan with a different vector must re-resolve
+-- the Param, not reuse the previous execution's vector
+EXECUTE vsp_p('[0,0,1]');
+EXECUTE vsp_p('[1,0,0]');
+
+DEALLOCATE vsp_p;
+RESET plan_cache_mode;
+DROP INDEX vsp_idx;
+
+
+DROP TABLE vsp;

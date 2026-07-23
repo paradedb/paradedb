@@ -224,8 +224,12 @@ impl Deref for Buffer {
 
 impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
+        // The unguarded extern, not `pg_sys::IsTransactionState()`: this assert
+        // runs on every buffer acquisition, and the pgrx binding's sigsetjmp
+        // guard buys nothing for a function that cannot ERROR (see
+        // `crate::postgres::utils::IsTransactionState`).
         assert!(
-            unsafe { pg_sys::IsTransactionState() },
+            unsafe { crate::postgres::utils::IsTransactionState() },
             "buffer cannot be allocated outside of a transaction"
         );
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);

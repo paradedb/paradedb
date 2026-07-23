@@ -132,4 +132,34 @@ SELECT id FROM vsp WHERE id @@@ pdb.all()
 DROP INDEX vsp_idx;
 
 
+-- ============================================================
+-- Parameterized query-vector operand (`<=> $1`)
+-- ============================================================
+-- A bound Param must push down through TopK and be resolved from the
+-- executor's parameter list at execution time. force_generic_plan keeps the
+-- Param unfolded in the plan; a custom plan would inline it as a Const and
+-- never exercise this path.
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE vsp_p(vector) AS
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> $1 LIMIT 2;
+
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) EXECUTE vsp_p('[1,0,0]');
+-- ... and returns the same ranking as the equivalent literal
+EXECUTE vsp_p('[1,0,0]');
+
+-- re-executing the same generic plan with a different vector must re-resolve
+-- the Param, not reuse the previous execution's vector
+EXECUTE vsp_p('[0,0,1]');
+EXECUTE vsp_p('[1,0,0]');
+
+DEALLOCATE vsp_p;
+RESET plan_cache_mode;
+DROP INDEX vsp_idx;
+
+
 DROP TABLE vsp;

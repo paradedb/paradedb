@@ -10,6 +10,14 @@ inputs:
     description: "PostgreSQL major version."
     required: false
     default: "18"
+  global_target_segment_count:
+    description: >-
+      Cluster-wide `paradedb.global_target_segment_count`. A non-zero value overrides every
+      index's own `target_segment_count`; `0` (the extension's own default) honors each index's
+      per-index value. Defaults to `0`; callers that want a fixed cluster-wide count (e.g. the
+      stackoverflow bm25 indexes, which set no per-index count) pass their own.
+    required: false
+    default: "0"
 
 runs:
   using: composite
@@ -104,7 +112,7 @@ runs:
       run: |
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = ${{ inputs.global_target_segment_count }};";
 
     - name: Restart Postgres
       shell: bash

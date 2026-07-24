@@ -347,7 +347,6 @@ impl ColumnarExecState {
 
         // Create PgSearchScanPlan and execute via DataFusion
         let state_partition = ScanState {
-            parallel_state: state.parallel_state,
             source_idx: None,
             // Basescan is never an MPP source.
             planner_estimated_rows: 0,
@@ -368,6 +367,8 @@ impl ColumnarExecState {
             index_rel.oid().to_u32(),
             None,
             1,
+            state.parallel_state,
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

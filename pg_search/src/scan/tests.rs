@@ -90,9 +90,8 @@ mod tests {
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
         let partition = crate::scan::execution_plan::ScanState {
-            parallel_state: None,
             source_idx: None,
-            planner_estimated_rows: 0,
+            planner_estimated_rows: 10,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),
@@ -114,6 +113,8 @@ mod tests {
             0,
             None,
             1,
+            None,
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

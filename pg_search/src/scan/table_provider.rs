@@ -67,6 +67,42 @@ impl VisibilityMode {
     }
 }
 
+/// Defines the logical boundary split points for scanning the index. When provided,
+/// the DataFusion execution plan uses these points to statically partition the scan
+/// into sequential chunks, rather than relying on dynamic segment checkout.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RangePartitioning {
+    /// The index field used to define the boundaries.
+    pub partition_by: crate::api::FieldName,
+    /// The values that split the data space into separate partitions. A length of N
+    /// produces N+1 partitions.
+    pub split_points: Vec<crate::postgres::pdb_owned_value::PdbOwnedValue>,
+}
+
+impl RangePartitioning {
+    /// Returns the static boundary constraint for the given partition as a single RangeQuery.
+    pub fn partition_bounds(&self, partition: usize) -> crate::query::SearchQueryInput {
+        let lower = if partition > 0 {
+            std::ops::Bound::Included(self.split_points[partition - 1].clone())
+        } else {
+            std::ops::Bound::Unbounded
+        };
+        let upper = if partition < self.split_points.len() {
+            std::ops::Bound::Excluded(self.split_points[partition].clone())
+        } else {
+            std::ops::Bound::Unbounded
+        };
+
+        crate::query::SearchQueryInput::FieldedQuery {
+            field: self.partition_by.clone(),
+            query: crate::query::pdb_query::pdb::Query::Range {
+                lower_bound: lower,
+                upper_bound: upper,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
@@ -118,6 +154,10 @@ pub struct PgSearchTableProvider {
     /// `parallel_state` routes per-source claims via
     /// `checkout_segment_for_source(source_idx)`. `None` for serial scans.
     source_idx: Option<usize>,
+
+    /// Explicit range partitioning configuration. When present, the provider
+    /// ignores parallel state segments and yields statically partitioned streams.
+    range_boundaries: Option<RangePartitioning>,
 }
 
 mod atomic_bool_serde {
@@ -160,7 +200,15 @@ impl PgSearchTableProvider {
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             source_idx,
+            range_boundaries: None,
         }
+    }
+
+    // TODO: Support for declaring range partitioning will be added via https://github.com/paradedb/paradedb/issues/5662
+    #[allow(dead_code)]
+    pub fn with_range_boundaries(mut self, range_boundaries: Option<RangePartitioning>) -> Self {
+        self.range_boundaries = range_boundaries;
+        self
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -407,6 +455,7 @@ impl PgSearchTableProvider {
         resolved_query: SearchQueryInput,
         ffhelper: Arc<FFHelper>,
         partition_count: usize,
+        parallel_state: Option<*mut ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let deferred = self.deferred_fields();
         let deferred_ctid_plan_position = self.deferred_ctid_plan_position();
@@ -430,6 +479,8 @@ impl PgSearchTableProvider {
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
             partition_count,
+            parallel_state,
+            self.range_boundaries.clone(),
         )))
     }
 
@@ -468,7 +519,6 @@ impl PgSearchTableProvider {
             score_needed: self.scan_info.score_needed,
         };
         let state = ScanState {
-            parallel_state,
             source_idx,
             planner_estimated_rows,
             scanner_config,
@@ -483,6 +533,7 @@ impl PgSearchTableProvider {
             resolved_query,
             ffhelper,
             partition_count,
+            parallel_state,
         )
     }
 }
@@ -632,7 +683,11 @@ impl PgSearchTableProvider {
         // This instructs datafusion-distributed to split the query into exactly this many
         // tasks for this leaf, routing multi-segment tables to parallel workers while keeping
         // small 1-segment tables serial.
-        let partition_count = std::cmp::min(segment_count, target_partitions).max(1);
+        let partition_count = if let Some(rb) = &self.range_boundaries {
+            rb.split_points.len() + 1
+        } else {
+            std::cmp::min(segment_count, target_partitions).max(1)
+        };
 
         self.create_lazy_scan(
             parallel_state,

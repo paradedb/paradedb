@@ -120,6 +120,8 @@ pub struct ScanInfo {
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
     pub fields: Vec<FieldInfo>,
+    /// The partitioning configuration of the BM25 index, if it was created with `partition_by`.
+    pub partition_by: Vec<crate::api::FieldName>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
     pub estimate: RowEstimate,

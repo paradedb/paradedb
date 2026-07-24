@@ -93,8 +93,8 @@ pub struct ScannerConfig {
 /// Lazily claims segments from `ParallelScanState`. `source_idx = Some(i)` claims from source
 /// `i`'s pool for MPP sources; `None` uses the single-counter `checkout_segment_for_source(0)`
 /// for basescan and non-MPP parallel joins.
+#[derive(Clone)]
 pub struct ScanState {
-    pub parallel_state: Option<*mut ParallelScanState>,
     pub source_idx: Option<usize>,
     pub planner_estimated_rows: u64,
     pub scanner_config: ScannerConfig,
@@ -118,14 +118,24 @@ pub struct ScanState {
 /// allowing the first stream to do all the work for that process's portion of segments.
 #[derive(Default)]
 pub enum ExecutionState {
-    /// Initialized with state, ready to execute.
-    Ready(Box<UnsafeSendSync<ScanState>>),
-    /// Reader has been taken, but remaining partitions may still be executed (yielding empty streams).
+    /// In Shared mode, we optionally load-balance via ParallelScanState.
+    /// The state is consumed by the first partition.
+    Shared {
+        parallel_state: Option<UnsafeSendSync<*mut crate::postgres::ParallelScanState>>,
+        scan_state: Box<UnsafeSendSync<ScanState>>,
+    },
+    /// In RangePartitioned mode, we static-partition using RangePartitioning.
+    /// The state is cloned for each partition.
+    RangePartitioned {
+        range_boundaries: crate::scan::table_provider::RangePartitioning,
+        scan_state: Box<UnsafeSendSync<ScanState>>,
+    },
+    /// The Shared state was taken; remaining partitions yield empty streams.
     Empty { remaining_partitions: usize },
-    /// Initialized without state (used in tests or empty placeholders).
+    /// Uninitialized placeholder state.
     #[default]
     Uninitialized,
-    /// All expected partition executions have completed; subsequent execute() calls return an error.
+    /// Execution complete; subsequent calls return an error.
     Consumed,
 }
 
@@ -219,6 +229,8 @@ impl PgSearchScanPlan {
         indexrelid: u32,
         deferred_ctid_plan_position: Option<usize>,
         partition_count: usize,
+        parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        range_boundaries: Option<crate::scan::table_provider::RangePartitioning>,
     ) -> Self {
         let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
         if needs_ffhelper && ffhelper.is_none() {
@@ -241,7 +253,7 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
         let segment_count = state
             .as_ref()
-            .map(|s| match s.parallel_state {
+            .map(|s| match parallel_state {
                 Some(ps) => unsafe { (*ps).source_segment_count(s.source_idx.unwrap_or(0)) },
                 None => s.reader.segment_ids().len(),
             })
@@ -255,7 +267,19 @@ impl PgSearchScanPlan {
         );
 
         let exec_state = match state {
-            Some(s) => ExecutionState::Ready(Box::new(UnsafeSendSync(s))),
+            Some(s) => {
+                if let Some(rb) = range_boundaries {
+                    ExecutionState::RangePartitioned {
+                        range_boundaries: rb,
+                        scan_state: Box::new(UnsafeSendSync(s)),
+                    }
+                } else {
+                    ExecutionState::Shared {
+                        parallel_state: parallel_state.map(UnsafeSendSync),
+                        scan_state: Box::new(UnsafeSendSync(s)),
+                    }
+                }
+            }
             None => ExecutionState::Uninitialized,
         };
 
@@ -300,8 +324,12 @@ impl PgSearchScanPlan {
             .state
             .lock()
             .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
-        let state = match &*state_guard {
-            ExecutionState::Ready(state) => state,
+        let (state, range_boundaries) = match &*state_guard {
+            ExecutionState::Shared { scan_state, .. } => (scan_state, None),
+            ExecutionState::RangePartitioned {
+                scan_state,
+                range_boundaries,
+            } => (scan_state, Some(range_boundaries.clone())),
             _ => {
                 return Err(DataFusionError::Internal(
                     "PgSearchScan dispatch: partition already consumed or uninitialized".into(),
@@ -334,6 +362,7 @@ impl PgSearchScanPlan {
             source_idx,
             planner_estimated_rows,
             partition_count: self.properties.output_partitioning().partition_count(),
+            range_boundaries,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -408,7 +437,6 @@ impl PgSearchScanPlan {
             score_needed: descriptor.score_needed,
         };
         let state = ScanState {
-            parallel_state,
             source_idx: descriptor.source_idx,
             planner_estimated_rows: descriptor.planner_estimated_rows,
             scanner_config,
@@ -435,6 +463,8 @@ impl PgSearchScanPlan {
             descriptor.indexrelid,
             deferred_ctid_plan_position,
             descriptor.partition_count,
+            parallel_state,
+            descriptor.range_boundaries,
         )))
     }
 }
@@ -460,6 +490,7 @@ struct ScanDispatchDescriptor {
     source_idx: Option<usize>,
     planner_estimated_rows: u64,
     partition_count: usize,
+    range_boundaries: Option<crate::scan::table_provider::RangePartitioning>,
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.
@@ -613,8 +644,15 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Handle state transitions for execution.
         let partition_count = self.properties.output_partitioning().partition_count();
         let exec_state = std::mem::take(&mut *state_guard);
-        let scan_state = match exec_state {
-            ExecutionState::Ready(state) => {
+        let (scan_state, parallel_state, range_boundaries) = match exec_state {
+            ExecutionState::Shared {
+                parallel_state,
+                scan_state,
+            } => {
+                assert!(
+                    partition_count <= 1 || parallel_state.is_some(),
+                    "PgSearchScanPlan executed with partition_count > 1 but without a ParallelScanState"
+                );
                 if partition_count > 1 {
                     *state_guard = ExecutionState::Empty {
                         remaining_partitions: partition_count - 1,
@@ -622,7 +660,19 @@ impl ExecutionPlan for PgSearchScanPlan {
                 } else {
                     *state_guard = ExecutionState::Consumed;
                 }
-                state.0
+                (scan_state.0, parallel_state.map(|p| p.0), None)
+            }
+            ExecutionState::RangePartitioned {
+                range_boundaries,
+                scan_state,
+            } => {
+                // Range partition scans require all partitions to run their own copy
+                // of the scan, constrained by their respective boundaries.
+                *state_guard = ExecutionState::RangePartitioned {
+                    range_boundaries: range_boundaries.clone(),
+                    scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
+                };
+                (scan_state.0, None, Some(range_boundaries))
             }
             ExecutionState::Empty {
                 remaining_partitions,
@@ -653,19 +703,13 @@ impl ExecutionPlan for PgSearchScanPlan {
         };
 
         let ScanState {
-            parallel_state,
             source_idx,
             planner_estimated_rows,
             scanner_config,
             ffhelper,
             mut visibility,
-            mut reader,
+            reader,
         } = scan_state;
-
-        assert!(
-            partition_count <= 1 || parallel_state.is_some(),
-            "PgSearchScanPlan executed with partition_count > 1 but without a ParallelScanState"
-        );
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -679,12 +723,16 @@ impl ExecutionPlan for PgSearchScanPlan {
             .column_with_name(&WhichFastField::Score.name())
             .map(|(idx, _)| idx);
         let dynamic_filters = self.dynamic_filters.clone();
-
-        // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
         let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
 
         let stream_gen = async_stream::try_stream! {
+            // Create a local copy of the reader if the query changed
+            let mut reader = match &range_boundaries {
+                Some(rb) => reader.and_query_input(&rb.partition_bounds(partition)),
+                None => reader,
+            };
+
             // Optimized Search Integration:
             // We initialize the search here, inside the stream, because for HashJoin
             // this block is evaluated lazily during the first `poll_next`, which happens
@@ -700,10 +748,15 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
             }
 
-
-            let search_results = match parallel_state {
-                Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
-                None => reader.search(),
+            let search_results = if range_boundaries.is_some() {
+                // Range partitioned mode explicitly scans all segments
+                reader.search()
+            } else {
+                // Standard mode delegates to the parallel state if present
+                match parallel_state {
+                    Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
+                    None => reader.search(),
+                }
             };
             let mut scanner = Scanner::new(
                 search_results,
@@ -941,6 +994,8 @@ mod tests {
             0,
             Some(1),
             1,
+            None,
+            None,
         );
     }
 
@@ -956,6 +1011,8 @@ mod tests {
             0,
             None,
             1,
+            None,
+            None,
         );
     }
 }

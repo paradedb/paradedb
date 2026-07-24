@@ -366,6 +366,7 @@ pub struct JoinSourceCandidate {
     pub alias: Option<String>,
     pub score_needed: bool,
     pub fields: Vec<FieldInfo>,
+    pub partition_by: Vec<crate::api::FieldName>,
     pub estimate: Option<RowEstimate>,
     pub segment_count: Option<usize>,
 }
@@ -382,6 +383,7 @@ impl JoinSourceCandidate {
             alias: None,
             score_needed: false,
             fields: Vec::new(),
+            partition_by: Vec::new(),
             estimate: None,
             segment_count: None,
         }
@@ -409,6 +411,11 @@ impl JoinSourceCandidate {
 
     pub fn with_search_predicate(mut self) -> Self {
         self.has_search_predicate = true;
+        self
+    }
+
+    pub fn with_partition_by(mut self, partition_by: Vec<crate::api::FieldName>) -> Self {
+        self.partition_by = partition_by;
         self
     }
 
@@ -597,6 +604,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
                 fields: candidate.fields,
+                partition_by: candidate.partition_by,
                 estimate: candidate.estimate.ok_or_else(|| {
                     anyhow!(
                         "cannot build JoinSource for RTI {}: estimate is missing",

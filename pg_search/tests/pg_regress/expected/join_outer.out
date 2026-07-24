@@ -30,15 +30,6 @@ CREATE TABLE outer_pages (
     page_text TEXT,
     size_bytes INTEGER
 );
-INSERT INTO outer_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
--- file_id 51..250: files 1..50 stay unmatched, ids 201..250 dangle.
-INSERT INTO outer_pages (file_id, page_text, size_bytes)
-SELECT 51 + (g % 200),
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
 CREATE INDEX outer_files_idx ON outer_files
 USING bm25 (id, title, content)
 WITH (
@@ -52,6 +43,26 @@ WITH (
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {"fast": true}}'
 );
+-- Two inserts per table, each flushed to its own segment, so the scans
+-- report more than one partition and the distributed planner engages.
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO outer_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+INSERT INTO outer_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+-- file_id 51..250: files 1..50 stay unmatched, ids 201..250 dangle.
+INSERT INTO outer_pages (file_id, page_text, size_bytes)
+SELECT 51 + (g % 200),
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+INSERT INTO outer_pages (file_id, page_text, size_bytes)
+SELECT 51 + (g % 200),
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
 ANALYZE outer_files;
 ANALYZE outer_pages;
 -- =====================================================================
@@ -82,9 +93,9 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@0, ctid_1@2, file_id@3, id@4]
            :         VisibilityFilterExec: tables=[f]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
+           :             PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.file_id, f.title
@@ -150,9 +161,9 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(file_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@4]
            :         VisibilityFilterExec: tables=[p]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
+           :             PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT f.id, f.title, p.id AS page_id
@@ -198,9 +209,9 @@ LIMIT 10;
            :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@0, ctid_1@2, file_id@3, id@4]
            :         VisibilityFilterExec: tables=[f]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
+           :             PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
 
 SELECT p.id, p.file_id, f.title
@@ -275,9 +286,9 @@ LIMIT 10;
                  :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)]
                  :         VisibilityFilterExec: tables=[f]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, query="all"
+                 :             PgSearchScan: segments=2, query="all"
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+                 :           PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT f.id, p.id AS page_id, p.file_id
@@ -322,9 +333,9 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[p]
            :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(id@0, file_id@1)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :           PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT p.id, p.file_id
@@ -414,8 +425,8 @@ FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -430,11 +441,12 @@ LIMIT 10;
            :     SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
            :       VisibilityFilterExec: tables=[p]
            :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(file_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, file_id@1, id@2]
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :           CoalescePartitionsExec
+           :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
            :           VisibilityFilterExec: tables=[f]
-           :             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(18 rows)
+           :             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+           :               PgSearchScan: segments=2, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
@@ -580,8 +592,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(f.id)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page';
-                                                                                    QUERY PLAN                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT'::text)
    Backend: DataFusion
@@ -591,21 +603,25 @@ WHERE p.page_text @@@ 'Page';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(f_1.id) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=3, partitions=9
+     :   ┌───── Stage 2 ── tasks=2, partitions=6
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(f_1.id) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@0)], projection=[id@0]
      :   │     CoalescePartitionsExec
-     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-     :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=4, input_tasks=2
+     :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :   │         t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
      :   └──────────────────────────────────────────────────
-     :     ┌───── Stage 1 ── tasks=1, partitions=3
-     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-     :     │   PgSearchScan: segments=1, query="all"
+     :     ┌───── Stage 1 ── tasks=2, partitions=8
+     :     │ BroadcastExec: input_partitions=2, consumer_tasks=2, output_partitions=4
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: segments=2, query="all"
+     :     │     t1: PgSearchScan: segments=2, query="all"
      :     └──────────────────────────────────────────────────
-(23 rows)
+(27 rows)
 
 SELECT COUNT(f.id)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id

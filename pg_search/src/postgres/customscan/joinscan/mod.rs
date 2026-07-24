@@ -1899,6 +1899,24 @@ impl JoinScan {
         let innerrel = args.innerrel;
         let extra = args.extra;
 
+        // Mirrored / unique-ified variants the planner generates as alternatives
+        // for a joinrel it also offers as plain SEMI / ANTI. The canonical
+        // invocation carries the real decision (and any warning); a warning here
+        // would imply a capability gap that doesn't exist.
+        let is_planner_alternative = matches!(
+            jointype,
+            pg_sys::JoinType::JOIN_UNIQUE_OUTER | pg_sys::JoinType::JOIN_UNIQUE_INNER
+        );
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        let is_planner_alternative =
+            is_planner_alternative || jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI;
+        #[cfg(feature = "pg18")]
+        let is_planner_alternative =
+            is_planner_alternative || jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI;
+        if is_planner_alternative {
+            return Err(JoinPathDecline::Quiet);
+        }
+
         // Silent gates: collect outer/inner sources or bail without a warning.
         let (outer_node, mut join_keys) =
             collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;

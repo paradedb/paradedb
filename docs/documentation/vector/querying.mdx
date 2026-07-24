@@ -30,11 +30,11 @@ When you are not filtering, pair `@@@` with `pdb.all()`, which matches every row
 SELECT id, description
 FROM mock_items
 WHERE id @@@ pdb.all()
-ORDER BY embedding <=> '[1, 2, 3]'
+ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
 
-The `<=>` operator computes cosine distance, so this returns the five rows whose embeddings are nearest the query vector `[1, 2, 3]`.
+The `<=>` operator computes cosine distance, so this returns the five rows whose embeddings are nearest the query vector `[1, 2, 3, 4, 5, 6, 7, 8]`.
 
 This operator must match the operator class the column was indexed with. Otherwise, ParadeDB cannot use the index to order results and falls back to a slower brute force sort.
 
@@ -53,7 +53,7 @@ For instance, the following query finds the nearest neighbors among results whos
 SELECT id, description
 FROM mock_items
 WHERE category === 'Footwear'
-ORDER BY embedding <=> '[1, 2, 3]'
+ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
 
@@ -72,7 +72,7 @@ Use `EXPLAIN` to confirm ParadeDB is executing the search. Look for a `Custom Sc
 EXPLAIN SELECT id
 FROM mock_items
 WHERE id @@@ pdb.all()
-ORDER BY embedding <=> '[1, 2, 3]'
+ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
 

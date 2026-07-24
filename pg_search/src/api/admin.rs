@@ -952,7 +952,7 @@ from (select relname,
       from (with indexes as (select c.oid::regclass as relname
                              from pg_class c
                                       join pg_index i on i.indexrelid = c.oid
-                             where c.relam = (select oid from pg_am where amname = 'bm25')
+                             where c.relam IN (select oid from pg_am where amhandler = 'paradedb.bm25_handler'::regproc)
                                and i.indisvalid
                                and i.indisready
                                and i.indislive),
@@ -1000,7 +1000,7 @@ from (select relname,
       from (with indexes as (select c.oid::regclass as relname
                              from pg_class c
                                       join pg_index i on i.indexrelid = c.oid
-                             where c.relam = (select oid from pg_am where amname = 'bm25')
+                             where c.relam IN (select oid from pg_am where amhandler = 'paradedb.bm25_handler'::regproc)
                                and i.indisvalid
                                and i.indisready
                                and i.indislive),
@@ -1674,7 +1674,7 @@ pub mod pdb {
         JOIN pg_class t ON idx.indrelid = t.oid
         JOIN pg_namespace n ON i.relnamespace = n.oid
         JOIN pg_am am ON i.relam = am.oid
-        WHERE am.amname = 'bm25'
+        WHERE am.amhandler = 'paradedb.bm25_handler'::regproc
         ORDER BY n.nspname, t.relname, i.relname
     "#;
 
@@ -1819,7 +1819,7 @@ pub mod pdb {
         JOIN pg_class t ON idx.indrelid = t.oid
         JOIN pg_namespace n ON i.relnamespace = n.oid
         JOIN pg_am am ON i.relam = am.oid
-        WHERE am.amname = 'bm25'
+        WHERE am.amhandler = 'paradedb.bm25_handler'::regproc
     "#,
         );
 

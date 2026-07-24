@@ -32,6 +32,10 @@ CALL paradedb.create_bm25_test_table(
      );
 ALTER TABLE regress.mock_items ADD COLUMN sku UUID;
 UPDATE regress.mock_items SET sku = ('da2fea21-' || lpad(to_hex( id::int4), 4, '0') || '-411b-9e8c-2cb64e471293')::uuid;
+-- These tests exercise BM25 search, not vector search, and many of them `SELECT *`.
+-- Drop the embedding column so it stays out of their expected output and row-width
+-- estimates. The VACUUM FULL below reclaims its space.
+ALTER TABLE regress.mock_items DROP COLUMN embedding;
 VACUUM FULL regress.mock_items;
 CREATE INDEX idxregress_mock_items
     ON regress.mock_items

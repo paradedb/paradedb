@@ -31,10 +31,10 @@ async-trait = "0.1.89"
 dst = { path = "../dst" }
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
-arrow-array = "59"
-arrow-buffer = "59"
-arrow-schema = "59"
-arrow-select = "59"
+arrow-array = "59.1.0"
+arrow-buffer = "59.1.0"
+arrow-schema = "59.1.0"
+arrow-select = "59.1.0"
 bitpacking = "0.9.3"
 chrono = "0.4.45"
 time = "0.3.47"
@@ -83,10 +83,10 @@ paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
+# Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
+# both point to the same datafusion ref.
 datafusion = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
-datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false, features = [
-  "parquet",
-] }
+datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
 datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", branch = "rj.use-datafusion-55", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"

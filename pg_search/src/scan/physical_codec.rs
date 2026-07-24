@@ -35,7 +35,7 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
-    AsExecutionPlan, ComposedPhysicalExtensionCodec, PhysicalExtensionCodec,
+    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanNodeExt,
     PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
@@ -375,7 +375,10 @@ fn combined_codec(user: PgSearchPhysicalExtensionCodec) -> ComposedPhysicalExten
 
 /// Serialize one stage's physical subplan for dispatch. Context-free: only the recipe travels,
 /// the receiving worker injects its own runtime state on decode.
-pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> {
+pub fn serialize_physical_plan(
+    plan: Arc<dyn ExecutionPlan>,
+    proto_converter: &dyn PhysicalProtoConverterExtension,
+) -> Result<Vec<u8>> {
     // FilterPassthroughExec only matters during filter-pushdown optimization; once the plan is
     // finalized it delegates to its inner node, so strip it and ship the inner directly.
     let plan = plan
@@ -388,7 +391,8 @@ pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> 
         })?
         .data;
     let codec = combined_codec(PgSearchPhysicalExtensionCodec::default());
-    let proto = PhysicalPlanNode::try_from_physical_plan(plan, &codec)?;
+    let proto =
+        PhysicalPlanNode::try_from_physical_plan_with_converter(plan, &codec, proto_converter)?;
     Ok(prost::Message::encode_to_vec(&proto))
 }
 
@@ -400,6 +404,7 @@ pub fn deserialize_physical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    proto_converter: &dyn PhysicalProtoConverterExtension,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
@@ -409,20 +414,21 @@ pub fn deserialize_physical_plan_with_runtime(
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))
     })?;
-    let plan = proto.try_into_physical_plan(ctx, &codec)?;
+    let plan = proto.try_into_physical_plan_with_converter(ctx, &codec, proto_converter)?;
     // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between a
-    // node and the scans below it; the proto layer snapshots them into static expressions, so
-    // the shared link can't ride the wire. Re-running the post-optimization pushdown pass on
-    // the decoded fragment re-creates the links, so this task's probe scans prune against its
-    // own build side instead of scanning every segment. The relink is possible only because a
-    // fragment keeps an operator and its probe scans in the same process; a link that crossed
-    // fragments would need the filter values shipped between processes.
+    // node and the scans below it; unless decode re-shares them, each occurrence rebuilds as a
+    // disconnected instance. Re-running the post-optimization pushdown pass on the decoded
+    // fragment re-creates the links, so this task's probe scans prune against its own build
+    // side instead of scanning every segment. The relink is possible only because a fragment
+    // keeps an operator and its probe scans in the same process; a link that crossed fragments
+    // would need the filter values shipped between processes.
     //
     // Prior art: the same pass was proposed for datafusion-distributed
     // (https://github.com/datafusion-contrib/datafusion-distributed/pull/348) and closed in
     // favor of fixing it in DataFusion proper, by serializing and deduping dynamic filters so
     // decode re-shares one instance (https://github.com/apache/datafusion/pull/20416, design
-    // discussion in https://github.com/apache/datafusion/issues/21207). Once DataFusion
-    // round-trips the filters natively, this pass can go.
+    // discussion in https://github.com/apache/datafusion/issues/21207). The pinned DataFusion
+    // rev ships that machinery and the MPP worker decodes with `DeduplicatingProtoConverter`;
+    // once the re-shared links are verified end-to-end, this pass can go.
     FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

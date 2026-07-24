@@ -19,7 +19,7 @@ First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 <CodeGroup>
 ```sql SQL
 CREATE INDEX CONCURRENTLY search_idx_v2
-ON mock_items USING bm25 (id, description, category)
+ON mock_items USING paradedb (id, description, category)
 WITH (key_field = 'id');
 ```
 

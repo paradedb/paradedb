@@ -1,10 +1,10 @@
 ---
 title: Verify Index Integrity
-description: Check BM25 indexes for corruption and structural issues
+description: Check ParadeDB indexes for corruption and structural issues
 canonical: https://docs.paradedb.com/documentation/indexing/verify-index
 ---
 
-ParadeDB provides `amcheck`-style index verification functions to detect corruption and validate the structural integrity of BM25 indexes.
+ParadeDB provides `amcheck`-style index verification functions to detect corruption and validate the structural integrity of ParadeDB indexes.
 These functions are useful for:
 
 - Proactive corruption detection before issues become critical
@@ -14,7 +14,7 @@ These functions are useful for:
 
 ## Basic Verification
 
-The `pdb.verify_index` function performs structural integrity checks on a BM25 index:
+The `pdb.verify_index` function performs structural integrity checks on a ParadeDB index:
 
 <CodeGroup>
 ```sql SQL
@@ -671,9 +671,9 @@ await dbContext.Database.VerifyIndex(
 
 </CodeGroup>
 
-## Verifying All BM25 Indexes
+## Verifying All ParadeDB Indexes
 
-To verify all BM25 indexes in the database at once:
+To verify all ParadeDB indexes in the database at once:
 
 <CodeGroup>
 ```sql SQL
@@ -835,9 +835,9 @@ await dbContext.Database.VerifyAllIndexes(
 
 </CodeGroup>
 
-## Listing All BM25 Indexes
+## Listing All ParadeDB Indexes
 
-To see all BM25 indexes in the database with summary statistics:
+To see all ParadeDB indexes in the database with summary statistics:
 
 <CodeGroup>
 ```sql SQL
@@ -892,7 +892,7 @@ await dbContext.Database
 
 ## Index Build Time
 
-To see the wall-clock time a BM25 index was built at:
+To see the wall-clock time a ParadeDB index was built at:
 
 ```sql SQL
 SELECT paradedb.index_created_at('search_idx');
@@ -910,7 +910,7 @@ Build-time stamping is supported on ParadeDB `0.24.2` and up. Indexes created be
 
 ### `pdb.verify_index`
 
-Verifies a single BM25 index.
+Verifies a single ParadeDB index.
 
 | Parameter         | Type     | Default    | Description                                                |
 | ----------------- | -------- | ---------- | ---------------------------------------------------------- |
@@ -924,7 +924,7 @@ Verifies a single BM25 index.
 
 ### `pdb.verify_all_indexes`
 
-Verifies all BM25 indexes in the database.
+Verifies all ParadeDB indexes in the database.
 
 | Parameter         | Type    | Default | Description                                                |
 | ----------------- | ------- | ------- | ---------------------------------------------------------- |
@@ -937,7 +937,7 @@ Verifies all BM25 indexes in the database.
 
 ### `pdb.index_segments`
 
-Lists all segments in a BM25 index.
+Lists all segments in a ParadeDB index.
 
 | Parameter | Type     | Default    | Description          |
 | --------- | -------- | ---------- | -------------------- |
@@ -956,7 +956,7 @@ Returns:
 
 ### `pdb.indexes`
 
-Lists all BM25 indexes in the database.
+Lists all ParadeDB indexes in the database.
 
 Returns:
 
@@ -971,7 +971,7 @@ Returns:
 
 ### `paradedb.index_created_at`
 
-Returns the wall-clock time the given BM25 index was built. Supported on ParadeDB `0.24.2` and up; indexes created before upgrading to `0.24.2` return `NULL`.
+Returns the wall-clock time the given ParadeDB index was built. Supported on ParadeDB `0.24.2` and up; indexes created before upgrading to `0.24.2` return `NULL`.
 
 | Parameter | Type     | Default    | Description          |
 | --------- | -------- | ---------- | -------------------- |

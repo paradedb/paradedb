@@ -4,13 +4,24 @@ description: Index a Postgres table for full text search
 canonical: https://docs.paradedb.com/documentation/indexing/create-index
 ---
 
-Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
-The following code block creates a BM25 index over several columns in the `mock_items` table.
+<Note>
+  In version `0.25.0`, the BM25 index was renamed to the ParadeDB index, and
+  `paradedb` was added as the index access method name. The rename reflects the
+  fact that the index is now much more than BM25 scoring — it also powers
+  [vector search](/welcome/roadmap#vector-search-improvements),
+  [aggregates](/documentation/aggregates/overview), [top
+  K](/documentation/sorting/topk), and [filtering](/documentation/filtering).
+  `USING bm25` remains supported as a backwards-compatible alias for `USING
+  paradedb`.
+</Note>
+
+Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the ParadeDB index.
+The following code block creates a ParadeDB index over several columns in the `mock_items` table.
 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (key_field='id');
 ```
 
@@ -135,7 +146,7 @@ For instance, if a column contains multiple languages, the ICU tokenizer may be 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.icu), category)
+USING paradedb (id, (description::pdb.icu), category)
 WITH (key_field='id');
 ```
 
@@ -213,13 +224,13 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
-Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
+Only one ParadeDB index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
 including columns used for sorting, grouping, filtering, and aggregations.
 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
 
@@ -335,7 +346,7 @@ Comparing `blocks_done` to `blocks_total` will provide a good approximation of t
 ## Choosing a Key Field
 
 In the `CREATE INDEX` statement above, note the mandatory `key_field` option.
-Every BM25 index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
+Every ParadeDB index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
 
 The `key_field` must:
 
@@ -351,7 +362,7 @@ For example, the following code block adds English stemming to `description`:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
+USING paradedb (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
 ```
 

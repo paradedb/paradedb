@@ -199,7 +199,7 @@ with either the literal or literal normalized tokenizer. See [indexing expressio
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (lower(description)::pdb.literal))
+USING paradedb (id, (lower(description)::pdb.literal))
 WITH (key_field='id');
 ```
 
@@ -297,7 +297,7 @@ For example, to order by a numeric `weight` field within a JSON column:
 
 ```sql
 CREATE INDEX json_topk_idx ON mock_items
-USING bm25 (id, description, (((metadata->>'weight')::int)::pdb.alias('weight')))
+USING paradedb (id, description, (((metadata->>'weight')::int)::pdb.alias('weight')))
 WITH (key_field='id', sort_by='weight');
 ```
 

@@ -9,7 +9,7 @@ For instance, the following tokenizer creates tokens only for words starting wit
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.regex_pattern('(?i)\bh\w*')))
+USING paradedb (id, (description::pdb.regex_pattern('(?i)\bh\w*')))
 WITH (key_field='id');
 ```
 

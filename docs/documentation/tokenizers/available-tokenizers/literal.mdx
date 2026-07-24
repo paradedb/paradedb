@@ -26,7 +26,7 @@ or as part of an [aggregate](/documentation/aggregates/overview).
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.literal))
+USING paradedb (id, (description::pdb.literal))
 WITH (key_field='id');
 ```
 

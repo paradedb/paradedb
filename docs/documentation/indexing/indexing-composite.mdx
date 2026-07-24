@@ -6,9 +6,9 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-composite
 
 <Note>This is a beta feature available in versions `0.22.0` and above.</Note>
 
-Postgres allows a maximum of 32 columns in an index definition, but because ParadeDB benefits from pushing filters and ranking signals into the BM25 index this can become a limitation.
+Postgres allows a maximum of 32 columns in an index definition, but because ParadeDB benefits from pushing filters and ranking signals into the ParadeDB index this can become a limitation.
 
-To index more than 32 columns in a single BM25 index,
+To index more than 32 columns in a single ParadeDB index,
 wrap columns in a `ROW()` expression cast to a composite type. ParadeDB will unpack the composite type and index each
 field individually.
 
@@ -24,7 +24,7 @@ Then reference the columns in a `ROW()` expression cast to the composite type:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (ROW(description, category, rating)::item_fields))
+USING paradedb (id, (ROW(description, category, rating)::item_fields))
 WITH (key_field='id');
 ```
 
@@ -49,7 +49,7 @@ CREATE TYPE item_fields AS (
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (ROW(description, category, in_stock)::item_fields))
+USING paradedb (id, (ROW(description, category, in_stock)::item_fields))
 WITH (key_field='id');
 ```
 
@@ -59,4 +59,4 @@ The following are not supported and will produce an error:
 
 - **Anonymous ROW expressions**: `ROW(a, b)` without a type cast is not allowed. Always cast to a named composite type.
 - **Nested composites**: A composite type cannot contain another composite type as a field.
-- **Duplicate field names**: Field names must be unique within a single BM25 index, across all composite types and regular columns in that index.
+- **Duplicate field names**: Field names must be unique within a single ParadeDB index, across all composite types and regular columns in that index.

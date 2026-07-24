@@ -34,6 +34,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
+use datafusion::config::ConfigOptions;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -47,7 +48,9 @@ use datafusion::physical_plan::metrics::{
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
+use datafusion_distributed::{TaskEstimation, TaskEstimator};
 use futures::Stream;
+use pgrx::pg_sys;
 use tantivy::Score;
 
 use crate::index::fast_fields_helper::FFHelper;
@@ -64,7 +67,6 @@ use crate::query::SearchQueryInput;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
 use crate::scan::Scanner;
-use pgrx::pg_sys;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -909,6 +911,51 @@ impl<T: Stream> Stream for UnsafeSendStream<T> {
 impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStream<T> {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
+    }
+}
+
+/// `PgSearchScanTaskEstimator` intercepts `PgSearchScanPlan` during distributed planning
+/// and requests a number of tasks equal to `partition_count = min(segment_count, target_partitions)`.
+///
+/// This correctly maps PostgreSQL parallel workers to tasks, ensuring that tables with 1 segment
+/// do not force MPP planning and fall back to local serial execution, whereas large tables
+/// scale out efficiently across all available Postgres parallel workers.
+#[derive(Debug)]
+pub(crate) struct PgSearchScanTaskEstimator;
+
+impl TaskEstimator for PgSearchScanTaskEstimator {
+    fn task_estimation(
+        &self,
+        plan: &Arc<dyn ExecutionPlan>,
+        _cfg: &ConfigOptions,
+    ) -> Option<TaskEstimation> {
+        let _ = plan.downcast_ref::<PgSearchScanPlan>()?;
+
+        let partition_count = plan.properties().output_partitioning().partition_count();
+
+        Some(TaskEstimation::desired(partition_count))
+    }
+
+    fn scale_up_leaf_node(
+        &self,
+        plan: &Arc<dyn ExecutionPlan>,
+        task_count: usize,
+        _cfg: &ConfigOptions,
+    ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
+        if plan.downcast_ref::<PgSearchScanPlan>().is_none() {
+            return Ok(None);
+        }
+
+        // Each worker decodes its own copy, and `execute()` dynamically claims segments from the
+        // parallel state. Variants in the same process share state: see `ExecutionState` for why
+        // this is safe.
+        let variants = (0..task_count)
+            .map(|_| Arc::clone(plan))
+            .collect::<Vec<_>>();
+
+        Ok(Some(Arc::new(
+            datafusion_distributed::DistributedLeafExec::try_new(Arc::clone(plan), variants)?,
+        )))
     }
 }
 

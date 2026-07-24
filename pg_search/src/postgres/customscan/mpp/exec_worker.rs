@@ -54,10 +54,10 @@ use datafusion_distributed::PartitionSink;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
-use crate::postgres::customscan::mpp::task_estimator::PgSearchScanTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
+use crate::scan::execution_plan::PgSearchScanTaskEstimator;
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
 use datafusion_distributed::shm::SetPlanFrame;
 

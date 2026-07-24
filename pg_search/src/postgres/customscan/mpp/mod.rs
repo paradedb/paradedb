@@ -32,7 +32,6 @@ pub mod glue;
 pub mod interrupt;
 pub mod launch;
 pub mod pg_seams;
-pub mod task_estimator;
 pub mod worker_fragments;
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.

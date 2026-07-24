@@ -372,11 +372,11 @@ async fn resolve_template_params(
             format!("SQL references `{{{{ {name} }}}}` but the dataset's [params] has no `{name}`")
         })?;
         let expr = substitute_vars(expr, &vars).with_context(|| format!("In [params] `{name}`"))?;
-        let value: i64 = sqlx::query_scalar(&format!("SELECT ({expr})::bigint"))
+        let value: String = sqlx::query_scalar(&format!("SELECT ({expr})::numeric::text"))
             .fetch_one(&mut *conn)
             .await
             .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))?;
-        params.insert(name, value.to_string());
+        params.insert(name, value);
     }
     Ok(params)
 }

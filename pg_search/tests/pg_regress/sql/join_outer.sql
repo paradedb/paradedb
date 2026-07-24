@@ -36,17 +36,6 @@ CREATE TABLE outer_pages (
     size_bytes INTEGER
 );
 
-INSERT INTO outer_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-
--- file_id 51..250: files 1..50 stay unmatched, ids 201..250 dangle.
-INSERT INTO outer_pages (file_id, page_text, size_bytes)
-SELECT 51 + (g % 200),
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
-
 CREATE INDEX outer_files_idx ON outer_files
 USING bm25 (id, title, content)
 WITH (
@@ -61,6 +50,31 @@ WITH (
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {"fast": true}}'
 );
+
+-- Two inserts per table, each flushed to its own segment, so the scans
+-- report more than one partition and the distributed planner engages.
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO outer_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+
+INSERT INTO outer_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+
+-- file_id 51..250: files 1..50 stay unmatched, ids 201..250 dangle.
+INSERT INTO outer_pages (file_id, page_text, size_bytes)
+SELECT 51 + (g % 200),
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+
+INSERT INTO outer_pages (file_id, page_text, size_bytes)
+SELECT 51 + (g % 200),
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
 
 ANALYZE outer_files;
 ANALYZE outer_pages;

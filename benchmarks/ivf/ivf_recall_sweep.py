@@ -423,6 +423,12 @@ def main():
     ap.add_argument("--ks", default="10",
                     help="comma-separated K values, e.g. '1,10,100' (recall@K + 4*K floor)")
     ap.add_argument("--n-q", type=int, default=1000)
+    ap.add_argument("--per-query-csv", default=None,
+                    help="also dump one row PER QUERY PER REPEAT (rung, mode, "
+                         "filter, eps, fraction, K, rep, qid, recall@K, and — "
+                         "when --probe-stats is on — probed/ceiling/gate/"
+                         "exhausted) to this path. The cell aggregates hide "
+                         "per-query failure concentration; this exposes it.")
     ap.add_argument("--repeats", type=int, default=3,
                     help="latency passes per cell: each repeat runs the full query "
                          "set; the cell reports the MEDIAN across repeats of each "
@@ -454,6 +460,7 @@ def main():
                 "probe_fractions": "0.05", "probes": None, "fanouts": None,
                 "gate_modes": "centroid,candidate", "rung_label": None,
                 "epsilons": "0.5", "ks": "10", "n_q": 1000, "repeats": 3,
+                "per_query_csv": None,
                 "gt_cache": "gt_cache", "recompute_gt": False, "warmup_n": 50,
                 "outdir": ".", "no_plot": False, "no_csv": False,
                 "probe_stats": False}
@@ -510,6 +517,7 @@ def main():
     log(f"{len(queries)} test queries, K in {ks} (GT at {k_max}), table={ds.table}")
 
     records = []  # structured rows for CSV + plotting (parallel to printed grid)
+    per_query_rows = [] if args.per_query_csv else None
 
     with psycopg.connect(args.dsn, autocommit=True) as conn:
         total = conn.execute(f"SELECT count(*) FROM {ds.table}").fetchone()[0]
@@ -648,12 +656,25 @@ def main():
                                     truth = gt[qid][:k]
                                     k_eff = min(k, len(truth)) or 1
                                     recs.append(len(set(truth) & set(got)) / k_eff)
+                                    merged = None
                                     if probe_lines is not None and len(probe_lines) > ps_q0:
                                         merged = {}
                                         for d in probe_lines[ps_q0:]:
                                             for kk, vv in d.items():
                                                 merged[kk] = merged.get(kk, 0) + vv
                                         cell_ps.append(merged)
+                                    if per_query_rows is not None:
+                                        pq = {"rung": rung, "mode": mode,
+                                              "filter": filt, "eps": eps,
+                                              "probe_fraction": frac, "k": k,
+                                              "rep": rep, "qid": qid,
+                                              "recall": round(recs[-1], 4)}
+                                        if merged is not None:
+                                            pq["probed"] = merged.get("clusters_probed", 0)
+                                            pq["ceiling"] = merged.get("ceiling", 0)
+                                            pq["gate"] = merged.get("gate", 0)
+                                            pq["exhausted"] = merged.get("exhausted", 0)
+                                        per_query_rows.append(pq)
                                 lats.sort()
                                 rep_p50.append(pct(lats, .50))
                                 rep_p95.append(pct(lats, .95))
@@ -713,6 +734,17 @@ def main():
     if not args.no_csv:
         write_csv(records, os.path.join(
             args.outdir, f"recall_{ds.family}_{numerize_safe(ds.size)}.csv"))
+    if per_query_rows is not None:
+        pq_cols = ["rung", "mode", "filter", "eps", "probe_fraction", "k",
+                   "rep", "qid", "recall", "probed", "ceiling", "gate",
+                   "exhausted"]
+        os.makedirs(os.path.dirname(args.per_query_csv) or ".", exist_ok=True)
+        with open(args.per_query_csv, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=pq_cols)
+            w.writeheader()
+            for r in per_query_rows:
+                w.writerow({c: r.get(c, "") for c in pq_cols})
+        log(f"wrote per-query CSV -> {args.per_query_csv} ({len(per_query_rows)} rows)")
     if not args.no_plot:
         try:
             plot_recall_curves(records, args.outdir, ds, epsilons, ks, filters)

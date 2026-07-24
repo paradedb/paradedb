@@ -91,8 +91,6 @@ fn create_bm25_test_table(
         if table_not_found {
             match table_type {
                 TestTable::Items => {
-                    client.update("CREATE EXTENSION IF NOT EXISTS vector", None, &[])?;
-
                     client.update(
                         &format!(
                             "CREATE TABLE {full_table_name} (

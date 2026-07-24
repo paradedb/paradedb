@@ -12,6 +12,11 @@ CALL paradedb.create_bm25_test_table(
         table_name => 'estimate_items'
      );
 
+-- These tests exercise BM25 estimation, not vector search. Drop the embedding column
+-- and rewrite the heap so it stays out of the row-width and cost estimates.
+ALTER TABLE recursive_test.estimate_items DROP COLUMN embedding;
+VACUUM FULL recursive_test.estimate_items;
+
 -- Create index for recursive estimates testing
 CREATE INDEX idx_recursive_estimates
     ON recursive_test.estimate_items

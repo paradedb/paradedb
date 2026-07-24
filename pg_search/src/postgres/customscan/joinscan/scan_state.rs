@@ -58,6 +58,7 @@ use crate::postgres::customscan::datafusion::translator::{
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -167,6 +168,17 @@ pub struct JoinScanState {
     /// The join clause from planning.
     pub join_clause: JoinCSClause,
 
+    /// Pristine copy of the join clause as it came from planning, with any
+    /// PostgresExpression/Param-backed SearchQueryInputs still unresolved.
+    /// Only populated when the plan actually contains such nodes (see
+    /// create_custom_scan_state); left at default and never read otherwise.
+    pub base_join_clause: JoinCSClause,
+
+    /// nodeToString'd custom_exprs snapshot from planning (pre-setrefs), used
+    /// to re-bake the DataFusion logical plan for MPP after solving. See
+    /// PrivateData::custom_exprs_string.
+    pub custom_exprs_string: Option<String>,
+
     /// Map of source index (in plan.sources()) to relation execution state.
     pub relations: crate::api::HashMap<usize, RelationState>,
 
@@ -234,6 +246,24 @@ impl JoinScanState {
 impl CustomScanState for JoinScanState {
     fn init_exec_method(&mut self, _cstate: *mut pg_sys::CustomScanState) {
         // No special initialization needed for the plain exec method
+    }
+}
+
+impl SolvePostgresExpressions for JoinScanState {
+    fn init_search_query_input(&mut self) {
+        self.join_clause = self.base_join_clause.clone();
+    }
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.join_clause.has_postgres_expressions()
+    }
+    fn has_parameters(&mut self) -> bool {
+        self.join_clause.has_parameters()
+    }
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.join_clause.init_postgres_expressions(planstate);
+    }
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.join_clause.solve_postgres_expressions(expr_context);
     }
 }
 

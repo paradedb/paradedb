@@ -1245,6 +1245,19 @@ impl RelNode {
             RelNode::Filter(f) => f.input.explain_internal(is_root),
         }
     }
+    /// Visit every `SearchQueryInput` reachable from this subtree's `Scan` nodes.
+    /// Does NOT include `JoinCSClause::join_level_predicates` - those live outside
+    /// the tree and must be visited separately (see `JoinCSClause::visit_queries_mut`).
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        match self {
+            RelNode::Scan(source) => f(&mut source.scan_info.query),
+            RelNode::Join(j) => {
+                j.left.visit_queries_mut(f);
+                j.right.visit_queries_mut(f);
+            }
+            RelNode::Filter(filt) => filt.input.visit_queries_mut(f),
+        }
+    }
 }
 
 /// Finds an output-visible equivalent for `(pruned_rti, pruned_attno)` by
@@ -1476,6 +1489,46 @@ impl JoinCSClause {
         } else {
             None
         }
+    }
+    /// Visit every `SearchQueryInput` in this clause: both inside `Scan` nodes
+    /// (via `plan`) and inside `join_level_predicates`.
+    pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
+        self.plan.visit_queries_mut(f);
+        for pred in &mut self.join_level_predicates {
+            f(&mut pred.query);
+        }
+    }
+
+    pub fn has_postgres_expressions(&mut self) -> bool {
+        let mut found = false;
+        self.visit_queries_mut(&mut |q| {
+            if q.has_postgres_expressions() {
+                found = true;
+            }
+        });
+        found
+    }
+
+    pub fn has_parameters(&mut self) -> bool {
+        let mut found = false;
+        self.visit_queries_mut(&mut |q| {
+            if q.has_parameters() {
+                found = true;
+            }
+        });
+        found
+    }
+
+    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.visit_queries_mut(&mut |q| {
+            q.init_postgres_expressions(planstate);
+        });
+    }
+
+    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.visit_queries_mut(&mut |q| {
+            q.solve_postgres_expressions(expr_context);
+        });
     }
 }
 

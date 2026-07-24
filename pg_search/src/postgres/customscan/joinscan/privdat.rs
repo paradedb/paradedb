@@ -70,6 +70,14 @@ pub struct PrivateData {
     pub output_columns: Vec<OutputColumnInfo>,
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
+    /// nodeToString'd snapshot of the CustomScan's custom_exprs list, taken in
+    /// plan_custom_path BEFORE set_customscan_references rewrites the Vars
+    /// inside it into INDEX_VAR/custom_scan_tlist references. MPP re-bakes the
+    /// logical plan at execution time (after solving Param/SubPlan-backed
+    /// SearchQueryInputs), and needs this pre-setrefs shape — the live
+    /// post-setrefs custom_exprs on the executor's plan node is not
+    /// translator-compatible.
+    pub custom_exprs_string: Option<String>,
 }
 
 impl PrivateData {
@@ -78,6 +86,7 @@ impl PrivateData {
             join_clause,
             output_columns: Vec::new(),
             logical_plan: None,
+            custom_exprs_string: None,
         }
     }
 

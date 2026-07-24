@@ -510,17 +510,24 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
 
 #[rstest]
 fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
-    // Create the test table and index. This test measures index size across a HOT update,
-    // so it uses the no-embedding fixture to keep tuple layout free of the vector column.
-    "CALL paradedb.create_bm25_test_table(table_name => 'mock_items_no_embeddings', schema_name => 'public', table_type => 'ItemsNoEmbedding');"
-        .execute(&mut conn);
+    // Create the test table and index. This test measures index size across a HOT update, so
+    // drop the embedding column (and rewrite the heap to reclaim its space) to keep the tuple
+    // layout free of the vector column.
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    ALTER TABLE mock_items DROP COLUMN embedding;
+    "#
+    .execute(&mut conn);
+
+    // VACUUM cannot run inside a transaction block, so it must be its own statement.
+    "VACUUM FULL mock_items".execute(&mut conn);
 
     // For this test, we'll turn off autovacuum, as we'll be measuring the size of the index.
     // We don't want a vacuum to happen and unexpectedly change the size.
-    "ALTER TABLE mock_items_no_embeddings SET (autovacuum_enabled = false)".execute(&mut conn);
+    "ALTER TABLE mock_items SET (autovacuum_enabled = false)".execute(&mut conn);
 
     r#"
-    CREATE INDEX search_idx ON mock_items_no_embeddings
+    CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description)
     WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}}')
     "#
@@ -530,7 +537,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
         "SELECT pg_relation_size('search_idx') / current_setting('block_size')::int AS page_count"
             .fetch_one(&mut conn);
     // Update a non-indexed column.
-    "UPDATE mock_items_no_embeddings set category = 'Books' WHERE description = 'Sleek running shoes'"
+    "UPDATE mock_items set category = 'Books' WHERE description = 'Sleek running shoes'"
         .execute(&mut conn);
 
     let page_size_after: (i64,) =

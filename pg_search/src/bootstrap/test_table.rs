@@ -27,7 +27,6 @@ use std::fmt::{Display, Formatter};
 #[derive(PostgresEnum, Serialize)]
 pub enum TestTable {
     Items,
-    ItemsNoEmbedding,
     Orders,
     Parts,
     Deliveries,
@@ -38,7 +37,6 @@ impl Display for TestTable {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match self {
             TestTable::Items => write!(f, "Items"),
-            TestTable::ItemsNoEmbedding => write!(f, "ItemsNoEmbedding"),
             TestTable::Orders => write!(f, "Orders"),
             TestTable::Parts => write!(f, "Parts"),
             TestTable::Deliveries => write!(f, "Deliveries"),
@@ -91,18 +89,10 @@ fn create_bm25_test_table(
             .is_empty();
 
         if table_not_found {
-            let with_embedding = matches!(table_type, TestTable::Items);
             match table_type {
-                TestTable::Items | TestTable::ItemsNoEmbedding => {
-                    if with_embedding {
-                        client.update("CREATE EXTENSION IF NOT EXISTS vector", None, &[])?;
-                    }
+                TestTable::Items => {
+                    client.update("CREATE EXTENSION IF NOT EXISTS vector", None, &[])?;
 
-                    let embedding_column = if with_embedding {
-                        ",\n                                embedding VECTOR(8)"
-                    } else {
-                        ""
-                    };
                     client.update(
                         &format!(
                             "CREATE TABLE {full_table_name} (
@@ -115,7 +105,8 @@ fn create_bm25_test_table(
                                 created_at TIMESTAMP,
                                 last_updated_date DATE,
                                 latest_available_time TIME,
-                                weight_range INT4RANGE{embedding_column}
+                                weight_range INT4RANGE,
+                                embedding VECTOR(8)
                             )"
                         ),
                         None,
@@ -123,14 +114,10 @@ fn create_bm25_test_table(
                     )?;
 
                     for record in mock_items_data() {
-                        let (embedding_column, embedding_value) = if with_embedding {
-                            (", embedding", format!(", '{}'", record.9))
-                        } else {
-                            ("", String::new())
-                        };
                         client.update(
                             &format!(
-                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range{embedding_column}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9{embedding_value})"
+                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range, embedding) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}')",
+                                record.9
                             ),
                             Some(1),
                             &[

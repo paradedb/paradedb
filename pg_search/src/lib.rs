@@ -24,6 +24,7 @@ mod postgres;
 mod query;
 pub(crate) mod scan;
 mod schema;
+pub(crate) mod vector;
 
 pub mod gucs;
 pub mod parallel_worker;
@@ -126,6 +127,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     dst::init();
 
     postgres::options::init();
+    postgres::build_logging::init();
     gucs::init();
 
     // RegisterCustomRmgr can only be called during shared_preload_libraries init. If pg_search

@@ -20,7 +20,7 @@ use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryImmutable,
+    SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT, VECTOR_VEC_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -151,6 +151,12 @@ pub unsafe fn save_new_metas(
                             file_entry,
                             num_deleted_docs: created_segment.num_deleted_docs(),
                         }),
+                    vec: files
+                        .remove(&SegmentComponent::Custom(VECTOR_VEC_EXT.to_string()))
+                        .map(|e| e.0),
+                    centroids: files
+                        .remove(&SegmentComponent::Custom(VECTOR_CENTROIDS_EXT.to_string()))
+                        .map(|e| e.0),
                 },
             );
 
@@ -465,6 +471,7 @@ pub unsafe fn load_metas(
             index_settings: deserialized_settings,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
+            persisted_custom_extensions: Vec::new(),
         },
         pin_cushion,
         total_segments,

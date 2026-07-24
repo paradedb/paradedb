@@ -761,6 +761,9 @@ fn resolve_orderby_feature(
         OrderByFeature::NullTest { .. } => {
             unreachable!("NullTest is handled by apply_sort directly")
         }
+        OrderByFeature::VectorDistance { .. } => {
+            unimplemented!("Vector distance ORDER BY is not supported in JoinScan")
+        }
     }
 }
 
@@ -1000,7 +1003,7 @@ fn build_source_df<'a>(
                             }
                         }
                     }
-                    OrderByFeature::Score { .. } => {}
+                    OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
                         OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
                             insert_field_name_required_early(

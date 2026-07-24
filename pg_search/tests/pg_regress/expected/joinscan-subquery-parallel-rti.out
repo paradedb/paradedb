@@ -97,8 +97,8 @@ WHERE i.overview @@@ 'software'
   )
 ORDER BY i.id DESC
 LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -116,21 +116,25 @@ LIMIT 10;
            : │         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
            : │           CoalescePartitionsExec
            : │             [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
-           : │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           : │             PgSearchScan: segments=30, dynamic_filters=1, query="all"
+           : │           DistributedLeafExec:
+           : │             t0: PgSearchScan: segments=30, dynamic_filters=1, query="all"
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 2 ── tasks=3, partitions=9
            :   │ HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@1)]
            :   │   CoalescePartitionsExec
-           :   │     [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :   │   RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │     PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :   │     [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=6, input_tasks=2
+           :   │   DistributedLeafExec:
+           :   │     t0: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :   │     t1: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
+           :   │     t2: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=1, partitions=3
-           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     ┌───── Stage 1 ── tasks=2, partitions=12
+           :     │ BroadcastExec: input_partitions=2, consumer_tasks=3, output_partitions=6
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
+           :     │     t1: PgSearchScan: segments=2, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────
-(31 rows)
+(35 rows)
 
 SELECT i.id
 FROM js_rti_items i

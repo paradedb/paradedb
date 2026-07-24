@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Pin parallelism so regress plans don't depend on the local cluster's worker config. The value

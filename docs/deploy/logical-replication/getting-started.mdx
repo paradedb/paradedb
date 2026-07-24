@@ -156,7 +156,7 @@ initial copy behavior of `CREATE SUBSCRIPTION`.
 [Deploy ParadeDB](/deploy/overview) on the subscriber, then load the extension in the subscriber database:
 
 ```sql
-CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_search CASCADE;
 ```
 
 ### 5. Create a Publication on the Publisher

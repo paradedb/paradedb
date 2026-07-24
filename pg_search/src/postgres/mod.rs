@@ -35,6 +35,7 @@ use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
 
 mod build;
+pub mod build_logging;
 mod cost;
 mod delete;
 pub mod deparse;

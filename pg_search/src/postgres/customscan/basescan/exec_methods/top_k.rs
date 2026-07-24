@@ -152,7 +152,6 @@ impl TopKScanExecState {
     ///    allows all of the workers to load balance the work of searching the segments.
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
     ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
-    ///    to consistently revisit the same segments.
     fn segments_to_query<'s>(
         &'s self,
         search_reader: &SearchIndexReader,
@@ -309,6 +308,29 @@ impl ExecMethod for TopKScanExecState {
                         .resolve_mut(estate)
                         .expect("LIMIT must be resolvable from EState (param missing or NULL)")
                         .static_fetch();
+                }
+            }
+        }
+
+        // handle parameterized vectors
+        unsafe {
+            let estate = (*cstate).ss.ps.state;
+            let planstate = std::ptr::addr_of_mut!((*cstate).ss.ps);
+            if !estate.is_null() {
+                let resolve = |infos: &mut [OrderByInfo]| {
+                    for info in infos.iter_mut() {
+                        info.resolve_query_vector(estate, planstate);
+                    }
+                };
+                if let ExecMethodType::TopK {
+                    orderby_info: Some(infos),
+                    ..
+                } = &mut state.exec_method_type
+                {
+                    resolve(infos);
+                }
+                if let Some(infos) = self.orderby_info.as_mut() {
+                    resolve(infos);
                 }
             }
         }

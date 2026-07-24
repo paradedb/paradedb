@@ -72,6 +72,7 @@ pub fn mpp_is_active() -> bool {
 /// true. Callers must gate on [`mpp_is_active`] first. Debug builds assert; release builds
 /// return the raw GUC, which can leave [`producer_worker_count`] below 2 and break the
 /// planner's `target_partitions` / mesh-width invariant.
+// TODO(#5667): Evaluate bounding or replacing mpp_worker_count dynamically based on df-d planner output.
 pub fn mpp_worker_count() -> u32 {
     debug_assert!(
         mpp_is_active(),

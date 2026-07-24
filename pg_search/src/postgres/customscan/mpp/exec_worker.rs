@@ -54,7 +54,7 @@ use datafusion_distributed::PartitionSink;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
-use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
+use crate::postgres::customscan::mpp::task_estimator::PgSearchScanTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
@@ -155,10 +155,7 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
-        // Broadcast-subtree cap. Chain order matters: this has to come before the leaf
-        // estimator, otherwise the leaf's `Desired(n_workers)` wins, every producer task
-        // re-emits the full build side, and the consumer's `select_all` over-counts.
-        .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
+        .with_distributed_task_estimator(PgSearchScanTaskEstimator)
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
@@ -233,7 +230,9 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
     };
     if fragments.is_empty() {
-        pgrx::warning!(
+        // TODO(#5667): Wait to request parallel workers from Postgres until after the plan
+        // is generated so we only launch as many workers as we have fragments for.
+        pgrx::debug1!(
             "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
         );
         return;
@@ -297,8 +296,7 @@ pub(crate) fn run_mpp_worker(
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
 
-    // Two `Future` shapes share this vector: real producer-fragment futures and broadcast
-    // short-circuit EOF-only stubs. The alias keeps the `Vec<_>` declaration legible and silences
+    // All fragment futures share this vector. The alias keeps the `Vec<_>` declaration legible and silences
     // clippy::type_complexity.
     type FragmentFuture = std::pin::Pin<
         Box<
@@ -376,44 +374,6 @@ pub(crate) fn run_mpp_worker(
                         Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
                     ),
                 )));
-            }
-
-            // Broadcast invariant: fail-loud cap check.
-            //
-            // The natural-shape plan canonical-replicates the build subtree via the `mpp build
-            // all-gather` step. Every producer task would scan the full canonical data, and the
-            // consumer's `select_all` would over-count by `input_task_count`. The planner-level
-            // `BroadcastBuildSideOneTaskEstimator` caps the build subtree at task_count=1, so a
-            // correct plan produces exactly one Broadcast fragment with task_idx == 0.
-            //
-            // A non-zero `task_idx` here means the cap silently failed: maybe the estimator
-            // wasn't installed, the chain order is wrong, or a future planner pass re-expanded
-            // the build subtree. We surface this as a hard error rather than silently
-            // EOF-only-ing the fragment.
-            if matches!(
-                fragment.routing,
-                FragmentRouting::Hashed {
-                    broadcast: true,
-                    ..
-                }
-            ) {
-                debug_assert!(
-                    fragment.task_idx == 0,
-                    "mpp dispatcher: Broadcast fragment with task_idx={} but \
-                     BroadcastBuildSideOneTaskEstimator should have capped \
-                     input_task_count at 1; plan-walk drift?",
-                    fragment.task_idx,
-                );
-                if fragment.task_idx != 0 {
-                    return Err(datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch (proc={this_proc}): Broadcast fragment \
-                         (stage_id={}, task_idx={}) with task_idx > 0. The planner-level \
-                         BroadcastBuildSideOneTaskEstimator should cap input_task_count at 1. \
-                         A non-zero task_idx here indicates plan-walk drift or a missing \
-                         estimator chain on this session.",
-                        fragment.stage_id, fragment.task_idx,
-                    )));
-                }
             }
 
             // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary

@@ -29,8 +29,8 @@ pub mod version;
 pub mod window_aggregate;
 
 use pgrx::{
-    direct_function_call, extension_sql, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType,
-    StringInfo,
+    direct_function_call, extension_sql, pg_cast, pg_sys, FromDatum, InOutFuncs, IntoDatum,
+    PostgresType, StringInfo,
 };
 
 pub use aggregate::{
@@ -44,6 +44,9 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
+
+use crate::vector::metric::VectorMetric;
+use crate::vector::PgVector;
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
@@ -345,6 +348,122 @@ impl SortDirection {
     }
 }
 
+/// The query-vector operand of a vector-distance ORDER BY.
+///
+/// Exactly one form holds at a time: the operand is either already concrete
+/// (a literal `Const`, folded at planning time) or one of two deferred forms
+/// that [`OrderByInfo::resolve_query_vector`] turns into [`Self::Resolved`]
+/// at execution time.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum QueryVector {
+    /// A concrete vector: either a literal `Const` operand, or a deferred
+    /// form that has since been resolved.
+    Resolved(Vec<f32>),
+    /// A bound `Param` (`<-> $1` style, e.g. a prepared statement / generic
+    /// plan). Resolved from `EState.es_param_list_info`.
+    Param(i32),
+    /// A serialized non-`Var`, non-volatile operand expression (e.g.
+    /// `current_setting('cohere.qvec')::vector`), evaluated once against the
+    /// plan node's `ExprContext`.
+    Expr(String),
+}
+
+impl QueryVector {
+    /// The concrete vector, or `None` while still deferred.
+    pub fn resolved(&self) -> Option<&[f32]> {
+        match self {
+            QueryVector::Resolved(floats) => Some(floats.as_slice()),
+            QueryVector::Param(_) | QueryVector::Expr(_) => None,
+        }
+    }
+
+    /// Resolve a deferred operand into [`Self::Resolved`], so downstream search
+    /// code sees a concrete vector. Two deferred forms are handled:
+    ///
+    ///   * [`Self::Param`] — a bound `Param` (`<-> $1` style, generic-plan
+    ///     prepared statement), looked up in the executor's
+    ///     `es_param_list_info`; and
+    ///   * [`Self::Expr`] — a serialized non-`Var`, non-volatile operand
+    ///     expression (e.g. `current_setting('cohere.qvec')::vector`),
+    ///     deserialized and evaluated once against `planstate`'s ExprContext.
+    ///
+    /// No-op when already [`Self::Resolved`] (a literal `Const`, or a second
+    /// call), which makes this idempotent.
+    pub unsafe fn resolve(
+        &mut self,
+        estate: *mut pgrx::pg_sys::EState,
+        planstate: *mut pgrx::pg_sys::PlanState,
+    ) {
+        let paramid = match self {
+            QueryVector::Resolved(_) => return,
+            QueryVector::Expr(expr_str) => {
+                use crate::postgres::customscan::expr_eval::PreparedPgExpr;
+                let prepared = PreparedPgExpr::from_serialized(expr_str, &[]);
+                let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), planstate);
+                let econtext = (*planstate).ps_ExprContext;
+                assert!(
+                    !econtext.is_null(),
+                    "planstate has no ExprContext to evaluate vector ORDER BY operand"
+                );
+                let mut isnull = false;
+                let datum = pg_sys::ExecEvalExpr(expr_state, econtext, &mut isnull);
+                assert!(!isnull, "vector ORDER BY operand evaluated to NULL");
+                let floats = PgVector::from_datum(datum, false)
+                    .expect("vector ORDER BY operand should not be NULL")
+                    .0;
+                *self = QueryVector::Resolved(floats);
+                return;
+            }
+            QueryVector::Param(paramid) => *paramid,
+        };
+
+        let param_list = (*estate).es_param_list_info;
+        assert!(
+            !param_list.is_null(),
+            "es_param_list_info is NULL but vector ORDER BY references Param ${paramid}"
+        );
+        let idx = (paramid - 1) as usize;
+        assert!(
+            idx < (*param_list).numParams as usize,
+            "vector ORDER BY param_id {paramid} out of range (numParams={})",
+            (*param_list).numParams
+        );
+
+        // Materialize the param value. If the slot is already evaluated
+        // (PREPARE/EXECUTE-style binding sets PARAM_FLAG_CONST up front),
+        // read it directly. Otherwise (plpgsql SPI's lazy path) invoke
+        // `paramFetch` with a stack-local workspace, matching what the
+        // normal executor does in `ExecEvalParamExtern`. Passing
+        // `prm=NULL` to plpgsql's fetch callback crashes — it writes into
+        // the caller-provided buffer when non-null and expects one for
+        // out-of-band reads.
+        let slot = &(*param_list)
+            .params
+            .as_slice((*param_list).numParams as usize)[idx];
+        let (value, isnull) = if (slot.pflags & pg_sys::PARAM_FLAG_CONST as u16) != 0 {
+            (slot.value, slot.isnull)
+        } else if let Some(fetch) = (*param_list).paramFetch {
+            let mut prmdata = pg_sys::ParamExternData {
+                value: pg_sys::Datum::null(),
+                isnull: true,
+                pflags: 0,
+                ptype: pg_sys::InvalidOid,
+            };
+            let prm = fetch(param_list, paramid, false, &mut prmdata);
+            assert!(!prm.is_null(), "paramFetch returned NULL for ${paramid}");
+            ((*prm).value, (*prm).isnull)
+        } else {
+            (slot.value, slot.isnull)
+        };
+        assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
+
+        let floats = PgVector::from_datum(value, false)
+            .expect("vector ORDER BY parameter should not be NULL")
+            .0;
+        *self = QueryVector::Resolved(floats);
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score {
@@ -373,6 +492,19 @@ pub enum OrderByFeature {
         inner: Box<OrderByFeature>,
         nulltesttype: NullTestKind,
     },
+    VectorDistance {
+        name: FieldName,
+        rti: u32,
+        /// The query-vector operand. Deferred forms are turned into
+        /// [`QueryVector::Resolved`] by [`OrderByInfo::resolve_query_vector`]
+        /// before the search path reads it.
+        query_vector: QueryVector,
+        /// Metric implied by the operator that drove this ORDER BY
+        /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct). Drives
+        /// EXPLAIN output and whether the resolved query vector is
+        /// L2-normalized for cosine/L2 ordering.
+        metric: VectorMetric,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -397,6 +529,9 @@ impl std::fmt::Display for OrderByFeature {
                 };
                 write!(f, "{inner} {test}")
             }
+            Self::VectorDistance { name, metric, .. } => {
+                write!(f, "{name} {} vector", metric.operator())
+            }
         }
     }
 }
@@ -411,5 +546,43 @@ pub struct OrderByInfo {
 impl OrderByInfo {
     pub fn is_score(&self) -> bool {
         matches!(self.feature, OrderByFeature::Score { .. })
+    }
+
+    pub fn is_vector_distance(&self) -> bool {
+        matches!(self.feature, OrderByFeature::VectorDistance { .. })
+    }
+
+    /// If the ORDER BY is a vector distance, return
+    /// `(field_name, query_vector, metric)`. Panics if the query vector was
+    /// never resolved (see `resolve_query_vector`). Returns `None` for any
+    /// other feature variant.
+    pub fn as_vector_distance(&self) -> Option<(&FieldName, &[f32], VectorMetric)> {
+        match &self.feature {
+            OrderByFeature::VectorDistance {
+                name,
+                query_vector,
+                metric,
+                ..
+            } => {
+                let floats = query_vector
+                    .resolved()
+                    .expect("vector ORDER BY query vector was never resolved");
+                Some((name, floats, *metric))
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolve this ORDER BY's deferred query-vector operand, if it has one.
+    /// Thin adapter over [`QueryVector::resolve`]; a no-op for every
+    /// non-`VectorDistance` feature.
+    pub unsafe fn resolve_query_vector(
+        &mut self,
+        estate: *mut pgrx::pg_sys::EState,
+        planstate: *mut pgrx::pg_sys::PlanState,
+    ) {
+        if let OrderByFeature::VectorDistance { query_vector, .. } = &mut self.feature {
+            query_vector.resolve(estate, planstate);
+        }
     }
 }

@@ -187,6 +187,7 @@ jobs:
         if: steps.release_gate.outputs.skip != 'true'
         run: |
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT 1;"
+          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
 

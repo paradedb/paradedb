@@ -5,7 +5,7 @@ name = "Primary"
 [server.setup]
 sql = """
 DROP EXTENSION IF EXISTS pg_search CASCADE;
-CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_search CASCADE;
 
 DROP TABLE IF EXISTS test CASCADE;
 CREATE TABLE test (

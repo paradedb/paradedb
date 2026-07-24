@@ -25,7 +25,7 @@ runs:
       run: |
         wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
         sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-        sudo apt-get update && sudo apt-get install -y postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }}
+        sudo apt-get update && sudo apt-get install -y libopenblas-dev postgresql-${{ inputs.pg_version }} postgresql-server-dev-${{ inputs.pg_version }} postgresql-${{ inputs.pg_version }}-pgvector
         echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> $GITHUB_PATH
 
     # Separate prefix-key from debug workflows - benchmarks compile with --release.
@@ -102,6 +102,7 @@ runs:
       shell: bash
       working-directory: pg_search/
       run: |
+        psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET paradedb.global_target_segment_count = 48;";
 

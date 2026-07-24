@@ -29,6 +29,7 @@ use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::schema::Schema;
+use tantivy::vector::VectorOptions;
 use tantivy::Index;
 use tokenizers::SearchTokenizer;
 
@@ -320,6 +321,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             // We use bytes storage with lexicographically sortable encoding from decimal-bytes.
             SearchFieldType::NumericBytes(..) => {
                 builder.add_bytes_field(name.as_ref(), config.clone())
+            }
+            SearchFieldType::Vector(_, dims, metric) => {
+                builder.add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()))
             }
         };
     }

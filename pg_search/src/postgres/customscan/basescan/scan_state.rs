@@ -75,6 +75,15 @@ pub struct BaseScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoids: [pg_sys::Oid; 2],
 
+    /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
+    /// targetlist was replaced with a NULL placeholder `Const` (see
+    /// `inject_vector_distance_placeholders`). The value is never read — the
+    /// TopK scan already provides the ordering and the column is junk-stripped
+    /// — so the placeholder just spares `ExecProject` from calling
+    /// `l2_distance(embedding, query)` and detoasting the heap vector. We track
+    /// it only so the projection path knows it must use `placeholder_targetlist`.
+    pub vector_distance_placeholder: bool,
+
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
     pub snippet_funcoids: [pg_sys::Oid; 2],

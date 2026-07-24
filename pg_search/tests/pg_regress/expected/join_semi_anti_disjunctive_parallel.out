@@ -111,8 +111,8 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5000;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -131,15 +131,19 @@ LIMIT 5000;
            :   │   VisibilityFilterExec: tables=[i]
            :   │     NestedLoopJoinExec: join_type=RightAnti, filter=pattern@2 = name@0 OR pattern@2 = alt_name@1, projection=[ctid_0@0, id@3]
            :   │       CoalescePartitionsExec
-           :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :   │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │         PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=6, input_tasks=2
+           :   │       DistributedLeafExec:
+           :   │         t0: PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         t1: PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         t2: PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=1, partitions=3
-           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
+           :     ┌───── Stage 1 ── tasks=2, partitions=12
+           :     │ BroadcastExec: input_partitions=2, consumer_tasks=3, output_partitions=6
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
+           :     │     t1: PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
            :     └──────────────────────────────────────────────────
-(26 rows)
+(30 rows)
 
 CREATE TEMP TABLE jsd_par_r1_on AS
 SELECT i.id
@@ -231,8 +235,8 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5000;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -251,15 +255,19 @@ LIMIT 5000;
            :   │   VisibilityFilterExec: tables=[i]
            :   │     NestedLoopJoinExec: join_type=RightSemi, filter=pattern@3 = name@0 OR pattern@3 = alt_name@1 OR pattern@3 = category@2, projection=[ctid_0@0, id@4]
            :   │       CoalescePartitionsExec
-           :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=1
-           :   │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           :   │         PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=6, input_tasks=2
+           :   │       DistributedLeafExec:
+           :   │         t0: PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         t1: PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :   │         t2: PgSearchScan: segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=1, partitions=3
-           :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
-           :     │   PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
+           :     ┌───── Stage 1 ── tasks=2, partitions=12
+           :     │ BroadcastExec: input_partitions=2, consumer_tasks=3, output_partitions=6
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
+           :     │     t1: PgSearchScan: segments=2, query={"with_index":{"query":"all"}}
            :     └──────────────────────────────────────────────────
-(26 rows)
+(30 rows)
 
 CREATE TEMP TABLE jsd_par_r2_on AS
 SELECT i.id

@@ -66,7 +66,8 @@ jobs:
           save-if: false
 
       - name: Install System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+        run: |
+          sudo apt-get update && sudo apt-get install -y libsecret-1-dev libopenblas-dev
 
       - name: Install .NET
         uses: actions/setup-dotnet@v6
@@ -157,6 +158,14 @@ jobs:
 
       - name: Add pgrx PostgreSQL binaries to PATH
         run: echo "$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
+
+      - name: Install pgvector (pgrx-managed Postgres)
+        run: |
+          git clone --branch v0.8.4 https://github.com/pgvector/pgvector.git
+          cd pgvector/
+          PG_CONFIG=$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config | head -n 1)
+          make PG_CONFIG="$PG_CONFIG" -j
+          make PG_CONFIG="$PG_CONFIG" install -j
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/

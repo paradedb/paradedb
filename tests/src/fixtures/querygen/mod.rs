@@ -146,6 +146,7 @@ pub fn generated_queries_setup(
     tables: &[(&str, usize)],
     columns_def: &[Column],
 ) -> String {
+    "CREATE EXTENSION IF NOT EXISTS vector;".execute(conn);
     "CREATE EXTENSION IF NOT EXISTS pg_search;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
@@ -733,6 +734,7 @@ pub fn handle_compare_error(
 -- Copy and paste this entire block to reproduce the issue
 --
 -- Prerequisites: Ensure pg_search extension is available
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 --
 -- Table and index setup

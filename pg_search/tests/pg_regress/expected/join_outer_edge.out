@@ -1,0 +1,376 @@
+-- Outer-join edge cases through JoinScan: ORDER BY on the nullable side,
+-- score on the nullable side, cross-table OR predicates, ON-clause routing,
+-- and a FULL join that activates the custom scan. join_outer.sql covers the
+-- basic LEFT / RIGHT shapes.
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS oj_fact CASCADE;
+DROP TABLE IF EXISTS oj_dim CASCADE;
+CREATE TABLE oj_fact (id INT PRIMARY KEY, dim_id INT, txt TEXT);
+CREATE TABLE oj_dim (id INT PRIMARY KEY, txt TEXT, price INT);
+-- Every third oj_fact row has a NULL dim_id (never matches);
+-- oj_dim rows 41..60 have no oj_fact partner.
+INSERT INTO oj_fact
+SELECT g, CASE WHEN g % 3 = 0 THEN NULL ELSE (g % 40) + 1 END, 'alpha item ' || g
+FROM generate_series(1, 100) g;
+INSERT INTO oj_dim
+SELECT g, 'beta item ' || g, g * 10
+FROM generate_series(1, 60) g;
+CREATE INDEX oj_fact_idx ON oj_fact
+USING bm25 (id, dim_id, txt)
+WITH (key_field='id', numeric_fields='{"dim_id":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+CREATE INDEX oj_dim_idx ON oj_dim
+USING bm25 (id, txt, price)
+WITH (key_field='id', numeric_fields='{"price":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+ANALYZE oj_fact;
+ANALYZE oj_dim;
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- ORDER BY on the nullable side: null-extended rows sort as a NULL key
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, b.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: a.id, b.id
+         Relation Tree: b RIGHT a
+         Join Cond: a.dim_id = b.id
+         Limit: 8
+         Order By: b.id asc nulls first, a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=8), expr=[id@1 ASC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[a]
+           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+           :         VisibilityFilterExec: tables=[b]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
+ id | id 
+----+----
+  3 |   
+  6 |   
+  9 |   
+ 12 |   
+ 15 |   
+ 18 |   
+ 21 |   
+ 24 |   
+(8 rows)
+
+-- =============================================================================
+-- Score on the nullable side: NULL for null-extended rows
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, (paradedb.score(b.id))
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: a.id, (paradedb.score(b.id))
+         Relation Tree: b RIGHT a
+         Join Cond: a.dim_id = b.id
+         Limit: 8
+         Order By: a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, score@0 as col_2, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[a]
+           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@2, dim_id@1)], projection=[score@0, ctid_0@1, ctid_1@3, id@5]
+           :         VisibilityFilterExec: tables=[b]
+           :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+ id | score 
+----+-------
+  1 |     0
+  2 |     0
+  3 |      
+  4 |     0
+  5 |     0
+  6 |      
+  7 |     0
+  8 |     0
+(8 rows)
+
+-- =============================================================================
+-- Cross-table OR search predicate as a WHERE (post-join) filter
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, b.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: a.id, b.id
+         Relation Tree: b RIGHT a
+         Join Cond: a.dim_id = b.id
+         Join Predicate: (a:{"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}} OR b:{"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}})
+         Limit: 8
+         Order By: a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[a]
+           :       FilterExec: pdb_search_predicate(ctid_1@2) OR pdb_search_predicate(ctid_0@0)
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+           :           VisibilityFilterExec: tables=[b]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
+(20 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
+ id | id 
+----+----
+  1 |  2
+  2 |  3
+  3 |   
+  4 |  5
+  5 |  6
+  6 |   
+  7 |  8
+  8 |  9
+(8 rows)
+
+-- =============================================================================
+-- ON-clause qual on the nullable side only: PG pushes it into that scan,
+-- so JoinScan sees a plain equi-join and stays active
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, b.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: a.id, b.id
+         Relation Tree: b RIGHT a
+         Join Cond: a.dim_id = b.id
+         Limit: 8
+         Order By: a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=8), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[a]
+           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+           :         VisibilityFilterExec: tables=[b]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"range":{"field":"price","lower_bound":{"excluded":100},"upper_bound":null}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+ id | id 
+----+----
+  1 |   
+  2 |   
+  3 |   
+  4 |   
+  5 |   
+  6 |   
+  7 |   
+  8 |   
+(8 rows)
+
+-- =============================================================================
+-- Two-sided non-equi ON condition: declines with a warning
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: a, b)
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, b.id
+   ->  Sort
+         Output: a.id, b.id
+         Sort Key: a.id
+         ->  Hash Left Join
+               Output: a.id, b.id
+               Inner Unique: true
+               Hash Cond: (a.dim_id = b.id)
+               Join Filter: (a.id < b.price)
+               ->  Custom Scan (ParadeDB Base Scan) on public.oj_fact a
+                     Output: a.id, a.dim_id
+                     Table: oj_fact
+                     Index: oj_fact_idx
+                     Worker Selection: Cost model
+                     Exec Method: ColumnarExecState
+                     Fast Fields: dim_id, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     Output: b.id, b.price
+                     ->  Seq Scan on public.oj_dim b
+                           Output: b.id, b.price
+(23 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+WARNING:  JoinScan not used: outer joins support only equi-join conditions in the ON clause (tables: a, b)
+ id | id 
+----+----
+  1 |  2
+  2 |  3
+  3 |   
+  4 |  5
+  5 |  6
+  6 |   
+  7 |  8
+  8 |  9
+(8 rows)
+
+-- =============================================================================
+-- FULL join: the search predicate lives inside a pulled-up subquery, below
+-- the join, so PG can neither reduce the FULL join nor reject it, and
+-- JoinScan runs it
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: oj_fact.id, b.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: oj_fact.id, b.id
+         Relation Tree: b FULL oj_fact
+         Join Cond: oj_fact.dim_id = b.id
+         Limit: 12
+         Order By: oj_fact.id asc nulls first, b.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=12), expr=[id@3 ASC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Full, on=[(id@1, dim_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+           :       VisibilityFilterExec: tables=[b]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :       VisibilityFilterExec: tables=[oj_fact]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
+ id | id 
+----+----
+    | 41
+    | 42
+    | 43
+    | 44
+    | 45
+    | 46
+    | 47
+    | 48
+    | 49
+    | 50
+    | 51
+    | 52
+(12 rows)
+
+SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
+ count 
+-------
+   120
+(1 row)
+
+-- =============================================================================
+-- Baselines with JoinScan off: results must match the sections above.
+-- paradedb.score() on the nullable side has no non-JoinScan fallback, so it
+-- has no baseline here.
+-- =============================================================================
+SET paradedb.enable_join_custom_scan = off;
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' ORDER BY b.id NULLS FIRST, a.id LIMIT 8;
+ id | id 
+----+----
+  3 |   
+  6 |   
+  9 |   
+ 12 |   
+ 15 |   
+ 18 |   
+ 21 |   
+ 24 |   
+(8 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | id 
+----+----
+  1 |  2
+  2 |  3
+  3 |   
+  4 |  5
+  5 |  6
+  6 |   
+  7 |  8
+  8 |  9
+(8 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+ id | id 
+----+----
+  1 |   
+  2 |   
+  3 |   
+  4 |   
+  5 |   
+  6 |   
+  7 |   
+  8 |   
+(8 rows)
+
+SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+ id | id 
+----+----
+  1 |  2
+  2 |  3
+  3 |   
+  4 |  5
+  5 |  6
+  6 |   
+  7 |  8
+  8 |  9
+(8 rows)
+
+SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
+ id | id 
+----+----
+    | 41
+    | 42
+    | 43
+    | 44
+    | 45
+    | 46
+    | 47
+    | 48
+    | 49
+    | 50
+    | 51
+    | 52
+(12 rows)
+
+SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
+ count 
+-------
+   120
+(1 row)
+
+DROP TABLE oj_fact;
+DROP TABLE oj_dim;

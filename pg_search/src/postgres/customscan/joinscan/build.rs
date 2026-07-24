@@ -160,9 +160,6 @@ impl From<*mut pg_sys::PlannerInfo> for PlannerRootId {
 
 /// Represents the join type for serialization.
 ///
-/// Note: Currently only Inner join is supported, but other variants are
-/// defined for future extensibility and to match PostgreSQL's JoinType enum.
-///
 /// The serde JSON shape of this enum (in particular, struct variant `Anti`)
 /// is **intra-process only** - it flows leader -> worker via `custom_private`
 /// within a single backend, never crosses a process or version boundary.
@@ -885,6 +882,9 @@ impl RelNode {
                 if !matches!(
                     j.join_type,
                     JoinType::Inner
+                        | JoinType::Left
+                        | JoinType::Right
+                        | JoinType::Full
                         | JoinType::Semi
                         | JoinType::Anti { .. }
                         | JoinType::LeftMark

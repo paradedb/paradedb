@@ -218,7 +218,7 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 4: JoinScan should NOT be proposed for non-INNER joins (for now)
 -- =============================================================================
--- LEFT JOIN with LIMIT - should NOT use JoinScan (M1 only handles INNER JOIN)
+-- LEFT JOIN with LIMIT - uses JoinScan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -226,30 +226,27 @@ LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Hash Right Join
-               Output: p.id, p.name, s.name
-               Hash Cond: (s.id = p.supplier_id)
-               ->  Seq Scan on public.suppliers s
-                     Output: s.id, s.name, s.contact_info, s.country
-               ->  Hash
-                     Output: p.id, p.name, p.supplier_id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.products p
-                           Output: p.id, p.name, p.supplier_id
-                           Table: products
-                           Index: products_bm25_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+         Relation Tree: s RIGHT p
+         Join Cond: p.supplier_id = s.id
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :         VisibilityFilterExec: tables=[s]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 -- =============================================================================
 -- TEST 5: JoinScan can be disabled via GUC

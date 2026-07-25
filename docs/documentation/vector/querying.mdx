@@ -1,6 +1,6 @@
 ---
 title: Querying Vectors
-description: Run nearest-neighbor vector search inside the BM25 index
+description: Run nearest-neighbor vector search inside the ParadeDB index
 canonical: https://docs.paradedb.com/documentation/vector/querying
 ---
 
@@ -11,7 +11,7 @@ canonical: https://docs.paradedb.com/documentation/vector/querying
   index used in these examples.
 </Note>
 
-Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query — a [Top K](/documentation/sorting/topk) query — over a vector column in the BM25 index.
+Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query — a [Top K](/documentation/sorting/topk) query — over a vector column in the ParadeDB index.
 
 ## Approximate Nearest Neighbors
 
@@ -59,9 +59,9 @@ LIMIT 5;
 
 <Note>
   Every field you filter on (e.g. `category` above) must also be part of the
-  BM25 index. Filters on unindexed fields cannot be evaluated inside the index
-  scan, forcing Postgres to recheck them afterward and eliminating the benefit
-  of combining vector search with [filtering](/documentation/filtering).
+  ParadeDB index. Filters on unindexed fields cannot be evaluated inside the
+  index scan, forcing Postgres to recheck them afterward and eliminating the
+  benefit of combining vector search with [filtering](/documentation/filtering).
 </Note>
 
 ## Verifying Pushdown

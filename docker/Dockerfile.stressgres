@@ -60,12 +60,12 @@ ENV PGCLIENTENCODING=UTF8
 # host triple (resolved here, not hardcoded, so it also builds on arm64 CI) via
 # CARGO_TARGET_<triple>_RUSTFLAGS + --target, keeping them off host build scripts. Coverage shim
 # comes from `--features dst`; its build script needs curl + a C toolchain.
-# See docs/reference/sdk/rust/instrumentation.
+# See https://antithesis.com/docs/reference/sdk/rust/instrumentation
 RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
     TARGET="$(rustc -vV | sed -n 's/^host: //p')" && \
     env "CARGO_TARGET_$(echo "$TARGET" | tr 'a-z-' 'A-Z_')_RUSTFLAGS=-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id" \
-        cargo build --offline --target "$TARGET" \
+        cargo build --offline --profile dst --target "$TARGET" \
         --manifest-path /home/app/Cargo.toml -p stressgres && \
-    ln -sf "/home/app/target/$TARGET/debug/stressgres" /symbols/stressgres
+    ln -sf "/home/app/target/$TARGET/dst/stressgres" /symbols/stressgres
 
 CMD ["sleep", "infinity"]

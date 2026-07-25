@@ -804,6 +804,10 @@ pub unsafe fn row_to_search_document<'a>(
                 SearchFieldType::NumericBytes(..) => {
                     TantivyValue::try_from_numeric_array_bytes(actual_datum)
                 }
+                // Legacy indexes stored INET arrays as IpAddr in the tantivy schema.
+                SearchFieldType::InetIpAddr(_) => {
+                    TantivyValue::try_from_inet_array_ipaddr(actual_datum)
+                }
                 // Legacy pre-v0.22.0 indexes stored NUMERIC arrays as F64 in the tantivy schema.
                 SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
                     TantivyValue::try_from_numeric_array_f64(actual_datum)
@@ -844,6 +848,10 @@ pub unsafe fn row_to_search_document<'a>(
                 }
                 SearchFieldType::NumericBytes(..) => {
                     TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                // Legacy indexes stored INET as IpAddr in the tantivy schema.
+                SearchFieldType::InetIpAddr(_) => {
+                    TantivyValue::try_from_inet_datum_ipaddr(actual_datum)
                 }
                 // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
                 SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {

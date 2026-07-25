@@ -38,9 +38,10 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::net::IpAddr;
 use std::num::ParseFloatError;
 use std::str::FromStr;
-use tantivy::schema::Facet;
+use tantivy::schema::{Facet, IntoIpv6Addr};
 use thiserror::Error;
 
 use super::jsonb_support::JsonbConversionError;
@@ -59,6 +60,33 @@ impl Default for TantivyValue {
 }
 
 impl TantivyValue {
+    /// Convert a PostgreSQL INET value to Tantivy's IpAddr representation.
+    /// Used only for legacy indexes whose tantivy schema stored INET fields as IpAddr.
+    pub fn try_from_inet_ipaddr(val: pgrx::Inet) -> Result<Self, TantivyValueError> {
+        let addr = val
+            .parse::<IpAddr>()
+            .map_err(|error| TantivyValueError::InetError(error.to_string()))?;
+        Ok(TantivyValue(PdbOwnedValue::IpAddr(addr.into_ipv6_addr())))
+    }
+
+    /// Convert a PostgreSQL INET datum for a legacy IpAddr-backed index.
+    pub unsafe fn try_from_inet_datum_ipaddr(datum: Datum) -> Result<Self, TantivyValueError> {
+        let val =
+            pgrx::datum::Inet::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+        Self::try_from_inet_ipaddr(val)
+    }
+
+    /// Convert a PostgreSQL INET[] datum for a legacy IpAddr-backed index.
+    pub unsafe fn try_from_inet_array_ipaddr(datum: Datum) -> Result<Vec<Self>, TantivyValueError> {
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| Self::try_from_inet_datum_ipaddr(element_datum))
+            .collect()
+    }
+
     pub fn into_tantivy_value(
         self,
         index_created_by_version: Option<crate::api::version::Version>,
@@ -1223,6 +1251,8 @@ impl TryFrom<TantivyValue> for pgrx::Inet {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
+            // Legacy indexes return IpAddr values; new indexes return encoded Bytes.
+            PdbOwnedValue::IpAddr(val) => Ok(val.to_string().into()),
             PdbOwnedValue::Bytes(encoded) => {
                 let inet = InetValue::decode(&encoded)
                     .map_err(|error| TantivyValueError::InetError(error.to_string()))?;

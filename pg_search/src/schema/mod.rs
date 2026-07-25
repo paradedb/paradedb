@@ -62,6 +62,7 @@ pub enum SearchFieldType {
     Tokenized(pg_sys::Oid, Typmod, pg_sys::Oid),
     Uuid(pg_sys::Oid),
     Inet(pg_sys::Oid),
+    InetIpAddr(pg_sys::Oid),
     Ltree(pg_sys::Oid),
     I64(pg_sys::Oid),
     F64(pg_sys::Oid),
@@ -98,7 +99,9 @@ impl SearchFieldType {
                 panic!("CustomText fields do not have a default config")
             }
             SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
-            SearchFieldType::Inet(_) => SearchFieldConfig::default_inet(),
+            SearchFieldType::Inet(_) | SearchFieldType::InetIpAddr(_) => {
+                SearchFieldConfig::default_inet()
+            }
             SearchFieldType::Ltree(_) => SearchFieldConfig::default_ltree(),
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
@@ -120,7 +123,7 @@ impl SearchFieldType {
             SearchFieldType::Text(oid) => *oid,
             SearchFieldType::Tokenized(oid, ..) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
-            SearchFieldType::Inet(oid) => *oid,
+            SearchFieldType::Inet(oid) | SearchFieldType::InetIpAddr(oid) => *oid,
             SearchFieldType::Ltree(oid) => *oid,
             SearchFieldType::I64(oid) => *oid,
             SearchFieldType::F64(oid) => *oid,
@@ -160,6 +163,10 @@ impl SearchFieldType {
         )
     }
 
+    pub fn is_inet_ipaddr(&self) -> bool {
+        matches!(self, SearchFieldType::InetIpAddr(_))
+    }
+
     /// Returns the Arrow DataType used to store this field type in fast fields.
     ///
     /// Multiple SearchFieldType variants may map to the same Arrow storage type.
@@ -170,6 +177,7 @@ impl SearchFieldType {
             SearchFieldType::Text(_)
             | SearchFieldType::Tokenized(..)
             | SearchFieldType::Uuid(_)
+            | SearchFieldType::InetIpAddr(_)
             | SearchFieldType::Ltree(_)
             | SearchFieldType::Json(_)
             | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
@@ -231,6 +239,7 @@ fn derive_field_type_from_schema(
     // The exceptions are:
     // - NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
     // - TIMESTAMP, TIMESTAMPTZ, TIME, TIMETZ, DATE, where legacy indexes used Date but new code computes I64
+    // - INET, where old indexes used IpAddr but new indexes use Bytes.
     match (field_entry.field_type(), computed_type) {
         // If computed type was Numeric64/NumericBytes but stored type is F64,
         // this is a legacy index - use F64
@@ -242,6 +251,9 @@ fn derive_field_type_from_schema(
         (FieldType::Date(_), SearchFieldType::I64(oid)) if is_datetime_type(oid) => {
             SearchFieldType::Date(oid)
         }
+        // If computed type was Inet but stored type is IpAddr, this is a
+        // legacy index - use InetIpAddr.
+        (FieldType::IpAddr(_), SearchFieldType::Inet(oid)) => SearchFieldType::InetIpAddr(oid),
         _ => {
             // For all other types, the computed type is correct
             computed_type

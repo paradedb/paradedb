@@ -301,6 +301,11 @@ pub unsafe fn try_build_pushdown_qual(
     let pushdown = PushdownField::try_new_with_context(context.var_context(), maybe_field, indexrel)?;
     let search_field = pushdown.search_field();
 
+    // Legacy INET indexes stored lossy IpAddr values, so leave comparisons to PostgreSQL.
+    if search_field.field_type().is_inet_ipaddr() {
+        return None;
+    }
+
     match lookup_operator(opexpr.opno()) {
         Some(pgsearch_operator) => {
             // can't push down tokenized text (but NumericBytes fields are stored as text with raw tokenizer)

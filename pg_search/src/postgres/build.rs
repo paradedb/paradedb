@@ -315,6 +315,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::Uuid(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Ltree(_) => builder.add_facet_field(name.as_ref(), config.clone()),
             SearchFieldType::Inet(_) => builder.add_bytes_field(name.as_ref(), config.clone()),
+            SearchFieldType::InetIpAddr(_) => {
+                unreachable!("InetIpAddr is only derived from an existing index schema")
+            }
             SearchFieldType::I64(_) => builder.add_i64_field(name.as_ref(), config.clone()),
             SearchFieldType::U64(_) => builder.add_u64_field(name.as_ref(), config.clone()),
             SearchFieldType::F64(_) => builder.add_f64_field(name.as_ref(), config.clone()),

@@ -13,8 +13,6 @@ canonical: https://docs.paradedb.com/documentation/vector/querying
 
 Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query over a vector column in the ParadeDB index.
 
-## Unfiltered Nearest Neighbors
-
 ParadeDB only accelerates a query when one of its search operators is present at the same level as the `ORDER BY ... LIMIT`. Any of the following qualify:
 
 | Operator | Meaning                                                                                           |
@@ -24,6 +22,8 @@ ParadeDB only accelerates a query when one of its search operators is present at
 | `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
 | `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
 | `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
+
+## Unfiltered Nearest Neighbors
 
 When you are not filtering, pair `@@@` with `pdb.all()`, which matches every row:
 

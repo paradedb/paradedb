@@ -35,8 +35,8 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
-    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanNodeExt,
-    PhysicalProtoConverterExtension,
+    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanDecodeContext,
+    PhysicalPlanNodeExt, PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use tantivy::index::SegmentId;
@@ -85,7 +85,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         buf: &[u8],
         inputs: &[Arc<dyn ExecutionPlan>],
         ctx: &TaskContext,
-        _proto_converter: &dyn PhysicalProtoConverterExtension,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let Some((&tag, payload)) = buf.split_first() else {
             return Err(DataFusionError::Internal(
@@ -97,6 +97,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 payload,
                 self.parallel_state,
                 self.expr_context,
+                ctx,
+                proto_converter,
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
             // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
@@ -149,11 +151,11 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         &self,
         node: Arc<dyn ExecutionPlan>,
         buf: &mut Vec<u8>,
-        _proto_converter: &dyn PhysicalProtoConverterExtension,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<()> {
         if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
             buf.push(TAG_PG_SEARCH_SCAN);
-            buf.extend_from_slice(&scan.encode_for_dispatch()?);
+            buf.extend_from_slice(&scan.encode_for_dispatch(proto_converter)?);
             return Ok(());
         }
         if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
@@ -373,8 +375,9 @@ fn combined_codec(user: PgSearchPhysicalExtensionCodec) -> ComposedPhysicalExten
     ])
 }
 
-/// Serialize one stage's physical subplan for dispatch. Context-free: only the recipe travels,
-/// the receiving worker injects its own runtime state on decode.
+/// Serialize one stage's physical subplan for dispatch. The recipe travels plus the scans'
+/// installed dynamic filters (identity-stamped proto exprs); the receiving worker injects its
+/// own runtime state on decode and re-shares the filters with the operators that update them.
 pub fn serialize_physical_plan(
     plan: Arc<dyn ExecutionPlan>,
     proto_converter: &dyn PhysicalProtoConverterExtension,
@@ -414,21 +417,21 @@ pub fn deserialize_physical_plan_with_runtime(
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))
     })?;
-    let plan = proto.try_into_physical_plan_with_converter(ctx, &codec, proto_converter)?;
-    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between a
-    // node and the scans below it; unless decode re-shares them, each occurrence rebuilds as a
-    // disconnected instance. Re-running the post-optimization pushdown pass on the decoded
-    // fragment re-creates the links, so this task's probe scans prune against its own build
-    // side instead of scanning every segment. The relink is possible only because a fragment
-    // keeps an operator and its probe scans in the same process; a link that crossed fragments
-    // would need the filter values shipped between processes.
+    let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
+    let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
+    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between an
+    // operator and the scans below it, and the two link mechanisms differ:
     //
-    // Prior art: the same pass was proposed for datafusion-distributed
-    // (https://github.com/datafusion-contrib/datafusion-distributed/pull/348) and closed in
-    // favor of fixing it in DataFusion proper, by serializing and deduping dynamic filters so
-    // decode re-shares one instance (https://github.com/apache/datafusion/pull/20416, design
-    // discussion in https://github.com/apache/datafusion/issues/21207). The pinned DataFusion
-    // rev ships that machinery and the MPP worker decodes with `DeduplicatingProtoConverter`;
-    // once the re-shared links are verified end-to-end, this pass can go.
+    // - HashJoinExec/AggregateExec links ride the wire by identity: the scan ships its
+    //   installed filters (`ScanDispatchDescriptor::dynamic_filters`) and the deduplicating
+    //   converter re-shares each with the operator's own decoded copy via `expr_id` (the
+    //   apache/datafusion#20416 machinery; design discussion in
+    //   https://github.com/apache/datafusion/issues/21207). Those operators skip re-pushing
+    //   when they already carry a filter, so this pass cannot relink them.
+    // - SegmentedTopKExec recreates its filter fresh on decode and re-pushes it every Post
+    //   phase, so this pass is what wires the worker's top-k threshold into its scans.
+    //
+    // Both mechanisms are fragment-local; a link that crossed fragments would need the filter
+    // values shipped between processes.
     FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

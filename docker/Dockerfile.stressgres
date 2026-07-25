@@ -13,6 +13,9 @@
 
 FROM rust:1.97-slim-trixie
 
+# pipefail for the piped build command below (hadolint DL4006).
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Install build and runtime dependencies. Upgrade existing OS packages first so
 # we pick up the latest Debian security fixes regardless of the base layer's age.
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -24,6 +27,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libjpeg-dev \
     libfontconfig1-dev \
     ca-certificates \
+    curl \
     postgresql-client \
     libpq5 \
     util-linux \
@@ -31,6 +35,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 
 # Create app user
 RUN useradd --create-home --shell /bin/bash app
+
+# Symbolization: Antithesis reads debug info from /symbols. The build step below symlinks the
+# (unstripped) binary in, so make it app-owned.
+RUN mkdir -p /symbols && chown app:app /symbols
 
 # Set working directory
 WORKDIR /home/app
@@ -48,9 +56,16 @@ USER app
 ENV RUST_LOG=info
 ENV PGCLIENTENCODING=UTF8
 
-# Prefetch deps and build Stressgres while we have Internet. This Docker image
-# will be run in an air-gapped environment in Antithesis
+# Prefetch while online; the image runs air-gapped in Antithesis. Sancov flags are scoped to the
+# host triple (resolved here, not hardcoded, so it also builds on arm64 CI) via
+# CARGO_TARGET_<triple>_RUSTFLAGS + --target, keeping them off host build scripts. Coverage shim
+# comes from `--features dst`; its build script needs curl + a C toolchain.
+# See docs/reference/sdk/rust/instrumentation.
 RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
-    cargo build --offline --release --manifest-path /home/app/Cargo.toml -p stressgres
+    TARGET="$(rustc -vV | sed -n 's/^host: //p')" && \
+    env "CARGO_TARGET_$(echo "$TARGET" | tr 'a-z-' 'A-Z_')_RUSTFLAGS=-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id" \
+        cargo build --offline --target "$TARGET" \
+        --manifest-path /home/app/Cargo.toml -p stressgres && \
+    ln -sf "/home/app/target/$TARGET/debug/stressgres" /symbols/stressgres
 
 CMD ["sleep", "infinity"]

@@ -7,7 +7,7 @@
 set -Eeuo pipefail
 
 SUITE_DIR=/home/app/stressgres/suites
-STRESSGRES=/home/app/target/release/stressgres
+STRESSGRES=/home/app/target/x86_64-unknown-linux-gnu/debug/stressgres
 
 # The paired singleton_driver runs this symlink; each first_ repoints it at its own suite.
 WORKLOAD_LINK=/tmp/stressgres-workload.toml

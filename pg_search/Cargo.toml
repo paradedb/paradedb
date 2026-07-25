@@ -19,7 +19,8 @@ pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
 deferred_wal = []
-dst = ["dst/enabled"]
+# direct dep so the coverage shim survives into the cdylib (see lib.rs)
+dst = ["dst/enabled", "dep:antithesis-instrumentation"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
 debug-logging = [
@@ -29,6 +30,7 @@ debug-logging = [
 [dependencies]
 async-trait = "0.1.89"
 dst = { path = "../dst" }
+antithesis-instrumentation = { version = "0.1", optional = true } # coverage shim; see lib.rs
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
 arrow-array = "58.1.0"

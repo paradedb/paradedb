@@ -41,6 +41,10 @@
 #[doc(hidden)]
 pub use antithesis_sdk;
 
+// `as _` keeps the linker from dropping the coverage shim.
+#[cfg(feature = "enabled")]
+use antithesis_instrumentation as _;
+
 /// Register the Antithesis assertion catalog for this process. Required once per process that
 /// emits assertions; without it a never-hit `assert_unreachable!` would pass vacuously instead
 /// of being reported. `antithesis_init` is idempotent, so it is safe to call from every process

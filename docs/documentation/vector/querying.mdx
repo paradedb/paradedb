@@ -11,9 +11,9 @@ canonical: https://docs.paradedb.com/documentation/vector/querying
   index used in these examples.
 </Note>
 
-Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query — a [Top K](/documentation/sorting/topk) query — over a vector column in the ParadeDB index.
+Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query over a vector column in the ParadeDB index.
 
-## Approximate Nearest Neighbors
+## Unfiltered Nearest Neighbors
 
 ParadeDB only accelerates a query when one of its search operators is present at the same level as the `ORDER BY ... LIMIT`. Any of the following qualify:
 
@@ -23,6 +23,7 @@ ParadeDB only accelerates a query when one of its search operators is present at
 | `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
 | `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
 | `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
+| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
 
 When you are not filtering, pair `@@@` with `pdb.all()`, which matches every row:
 
@@ -44,7 +45,7 @@ This operator must match the operator class the column was indexed with. Otherwi
 | `<=>`    | Cosine        | `vector_cosine_ops` |
 | `<#>`    | Inner product | `vector_ip_ops`     |
 
-## Filtered Vector Search
+## Filtered Nearest Neighbors
 
 To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the search operators above.
 For instance, the following query finds the nearest neighbors among results whose `category` contains the term `Footwear`.

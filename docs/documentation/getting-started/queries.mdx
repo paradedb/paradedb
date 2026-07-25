@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/getting-started/queries
 
 Now that your [environment is configured](/documentation/getting-started/environment), select the codetab for your tool and run some queries.
 
-## Match Query
+## Text Match Query
 
 We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
@@ -275,6 +275,23 @@ await dbContext
  Generic shoes       | 3.8772602
  White jogging shoes | 3.4849067
 (3 rows)
+```
+
+## Vector Search
+
+<Note>
+Native vector search support for ParadeDB requires version `0.25.0` or above.
+</Note>
+
+The `mock_items` table also contains an `embedding` column. Let's execute the same query above, but order results by vector similarity
+instead of BM25 score:
+
+```sql
+SELECT description
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
+LIMIT 5;
 ```
 
 ## Highlighting

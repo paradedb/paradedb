@@ -66,6 +66,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::catalog::lookup_collation_is_deterministic;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
@@ -116,11 +117,36 @@ pub struct AggregateScan;
 ///
 /// PostgreSQL uses each grouping expression's collation to determine equality,
 /// while ParadeDB's aggregation backends group text by its underlying value.
-/// Pushdown is therefore safe only when every grouping collation is known to
-/// have byte-compatible semantics.
+/// Deterministic collations break provider-level ties with a byte comparison,
+/// so they preserve byte-based grouping equality even when their ordering is
+/// not byte-compatible. Nondeterministic collations do not.
 unsafe fn grouping_collations_are_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
     if args.root().group_pathkeys.is_null() {
         return true;
+    }
+
+    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
+        .iter_ptr()
+        .all(|pathkey| {
+            let equivalence_class = (*pathkey).pk_eclass;
+            if equivalence_class.is_null() {
+                return false;
+            }
+
+            match (*equivalence_class).ec_collation {
+                pg_sys::Oid::INVALID => true,
+                collation => lookup_collation_is_deterministic(collation).unwrap_or(false),
+            }
+        })
+}
+
+/// Returns whether ordering a single grouping key can be delegated to ParadeDB.
+///
+/// This is stricter than grouping equality: deterministic ICU collations are
+/// safe for grouping, but PostgreSQL must still perform their ordering.
+unsafe fn grouping_key_order_is_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
+    if args.root().group_pathkeys.is_null() {
+        return false;
     }
 
     PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
@@ -248,6 +274,7 @@ impl CustomScan for AggregateScan {
                     let exceeds_cap = builder.args().estimate_group_count() > max_buckets;
                     let bounded_on_tantivy = builder.args().is_single_grouping_column()
                         && builder.args().orders_by_grouping_key()
+                        && grouping_key_order_is_pushdown_safe(builder.args())
                         && builder
                             .args()
                             .limit_plus_offset()

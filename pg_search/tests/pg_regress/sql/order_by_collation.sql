@@ -154,9 +154,18 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_c
 ORDER BY name_c;
 
-\echo 'Test 2.2: unsafe GROUP BY collation -> AggregateScan declined'
+\echo 'Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu;
+
+-- Deterministic ICU equality is compatible with byte-based grouping. Keep
+-- pdb.agg() on AggregateScan rather than falling back to PostgreSQL, which
+-- cannot execute its placeholder.
+SELECT name_icu, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
@@ -191,10 +200,10 @@ ORDER BY name;
 
 \echo 'Test 2.6: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT name_c, name_icu, COUNT(*) FROM collation_test
+SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
-GROUP BY name_c, name_icu
-ORDER BY name_c, name_icu;
+GROUP BY name_c, name_case_insensitive
+ORDER BY name_c, name_case_insensitive;
 
 RESET paradedb.enable_aggregate_custom_scan;
 
@@ -398,13 +407,15 @@ GROUP BY name_c
 ORDER BY name_c
 LIMIT 3;
 
-\echo 'Test 6.2: unsafe GROUP BY collation + LIMIT -> AggregateScan declined'
+\echo 'Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering remains above'
+SET paradedb.max_term_agg_buckets = 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
+RESET paradedb.max_term_agg_buckets;
 
 \echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

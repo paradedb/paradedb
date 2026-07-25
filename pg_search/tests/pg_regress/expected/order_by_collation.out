@@ -227,28 +227,41 @@ ORDER BY name_c;
      Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (6 rows)
 
-\echo 'Test 2.2: unsafe GROUP BY collation -> AggregateScan declined'
-Test 2.2: unsafe GROUP BY collation -> AggregateScan declined
+\echo 'Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above'
+Test 2.2: deterministic ICU GROUP BY stays pushed down; ORDER BY stays above
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu;
-                           QUERY PLAN                           
-----------------------------------------------------------------
- GroupAggregate
-   Group Key: name_icu
-   ->  Sort
-         Sort Key: name_icu COLLATE test_icu
-         ->  Custom Scan (ParadeDB Base Scan) on collation_test
-               Table: collation_test
-               Index: collation_test_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: name_icu
-               Scores: false
-               Full Index Scan: true
-               Tantivy Query: {"with_index":{"query":"all"}}
-(12 rows)
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: name_icu COLLATE test_icu
+   ->  Custom Scan (ParadeDB Aggregate Scan) on collation_test
+         Index: collation_test_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: name_icu
+           Aggregate Definition: {"grouped":{"terms":{"field":"name_icu","segment_size":65000,"size":65000}}}
+(8 rows)
+
+-- Deterministic ICU equality is compatible with byte-based grouping. Keep
+-- pdb.agg() on AggregateScan rather than falling back to PostgreSQL, which
+-- cannot execute its placeholder.
+SELECT name_icu, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu;
+  name_icu  |      agg       
+------------+----------------
+ apple      | {"value": 1.0}
+ Banana     | {"value": 1.0}
+ cherry     | {"value": 1.0}
+ Date       | {"value": 1.0}
+ elderberry | {"value": 1.0}
+(5 rows)
 
 \echo 'Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)'
 Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)
@@ -326,21 +339,21 @@ ORDER BY name;
 \echo 'Test 2.6: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 Test 2.6: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT name_c, name_icu, COUNT(*) FROM collation_test
+SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
-GROUP BY name_c, name_icu
-ORDER BY name_c, name_icu;
-                           QUERY PLAN                            
------------------------------------------------------------------
+GROUP BY name_c, name_case_insensitive
+ORDER BY name_c, name_case_insensitive;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  GroupAggregate
-   Group Key: name_c, name_icu
+   Group Key: name_c, name_case_insensitive
    ->  Sort
-         Sort Key: name_c COLLATE "C", name_icu COLLATE test_icu
+         Sort Key: name_c COLLATE "C", name_case_insensitive COLLATE test_icu_case_insensitive
          ->  Custom Scan (ParadeDB Base Scan) on collation_test
                Table: collation_test
                Index: collation_test_idx
                Exec Method: ColumnarExecState
-               Fast Fields: name_c, name_icu
+               Fast Fields: name_c, name_case_insensitive
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
@@ -638,31 +651,32 @@ LIMIT 3;
            Aggregate Definition: {"grouped":{"terms":{"field":"name_c","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (8 rows)
 
-\echo 'Test 6.2: unsafe GROUP BY collation + LIMIT -> AggregateScan declined'
-Test 6.2: unsafe GROUP BY collation + LIMIT -> AggregateScan declined
+\echo 'Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering remains above'
+Test 6.2: deterministic ICU GROUP BY + LIMIT -> grouping pushed down, ordering remains above
+SET paradedb.max_term_agg_buckets = 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_icu, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
-                              QUERY PLAN                              
-----------------------------------------------------------------------
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
  Limit
-   ->  GroupAggregate
-         Group Key: name_icu
-         ->  Sort
-               Sort Key: name_icu COLLATE test_icu
-               ->  Custom Scan (ParadeDB Base Scan) on collation_test
-                     Table: collation_test
-                     Index: collation_test_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: name_icu
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+   ->  Sort
+         Sort Key: name_icu COLLATE test_icu
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: collation_test_idx (collation_test)
+               Group By: name_icu
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : AggregateExec: mode=Single, gby=[name_icu@0 as name_icu], aggr=[count(1) as agg_0]
+                 :   CooperativeExec
+                 :     PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(12 rows)
 
+RESET paradedb.max_term_agg_buckets;
 \echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
 Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

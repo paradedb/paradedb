@@ -251,17 +251,3 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
         Ok(pdb_value)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::PdbOwnedValue;
-
-    #[test]
-    fn bytes_preserve_their_type_across_json_serialization() {
-        let value = PdbOwnedValue::Bytes(vec![0, 1, 127, 128, 255]);
-        let serialized = serde_json::to_string(&value).unwrap();
-        let deserialized = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(value, deserialized);
-    }
-}

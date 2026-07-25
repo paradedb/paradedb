@@ -112,6 +112,26 @@ use std::ffi::CStr;
 #[derive(Default)]
 pub struct AggregateScan;
 
+/// Returns whether AggregateScan can preserve PostgreSQL's GROUP BY semantics.
+///
+/// PostgreSQL uses each grouping expression's collation to determine equality,
+/// while ParadeDB's aggregation backends group text by its underlying value.
+/// Pushdown is therefore safe only when every grouping collation is known to
+/// have byte-compatible semantics.
+unsafe fn grouping_collations_are_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
+    if args.root().group_pathkeys.is_null() {
+        return true;
+    }
+
+    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
+        .iter_ptr()
+        .all(|pathkey| {
+            let equivalence_class = (*pathkey).pk_eclass;
+            !equivalence_class.is_null()
+                && is_collation_pushdown_safe((*equivalence_class).ec_collation)
+        })
+}
+
 /// A collection of index information that is necessary for making result-rewriting decisions
 pub struct AggIndexInfo {
     pub created_by_version: Option<crate::api::version::Version>,
@@ -203,6 +223,12 @@ impl CustomScan for AggregateScan {
             let parse = builder.args().root().parse;
             !parse.is_null() && query_has_paradedb_agg(parse, true)
         };
+
+        // If ParadeDB cannot preserve GROUP BY equality, do not offer an
+        // AggregateScan path; PostgreSQL must aggregate the original rows.
+        if !unsafe { grouping_collations_are_pushdown_safe(builder.args()) } {
+            return Vec::new();
+        }
 
         let input_rel = builder.args().input_rel();
 

@@ -163,14 +163,13 @@ impl SearchFieldType {
     /// Returns the Arrow DataType used to store this field type in fast fields.
     ///
     /// Multiple SearchFieldType variants may map to the same Arrow storage type.
-    /// For example, Text, Uuid, Inet, Json, and Range all store as Utf8View.
+    /// For example, Text, Uuid, Json, and Range all store as Utf8View.
     pub fn arrow_data_type(&self) -> arrow_schema::DataType {
         match self {
             // String-like types all store as Utf8View
             SearchFieldType::Text(_)
             | SearchFieldType::Tokenized(..)
             | SearchFieldType::Uuid(_)
-            | SearchFieldType::Inet(_)
             | SearchFieldType::Ltree(_)
             | SearchFieldType::Json(_)
             | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
@@ -197,8 +196,10 @@ impl SearchFieldType {
             // Numeric64 is stored as Int64 (scaled integer)
             SearchFieldType::Numeric64(..) => arrow_schema::DataType::Int64,
 
-            // NumericBytes is stored as BinaryView
-            SearchFieldType::NumericBytes(..) => arrow_schema::DataType::BinaryView,
+            // Sortable byte encodings are stored as BinaryView.
+            SearchFieldType::NumericBytes(..) | SearchFieldType::Inet(_) => {
+                arrow_schema::DataType::BinaryView
+            }
 
             // Vector is not stored in Arrow columnar format
             SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
@@ -889,7 +890,7 @@ pub enum SearchIndexSchemaError {
 mod tests {
     use pgrx::{pg_sys, PgOid};
     use rstest::rstest;
-    use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
+    use tantivy::schema::{BytesOptions, JsonObjectOptions, NumericOptions, TextOptions};
 
     use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -926,7 +927,7 @@ mod tests {
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
         let expected: SearchFieldConfig =
             serde_json::from_value(serde_json::json!({"Inet": config})).unwrap();
-        let inet_options: IpAddrOptions = SearchFieldConfig::default_inet().into();
+        let inet_options: BytesOptions = SearchFieldConfig::default_inet().into();
 
         assert_eq!(inet_options, expected.into());
     }

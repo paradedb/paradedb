@@ -155,6 +155,7 @@ pub unsafe fn term_with_operator(
         pg_sys::TIMETZOID => make_query!(operator, field, time_with_time_zone, pgrx::datum::TimeWithTimeZone, value),
         pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value),
         pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value),
+        pg_sys::INETOID => make_query!(operator, field, inet, pgrx::Inet, value),
 
         other if is_citext_oid(other) => {
             make_query!(operator, field, term_str, String, value)

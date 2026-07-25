@@ -67,6 +67,8 @@ pub const NUMERIC_TYPE_PAIRS: &[[&str; 2]] = &[
     ["timetz", "timetz"],
     ["timestamp", "timestamp"],
     ["timestamptz", "timestamptz"],
+    // network addresses
+    ["inet", "inet"],
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

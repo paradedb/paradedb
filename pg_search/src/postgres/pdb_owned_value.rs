@@ -27,6 +27,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::TantivyValueError;
 
 pub const PDB_DATE_TAG: &str = "$__pdb_date__";
+pub const PDB_BYTES_TAG: &str = "$__pdb_bytes__";
 
 /// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent dates
 /// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
@@ -114,13 +115,27 @@ impl PdbOwnedValue {
                     .collect(),
             ),
             OwnedValue::Object(object) => {
-                // serialized Date's end up as objects, so we'll need to look for their shape here.
+                // Tagged values end up as objects, so look for their shape here.
                 if object.len() == 1 {
                     if let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
                     {
                         // Strings that parse as a datetime must be assumed to be datetimes
                         if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
                             return PdbOwnedValue::Date(pgdt);
+                        }
+                    }
+                    if let (PDB_BYTES_TAG, OwnedValue::Array(values)) =
+                        (object[0].0.as_str(), &object[0].1)
+                    {
+                        let bytes = values
+                            .iter()
+                            .map(|value| match value {
+                                OwnedValue::U64(value) => u8::try_from(*value).ok(),
+                                _ => None,
+                            })
+                            .collect::<Option<Vec<_>>>();
+                        if let Some(bytes) = bytes {
+                            return PdbOwnedValue::Bytes(bytes);
                         }
                     }
                 }
@@ -160,6 +175,11 @@ impl serde::Serialize for PdbOwnedValue {
             PdbOwnedValue::Date(date) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry(PDB_DATE_TAG, &date)?;
+                map.end()
+            }
+            PdbOwnedValue::Bytes(ref bytes) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(PDB_BYTES_TAG, bytes)?;
                 map.end()
             }
             PdbOwnedValue::Object(ref obj) => {
@@ -229,5 +249,19 @@ impl TryFrom<serde_json::Value> for PdbOwnedValue {
     fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
         let pdb_value: PdbOwnedValue = serde_json::from_value(value)?;
         Ok(pdb_value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PdbOwnedValue;
+
+    #[test]
+    fn bytes_preserve_their_type_across_json_serialization() {
+        let value = PdbOwnedValue::Bytes(vec![0, 1, 127, 128, 255]);
+        let serialized = serde_json::to_string(&value).unwrap();
+        let deserialized = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(value, deserialized);
     }
 }

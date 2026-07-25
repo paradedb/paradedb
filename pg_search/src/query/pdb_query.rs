@@ -1866,13 +1866,14 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_type();
 
-    // Handle Numeric64 and NumericBytes fields specially
-    // Tantivy's QueryParser can't parse decimal strings directly for these types
+    // Handle field types whose indexed representation differs from their query string.
     if matches!(
         field_type,
-        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(..)
+        SearchFieldType::Numeric64(_, _)
+            | SearchFieldType::NumericBytes(..)
+            | SearchFieldType::Inet(_)
     ) {
-        // Convert the query string to the appropriate numeric format
+        // Convert the query string to the field's indexed representation.
         let value = PdbOwnedValue::Str(query_string.trim().to_string());
         if let Ok(converted) = convert_value_for_field(value, &field_type) {
             let tantivy_field_type = search_field.field_entry().field_type();

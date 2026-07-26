@@ -27,9 +27,16 @@ panic = "unwind"
 opt-level = 3
 codegen-units = 1
 
+# Optimized + debug symbols, for profiling; debug-assertions off keeps dst asserts compiled out.
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+debug-assertions = false
+
+# Antithesis build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
+# without affecting `dev`.
+[profile.dst]
+inherits = "dev"
 
 [workspace.dependencies]
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "055cfd0afffa7823aa9e835d67ae290c765d616a", features = [

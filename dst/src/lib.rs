@@ -18,12 +18,14 @@
 //! Deterministic-simulation-testing (DST) hooks — the one place that talks to the Antithesis
 //! Rust SDK.
 //!
-//! Everything here is gated on the crate's `enabled` feature. With `enabled` **off** (the
-//! default) the crate compiles to nothing: the assertion macros expand to a dead
-//! `if false { … }` that still type-checks their arguments, [`GhostState<T>`] is a zero-sized
-//! type, `observe!` closures are type-checked but never run, and [`init`] is a no-op — so a
-//! consumer that does not opt in never links the SDK. With `enabled` **on** the macros forward
-//! to `antithesis_sdk` and dispatch for real.
+//! Three build configurations, selected automatically:
+//!
+//! * **`enabled`** — macros forward to `antithesis_sdk`; used for Antithesis runs
+//!   (`pg_search --features dst`).
+//! * **`enabled` off, `debug_assertions` on** — the always/unreachable asserts lower to
+//!   `debug_assert!` and `GhostState`/`observe!` run, so invariants are also checked in normal
+//!   testing; `assert_sometimes!`/`assert_reachable!` need a whole run, so they only type-check.
+//! * **neither** (release) — compiles to nothing.
 //!
 //! The assertion wrappers mirror the SDK's signatures (`$message` must be a string literal) and
 //! are macros, not functions, so each assertion's location is captured at the real call site.
@@ -39,6 +41,10 @@
 #[doc(hidden)]
 pub use antithesis_sdk;
 
+// `as _` keeps the linker from dropping the coverage shim.
+#[cfg(feature = "enabled")]
+use antithesis_instrumentation as _;
+
 /// Register the Antithesis assertion catalog for this process. Required once per process that
 /// emits assertions; without it a never-hit `assert_unreachable!` would pass vacuously instead
 /// of being reported. `antithesis_init` is idempotent, so it is safe to call from every process
@@ -52,17 +58,73 @@ pub fn init() {
 #[cfg(not(feature = "enabled"))]
 pub fn init() {}
 
-// Two generator macros stamp out the wrappers (each forwards to the identically-named
-// `antithesis_sdk` macro when enabled, or a type-checking-only `if false { … }` when not — see
-// the crate docs). `$d` is bound to `$` at each call site so the generated macro can name its own
-// metavariables — the standard escape for a macro that defines a macro.
+// The leading `debug_assert` / `type_only` keyword selects the SDK-off lowering (see crate docs).
+// `$d` is bound to `$` so a generated macro can name its own metavariables (the escape for a macro
+// that defines a macro).
+
+// Type-check-only expansion for a compiled-out assertion: evaluates nothing.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __dst_typecheck_cond {
+    ($condition:expr, $message:literal $(, $details:expr)?) => {
+        if false {
+            let _: bool = $condition;
+            let _: &str = $message;
+            $(let _ = &$details;)?
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __dst_typecheck_msg {
+    ($message:literal $(, $details:expr)?) => {
+        if false {
+            let _: &str = $message;
+            $(let _ = &$details;)?
+        }
+    };
+}
 
 /// Generate a condition-style wrapper: `name!(condition, "message" [, &details])`.
 // rustfmt cannot format a `macro_rules!` that defines a `macro_rules!` idempotently — each pass
 // re-indents the nested arms further — so pin this generator's formatting by hand.
 #[rustfmt::skip]
 macro_rules! define_condition_assert {
-    ($d:tt $name:ident, $doc:literal) => {
+    (debug_assert $d:tt $name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[cfg(feature = "enabled")]
+        #[macro_export]
+        macro_rules! $name {
+            ($d condition:expr, $d message:literal $d(, $d details:expr)?) => {
+                $crate::antithesis_sdk::$name!($d condition, $d message $d(, $d details)?)
+            };
+        }
+
+        // `details` folds into the panic message.
+        #[doc = $doc]
+        #[cfg(all(not(feature = "enabled"), debug_assertions))]
+        #[macro_export]
+        macro_rules! $name {
+            ($d condition:expr, $d message:literal, $d details:expr) => {
+                ::core::debug_assert!($d condition, "{}: {:?}", $d message, $d details)
+            };
+            ($d condition:expr, $d message:literal) => {
+                ::core::debug_assert!($d condition, "{}", $d message)
+            };
+        }
+
+        #[doc = $doc]
+        #[cfg(all(not(feature = "enabled"), not(debug_assertions)))]
+        #[macro_export]
+        macro_rules! $name {
+            ($d condition:expr, $d message:literal $d(, $d details:expr)?) => {
+                $crate::__dst_typecheck_cond!($d condition, $d message $d(, $d details)?)
+            };
+        }
+    };
+
+    (type_only $d:tt $name:ident, $doc:literal) => {
         #[doc = $doc]
         #[cfg(feature = "enabled")]
         #[macro_export]
@@ -77,11 +139,7 @@ macro_rules! define_condition_assert {
         #[macro_export]
         macro_rules! $name {
             ($d condition:expr, $d message:literal $d(, $d details:expr)?) => {
-                if false {
-                    let _: bool = $d condition;
-                    let _: &str = $d message;
-                    $d(let _ = &$d details;)?
-                }
+                $crate::__dst_typecheck_cond!($d condition, $d message $d(, $d details)?)
             };
         }
     };
@@ -90,7 +148,40 @@ macro_rules! define_condition_assert {
 /// Generate a message-only wrapper: `name!("message" [, &details])`.
 #[rustfmt::skip]
 macro_rules! define_message_assert {
-    ($d:tt $name:ident, $doc:literal) => {
+    (debug_assert $d:tt $name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[cfg(feature = "enabled")]
+        #[macro_export]
+        macro_rules! $name {
+            ($d message:literal $d(, $d details:expr)?) => {
+                $crate::antithesis_sdk::$name!($d message $d(, $d details)?)
+            };
+        }
+
+        // Reaching this site is the violation, so panic.
+        #[doc = $doc]
+        #[cfg(all(not(feature = "enabled"), debug_assertions))]
+        #[macro_export]
+        macro_rules! $name {
+            ($d message:literal, $d details:expr) => {
+                ::core::debug_assert!(false, "{}: {:?}", $d message, $d details)
+            };
+            ($d message:literal) => {
+                ::core::debug_assert!(false, "{}", $d message)
+            };
+        }
+
+        #[doc = $doc]
+        #[cfg(all(not(feature = "enabled"), not(debug_assertions)))]
+        #[macro_export]
+        macro_rules! $name {
+            ($d message:literal $d(, $d details:expr)?) => {
+                $crate::__dst_typecheck_msg!($d message $d(, $d details)?)
+            };
+        }
+    };
+
+    (type_only $d:tt $name:ident, $doc:literal) => {
         #[doc = $doc]
         #[cfg(feature = "enabled")]
         #[macro_export]
@@ -105,41 +196,38 @@ macro_rules! define_message_assert {
         #[macro_export]
         macro_rules! $name {
             ($d message:literal $d(, $d details:expr)?) => {
-                if false {
-                    let _: &str = $d message;
-                    $d(let _ = &$d details;)?
-                }
+                $crate::__dst_typecheck_msg!($d message $d(, $d details)?)
             };
         }
     };
 }
 
-define_condition_assert!($ assert_always,
+define_condition_assert!(debug_assert $ assert_always,
     "Assert `condition` holds every time this site runs and that it is hit at least once. `message` must be a string literal; optional `details` is a `&serde_json::Value`.");
-define_condition_assert!($ assert_always_or_unreachable,
+define_condition_assert!(debug_assert $ assert_always_or_unreachable,
     "Like `assert_always!`, but the property still passes if the site is never hit.");
-define_condition_assert!($ assert_sometimes,
+define_condition_assert!(type_only $ assert_sometimes,
     "Assert `condition` holds at least once across the run.");
-define_message_assert!($ assert_reachable,
+define_message_assert!(type_only $ assert_reachable,
     "Assert this site is reached at least once across the run.");
-define_message_assert!($ assert_unreachable,
+define_message_assert!(debug_assert $ assert_unreachable,
     "Assert this site is never reached; reaching it reports a violation.");
 
 // Ghost state + read-only observation, ported from precept (orbitinghail/precept).
 
-/// Auxiliary *ghost state* that exists only to express properties: its inner `T` can be read
-/// only through [`observe!`] and mutated only through [`GhostState::mutate`]. When `enabled` is
-/// off it is a zero-sized type and every access compiles out.
-#[cfg(feature = "enabled")]
+/// Auxiliary *ghost state* for expressing properties: read only via [`observe!`], mutated only via
+/// [`GhostState::mutate`]. Value-carrying where assertions can fire (`enabled` or
+/// `debug_assertions`); a zero-sized no-op otherwise.
+#[cfg(any(feature = "enabled", debug_assertions))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GhostState<T>(T);
 
-/// See the [`enabled` definition](GhostState).
-#[cfg(not(feature = "enabled"))]
+/// See the [value-carrying definition](GhostState).
+#[cfg(not(any(feature = "enabled", debug_assertions)))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GhostState<T>(::core::marker::PhantomData<T>);
 
-#[cfg(feature = "enabled")]
+#[cfg(any(feature = "enabled", debug_assertions))]
 impl<T> GhostState<T> {
     /// Create ghost state, initializing the inner `T` with `init`. `init` is read-only (an `Fn`);
     /// when the crate is compiled out it is never called and no `T` is constructed.
@@ -160,15 +248,15 @@ impl<T> GhostState<T> {
     }
 }
 
-#[cfg(not(feature = "enabled"))]
+#[cfg(not(any(feature = "enabled", debug_assertions)))]
 impl<T> GhostState<T> {
-    /// See the enabled definition.
+    /// See the value-carrying definition.
     #[allow(unused_variables)]
     pub fn new<F: Fn() -> T>(init: F) -> Self {
         GhostState(::core::marker::PhantomData)
     }
 
-    /// See the enabled definition.
+    /// See the value-carrying definition.
     #[allow(unused_variables)]
     pub fn mutate<F: Fn(&mut T)>(&mut self, f: F) {}
 }
@@ -178,14 +266,14 @@ impl<T> GhostState<T> {
 // type-checked but never executed.
 macro_rules! define_observe_helpers {
     ($( $name:ident ( $($ty:ident : $arg:ident),* ) ),* $(,)?) => {$(
-        #[cfg(feature = "enabled")]
+        #[cfg(any(feature = "enabled", debug_assertions))]
         #[doc(hidden)]
         #[allow(clippy::too_many_arguments)]
         pub fn $name<$($ty,)* F: Fn($(&$ty),*)>($($arg: &$crate::GhostState<$ty>,)* f: F) {
             f($($arg.inner()),*)
         }
 
-        #[cfg(not(feature = "enabled"))]
+        #[cfg(not(any(feature = "enabled", debug_assertions)))]
         #[doc(hidden)]
         #[allow(unused_variables, clippy::too_many_arguments)]
         pub fn $name<$($ty,)* F: Fn($(&$ty),*)>($($arg: &$crate::GhostState<$ty>,)* f: F) {}
@@ -227,9 +315,7 @@ macro_rules! observe {
 mod tests {
     use crate::GhostState;
 
-    // Compiles and runs in both feature configurations. With `enabled` off the closures are
-    // type-checked but never executed and `GhostState` is zero-sized; either way this must not
-    // panic and the assertion macros must type-check.
+    // Must compile and not panic in every configuration (the asserts below all hold).
     #[test]
     fn compiles_and_runs_in_all_configs() {
         crate::init();
@@ -237,10 +323,8 @@ mod tests {
         let mut seen = GhostState::new(|| 0i64);
         seen.mutate(|n| *n += 1);
 
-        // NB: the assert wrappers are macro-generated `#[macro_export]` macros, which cannot be
-        // referred to by an absolute path (`crate::assert_always!`) from inside this crate — so
-        // call them unqualified (they are in textual scope). Consumer crates reference them
-        // cross-crate as `dst::assert_*!`, which is unaffected.
+        // Called unqualified: `#[macro_export]` macros aren't reachable by absolute path from
+        // within the defining crate (consumers use `dst::assert_*!`).
         crate::observe!(seen, |n: &i64| {
             assert_always!(
                 *n >= 0,
@@ -251,9 +335,28 @@ mod tests {
 
         crate::observe!(|| {
             assert_reachable!("observation ran");
-            assert_unreachable!("should not construct impossible state");
             assert_sometimes!(true, "sometimes true");
             assert_always_or_unreachable!(1 + 1 == 2, "arithmetic holds");
+        });
+    }
+
+    // A failing assert panics only where it lowers to `debug_assert!` (SDK off, debug_assertions
+    // on), so these two tests are gated to that config.
+    #[cfg(all(not(feature = "enabled"), debug_assertions))]
+    #[test]
+    #[should_panic(expected = "always-false correctness assert")]
+    fn failing_assert_always_panics_in_debug() {
+        crate::observe!(|| {
+            assert_always!(false, "always-false correctness assert");
+        });
+    }
+
+    #[cfg(all(not(feature = "enabled"), debug_assertions))]
+    #[test]
+    #[should_panic(expected = "reached an impossible state")]
+    fn reached_unreachable_panics_in_debug() {
+        crate::observe!(|| {
+            assert_unreachable!("reached an impossible state");
         });
     }
 }

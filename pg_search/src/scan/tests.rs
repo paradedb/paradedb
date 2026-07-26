@@ -91,7 +91,7 @@ mod tests {
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
-            planner_estimated_rows: 10,
+            planner_estimated_rows: 0,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),
@@ -516,18 +516,126 @@ mod tests {
         assert_eq!(build_4.split_points, sample.sample_points);
 
         // Up-sample / Pad: target partitions (6) > sample size (4)
-        // 6 partitions requires 5 split points. We only have 3 sample points, so we keep 3, and pad 2.
+        // Since we cap at sample_points.len() + 1, it will generate 3 split points (4 partitions).
+        // The remaining 2 partitions will yield empty streams at execution time.
         let build_6 = sample.build(6);
-        assert_eq!(build_6.split_points.len(), 5);
+        assert_eq!(build_6.split_points.len(), 3);
         assert_eq!(build_6.split_points[0], PdbOwnedValue::I64(10));
         assert_eq!(build_6.split_points[1], PdbOwnedValue::I64(20));
         assert_eq!(build_6.split_points[2], PdbOwnedValue::I64(30));
-        assert_eq!(build_6.split_points[3], PdbOwnedValue::I64(30)); // padded
-        assert_eq!(build_6.split_points[4], PdbOwnedValue::I64(30)); // padded
 
         // Single partition (no splits)
         let build_1 = sample.build(1);
         assert_eq!(build_1.split_points.len(), 0);
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_nulls() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![
+                PdbOwnedValue::Null,
+                PdbOwnedValue::Null,
+                PdbOwnedValue::I64(10),
+            ],
+        };
+
+        // Down-sample to 4 partitions: 3 split points
+        let build = sample.build(4);
+        assert_eq!(build.split_points.len(), 3);
+        assert_eq!(build.split_points[0], PdbOwnedValue::Null);
+        assert_eq!(build.split_points[1], PdbOwnedValue::Null);
+        assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
+
+        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        let p0 = build.partition_bounds(0);
+        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+
+        // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
+        let p1 = build.partition_bounds(1);
+        assert!(matches!(p1, SearchQueryInput::Empty));
+
+        // partition 2: lower is Null (Unbounded), upper is Excluded(10) -> Range
+        let p2 = build.partition_bounds(2);
+        assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
+
+        // partition 3: lower is Included(10), upper is Unbounded -> Range
+        let p3 = build.partition_bounds(3);
+        assert!(matches!(p3, SearchQueryInput::FieldedQuery { .. }));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_all_nulls() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![PdbOwnedValue::Null, PdbOwnedValue::Null],
+        };
+
+        let build = sample.build(3);
+        assert_eq!(build.split_points.len(), 2);
+        assert_eq!(build.split_points[0], PdbOwnedValue::Null);
+        assert_eq!(build.split_points[1], PdbOwnedValue::Null);
+
+        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        let p0 = build.partition_bounds(0);
+        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+
+        // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
+        let p1 = build.partition_bounds(1);
+        assert!(matches!(p1, SearchQueryInput::Empty));
+
+        // partition 2: lower is Null (Unbounded), upper is Unbounded -> Range
+        let p2 = build.partition_bounds(2);
+        assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_identical_values() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![
+                PdbOwnedValue::I64(10),
+                PdbOwnedValue::I64(10),
+                PdbOwnedValue::I64(10),
+            ],
+        };
+
+        let build = sample.build(4);
+        assert_eq!(build.split_points.len(), 3);
+        assert_eq!(build.split_points[0], PdbOwnedValue::I64(10));
+        assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
+        assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
+
+        // partition 0: upper is 10 -> Range OR Boolean(NOT Exists)
+        let p0 = build.partition_bounds(0);
+        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+
+        // partition 1: lower is 10, upper is 10 -> Range
+        let p1 = build.partition_bounds(1);
+        assert!(matches!(p1, SearchQueryInput::FieldedQuery { .. }));
+
+        // partition 2: lower is 10, upper is 10 -> Range
+        let p2 = build.partition_bounds(2);
+        assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
+
+        // partition 3: lower is 10, upper is Unbounded -> Range
+        let p3 = build.partition_bounds(3);
+        assert!(matches!(p3, SearchQueryInput::FieldedQuery { .. }));
     }
 
     #[pg_test]
@@ -560,7 +668,7 @@ mod tests {
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
-            planner_estimated_rows: 10,
+            planner_estimated_rows: 0,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),

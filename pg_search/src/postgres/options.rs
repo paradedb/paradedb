@@ -155,6 +155,25 @@ extern "C-unwind" fn validate_sort_by(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
+    let partition_by_str = cstr_to_rust_str(value);
+    if partition_by_str.is_empty() {
+        return;
+    }
+
+    let mut fields = 0;
+    for part in partition_by_str.split(',') {
+        if !part.trim().is_empty() {
+            fields += 1;
+        }
+    }
+
+    if fields == 0 {
+        panic!("invalid partition_by value: must specify at least one field");
+    }
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_char) {
     let s = cstr_to_rust_str(value);
     if s.is_empty() {
@@ -828,6 +847,7 @@ impl BM25IndexOptionsData {
         } else {
             pb_str
                 .split(',')
+                .filter(|s| !s.trim().is_empty())
                 .map(|s| FieldName::from(s.trim().to_string()))
                 .collect()
         }
@@ -1055,7 +1075,7 @@ pub unsafe fn init() {
         "partition_by".as_pg_cstr(),
         "Comma-separated list of fields to partition index data by".as_pg_cstr(),
         std::ptr::null(),
-        None,
+        Some(validate_partition_by),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

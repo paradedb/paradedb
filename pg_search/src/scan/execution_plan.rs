@@ -125,21 +125,19 @@ pub enum ExecutionState {
     /// The state is consumed by the first partition.
     Shared {
         parallel_state: Option<UnsafeSendSync<*mut crate::postgres::ParallelScanState>>,
-        scan_state: Box<UnsafeSendSync<ScanState>>,
+        scan_state: Option<Box<UnsafeSendSync<ScanState>>>,
+        spent_partitions: Vec<bool>,
     },
     /// In RangePartitioned mode, we static-partition using RangePartitioning.
     /// The state is cloned for each partition.
     RangePartitioned {
         range_boundaries: RangePartitioning,
         scan_state: Box<UnsafeSendSync<ScanState>>,
+        spent_partitions: Vec<bool>,
     },
-    /// The Shared state was taken; remaining partitions yield empty streams.
-    Empty { remaining_partitions: usize },
     /// Uninitialized placeholder state.
     #[default]
     Uninitialized,
-    /// Execution complete; subsequent calls return an error.
-    Consumed,
 }
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
@@ -278,11 +276,13 @@ impl PgSearchScanPlan {
                     ExecutionState::RangePartitioned {
                         range_boundaries: sample.build(partition_count),
                         scan_state: Box::new(UnsafeSendSync(s)),
+                        spent_partitions: vec![false; partition_count],
                     }
                 } else {
                     ExecutionState::Shared {
                         parallel_state: parallel_state.map(UnsafeSendSync),
-                        scan_state: Box::new(UnsafeSendSync(s)),
+                        scan_state: Some(Box::new(UnsafeSendSync(s))),
+                        spent_partitions: vec![false; partition_count],
                     }
                 }
             }
@@ -328,35 +328,49 @@ impl PgSearchScanPlan {
             ExecutionState::Shared {
                 parallel_state,
                 scan_state,
+                ..
             } => ExecutionState::Shared {
                 parallel_state: parallel_state.clone(),
-                scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
+                scan_state: scan_state.clone(),
+                spent_partitions: vec![false; target_partitions],
             },
             ExecutionState::RangePartitioned { scan_state, .. } => {
                 ExecutionState::RangePartitioned {
                     range_boundaries: self.range_sample.as_ref().unwrap().build(target_partitions),
                     scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
+                    spent_partitions: vec![false; target_partitions],
                 }
             }
             _ => {
                 return Err(DataFusionError::Internal(
-                    "Cannot repartition uninitialized or consumed plan".into(),
+                    "Cannot repartition uninitialized plan".into(),
                 ))
             }
         };
 
-        Ok(Arc::new(Self {
-            state: Mutex::new(new_state),
+        let new_properties = Arc::new(PlanProperties::new(
+            self.properties.eq_properties.clone(),
+            Partitioning::UnknownPartitioning(target_partitions),
+            self.properties.emission_type,
+            self.properties.boundedness,
+        ));
+
+        Ok(self.with_overrides(new_state, new_properties, self.dynamic_filters.clone()))
+    }
+
+    fn with_overrides(
+        &self,
+        state: ExecutionState,
+        properties: Arc<PlanProperties>,
+        dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
             segment_count: self.segment_count,
-            properties: Arc::new(PlanProperties::new(
-                self.properties.eq_properties.clone(),
-                Partitioning::UnknownPartitioning(target_partitions),
-                self.properties.emission_type,
-                self.properties.boundedness,
-            )),
+            properties,
             resolved_query: self.resolved_query.clone(),
-            dynamic_filters: self.dynamic_filters.clone(),
+            dynamic_filters,
             metrics: self.metrics.clone(),
             deferred_fields: self.deferred_fields.clone(),
             ffhelper: self.ffhelper.clone(),
@@ -370,7 +384,7 @@ impl PgSearchScanPlan {
                 self.dynamic_filter_strategy.load(Ordering::Relaxed),
             )),
             range_sample: self.range_sample.clone(),
-        }))
+        })
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -397,7 +411,10 @@ impl PgSearchScanPlan {
             .lock()
             .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
         let state = match &*state_guard {
-            ExecutionState::Shared { scan_state, .. } => scan_state,
+            ExecutionState::Shared {
+                scan_state: Some(scan_state),
+                ..
+            } => scan_state,
             ExecutionState::RangePartitioned { scan_state, .. } => scan_state,
             _ => {
                 return Err(DataFusionError::Internal(
@@ -711,63 +728,60 @@ impl ExecutionPlan for PgSearchScanPlan {
         }
 
         // Handle state transitions for execution.
-        let partition_count = self.properties.output_partitioning().partition_count();
-        let exec_state = std::mem::take(&mut *state_guard);
-        let (scan_state, parallel_state, range_boundaries) = match exec_state {
+        let (scan_state, parallel_state, range_boundaries) = match &mut *state_guard {
             ExecutionState::Shared {
                 parallel_state,
                 scan_state,
+                spent_partitions,
             } => {
-                assert!(
-                    partition_count <= 1 || parallel_state.is_some(),
-                    "PgSearchScanPlan executed with partition_count > 1 but without a ParallelScanState"
-                );
-                if partition_count > 1 {
-                    *state_guard = ExecutionState::Empty {
-                        remaining_partitions: partition_count - 1,
-                    };
-                } else {
-                    *state_guard = ExecutionState::Consumed;
+                if spent_partitions.get(partition).copied().unwrap_or(false) {
+                    return Err(DataFusionError::Internal(format!(
+                        "PgSearchScanPlan partition {partition} executed more than once"
+                    )));
                 }
-                (scan_state.0, parallel_state.map(|p| p.0), None)
+                if partition < spent_partitions.len() {
+                    spent_partitions[partition] = true;
+                }
+
+                if let Some(state) = scan_state.take() {
+                    (state.0, parallel_state.as_ref().map(|p| p.0), None)
+                } else {
+                    let schema = self.properties.eq_properties.schema().clone();
+                    return Ok(Box::pin(unsafe {
+                        UnsafeSendStream::new(futures::stream::empty(), schema)
+                    }));
+                }
             }
             ExecutionState::RangePartitioned {
                 range_boundaries,
                 scan_state,
+                spent_partitions,
             } => {
-                // Range partition scans require all partitions to run their own copy
-                // of the scan, constrained by their respective boundaries.
-                *state_guard = ExecutionState::RangePartitioned {
-                    range_boundaries: range_boundaries.clone(),
-                    scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
-                };
-                (scan_state.0, None, Some(range_boundaries))
-            }
-            ExecutionState::Empty {
-                remaining_partitions,
-            } => {
-                if remaining_partitions > 1 {
-                    *state_guard = ExecutionState::Empty {
-                        remaining_partitions: remaining_partitions - 1,
-                    };
-                } else {
-                    *state_guard = ExecutionState::Consumed;
+                if spent_partitions.get(partition).copied().unwrap_or(false) {
+                    return Err(DataFusionError::Internal(format!(
+                        "PgSearchScanPlan partition {partition} executed more than once"
+                    )));
                 }
-                let schema = self.properties.eq_properties.schema().clone();
-                return Ok(Box::pin(unsafe {
-                    UnsafeSendStream::new(futures::stream::empty(), schema)
-                }));
+                if partition < spent_partitions.len() {
+                    spent_partitions[partition] = true;
+                }
+
+                // If target_partitions scaled past the available sample boundaries, we
+                // just return empty streams for the extra partitions.
+                if partition > range_boundaries.split_points.len() {
+                    let schema = self.properties.eq_properties.schema().clone();
+                    return Ok(Box::pin(unsafe {
+                        UnsafeSendStream::new(futures::stream::empty(), schema)
+                    }));
+                }
+
+                (scan_state.0.clone(), None, Some(range_boundaries.clone()))
             }
             ExecutionState::Uninitialized => {
                 let schema = self.properties.eq_properties.schema().clone();
                 return Ok(Box::pin(unsafe {
                     UnsafeSendStream::new(futures::stream::empty(), schema)
                 }));
-            }
-            ExecutionState::Consumed => {
-                return Err(DataFusionError::Internal(
-                    "PgSearchScanPlan partition executed more than once".into(),
-                ));
             }
         };
 
@@ -924,29 +938,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 ))
             })?);
 
-            let resolved_query = self.resolved_query.clone();
-
-            let new_plan = Arc::new(PgSearchScanPlan {
-                state: Mutex::new(state),
-                planner_estimated_rows: self.planner_estimated_rows,
-                segment_count: self.segment_count,
-                properties: self.properties.clone(),
-                resolved_query,
-                dynamic_filters,
-                metrics: self.metrics.clone(),
-                deferred_fields: self.deferred_fields.clone(),
-                ffhelper: self.ffhelper.clone(),
-                indexrelid: self.indexrelid,
-                deferred_ctid_plan_position: self.deferred_ctid_plan_position,
-                dynamic_filter_pushdown: Arc::new(AtomicBool::new(
-                    self.dynamic_filter_pushdown.load(Ordering::Relaxed),
-                )),
-                sort_order: self.sort_order.clone(),
-                dynamic_filter_strategy: Arc::new(AtomicU8::new(
-                    self.dynamic_filter_strategy.load(Ordering::Relaxed),
-                )),
-                range_sample: self.range_sample.clone(),
-            });
+            let new_plan = self.with_overrides(state, self.properties.clone(), dynamic_filters);
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -121,7 +122,7 @@ pub struct ScanInfo {
     /// Populated during planning via `collect_required_fields`.
     pub fields: Vec<FieldInfo>,
     /// The partitioning configuration of the BM25 index, if it was created with `partition_by`.
-    pub partition_by: Vec<crate::api::FieldName>,
+    pub partition_by: Vec<FieldName>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
     pub estimate: RowEstimate,

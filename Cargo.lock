@@ -5541,6 +5541,7 @@ dependencies = [
  "arrow-select",
  "async-stream",
  "async-trait",
+ "base64",
  "bincode 2.0.1",
  "bitpacking",
  "bytemuck",

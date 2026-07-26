@@ -6,8 +6,9 @@
 -- and tests the DataFusion TopKAggregateExec optimization versus full
 -- aggregation + post-hoc sort.
 
--- Query Info (statistics from 100k dataset; larger datasets may have different values):
+-- Query Info (statistics from 20m dataset):
 -- - 'code' selectivity on stackoverflow_posts.body: ~75%
+-- - owner_display_name distinct count: ~70k, null count: ~19.5m (highly sparse)
 
 -- Postgres default plan (aggregate custom scan off)
 SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT

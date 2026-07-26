@@ -15,7 +15,7 @@ WHERE p.body ||| 'code'
 GROUP BY p.post_type_id
 ORDER BY SUM(c.score) DESC;
 
--- DataFusion aggregate scan (temporarily increased from 4GB to 8GB)
+-- DataFusion aggregate scan
 SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.post_type_id, COUNT(*), SUM(c.score)
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id

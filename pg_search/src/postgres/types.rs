@@ -69,6 +69,13 @@ impl TantivyValue {
         Ok(TantivyValue(PdbOwnedValue::IpAddr(addr.into_ipv6_addr())))
     }
 
+    /// Convert an encoded INET value to the IpAddr representation used by legacy indexes.
+    pub fn try_from_inet_bytes_ipaddr(encoded: &[u8]) -> Result<Self, TantivyValueError> {
+        let inet = InetValue::decode(encoded)
+            .map_err(|error| TantivyValueError::InetError(error.to_string()))?;
+        Self::try_from_inet_ipaddr(inet.to_string().into())
+    }
+
     /// Convert a PostgreSQL INET datum for a legacy IpAddr-backed index.
     pub unsafe fn try_from_inet_datum_ipaddr(datum: Datum) -> Result<Self, TantivyValueError> {
         let val =

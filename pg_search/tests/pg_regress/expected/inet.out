@@ -19,6 +19,12 @@ SELECT count(*) FROM tbl_inet WHERE ip @@@ '1.2.3.4';
      1
 (1 row)
 
+SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.term('1.2.3.4'::inet);
+ count 
+-------
+     1
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM tbl_inet WHERE ip @@@ '1.2.3.4';
                                                                   QUERY PLAN                                                                   

@@ -17,6 +17,7 @@ INSERT INTO tbl_inet (ip) VALUES
     ('::1');
 
 SELECT count(*) FROM tbl_inet WHERE ip @@@ '1.2.3.4';
+SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.term('1.2.3.4'::inet);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM tbl_inet WHERE ip @@@ '1.2.3.4';
 

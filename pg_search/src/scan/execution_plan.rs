@@ -64,8 +64,11 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use crate::scan::deferred_encode::DeferMode;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
+use crate::scan::pre_filter::{
+    collect_filters, try_dynamic_filter_pushdown, PreFilter, PreFilters,
+};
 use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningSample};
 use crate::scan::Scanner;
 
@@ -81,7 +84,7 @@ unsafe impl<T> Sync for UnsafeSendSync<T> {}
 /// Ingredients needed to construct a Scanner for deferred search.
 #[derive(Clone)]
 pub struct ScannerConfig {
-    pub which_fast_fields: Vec<WhichFastField>,
+    pub which_fast_fields: Vec<(usize, WhichFastField)>,
     pub heap_relid: u32,
     pub batch_size_hint: Option<usize>,
     /// `need_scores` the index reader was opened with. Carried so a leader-dispatched worker
@@ -509,10 +512,18 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
         })?;
 
-        let ffhelper = Arc::new(FFHelper::with_fields(
-            &reader,
-            &descriptor.which_fast_fields,
-        ));
+        let max_idx = descriptor
+            .which_fast_fields
+            .iter()
+            .map(|(i, _)| *i)
+            .max()
+            .unwrap_or(0);
+        let mut wff_fields = vec![WhichFastField::Junk(String::new()); max_idx + 1];
+        for (i, wff) in &descriptor.which_fast_fields {
+            wff_fields[*i] = wff.clone();
+        }
+
+        let ffhelper = Arc::new(FFHelper::with_fields(&reader, &wff_fields));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
@@ -568,7 +579,7 @@ struct ScanDispatchDescriptor {
     indexrelid: u32,
     deferred_fields: Vec<DeferredField>,
     deferred_ctid_plan_position: Option<usize>,
-    which_fast_fields: Vec<WhichFastField>,
+    which_fast_fields: Vec<(usize, WhichFastField)>,
     heap_relid: u32,
     batch_size_hint: Option<usize>,
     /// `Some(i)` for an MPP source (claims from source `i`'s pool); `None` for
@@ -654,6 +665,79 @@ impl DisplayAs for PgSearchScanPlan {
             }
         }
         write!(f, ", query={}", self.resolved_query.explain_format())
+    }
+}
+
+impl PgSearchScanPlan {
+    /// Rebuilds the scan with a different defer mode for all deferred fast fields.
+    /// This consumes the internal scan states (which is safe during logical/physical optimization
+    /// before execution has begun).
+    pub fn with_defer_mode(&self, new_mode: DeferMode) -> Result<Self> {
+        let mut state_lock = self.state.lock().unwrap();
+        
+        let state = std::mem::take(&mut *state_lock);
+        let (mut state_box, parallel_state) = match state {
+            ExecutionState::Shared {
+                scan_state: Some(scan_state),
+                parallel_state,
+                ..
+            } => (scan_state, parallel_state.map(|p| p.0)),
+            ExecutionState::RangePartitioned { scan_state, .. } => {
+                (scan_state, None)
+            }
+            _ => {
+                return Err(DataFusionError::Internal(
+                    "Cannot change defer mode after state has been consumed".to_string(),
+                ));
+            }
+        };
+        
+        for (_, wff) in &mut state_box.0.scanner_config.which_fast_fields {
+            if let WhichFastField::Deferred(_, _, ref mut mode) = wff {
+                *mode = new_mode.clone();
+            }
+        }
+        
+        let updated_wffs = state_box.0.scanner_config.which_fast_fields.clone();
+        
+        // Rebuild the schema to reflect the new types (e.g. Union -> Struct)
+        let mut fields = Vec::with_capacity(self.properties.eq_properties.schema().fields().len());
+
+        for field in self.properties.eq_properties.schema().fields() {
+            if let Some(_deferred) = self
+                .deferred_fields
+                .iter()
+                .find(|d| d.name == *field.name())
+            {
+                if let Some((_, wff)) = updated_wffs.iter().find(|(_, w)| w.name() == *field.name()) {
+                    fields.push(Arc::new(arrow_schema::Field::new(
+                        field.name(),
+                        wff.arrow_data_type(),
+                        true,
+                    )));
+                    continue;
+                }
+                // Fallback
+                fields.push(field.clone());
+            } else {
+                fields.push(field.clone());
+            }
+        }
+        let new_schema = Arc::new(arrow_schema::Schema::new(fields));
+
+        Ok(Self::new(
+            Some(state_box.0),
+            new_schema,
+            self.resolved_query.clone(),
+            self.sort_order.as_ref(),
+            self.deferred_fields.clone(),
+            self.ffhelper.clone(),
+            self.indexrelid,
+            self.deferred_ctid_plan_position,
+            self.properties.output_partitioning().partition_count(),
+            parallel_state,
+            self.range_sample.clone(),
+        ))
     }
 }
 
@@ -858,7 +942,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {
-                    Some(crate::scan::pre_filter::PreFilters {
+                    Some(PreFilters {
                         filters: &pre_filters,
                         schema: &schema,
                     })

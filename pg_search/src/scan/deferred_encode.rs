@@ -24,6 +24,17 @@ use tantivy::{DocId, SegmentOrdinal};
 pub const EXTENSION_DOC_ADDRESS: &str = "tantivy_doc_address";
 pub const EXTENSION_TERM_ORDINAL: &str = "tantivy_term_ordinal";
 
+/// The output mode for deferred column values.
+///
+/// `DocAddress` emits a `UnionArray` of `DocAddress` (State 0) or `TermOrdinal` (State 1).
+/// `TermOrdinal` emits a `StructArray` containing `segment_ord` and `term_ord` directly.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, Hash)]
+pub enum DeferMode {
+    #[default]
+    DocAddress,
+    TermOrdinal,
+}
+
 // In Arrow, extension types are defined by the underlying storage type,
 // and the extension name is attached as metadata to the Field later!
 pub fn doc_address_type() -> DataType {

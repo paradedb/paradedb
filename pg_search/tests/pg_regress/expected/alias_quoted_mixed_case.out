@@ -254,8 +254,8 @@ JOIN repro_5525_child  AS "456"
 GROUP BY "123"."owner"
 ORDER BY "123"."owner"
 LIMIT 5;
-                                                         QUERY PLAN                                                         
-----------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: "123".owner
@@ -266,13 +266,16 @@ LIMIT 5;
                Aggregates: COUNT(id)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
-                 :       CooperativeExec
-                 :         PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
-                 :       CooperativeExec
-                 :         PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(16 rows)
+                 :   AggregateExec: mode=Final, gby=[owner@0 as owner], aggr=[count(_123_0.id) as agg_0]
+                 :     TantivyLookupExec: mode=TermOrdinal, decode=[owner]
+                 :       AggregateExec: mode=Partial, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
+                 :         DeferredResolveExec
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, query={"term":{"field":"state","value":"active"}}
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT "123"."owner", count("123"."id")
 FROM repro_5525_parent AS "123"

@@ -20,6 +20,10 @@ use crate::index::fast_fields_helper::{
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
+use crate::scan::deferred_encode::{
+    build_state_doc_address, build_state_term_ordinals, pack_doc_addresses, DeferMode,
+};
+use crate::scan::pre_filter::PreFilters;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
@@ -71,7 +75,7 @@ fn compact_with_mask(
 
 fn ensure_column_fetched(
     memoized_columns: &mut [Option<ArrayRef>],
-    which_fast_fields: &[WhichFastField],
+    which_fast_fields: &[(usize, WhichFastField)],
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     ff_index: usize,
@@ -80,12 +84,13 @@ fn ensure_column_fetched(
     if memoized_columns[ff_index].is_some() {
         return;
     }
-    match &which_fast_fields[ff_index] {
+    let (canonical_ff_index, wff) = &which_fast_fields[ff_index];
+    match wff {
         WhichFastField::Named(_, search_field_type)
-        | WhichFastField::Deferred(_, search_field_type) => {
+        | WhichFastField::Deferred(_, search_field_type, _) => {
             memoized_columns[ff_index] = Some(
                 ffhelper
-                    .column(segment_ord, ff_index)
+                    .column(segment_ord, *canonical_ff_index)
                     .fetch_values_or_ords_to_arrow(ids, *search_field_type),
             );
         }
@@ -139,7 +144,7 @@ impl Batch {
 pub struct Scanner {
     search_results: MultiSegmentSearchResults,
     batch_size: usize,
-    which_fast_fields: Vec<WhichFastField>,
+    which_fast_fields: Vec<(usize, WhichFastField)>,
     table_oid: u32,
     maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
@@ -167,10 +172,10 @@ impl Scanner {
     pub fn new(
         search_results: MultiSegmentSearchResults,
         batch_size_hint: Option<usize>,
-        which_fast_fields: Vec<WhichFastField>,
+        which_fast_fields: Vec<(usize, WhichFastField)>,
         table_oid: u32,
     ) -> Self {
-        let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
+        let all_strings_deferred = !which_fast_fields.iter().any(|(_, wff)| {
             matches!(
                 wff,
                 WhichFastField::Named(_, field_type) if matches!(
@@ -195,7 +200,7 @@ impl Scanner {
 
         let defer_visibility = which_fast_fields
             .iter()
-            .any(|wff| matches!(wff, WhichFastField::DeferredCtid(_)));
+            .any(|(_, wff)| matches!(wff, WhichFastField::DeferredCtid(_)));
 
         Self {
             search_results,
@@ -271,7 +276,7 @@ impl Scanner {
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
-        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+        pre_filters: Option<&PreFilters<'_>>,
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
         let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
@@ -286,7 +291,7 @@ impl Scanner {
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
         let mut lazy_score_array: Option<ArrayRef> = None;
-        for (idx, ff) in self.which_fast_fields.iter().enumerate() {
+        for (idx, (_, ff)) in self.which_fast_fields.iter().enumerate() {
             if matches!(ff, WhichFastField::Score) {
                 let score_array = lazy_score_array.get_or_insert_with(|| {
                     Arc::new(Float32Array::from(scores.clone())) as ArrayRef
@@ -320,6 +325,7 @@ impl Scanner {
                         &memoized_columns,
                         pre_filters.schema,
                         ids.len(),
+                        &self.which_fast_fields,
                     )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
                 compact_with_mask(&mut ids, &mut memoized_columns, &mask);
@@ -341,7 +347,7 @@ impl Scanner {
                 !self
                     .which_fast_fields
                     .iter()
-                    .any(|f| matches!(f, WhichFastField::Ctid)),
+                    .any(|(_, f)| matches!(f, WhichFastField::Ctid)),
                 "defer_visibility=true but WhichFastField::Ctid is present — planning bug"
             );
             // No real ctid lookup needed.
@@ -376,14 +382,19 @@ impl Scanner {
         };
 
         // Pre-fetch any Named columns that weren't already fetched by pre-filters.
-        for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(which_ff, WhichFastField::Named(_, _)) {
+        for (idx, (_, which_ff)) in self.which_fast_fields.iter().enumerate() {
+            if matches!(which_ff, WhichFastField::Named(_, _))
+                || matches!(
+                    which_ff,
+                    WhichFastField::Deferred(_, _, DeferMode::TermOrdinal)
+                )
+            {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
                     ffhelper,
                     segment_ord,
-                    ff_index,
+                    idx,
                     &ids,
                 );
             }
@@ -395,9 +406,9 @@ impl Scanner {
             .which_fast_fields
             .iter()
             .enumerate()
-            .map(|(ff_index, which_ff)| match which_ff {
+            .map(|(idx, (ff_index, which_ff))| match which_ff {
                 WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
-                WhichFastField::Score => Some(memoized_columns[ff_index].clone().unwrap()),
+                WhichFastField::Score => Some(memoized_columns[idx].clone().unwrap()),
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {
@@ -407,9 +418,9 @@ impl Scanner {
                 }
                 WhichFastField::Junk(_) => None,
                 WhichFastField::Named(_, _) => {
-                    let col_array = memoized_columns[ff_index].clone().unwrap();
+                    let col_array = memoized_columns[idx].clone().unwrap();
 
-                    match ffhelper.column(segment_ord, ff_index) {
+                    match ffhelper.column(segment_ord, *ff_index) {
                         FFType::Text(str_column) => {
                             let ords_array = col_array
                                 .as_any()
@@ -436,21 +447,42 @@ impl Scanner {
                 // When resolving the data block, we build a 2-state UnionArray:
                 // 0. None -> We just have doc ids. Emit State 0 (Doc Address).
                 // 1. Some(UInt64) -> The pre-filter already resolved term ordinals. Emit State 1.
-                WhichFastField::DeferredCtid(_) => Some(Arc::new(
-                    crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
-                ) as ArrayRef),
-                WhichFastField::Deferred(_, _field_type) => match &memoized_columns[ff_index] {
-                    Some(col_array) => {
-                        Some(crate::scan::deferred_encode::build_state_term_ordinals(
-                            segment_ord,
-                            col_array.clone(),
-                        ))
+                WhichFastField::DeferredCtid(_) => {
+                    Some(Arc::new(pack_doc_addresses(segment_ord, &ids)) as ArrayRef)
+                }
+                WhichFastField::Deferred(_, _field_type, DeferMode::DocAddress) => {
+                    match &memoized_columns[idx] {
+                        Some(col_array) => {
+                            Some(build_state_term_ordinals(segment_ord, col_array.clone()))
+                        }
+                        None => Some(build_state_doc_address(segment_ord, &ids)),
                     }
-                    None => Some(crate::scan::deferred_encode::build_state_doc_address(
-                        segment_ord,
-                        &ids,
-                    )),
-                },
+                }
+                WhichFastField::Deferred(_, _field_type, DeferMode::TermOrdinal) => {
+                    let col_array = memoized_columns[idx].clone().unwrap();
+                    let segment_array =
+                        Arc::new(arrow_array::UInt32Array::from(vec![segment_ord; ids.len()]))
+                            as ArrayRef;
+                    let struct_array = arrow_array::StructArray::from(vec![
+                        (
+                            Arc::new(arrow_schema::Field::new(
+                                "segment_ord",
+                                arrow_schema::DataType::UInt32,
+                                false,
+                            )),
+                            segment_array,
+                        ),
+                        (
+                            Arc::new(arrow_schema::Field::new(
+                                "term_ord",
+                                arrow_schema::DataType::UInt64,
+                                false,
+                            )),
+                            col_array,
+                        ),
+                    ]);
+                    Some(Arc::new(struct_array) as ArrayRef)
+                }
             })
             .collect();
 

@@ -16,6 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
 
+// Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
+// here to keep its `.init_array` constructor.
+#[cfg(feature = "dst")]
+use antithesis_instrumentation as _;
+
 mod aggregate;
 mod api;
 mod bootstrap;

@@ -229,6 +229,9 @@ pub(super) unsafe fn collect_join_sources_base_rel(
             return None;
         }
 
+        let partition_by = bm25_index.options().partition_by();
+        side_info = side_info.with_partition_by(partition_by);
+
         classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
         if !classified.search_ri.is_empty() {

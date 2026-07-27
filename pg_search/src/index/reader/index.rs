@@ -561,13 +561,22 @@ impl SearchIndexReader {
         &self.query
     }
 
-    pub fn and_query(&mut self, additional_query: Box<dyn Query>) {
-        let existing = std::mem::replace(&mut self.query, Box::new(tantivy::query::EmptyQuery));
+    /// Extends the reader's underlying query by AND-ing it with the provided query.
+    pub fn and_query(&self, additional_query: Box<dyn Query>) -> Self {
+        let mut clone = self.clone();
+        let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
         let boolean_query = tantivy::query::BooleanQuery::new(vec![
             (tantivy::query::Occur::Must, existing),
             (tantivy::query::Occur::Must, additional_query),
         ]);
-        self.query = Box::new(boolean_query);
+        clone.query = Box::new(boolean_query);
+        clone
+    }
+
+    /// Extends the reader's underlying query by AND-ing it with the provided query input.
+    pub fn and_query_input(&self, query: &SearchQueryInput) -> Self {
+        let tantivy_query = self.make_query(query, None);
+        self.and_query(tantivy_query)
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {

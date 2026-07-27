@@ -147,6 +147,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "antithesis-instrumentation"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb6b548668212c6d3a942a4ac7be13bc4fc25715bf661328438f30e3fd342cf0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "antithesis_sdk"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2904,6 +2913,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 name = "dst"
 version = "0.25.0"
 dependencies = [
+ "antithesis-instrumentation",
  "antithesis_sdk",
  "serde_json",
 ]
@@ -5700,6 +5710,7 @@ dependencies = [
 name = "pg_search"
 version = "0.25.0"
 dependencies = [
+ "antithesis-instrumentation",
  "anyhow",
  "arrow-array 59.1.0",
  "arrow-buffer 59.1.0",

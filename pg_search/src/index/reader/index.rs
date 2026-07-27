@@ -976,9 +976,11 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });
-                let (top_docs, aggregation_results) =
+                // Fruit is `VectorSimilarityFruit { results, stats }`. Drop probe
+                // stats for now; EXPLAIN plumbing lands in a follow-up.
+                let (fruit, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
-                TopKSearchResults::new_for_score(top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(fruit.results, aggregation_results)
             }
         }
     }

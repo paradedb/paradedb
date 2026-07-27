@@ -13,15 +13,7 @@ canonical: https://docs.paradedb.com/documentation/vector/querying
 
 Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query over a vector column in the ParadeDB index.
 
-When one of ParadeDB's search operators is present at the same level as the `ORDER BY ... LIMIT`, ParadeDB can accelerate the vector search query. Any of the following qualify:
-
-| Operator | Meaning                                                                                           |
-| -------- | ------------------------------------------------------------------------------------------------- |
-| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
-| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
-| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
-| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
-| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
+When one of ParadeDB's [search operators](/documentation/filtering#search-operators) is present at the same level as the `ORDER BY ... LIMIT`, ParadeDB can accelerate the vector search query.
 
 ## Unfiltered Nearest Neighbors
 
@@ -47,7 +39,7 @@ This operator must match the operator class the column was indexed with. Otherwi
 
 ## Filtered Nearest Neighbors
 
-To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the search operators above.
+To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the [search operators](/documentation/filtering#search-operators).
 For instance, the following query finds the nearest neighbors among results whose `category` contains the term `Footwear`.
 
 ```sql
@@ -93,8 +85,6 @@ LIMIT 5;
 ```
 </Accordion>
 
-Notice that the `category === 'Footwear'` filter was pushed down into the same index scan that performs the `ORDER BY`: the
-`Tantivy Query` line shows the term filter, and the `TopK Order By` line shows the vector ordering, both inside a single
-`ParadeDB Base Scan`. Without pushdown, the filter would run as a separate step after the nearest neighbors were fetched.
+Notice that the `category === 'Footwear'` filter was pushed down into the same index scan that performs the vector search. Without pushdown, the filter would run as a separate step after the nearest neighbors were fetched.
 
 If you do not see a `TopKScanExecState`, the query fell back to a less efficient sort. This usually means the distance operator does not match the index operator class, the query is missing a `LIMIT`, or an `ORDER BY` or filter field is not indexed.

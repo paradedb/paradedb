@@ -12,7 +12,7 @@ The alias name can be any string you like. For instance, the following statement
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (description::pdb.literal),
   (description::pdb.simple('alias=description_simple'))
@@ -146,7 +146,7 @@ text field can reference the field directly:
 
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (description::pdb.literal),
   (description::pdb.simple('alias=description_simple'))

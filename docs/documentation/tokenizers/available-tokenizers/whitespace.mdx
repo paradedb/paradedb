@@ -8,7 +8,7 @@ The whitespace tokenizer splits only on whitespace. It also [lowercases](/docume
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.whitespace))
+USING paradedb (id, (description::pdb.whitespace))
 WITH (key_field='id');
 ```
 

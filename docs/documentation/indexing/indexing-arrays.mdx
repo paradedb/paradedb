@@ -4,7 +4,7 @@ description: Add text arrays to the index
 canonical: https://docs.paradedb.com/documentation/indexing/indexing-arrays
 ---
 
-The BM25 index accepts arrays of type `text[]` or `varchar[]`.
+The ParadeDB index accepts arrays of type `text[]` or `varchar[]`.
 
 ```sql
 CREATE TABLE array_demo (id SERIAL PRIMARY KEY, categories TEXT[]);
@@ -17,7 +17,7 @@ INSERT INTO array_demo (categories) VALUES
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON array_demo
-USING bm25 (id, categories)
+USING paradedb (id, categories)
 WITH (key_field = 'id');
 ```
 
@@ -100,7 +100,7 @@ Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON array_demo
-USING bm25 (id, (categories::pdb.literal))
+USING paradedb (id, (categories::pdb.literal))
 WITH (key_field = 'id');
 ```
 

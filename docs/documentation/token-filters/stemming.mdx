@@ -12,7 +12,7 @@ To set a stemmer, append `stemmer=<language>` to the tokenizer's arguments.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple('stemmer=english')))
+USING paradedb (id, (description::pdb.simple('stemmer=english')))
 WITH (key_field='id');
 ```
 

@@ -804,7 +804,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 let incoming = &filter_result.filter;
                 let id = incoming.expression_id();
                 match dynamic_filters.iter_mut().find(|f| f.expression_id() == id) {
-                    Some(slot) if Arc::ptr_eq(incoming, slot) => {
+                    Some(slot) if !Arc::ptr_eq(incoming, slot) => {
                         *slot = Arc::clone(incoming);
                         changed = true;
                     }

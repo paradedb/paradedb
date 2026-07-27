@@ -8,28 +8,15 @@ name = "cohere_wiki"
 primary_key = "_id"  # used only if sampled later
 
 [params]
+# Only knobs a sweep cannot supply live here. Everything a sweep varies is declared in [sweeps]
+# alone; fixed non-recall settings are inlined as literals in the query SQL.
+#   lists / vchord_lists  -- CREATE INDEX parameters. A sweep measures many operating points
+#                            against one already-built index, so a build-time knob cannot be swept
+#                            without rebuilding per value.
+#   max_scan_tuples_1pct  -- bounds hnsw's filtered scan (not a recall knob) and scales with size.
 lists = "sqrt({{ dataset_size }})::int"
-max_scan_tuples_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 500000 WHEN 10000000 THEN 5000000 ELSE 200000 END"
-scan_mem_multiplier_1pct = "16"
-
-# VectorChord (vchordrq). `probes` is the recall lever and is swept; these two are not.
-#   lists   -- VectorChord docs' recommended table by row count (not the ivfflat `lists`):
-#              100K-2M -> 2000, 2M-100M -> 10000. https://docs.vectorchord.ai/vectorchord/usage/indexing.html
-#   epsilon -- RaBitQ rerank bound (range 0-4); 1.9 is the docs default.
-vchord_epsilon = "1.9"
 vchord_lists = "CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END"
-
-pg_search_max_probe = "0.02"
-# These exist only because `queries/knn_top10_*.sql` is shared by hnsw and ivfflat and sets both
-# indexes' knobs, so benchmarking one still has to resolve the other's (which it then ignores).
-# Their benchmarked values come from [sweeps]; these are just the inert sibling values. Every other
-# swept knob is supplied by the sweep alone and needs no entry here.
-probes_unfiltered = "40"
-probes_10pct = "80"
-probes_1pct = "160"
-ef_search_unfiltered = "160"
-ef_search_10pct = "320"
-ef_search_1pct = "1000"
+max_scan_tuples_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 500000 WHEN 10000000 THEN 5000000 ELSE 200000 END"
 
 # Operating-point sweeps. Each arm's knob is measured across these values and the points that
 # reach 90/95/99% recall are the ones benchmarked -- so no value here needs to be "the" tuned
@@ -49,8 +36,7 @@ values = ["10", "20", "40", "80", "160", "320", "640"]
 param = "probes_1pct"
 values = ["10", "20", "40", "80", "160", "320", "640"]
 
-# pgvector hnsw: ef_search (candidate queue size). The 1% arm's max_scan_tuples and
-# scan_mem_multiplier stay fixed -- they bound the filtered scan, they are not the recall knob.
+# pgvector hnsw: ef_search (candidate queue size).
 [sweeps.hnsw.knn_top10_unfiltered]
 param = "ef_search_unfiltered"
 values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
@@ -84,8 +70,8 @@ values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
 param = "vchord_probes_1pct_on"
 values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
 
-# pg_search: the distance-ratio gate. The probe ceiling (pg_search_max_probe) stays fixed -- it is
-# a tail-latency guard, not the recall knob.
+# pg_search: the distance-ratio gate. The probe ceiling is a fixed tail-latency guard, not a
+# recall knob, so it is a literal in the query SQL.
 [sweeps.pg_search.knn_top10_unfiltered]
 param = "pg_search_probe_epsilon_unfiltered"
 values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]

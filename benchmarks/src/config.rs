@@ -60,12 +60,12 @@ pub struct DatasetConfig {
 
 /// A recall sweep for one (index, query) pair.
 ///
-/// Keyed by index as well as query because one query file can serve several indexes with
-/// different knobs -- `queries/knn_top10_10pct.sql` sets both `ivfflat.probes` and
-/// `hnsw.ef_search`, and each index sweeps only its own.
+/// Keyed by index as well as query because indexes share query stems: each of `queries/{hnsw,
+/// ivfflat, vchord, pg_search}/` has its own `knn_top10_10pct.sql`, sweeping a different knob.
 #[derive(Deserialize)]
 pub struct SweepConfig {
-    /// The `[params]` entry this sweep varies. The query file must reference it as `{{ param }}`.
+    /// The name this sweep varies. The query file must reference it as `{{ param }}`; it is
+    /// supplied by the sweep, so it needs no `[params]` entry.
     pub param: String,
     /// Operating points to try. Each is a SQL scalar expression, like any other param value.
     pub values: Vec<String>,

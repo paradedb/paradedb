@@ -23,7 +23,7 @@ use crate::gucs;
 use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::{
-    SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
+    SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults, MAX_TOPK_FEATURES,
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
@@ -420,20 +420,27 @@ impl ExecMethod for TopKScanExecState {
             } else {
                 None
             };
-            self.search_reader
-                .as_ref()
-                .unwrap()
-                .search_top_k_in_segments(
-                    self.segments_to_query(
-                        state.search_reader.as_ref().unwrap(),
-                        state.parallel_state,
-                    ),
-                    orderby_info,
-                    local_limit,
-                    self.offset,
-                    maybe_aux_collector,
-                    maybe_parallel_state,
-                )
+            let TopKSearch {
+                results,
+                segment_info,
+            } = self.search_reader.as_ref().unwrap().search_top_k_in_segments(
+                self.segments_to_query(
+                    state.search_reader.as_ref().unwrap(),
+                    state.parallel_state,
+                ),
+                orderby_info,
+                local_limit,
+                self.offset,
+                maybe_aux_collector,
+                maybe_parallel_state,
+            );
+            // Per-segment Fruit JSON → BaseScanState only. Parallel workers
+            // flush into DSM once in EndCustomScan (leader in Shutdown) so
+            // the collect hot path stays process-local. Re-queries last-write-wins.
+            if !segment_info.is_empty() {
+                state.accumulate_segment_info(segment_info);
+            }
+            results
         } else {
             self.search_reader
                 .as_ref()

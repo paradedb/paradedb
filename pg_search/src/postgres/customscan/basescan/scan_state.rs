@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::UnsafeCell;
+use std::collections::BTreeMap;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
@@ -36,6 +37,7 @@ use crate::query::SearchQueryInput;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
+use tantivy::index::SegmentId;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -59,6 +61,13 @@ pub struct BaseScanState {
 
     query_count: usize,
     pub virtual_tuple_count: usize,
+
+    /// Opaque per-segment JSON from TopK collector Fruits (e.g. vector probe
+    /// stats), retained for EXPLAIN ANALYZE VERBOSE. Re-queries use
+    /// last-write-wins per segment. On parallel scans workers flush into DSM
+    /// once at `EndCustomScan`; the leader keeps its local map and merges
+    /// worker DSM entries at `ShutdownCustomScan`.
+    pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
 
     pub heaprelid: pg_sys::Oid,
     pub heaprel: Option<PgSearchRelation>,
@@ -374,6 +383,20 @@ impl BaseScanState {
         }
     }
 
+    /// Merge per-segment JSON info. Last-write-wins per segment id (re-queries
+    /// replace rather than append).
+    pub fn accumulate_segment_info(&mut self, info: BTreeMap<SegmentId, serde_json::Value>) {
+        self.segment_info.extend(info);
+    }
+
+    /// EXPLAIN-friendly view: segment short UUID → JSON value.
+    pub fn segment_info_for_explain(&self) -> BTreeMap<String, serde_json::Value> {
+        self.segment_info
+            .iter()
+            .map(|(id, value)| (id.short_uuid_string(), value.clone()))
+            .collect()
+    }
+
     pub fn reset(&mut self) {
         if let Some(parallel_state) = self.parallel_state {
             unsafe {
@@ -386,6 +409,7 @@ impl BaseScanState {
         }
         self.query_count = 0;
         self.virtual_tuple_count = 0;
+        self.segment_info.clear();
         if self.visibility_checker.is_some() {
             self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
                 self.heaprel(),

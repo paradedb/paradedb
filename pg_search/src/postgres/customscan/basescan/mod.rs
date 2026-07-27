@@ -1437,6 +1437,10 @@ impl CustomScan for BaseScan {
                 if let Some(explain_data) = &state.custom_state().parallel_explain_data {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
                 }
+                let segment_info = state.custom_state().segment_info_for_explain();
+                if !segment_info.is_empty() {
+                    explainer.add_json("Segment Info", &segment_info);
+                }
             }
         }
 
@@ -1732,13 +1736,42 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        if let Some(parallel_state) = state.custom_state().parallel_state {
-            state.custom_state_mut().parallel_explain_data =
-                Some(unsafe { (*parallel_state).explain_data() });
+        // Leader-only: last chance to read DSM before Postgres destroys it.
+        // Workers publish in EndCustomScan; the leader already has its own
+        // segment_info locally and only merges worker entries here.
+        if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+            return;
         }
+        let Some(parallel_state) = state.custom_state().parallel_state else {
+            return;
+        };
+
+        let (explain_data, dsm_segment_info) = unsafe {
+            (
+                (*parallel_state).explain_data(),
+                (*parallel_state).take_segment_info(),
+            )
+        };
+        let scan_state = state.custom_state_mut();
+        scan_state.parallel_explain_data = Some(explain_data);
+        scan_state.segment_info.extend(dsm_segment_info);
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Workers: DSM is still alive here; publish local segment_info once.
+        // Leader: do not touch DSM — Shutdown already ran (or will be skipped
+        // and serial EXPLAIN just uses the local map).
+        if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+            if let Some(parallel_state) = state.custom_state().parallel_state {
+                let info = &state.custom_state().segment_info;
+                if !info.is_empty() {
+                    unsafe {
+                        (*parallel_state).publish_segment_info(info);
+                    }
+                }
+            }
+        }
+
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());

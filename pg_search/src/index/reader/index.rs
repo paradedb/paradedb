@@ -51,7 +51,7 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::ivf::ProbeBudget;
 use tantivy::vector::ProbeStats;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
@@ -1034,9 +1034,19 @@ impl SearchIndexReader {
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_adaptive_params(AdaptiveProbeParams {
-                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                    .with_probe_budget(ProbeBudget {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        // Query init is the one place the whole index is in
+                        // hand: prime the global work model (n̄ = native
+                        // docs / clusters across IVF segments) so the
+                        // budget allocates f of the INDEX's work per
+                        // segment. Unprimed, tantivy falls back to
+                        // per-segment normalization.
+                        work_model: tantivy::vector::ivf::WorkModel::for_searcher(
+                            &self.searcher,
+                            tantivy_field,
+                        )
+                        .expect("segment metadata should be readable at query init"),
                         ..Default::default()
                     });
                 // Record SegmentIds as the (possibly lazy) iterator is consumed so

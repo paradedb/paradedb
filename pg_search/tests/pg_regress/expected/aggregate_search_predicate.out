@@ -77,7 +77,7 @@ SET statement_timeout TO 60000;
 SELECT COUNT(*) FROM users RIGHT JOIN products ON users.id = products.id JOIN orders ON products.age = orders.age  WHERE ((orders.id @@@ '4') OR (products.id @@@ '4')) AND ((users.id @@@ '4') OR (NOT (products.id @@@ '4')));
  count 
 -------
-     3
+     0
 (1 row)
 
 DROP TABLE IF EXISTS users;

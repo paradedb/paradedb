@@ -1145,6 +1145,31 @@ pub unsafe fn expr_collect_rtis(
     rtis
 }
 
+/// Checks if an expression tree contains a SubLink node.
+pub unsafe fn expr_has_sublink(node: *mut pg_sys::Node) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_SubLink {
+            return true;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_SubPlan {
+            return true;
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+    }
+
+    if node.is_null() {
+        return false;
+    }
+    walker(node, std::ptr::null_mut())
+}
+
 /// A Var reference with its range table index and attribute number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VarRef {

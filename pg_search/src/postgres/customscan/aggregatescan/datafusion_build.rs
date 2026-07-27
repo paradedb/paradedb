@@ -43,7 +43,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, Q
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
-    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator,
+    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator, expr_has_sublink,
     missing_partial_index_predicate,
 };
 use crate::postgres::var::fieldname_from_var;
@@ -171,12 +171,11 @@ pub unsafe fn collect_join_agg_sources(
 ///
 /// 2. **Cheapest path** (`input_rel.cheapest_total_path`): provides the equi-join
 ///    **keys** (e.g., `a.id = b.id`). By the time we reach `UPPERREL_GROUP_AGG`,
-///    the planner has absorbed WHERE-clause quals into `RestrictInfo` lists on
-///    the planned `JoinPath` nodes - so `(*from).quals` can be null even for
+///    the planner has absorbed most WHERE-clause quals into `RestrictInfo` lists on
+///    the planned `JoinPath` nodes - so `(*jointree).quals` can be null even for
 ///    `SELECT ... FROM a, b WHERE a.id = b.id`. We recursively walk the path
-///    tree via `extract_equi_keys_from_path`, inspecting each `JoinPath`'s
-///    `joinrestrictinfo` for `OpExpr` nodes with merge-joinable (equality)
-///    operators whose two sides reference different base relations.
+///    tree via `analyze_join_path_restrictinfo`, inspecting each `JoinPath`'s
+///    `joinrestrictinfo` for `OpExpr` equi-keys and cross-table search predicates.
 ///
 /// The parse tree gives the skeleton, the path gives the keys, and
 /// [`RelNode::inject_equi_keys`] attaches the keys to the correct join levels.
@@ -214,52 +213,49 @@ pub unsafe fn extract_join_tree_from_parse(
     // transform_to_search_expr for the actual transformation.
     // Handles both @@@ predicates and non-@@@ cross-table predicates
     // (like `b.id > 5`) that reference fast fields.
-    //
-    // Try path-based extraction first, then fall back to the parse tree's
-    // FromExpr.quals. The path walk can miss predicates when the cheapest
-    // path isn't a standard join type (e.g. with certain GUC combinations),
-    // while the parse tree is always available.
+    // (like `b.id > 5`) that reference fast fields.
     let mut join_level_predicates = Vec::new();
     let mut multi_table_predicates = Vec::new();
     let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
 
-    // Each call below fails closed if `build_search_filter` returns `None` -
-    // silently dropping a cross-table predicate computes wrong rows. Path 2
-    // is a fallback that only runs when Path 1 produced no predicates.
+    // Combine path-based predicates with parse-tree quals. Parse-tree quals are
+    // necessary because PostgreSQL can parameterize join conditions and push them
+    // down as indexquals/baserestrictinfos on base scans, making them invisible
+    // to our join path walk (since we don't fully resolve parameterized paths here).
+    // We filter out SubLinks from the parse tree so we don't accidentally try to
+    // push subqueries to DataFusion (those are handled as Join paths).
+    let mut all_clauses = path_info.search_clauses.clone();
 
-    // 1. Path-based: predicates classified by `walk_path_restrictinfo`.
+    if !(*jointree).quals.is_null() {
+        let mut parse_clauses = Vec::new();
+        collect_cross_table_search_quals((*jointree).quals, &mut parse_clauses);
+
+        for p_clause in parse_clauses {
+            let mut is_dup = false;
+            // Use deep structural equality; pointers may differ due to planner canonicalization
+            for &e_clause in &all_clauses {
+                if unsafe { pg_sys::equal(p_clause as *const _, e_clause as *const _) } {
+                    is_dup = true;
+                    break;
+                }
+            }
+            if !is_dup {
+                all_clauses.push(p_clause);
+            }
+        }
+    }
+
     apply_search_filter_or_decline(
         root,
         sources,
-        &path_info.search_clauses,
-        "path joinrestrictinfo",
+        &all_clauses,
+        "combined joinrestrictinfo and jointree.quals",
         "cross-table predicate cannot be pushed into the aggregate scan",
         &mut plan,
         &mut join_level_predicates,
         &mut multi_table_predicates,
         &mut multi_table_clauses,
     )?;
-
-    // 2. Fallback: parse-tree `(*jointree).quals` - PG sometimes leaves
-    // cross-table predicates here that `joinrestrictinfo` didn't surface.
-    if join_level_predicates.is_empty()
-        && multi_table_predicates.is_empty()
-        && !(*jointree).quals.is_null()
-    {
-        let mut parse_clauses = Vec::new();
-        collect_cross_table_search_quals((*jointree).quals, &mut parse_clauses);
-        apply_search_filter_or_decline(
-            root,
-            sources,
-            &parse_clauses,
-            "jointree.quals",
-            "cross-table predicate in WHERE clause cannot be pushed into the aggregate scan",
-            &mut plan,
-            &mut join_level_predicates,
-            &mut multi_table_predicates,
-            &mut multi_table_clauses,
-        )?;
-    }
 
     Ok((
         plan,
@@ -1364,6 +1360,8 @@ unsafe fn build_search_filter(
 /// Walk a parse-tree expression (typically `FromExpr.quals`) and collect
 /// cross-table clause pointers. Flattens top-level AND conjuncts and
 /// selects those that reference >1 relation (either @@@ or non-@@@ with fast fields).
+/// Explicitly filters out clauses containing subqueries (`SubLink` or `SubPlan`),
+/// as they are planned as joins and shouldn't be pushed down as search filters.
 unsafe fn collect_cross_table_search_quals(
     node: *mut pg_sys::Node,
     clauses: &mut Vec<*mut pg_sys::Node>,
@@ -1384,7 +1382,7 @@ unsafe fn collect_cross_table_search_quals(
     }
     // Keep cross-table conjuncts (both @@@ and non-@@@)
     let rtis = expr_collect_rtis(node);
-    if rtis.len() > 1 {
+    if rtis.len() > 1 && !expr_has_sublink(node) {
         clauses.push(node);
     }
 }

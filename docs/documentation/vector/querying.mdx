@@ -60,8 +60,8 @@ LIMIT 5;
 
 <Note>
   Every field you filter on (e.g. `category` above) must also be part of the
-  ParadeDB index. Filters on unindexed fields cannot be evaluated by the ParadeDB index, 
-  forcing Postgres to recheck them afterward and eliminating the
+  ParadeDB index. Filters on unindexed fields cannot be evaluated by the
+  ParadeDB index, forcing Postgres to recheck them afterward and eliminating the
   benefit of combining vector search with [filtering](/documentation/filtering).
 </Note>
 
@@ -70,9 +70,9 @@ LIMIT 5;
 Use `EXPLAIN` to confirm ParadeDB is accelerating the vector search. Look for a `Custom Scan` with an `Exec Method` of `TopKScanExecState` in the query plan:
 
 ```sql
-EXPLAIN SELECT id
+EXPLAIN SELECT id, description
 FROM mock_items
-WHERE id @@@ pdb.all()
+WHERE category === 'Footwear'
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
@@ -89,8 +89,12 @@ LIMIT 5;
          Scores: false
             TopK Order By: embedding <=> vector asc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear"}}}}
 ```
 </Accordion>
+
+Notice that the `category === 'Footwear'` filter was pushed down into the same index scan that performs the `ORDER BY`: the
+`Tantivy Query` line shows the term filter, and the `TopK Order By` line shows the vector ordering, both inside a single
+`ParadeDB Base Scan`. Without pushdown, the filter would run as a separate step after the nearest neighbors were fetched.
 
 If you do not see a `TopKScanExecState`, the query fell back to a less efficient sort. This usually means the distance operator does not match the index operator class, the query is missing a `LIMIT`, or an `ORDER BY` or filter field is not indexed.

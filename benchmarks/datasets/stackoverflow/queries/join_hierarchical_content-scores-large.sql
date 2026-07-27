@@ -6,7 +6,7 @@
 -- - 'question' selectivity on comments.text: ~7%
 
 -- Directly, without a CTE.
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
   *,
   pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score
 FROM
@@ -17,7 +17,7 @@ ORDER BY pdb_score DESC
 LIMIT 1000;
 
 -- CTE to execute a smaller join before Top K and then fetch the rest of the content after Top K.
-SET paradedb.enable_join_custom_scan TO off; WITH topk AS (
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; WITH topk AS (
   SELECT
     users.id AS user_id,
     stackoverflow_posts.id AS post_id,

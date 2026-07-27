@@ -32,7 +32,7 @@ pub const PDB_BYTES_TAG: &str = "$__pdb_bytes__";
 /// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent dates
 /// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
 /// Other than the Date variant, this is equivalent to Tantivy's OwnedValue
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum PdbOwnedValue {
     Null,
     Str(String),

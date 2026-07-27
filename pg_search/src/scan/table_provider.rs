@@ -41,6 +41,7 @@ use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
+use crate::scan::range_partitioning::RangePartitioningSample;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -118,6 +119,10 @@ pub struct PgSearchTableProvider {
     /// `parallel_state` routes per-source claims via
     /// `checkout_segment_for_source(source_idx)`. `None` for serial scans.
     source_idx: Option<usize>,
+
+    /// Explicit range partitioning configuration. When present, the provider
+    /// ignores parallel state segments and yields statically partitioned streams.
+    range_sample: Option<RangePartitioningSample>,
 }
 
 mod atomic_bool_serde {
@@ -160,7 +165,23 @@ impl PgSearchTableProvider {
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
             source_idx,
+            range_sample: None,
         }
+    }
+
+    /// Enables Range partitioning mode by supplying a distribution sample.
+    ///
+    /// When a sample is provided, the table provider will produce a plan that is
+    /// statically partitioned by range bounds, overriding the default `Shared`
+    /// (dynamic segment checkout) partitioning mode.
+    // TODO: Support for declaring range partitioning will be added via https://github.com/paradedb/paradedb/issues/5662
+    #[allow(dead_code)]
+    pub fn with_range_partitioning(
+        mut self,
+        range_sample: Option<RangePartitioningSample>,
+    ) -> Self {
+        self.range_sample = range_sample;
+        self
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -407,6 +428,7 @@ impl PgSearchTableProvider {
         resolved_query: SearchQueryInput,
         ffhelper: Arc<FFHelper>,
         partition_count: usize,
+        parallel_state: Option<*mut ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let deferred = self.deferred_fields();
         let deferred_ctid_plan_position = self.deferred_ctid_plan_position();
@@ -430,6 +452,8 @@ impl PgSearchTableProvider {
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
             partition_count,
+            parallel_state,
+            self.range_sample.clone(),
         )))
     }
 
@@ -468,7 +492,6 @@ impl PgSearchTableProvider {
             score_needed: self.scan_info.score_needed,
         };
         let state = ScanState {
-            parallel_state,
             source_idx,
             planner_estimated_rows,
             scanner_config,
@@ -483,6 +506,7 @@ impl PgSearchTableProvider {
             resolved_query,
             ffhelper,
             partition_count,
+            parallel_state,
         )
     }
 }
@@ -628,11 +652,15 @@ impl PgSearchTableProvider {
 
         let segment_count = reader.segment_readers().len();
         let target_partitions = state.config().target_partitions();
-        // The output partitions of the scan equal min(segments, target_partitions).
-        // This instructs datafusion-distributed to split the query into exactly this many
-        // tasks for this leaf, routing multi-segment tables to parallel workers while keeping
-        // small 1-segment tables serial.
-        let partition_count = std::cmp::min(segment_count, target_partitions).max(1);
+        // The output partitions of the scan default to min(segments, target_partitions),
+        // or exactly `target_partitions` when range partitioning is enabled.
+        // During distributed planning, the `PgSearchScanTaskEstimator` reads this partition
+        // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
+        let partition_count = if self.range_sample.is_some() {
+            target_partitions
+        } else {
+            std::cmp::min(segment_count, target_partitions).max(1)
+        };
 
         self.create_lazy_scan(
             parallel_state,

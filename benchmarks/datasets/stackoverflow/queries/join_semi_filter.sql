@@ -11,7 +11,7 @@
 -- twins, since the sort toggle that separated them is gone. Drop them on the next pass that can
 -- reset the benchmark baseline (removing alternatives renumbers the stored history).
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -45,7 +45,7 @@ ORDER BY
 LIMIT 25;
 
 -- Sortedness enabled, no join scan.
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date
@@ -62,7 +62,7 @@ ORDER BY
 LIMIT 25;
 
 -- term_set workaround, no join
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date

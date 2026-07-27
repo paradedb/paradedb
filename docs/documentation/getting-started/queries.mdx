@@ -280,7 +280,7 @@ await dbContext
 ## Vector Search
 
 <Note>
-Native vector search support for ParadeDB requires version `0.25.0` or above.
+  Native vector search support for ParadeDB requires version `0.25.0` or above.
 </Note>
 
 The `mock_items` table also contains an `embedding` column. Let's execute the same query above, but order results by vector similarity
@@ -293,6 +293,20 @@ WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
+
+```ini Expected Response
+     description
+---------------------
+ White jogging shoes
+ Sleek running shoes
+ Generic shoes
+(3 rows)
+```
+
+Because `embedding` is part of the same index as `description` and `rating`, the entire query — the full-text match, the rating filter,
+and the nearest-neighbor ordering — executes inside the ParadeDB index. With a standalone vector index, Postgres would find the
+nearest neighbors first and only afterward filter them against the other predicates, which is slower and can return fewer than the
+requested number of rows. See [Querying Vectors](/documentation/vector/querying) for more details.
 
 ## Highlighting
 

@@ -1,0 +1,58 @@
+---
+title: 0.25.0
+noindex: true
+---
+
+<Warning>
+  **Breaking change:** as of `0.25.0`,
+  [`pgvector`](https://github.com/pgvector/pgvector) is a required extension,
+  because [vector search](/documentation/vector/overview) stores and queries
+  values of `pgvector`'s `vector` type. Postgres enforces this before any of our
+  SQL runs, so `CREATE EXTENSION pg_search` and `ALTER EXTENSION pg_search
+  UPDATE TO '0.25.0'` both fail with `required extension "vector" is not
+  installed` until `pgvector` is present. Run `CREATE EXTENSION vector;` first
+  when upgrading, or `CREATE EXTENSION pg_search CASCADE;` on a fresh install.
+</Warning>
+
+## New Features 🎉
+
+- Vector search: the ParadeDB index now supports the `pgvector` `vector` type, using the same `vector_l2_ops`, `vector_cosine_ops` and `vector_ip_ops` opclass convention as `pgvector`. Vectors are backed by a SPANN-style index and sit alongside text and numeric fields, so filters, full text search, and ordering by vector similarity are served by a single index scan.
+- `paradedb` is now the primary index access method name. `USING bm25` continues to work as a backwards-compatible alias.
+- `ltree` hierarchy queries using the `<@` operator now use the index instead of falling back to a heap-side filter.
+- `CREATE INDEX` now reports `tuples_done` in `pg_stat_progress_create_index`, making it possible to monitor index build progress with standard Postgres tooling.
+
+## Performance Improvements 🚀
+
+- MPP plan partitioning is now enabled by default. The join and aggregate scans hash-partition each table by the join key and shuffle intermediate rows between workers, so every row is scanned once. Set `paradedb.enable_mpp` to `false` to fall back to the previous behavior.
+- MPP worker metrics are now reported in `EXPLAIN ANALYZE`.
+- Block-WAND is now used for score-ordered joins.
+- Top-K queries now perform MVCC visibility checking inline rather than as a separate filter step.
+- Improved top-K selection, candidate materialization, and multi-buffer read caching.
+
+## Stability Improvements 💪
+
+- Fixed several crashes in MPP plans, including `work_mem` overflow, query cancellation, and shared memory teardown on abort.
+- Fixed a `SIGABRT` during parallel index build merges.
+- `@@@` now preserves null semantics.
+- `ORDER BY` pushdown now accounts for collation.
+- Fixed several MVCC and `VACUUM` issues involving mutable segments.
+- The join scan now handles more plan shapes, including 3-way joins over `Gather Merge -> Sort` and right semi/anti joins.
+- Heap filters are now solved in MPP plans.
+- Upgraded to `pgvector` 0.8.4 and rebased onto the latest Tantivy.
+
+## New Contributors 👋
+
+- [**aadi-joshi**](https://github.com/aadi-joshi)
+- [**agrawalx**](https://github.com/agrawalx)
+- [**anatolykoptev**](https://github.com/anatolykoptev)
+- [**carlsverre**](https://github.com/carlsverre)
+- [**cjerian**](https://github.com/cjerian)
+- [**devdattatalele**](https://github.com/devdattatalele)
+- [**iamnamananand996**](https://github.com/iamnamananand996)
+- [**likern**](https://github.com/likern)
+- [**mvanhorn**](https://github.com/mvanhorn)
+- [**Rohan-Singla**](https://github.com/Rohan-Singla)
+- [**theanuragg**](https://github.com/theanuragg)
+- [**walter-woodall**](https://github.com/walter-woodall)
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.25.0).

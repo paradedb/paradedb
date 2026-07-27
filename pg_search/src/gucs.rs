@@ -18,11 +18,12 @@
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     function_name, pg_sys, GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel,
-    PgSqlErrorCode,
+    PgSqlErrorCode, PostgresGucEnum,
 };
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
+use tantivy::vector::ivf::ProbeGateMode;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
 
@@ -226,14 +227,57 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
-/// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
-/// past the best centroid the IVF probe loop keeps probing clusters. Lower
-/// epsilon probes fewer clusters, decreasing latency at the expense of
-/// recall. Default `0.5`.
+/// Query-time pruning factor (ε) for tantivy's `AdaptiveProbeParams`,
+/// read by BOTH gate modes: the probe loop's band is `(1 + ε)` on the
+/// per-metric distance around the gate anchor. Under the default
+/// `candidate` gate mode the anchor is the result heap's current k-th
+/// best, and with stored cluster radii ε = 0 is a certificate — it skips
+/// only provably-useless clusters; under the deprecated `centroid` mode
+/// the anchor is the best-routed centroid (SPANN eq. 3) and ε must also
+/// carry cluster-spread slack. Lower epsilon probes fewer clusters,
+/// decreasing latency at the expense of recall. Default `0.5`, tuned for
+/// the centroid anchor.
+///
+/// TODO(sweep): the candidate anchor prices only cluster-radius + graph
+/// slack, so its useful ε range sits far below centroid-anchored values —
+/// revisit this default (likely toward 0) when the gate-anchor benchmark
+/// sweep removes `ProbeGateMode::Centroid`, and drop the centroid-anchored
+/// reading from this description with it.
 static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
 
 pub fn vector_cluster_probe_epsilon() -> f32 {
     VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
+}
+
+/// Which anchor the IVF probe loop's distance-ratio gate uses. TEMPORARY
+/// A/B scaffolding for the gate-anchor sweep: `centroid` preserves the
+/// pre-candidate-gate behavior byte-exactly as the control arm; the losing
+/// arm (and this GUC) is expected to be removed after the sweep.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PostgresGucEnum)]
+pub enum VectorClusterGateMode {
+    /// DEPRECATED(epsilon-gate): retained for benchmark comparison against
+    /// the candidate/radius gate; remove with ProbeGateMode::Centroid.
+    /// SPANN eq. 3: a static band around the best-routed centroid, floored
+    /// by the survivor floor.
+    #[name = c"centroid"]
+    Centroid,
+    /// The band follows the result heap's k-th best; unarmed until the heap
+    /// holds `top_n` candidates, radius-aware, patience-2 termination.
+    #[name = c"candidate"]
+    Candidate,
+}
+
+static VECTOR_CLUSTER_GATE_MODE: GucSetting<VectorClusterGateMode> =
+    GucSetting::<VectorClusterGateMode>::new(VectorClusterGateMode::Candidate);
+
+pub fn vector_cluster_gate_mode() -> ProbeGateMode {
+    match VECTOR_CLUSTER_GATE_MODE.get() {
+        // DEPRECATED(epsilon-gate): retained for benchmark comparison
+        // against the candidate/radius gate; remove with
+        // ProbeGateMode::Centroid.
+        VectorClusterGateMode::Centroid => ProbeGateMode::Centroid,
+        VectorClusterGateMode::Candidate => ProbeGateMode::Candidate,
+    }
 }
 
 pub fn init() {
@@ -456,11 +500,20 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_probe_epsilon",
-        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
-        c"How far past the best centroid the IVF probe loop keeps probing clusters. Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
+        c"Pruning factor (ε) for vector ORDER BY cluster probing",
+        c"How far past the gate anchor the IVF probe loop keeps probing clusters, as a (1 + epsilon) band on the per-metric distance. Under the default candidate gate mode the anchor is the result heap's current k-th best; with stored cluster radii, epsilon = 0 skips only provably-useless clusters. Under the deprecated centroid mode the anchor is the best-routed centroid (SPANN eq. 3). Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
         &VECTOR_CLUSTER_PROBE_EPSILON,
         0.0,
         100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.vector_cluster_gate_mode",
+        c"Anchor of the IVF probe loop's distance-ratio gate",
+        c"TEMPORARY A/B scaffolding for the gate-anchor sweep. 'candidate' (default) bands around the result heap's current k-th best, arms only once the heap holds top-N candidates, uses stored cluster radii, and terminates on two consecutive violating clusters. 'centroid' preserves the previous behavior byte-exactly: a static band around the best-routed centroid plus a survivor floor. Expected to be removed after the sweep.",
+        &VECTOR_CLUSTER_GATE_MODE,
         GucContext::Userset,
         GucFlags::default(),
     );

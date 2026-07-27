@@ -1044,6 +1044,7 @@ impl SearchIndexReader {
                     .with_adaptive_params(AdaptiveProbeParams {
                         epsilon: crate::gucs::vector_cluster_probe_epsilon(),
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        gate_mode: crate::gucs::vector_cluster_gate_mode(),
                         ..Default::default()
                     });
                 // Probe-stats NOTICE (GUC `paradedb.log_probe_stats`, off by

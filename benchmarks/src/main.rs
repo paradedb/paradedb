@@ -556,6 +556,49 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         .clone()
         .unwrap_or_else(|| args.query.rsplit('/').next().unwrap().to_string());
 
+    let fixtures = load_recall_fixtures(
+        &mut conn,
+        &args.url,
+        &args.dataset,
+        &args.size,
+        &gt_stem,
+        base,
+    )
+    .await?;
+
+    // Apply the query file's SET statements so recall runs at the latency query's operating point.
+    for stmt in &set_statements {
+        sqlx::query(stmt)
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
+    }
+
+    let recall = score_recall(&mut conn, &knn_query, &fixtures).await?;
+    println!("recall = {recall:.4}");
+    Ok(())
+}
+
+/// Held-out query vectors (as pgvector text, ready to assign to `cohere.qvec`) and the exact
+/// ground truth, keyed by query id. Loaded once per (query, size) and reused across every recall
+/// measurement at that point, so a sweep re-scores the same fixtures at each operating point
+/// instead of re-reading them from S3.
+struct RecallFixtures {
+    vectors: Vec<(i32, String)>,
+    ground_truth: HashMap<i32, HashSet<String>>,
+}
+
+/// Create `recall.sql`'s fixture tables, load each from its exact parquet key, and read them back.
+async fn load_recall_fixtures(
+    conn: &mut PgConnection,
+    url: &str,
+    dataset: &str,
+    size: &str,
+    gt_stem: &str,
+    base: &str,
+) -> anyhow::Result<RecallFixtures> {
+    let recall_sql = format!("datasets/{dataset}/recall.sql");
+
     // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
     // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
     let mut fixtures = vec![
@@ -565,10 +608,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         ),
         (
             "recall_gt",
-            format!(
-                "{base}/queries/ground_truth_{}_{}.parquet",
-                gt_stem, args.size
-            ),
+            format!("{base}/queries/ground_truth_{gt_stem}_{size}.parquet"),
         ),
     ];
 
@@ -577,7 +617,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     // prior run before recall.sql drops/recreates it.)
     for statement in queries(Path::new(&recall_sql)) {
         sqlx::query(&statement)
-            .execute(&mut conn)
+            .execute(&mut *conn)
             .await
             .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
         let is_create = statement.to_lowercase().contains("create table");
@@ -585,7 +625,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         for (table, source) in fixtures {
             if is_create && statement.contains(table) {
                 println!("Loading {table} from {source}...");
-                load_parquet_into(&args.url, table, &source)?;
+                load_parquet_into(url, table, &source)?;
             } else {
                 pending.push((table, source));
             }
@@ -600,44 +640,47 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Apply the query file's SET statements so recall runs at the latency query's operating point.
-    for stmt in &set_statements {
-        sqlx::query(stmt)
-            .execute(&mut conn)
-            .await
-            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
-    }
-
-    // Held-out query vectors (as pgvector text, ready to assign to cohere.qvec) and the exact ground
-    // truth, keyed by query id.
     let vectors: Vec<(i32, String)> =
         sqlx::query_as("SELECT id, emb::text FROM cohere_queries ORDER BY id")
-            .fetch_all(&mut conn)
+            .fetch_all(&mut *conn)
             .await
             .with_context(|| "Failed to read cohere_queries")?;
     let ground_truth: HashMap<i32, HashSet<String>> =
         sqlx::query_as::<_, (i32, Vec<String>)>("SELECT query_id, gt_ids FROM recall_gt")
-            .fetch_all(&mut conn)
+            .fetch_all(&mut *conn)
             .await
             .with_context(|| "Failed to read recall_gt")?
             .into_iter()
             .map(|(id, ids)| (id, ids.into_iter().collect()))
             .collect();
 
-    // For each held-out vector, set cohere.qvec then run the latency query verbatim via the simple
-    // protocol (matching the benchmark, so the planner picks the same plan), and intersect its
-    // top-k with the exact ground truth.
+    Ok(RecallFixtures {
+        vectors,
+        ground_truth,
+    })
+}
+
+/// Score recall@k of `knn_query` against `fixtures`. For each held-out vector, set `cohere.qvec`
+/// then run the latency query verbatim via the simple protocol (matching the benchmark, so the
+/// planner picks the same plan), and intersect its top-k with the exact ground truth. The
+/// session's operating-point `SET`s must already be applied.
+async fn score_recall(
+    conn: &mut PgConnection,
+    knn_query: &str,
+    fixtures: &RecallFixtures,
+) -> anyhow::Result<f64> {
     let mut total_hits = 0usize;
-    for (id, emb_text) in &vectors {
+    for (id, emb_text) in &fixtures.vectors {
         sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{emb_text}';"))
-            .execute(&mut conn)
+            .execute(&mut *conn)
             .await
             .with_context(|| format!("Failed to set {QVEC_GUC} for query {id}"))?;
-        let rows = sqlx::raw_sql(&knn_query)
-            .fetch_all(&mut conn)
+        let rows = sqlx::raw_sql(knn_query)
+            .fetch_all(&mut *conn)
             .await
             .with_context(|| format!("Failed to run recall query for query {id}"))?;
-        let gt = ground_truth
+        let gt = fixtures
+            .ground_truth
             .get(id)
             .with_context(|| format!("No ground truth for query id {id}"))?;
         for row in &rows {
@@ -649,10 +692,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             }
         }
     }
-
-    let recall = total_hits as f64 / (vectors.len() * RECALL_K) as f64;
-    println!("recall = {recall:.4}");
-    Ok(())
+    Ok(total_hits as f64 / (fixtures.vectors.len() * RECALL_K) as f64)
 }
 
 /// Load `source` (a parquet path/URL) into the already-created Postgres `table` via DuckDB's

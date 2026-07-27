@@ -19,13 +19,36 @@ When one of ParadeDB's [search operators](/documentation/filtering) is present a
 
 When you are not filtering, use `pdb.all()`, which matches every row:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, description
 FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
+
+```ts Drizzle
+// Vector search support for Drizzle is coming very soon.
+```
+
+```python Django
+# Vector search support for Django is coming very soon.
+```
+
+```python SQLAlchemy
+# Vector search support for SQLAlchemy is coming very soon.
+```
+
+```ruby Rails
+# Vector search support for Rails is coming very soon.
+```
+
+```cs EF Core
+// Vector search support for EF Core is coming very soon.
+```
+
+</CodeGroup>
 
 The `<=>` operator computes cosine distance, so this returns the five rows whose embeddings are nearest the query vector `[1, 2, 3, 4, 5, 6, 7, 8]`.
 
@@ -42,13 +65,36 @@ This operator must match the operator class the column was indexed with. Otherwi
 To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the [search operators](/documentation/filtering#non-text-fields).
 For instance, the following query finds the nearest neighbors among results whose `category` contains the term `Footwear`.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, description
 FROM mock_items
 WHERE category === 'Footwear'
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
+
+```ts Drizzle
+// Vector search support for Drizzle is coming very soon.
+```
+
+```python Django
+# Vector search support for Django is coming very soon.
+```
+
+```python SQLAlchemy
+# Vector search support for SQLAlchemy is coming very soon.
+```
+
+```ruby Rails
+# Vector search support for Rails is coming very soon.
+```
+
+```cs EF Core
+// Vector search support for EF Core is coming very soon.
+```
+
+</CodeGroup>
 
 <Note>
   Every field you filter on (e.g. `category` above) must also be part of the

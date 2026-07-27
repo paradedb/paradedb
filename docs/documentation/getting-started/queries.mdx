@@ -286,13 +286,36 @@ await dbContext
 The `mock_items` table also contains an `embedding` column. Let's execute the same query above, but order results by vector similarity
 instead of BM25 score:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, embedding
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
+
+```ts Drizzle
+// Vector search support for Drizzle is coming very soon.
+```
+
+```python Django
+# Vector search support for Django is coming very soon.
+```
+
+```python SQLAlchemy
+# Vector search support for SQLAlchemy is coming very soon.
+```
+
+```ruby Rails
+# Vector search support for Rails is coming very soon.
+```
+
+```cs EF Core
+// Vector search support for EF Core is coming very soon.
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     |                                  embedding

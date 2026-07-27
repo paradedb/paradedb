@@ -23,13 +23,34 @@ which can significantly improve latency/recall for selective queries.
 The `mock_items` table comes with an `embedding` column of type `vector(8)` populated with sample embeddings.
 In this example, `embedding` is added to the ParadeDB index with cosine similarity as the distance function.
 
-{/* TODO: add Drizzle, Django, and SQLAlchemy tabs once the ORMs support indexing vectors in a ParadeDB index. */}
-
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
 WITH (key_field='id');
 ```
+
+```ts Drizzle
+// Vector search support for Drizzle is coming very soon.
+```
+
+```python Django
+# Vector search support for Django is coming very soon.
+```
+
+```python SQLAlchemy
+# Vector search support for SQLAlchemy is coming very soon.
+```
+
+```ruby Rails
+# Vector search support for Rails is coming very soon.
+```
+
+```cs EF Core
+// Vector search support for EF Core is coming very soon.
+```
+
+</CodeGroup>
 
 The desired distance function is encoded into the index definition, and cannot be changed without reindexing.
 Use `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, or `vector_cosine_ops` for cosine distance.
@@ -52,11 +73,34 @@ Use `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, or `vect
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
 recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and indexed. All are set at index build time and apply to every vector field in the index. An example:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
 WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
 ```
+
+```ts Drizzle
+// Vector search support for Drizzle is coming very soon.
+```
+
+```python Django
+# Vector search support for Django is coming very soon.
+```
+
+```python SQLAlchemy
+# Vector search support for SQLAlchemy is coming very soon.
+```
+
+```ruby Rails
+# Vector search support for Rails is coming very soon.
+```
+
+```cs EF Core
+// Vector search support for EF Core is coming very soon.
+```
+
+</CodeGroup>
 
 <ParamField body="centroid_ratio" default={0.01}>
   Vectors are clustered by proximity, and a centroid is a cluster's

@@ -65,7 +65,7 @@ RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
     TARGET="$(rustc -vV | sed -n 's/^host: //p')" && \
     env "CARGO_TARGET_$(echo "$TARGET" | tr 'a-z-' 'A-Z_')_RUSTFLAGS=-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id" \
         cargo build --offline --profile dst --target "$TARGET" \
-        --manifest-path /home/app/Cargo.toml -p stressgres && \
+        --manifest-path /home/app/Cargo.toml -p stressgres --features dst && \
     ln -sf "/home/app/target/$TARGET/dst/stressgres" /symbols/stressgres
 
 CMD ["sleep", "infinity"]

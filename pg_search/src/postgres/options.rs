@@ -74,7 +74,7 @@ pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
 pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
-pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 7;
+pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {

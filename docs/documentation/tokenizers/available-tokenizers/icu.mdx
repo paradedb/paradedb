@@ -8,7 +8,7 @@ The ICU (International Components for Unicode) tokenizer breaks down text accord
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.icu))
+USING paradedb (id, (description::pdb.icu))
 WITH (key_field='id');
 ```
 

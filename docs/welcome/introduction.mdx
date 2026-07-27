@@ -46,7 +46,7 @@ no need to denormalize your existing schema.
 ```sql
 -- Index a table for full-text search
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, rating)
+USING paradedb (id, description, rating)
 WITH (key_field='id');
 
 -- Rank by relevance, then filter and sort like any other query
@@ -67,7 +67,7 @@ ParadeDB accelerates standard SQL queries. That includes:
 
 ### One Index Behind Every Query
 
-Behind the SQL is a single custom index: the **BM25 index**, built on [Tantivy](https://github.com/quickwit-oss/tantivy), the Rust port of
+Behind the SQL is a single custom index: the **ParadeDB index**, built on [Tantivy](https://github.com/quickwit-oss/tantivy), the Rust port of
 Lucene. It goes toe-to-toe with dedicated search engines on full-text performance, often coming out on top. [See how it's built →](/welcome/architecture)
 
 ### As Reliable As Postgres

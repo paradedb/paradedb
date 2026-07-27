@@ -34,18 +34,18 @@ SET maintenance_work_mem = '2GB';
 
 ### Defer Index Creation
 
-If possible, creating the BM25 index should be deferred until **after** a table has been populated. To illustrate:
+If possible, creating the ParadeDB index should be deferred until **after** a table has been populated. To illustrate:
 
 ```sql
 -- This is preferred
 CREATE TABLE test (id SERIAL, data text);
 INSERT INTO test (data) VALUES ('hello world'), ('many more values');
-CREATE INDEX ON test USING bm25 (id, data) WITH (key_field = 'id');
+CREATE INDEX ON test USING paradedb (id, data) WITH (key_field = 'id');
 
 -- ...to this
 CREATE TABLE test (id SERIAL, data text);
-CREATE INDEX ON test USING bm25 (id, data) WITH (key_field = 'id');
+CREATE INDEX ON test USING paradedb (id, data) WITH (key_field = 'id');
 INSERT INTO test (data) VALUES ('hello world'), ('many more values');
 ```
 
-This allows the BM25 index to create a more tightly packed, efficient representation on disk and will lead to faster build times.
+This allows the ParadeDB index to create a more tightly packed, efficient representation on disk and will lead to faster build times.

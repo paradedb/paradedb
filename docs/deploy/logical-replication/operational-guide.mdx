@@ -19,7 +19,7 @@ When ParadeDB is used as a logical subscriber:
 1. Your application writes to tables on the publisher
 2. PostgreSQL logical replication applies those row changes to matching tables
    on ParadeDB
-3. ParadeDB maintains BM25 indexes locally on the subscriber
+3. ParadeDB maintains ParadeDB indexes locally on the subscriber
 4. Search and analytics queries run against ParadeDB instead of the primary
 
 This keeps the source database authoritative while isolating search traffic from
@@ -27,15 +27,16 @@ OLTP traffic.
 
 <Note>
   Logical replication copies row changes into ParadeDB, but it does not copy
-  BM25 indexes from the publisher. For the deployment described in this guide,
-  build the BM25 indexes you plan to query on the ParadeDB subscriber.
+  ParadeDB indexes from the publisher. For the deployment described in this
+  guide, build the ParadeDB indexes you plan to query on the ParadeDB
+  subscriber.
 </Note>
 
 ## Baseline Workflow
 
 ### 1. Wait for the Initial Copy to Finish
 
-Let PostgreSQL finish copying the base table data before you build BM25 indexes.
+Let PostgreSQL finish copying the base table data before you build ParadeDB indexes.
 This avoids extra indexing work during the bootstrap phase.
 
 On ParadeDB, you can check whether the initial copy is still running with:
@@ -63,19 +64,19 @@ ORDER BY 1;
 The initial copy is complete when every replicated table is in state `r`
 (`ready`).
 
-### 2. Build BM25 Indexes on ParadeDB
+### 2. Build ParadeDB Indexes on ParadeDB
 
-Once the replicated tables are caught up, create BM25 indexes locally on
+Once the replicated tables are caught up, create ParadeDB indexes locally on
 ParadeDB:
 
 ```sql
 CREATE INDEX mock_items_bm25_idx ON public.mock_items
-USING bm25 (id, description, category, rating)
+USING paradedb (id, description, category, rating)
 WITH (key_field='id');
 ```
 
 After this, ongoing replicated `INSERT`, `UPDATE`, and `DELETE` operations will
-keep the BM25 index current automatically.
+keep the ParadeDB index current automatically.
 
 ### 3. Query ParadeDB
 
@@ -132,7 +133,7 @@ When you want ParadeDB to index a new table:
 2. Apply the same DDL on ParadeDB
 3. Make sure the publication includes the table
 4. Refresh the subscription
-5. Build a BM25 index on ParadeDB if the table should be searchable
+5. Build a ParadeDB index on ParadeDB if the table should be searchable
 
 Whether step 3 is manual depends on how the publication was defined. If the
 publication uses `FOR ALL TABLES`, the new table is included automatically. If
@@ -151,13 +152,13 @@ ALTER SUBSCRIPTION app_search_sub REFRESH PUBLICATION;
 
 ### Change Indexed Columns
 
-If you add or remove a column that is part of a BM25 index:
+If you add or remove a column that is part of a ParadeDB index:
 
 1. Apply the table change on both the publisher and ParadeDB
 2. Let replication catch up again
-3. Rebuild the BM25 index on ParadeDB
+3. Rebuild the ParadeDB index on ParadeDB
 
-See [Reindexing](/documentation/indexing/reindexing) for the BM25 rebuild
+See [Reindexing](/documentation/indexing/reindexing) for the ParadeDB index rebuild
 workflow.
 
 ### Roll Out DDL Safely
@@ -174,7 +175,7 @@ For additive changes such as `ADD COLUMN`, the safest rollout is usually:
 1. Apply the additive DDL on ParadeDB first
 2. Apply the same DDL on the publisher
 3. Let replication continue normally
-4. Rebuild any BM25 indexes whose indexed column list changed
+4. Rebuild any ParadeDB indexes whose indexed column list changed
 
 This follows PostgreSQL's recommendation to apply additive schema changes on the
 subscriber first whenever possible, which avoids intermittent apply failures.
@@ -305,7 +306,7 @@ When you see these messages:
 2. Compare the affected table definition on the publisher and ParadeDB
 3. Apply the missing DDL on ParadeDB
 4. Re-enable or refresh the subscription if needed
-5. Rebuild any BM25 indexes affected by the schema change
+5. Rebuild any ParadeDB indexes affected by the schema change
 
 Another common cause of apply-worker failures is a logical replication conflict.
 For example, a duplicate key, a permissions failure on the target table, or

@@ -56,16 +56,16 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
 **Footnotes**
 
 <p className="text-sm">
-  1. The BM25 index supports Postgres' multi-version concurrency control (MVCC)
+  1. The ParadeDB index supports Postgres' multi-version concurrency control (MVCC)
   rules. The index reflects the current state of the underlying table at all
   times, changes to the index are atomic, and queries are transactionally
   consistent with the table.
-  2. The BM25 index is built on block storage, Postgres' native storage API.
+  2. The ParadeDB index is built on block storage, Postgres' native storage API.
   This means that it leverages the Postgres buffer cache, which minimizes disk
   I/O.
-  3. All listed deployment features and limitations are specific to the BM25 index. For instance,
+  3. All listed deployment features and limitations are specific to the ParadeDB index. For instance,
   ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like B-Tree.
-  4. In a primary-replica topology, BM25 indexes in ParadeDB Community are only available on the primary, as
+  4. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are only available on the primary, as
   the Community edition does not support physical replication.
 </p>
 </Info>

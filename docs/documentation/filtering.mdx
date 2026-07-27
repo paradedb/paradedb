@@ -78,15 +78,15 @@ await dbContext
 
 ### Non-Text Fields
 
-While not required, filtering performance over non-text columns can be improved by including them in the BM25 index.
+While not required, filtering performance over non-text columns can be improved by including them in the ParadeDB index.
 When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself.
 This can result in faster query execution over large datasets.
 
-For example, if `rating` and `created_at` are frequently used in filters, they can be added to the BM25 index during index creation:
+For example, if `rating` and `created_at` are frequently used in filters, they can be added to the ParadeDB index during index creation:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25(id, description, rating, created_at)
+USING paradedb(id, description, rating, created_at)
 WITH (key_field = 'id');
 ```
 
@@ -219,7 +219,7 @@ To push down the `category = 'Footwear'` filter, `category` must be indexed usin
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25(id, description, (category::pdb.literal))
+USING paradedb(id, description, (category::pdb.literal))
 WITH (key_field = 'id');
 ```
 

@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::operator::keyset::KeySet;
@@ -1047,22 +1047,17 @@ impl SearchIndexReader {
                         ..Default::default()
                     });
                 // Probe-stats NOTICE (GUC `paradedb.log_probe_stats`, off by
-                // default, zero-cost when off). The collector pushes one
-                // ProbeStats per segment into the sink; we aggregate the scalars
-                // and tally `termination`, then emit a single line. This vector
-                // search runs once per scan, so the NOTICE is once per query.
-                let probe_stats_sink =
-                    crate::gucs::log_probe_stats().then(|| Arc::new(Mutex::new(Vec::new())));
-                let collector = match &probe_stats_sink {
-                    Some(sink) => collector.with_probe_stats_sink(Arc::clone(sink)),
-                    None => collector,
-                };
-                let (top_docs, aggregation_results) =
+                // default). The collector returns one ProbeStats per segment
+                // in its Fruit — no side channel; we aggregate the scalars
+                // and tally `termination`, then emit a single line. This
+                // vector search runs once per scan, so the NOTICE is once per
+                // query.
+                let (fruit, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
-                if let Some(sink) = probe_stats_sink {
-                    emit_probe_stats_notice(&sink.lock().unwrap());
+                if crate::gucs::log_probe_stats() {
+                    emit_probe_stats_notice(&fruit.stats);
                 }
-                TopKSearchResults::new_for_score(top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(fruit.results, aggregation_results)
             }
         }
     }

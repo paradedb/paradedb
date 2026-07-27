@@ -13,7 +13,7 @@ canonical: https://docs.paradedb.com/documentation/vector/querying
 
 Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query over a vector column in the ParadeDB index.
 
-When one of ParadeDB's [search operators](/documentation/filtering#non-text-fields) is present at the same level as the `ORDER BY ... LIMIT`, ParadeDB can accelerate the vector search query.
+When one of ParadeDB's [search operators](/documentation/filtering) is present at the same level as the `ORDER BY ... LIMIT`, ParadeDB can accelerate the vector search query.
 
 ## Unfiltered Nearest Neighbors
 

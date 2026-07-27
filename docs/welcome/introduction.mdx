@@ -7,8 +7,7 @@ canonical: https://docs.paradedb.com/welcome/introduction
 
 ![ParadeDB Banner](/images/paradedb_banner.png)
 
-ParadeDB is a search engine built into Postgres. It's built on the **pg_search** extension, a Postgres index where vectors, text, BM25 scoring and filters
-live alongside each other. Everything runs inside your system of record with Postgres' transactional guarantees, not in
+ParadeDB is a search engine built into Postgres. It's built on the **pg_search** extension, a single Postgres index for efficient vector/text search, BM25 scoring, filtering, and aggregates. Everything runs inside your system of record with Postgres' transactional guarantees, not in
 a second system you have to keep in sync.
 
 <Note>
@@ -22,7 +21,7 @@ a second system you have to keep in sync.
 You're likely a good fit for ParadeDB if any of the following sound like you:
 
 1. **Postgres is your primary database** (managed or self-managed) and you'd rather build on it than around it.
-2. You've **outgrown Postgres' built-in search** (`tsvector` and the GIN index) and hit **performance bottlenecks** or **missing features** like BM25 scoring, fuzzy matching, or faceting.
+2. You've **outgrown Postgres' built-in search** (`tsvector` or `pgvector`) and hit **performance bottlenecks** or **missing features** with vector/text search.
 3. You're **evaluating a search engine** like Elasticsearch, but don't want to run (and continuously sync) a second system alongside your database.
 
 ## Why ParadeDB?
@@ -62,8 +61,7 @@ ParadeDB accelerates standard SQL queries. That includes:
 - **Text**: relevance-ranked full-text queries like the one above.
 - **Aggregations**: the same index serves faceted search and aggregations, pushing filters and aggregates directly into the index instead
   of computing them afterward.
-- **Vectors**: pair ParadeDB with [pgvector](https://github.com/pgvector/pgvector) to combine full-text and semantic search in one query,
-  with no separate vector database to keep in sync. A high-performance, drop-in compatible version is coming to the ParadeDB index soon.
+- **Vectors**: the ParadeDB index is a high-performance, drop-in compatible version with `pgvector`.
 
 ### One Index Behind Every Query
 

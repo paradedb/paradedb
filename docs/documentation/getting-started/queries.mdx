@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/getting-started/queries
 
 Now that your [environment is configured](/documentation/getting-started/environment), select the codetab for your tool and run some queries.
 
-## Text Match Query
+## Text Search
 
 We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
@@ -303,10 +303,94 @@ LIMIT 5;
 (3 rows)
 ```
 
-Because `embedding` is part of the same index as `description` and `rating`, the entire query — the full-text match, the rating filter,
-and the nearest-neighbor ordering — executes inside the ParadeDB index. With a standalone vector index, Postgres would find the
-nearest neighbors first and only afterward filter them against the other predicates, which is slower and can return fewer than the
-requested number of rows. See [Querying Vectors](/documentation/vector/querying) for more details.
+Because `embedding` is part of the same index as `description` and `rating`, the entire query (the full-text match, the rating filter,
+and the nearest-neighbor ordering) executes inside the ParadeDB index. ParadeDB is the only Postgres index that can do this — every other
+Postgres vector index is a standalone index that requires separate pre/post filtering, which hurts performance and recall.
+
+## Top K Ordering
+
+In addition to BM25 and vector similarity, ParadeDB is also optimized for quickly sorting by an arbitrary field, also known as a [Top K](/documentation/sorting/topk) query. 
+In SQL, this means queries that contain an `ORDER BY <field>...LIMIT`:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
+```python Django
+from paradedb import MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes'))
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("running shoes")
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
+
+<Note>
+The ordering field, in this case `rating`, must be indexed inside the ParadeDB index.
+</Note>
 
 ## Highlighting
 
@@ -410,86 +494,6 @@ await dbContext
  Sleek running shoes | Sleek <b>running</b> <b>shoes</b> |  6.817111
  Generic shoes       | Generic <b>shoes</b>              | 3.8772602
  White jogging shoes | White jogging <b>shoes</b>        | 3.4849067
-(3 rows)
-```
-
-## Top K
-
-ParadeDB is highly optimized for quickly returning the [Top K](/documentation/sorting/topk) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
-
-<CodeGroup>
-```sql SQL
-SELECT description, rating, category
-FROM mock_items
-WHERE description ||| 'running shoes'
-ORDER BY rating
-LIMIT 5;
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "running shoes"))
-  .orderBy(mockItems.rating)
-  .limit(5);
-```
-
-```python Django
-from paradedb import MatchAny, ParadeDB
-
-MockItem.objects.filter(
-    description=ParadeDB(MatchAny('running shoes'))
-).values('description', 'rating', 'category').order_by('rating')[:5]
-```
-
-```python SQLAlchemy
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import search
-
-stmt = (
-    select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.match_any(MockItem.description, "running shoes"))
-    .order_by(MockItem.rating)
-    .limit(5)
-)
-
-with Session(engine) as session:
-    session.execute(stmt).all()
-```
-
-```ruby Rails
-MockItem.search(:description)
-        .match_any("running shoes")
-        .select(:description, :rating, :category)
-        .order(:rating)
-        .limit(5)
-```
-
-```cs EF Core
-await dbContext
-    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
-    .OrderBy(item => item.Rating)
-    .Select(item => new { item.Description, item.Rating, item.Category })
-    .Take(5)
-    .ToListAsync();
-```
-
-</CodeGroup>
-
-```ini Expected Response
-     description     | rating | category
----------------------+--------+----------
- White jogging shoes |      3 | Footwear
- Generic shoes       |      4 | Footwear
- Sleek running shoes |      5 | Footwear
 (3 rows)
 ```
 

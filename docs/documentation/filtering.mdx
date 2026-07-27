@@ -74,6 +74,21 @@ await dbContext
 
 </CodeGroup>
 
+<Note>
+In order for the ParadeDB index to be used, at least one ParadeDB operator must be present in the query. Any of the following search operators qualify:
+
+| Operator | Meaning                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------- |
+| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
+| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
+| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
+| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
+| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
+
+For queries that do not require text search, add [`pdb.all`](/documentation/query-builder/compound/all) to force the ParadeDB
+index without changing the query output.
+</Note>
+
 ## Filter Pushdown
 
 ### Non-Text Fields
@@ -144,23 +159,6 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timestamptz`     |                    |
 |                                            | `uuid`            |                    |
 
-<Note>
-  In order for the ParadeDB index to be used, at least one ParadeDB operator
-  must be present in the query. For queries that do not require text search, add
-  [`pdb.all`](/documentation/query-builder/compound/all) to force the ParadeDB
-  index without changing the query output.
-</Note>
-
-Any of the following search operators qualify:
-
-| Operator | Meaning                                                                                           |
-| -------- | ------------------------------------------------------------------------------------------------- |
-| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
-| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
-| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
-| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
-| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
-
 ### Text Fields
 
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
@@ -169,7 +167,7 @@ Suppose we have a text filter that looks for an exact string match like `categor
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' AND category = 'Footwear';
+WHERE description === 'shoes' AND category = 'Footwear';
 ```
 
 ```ts Drizzle
@@ -246,7 +244,7 @@ Pushdown of set filters over text fields also requires the literal tokenizer:
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
+WHERE description === 'shoes' AND category IN ('Footwear', 'Apparel');
 ```
 
 ```ts Drizzle

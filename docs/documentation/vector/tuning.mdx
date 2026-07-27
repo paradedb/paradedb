@@ -4,7 +4,7 @@ description: Trade recall against latency for vector search
 canonical: https://docs.paradedb.com/documentation/vector/tuning
 ---
 
-Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall — how often the true nearest neighbors are returned — at the cost of higher latency. Two session-level settings control this tradeoff:
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. Two session-level settings control this tradeoff:
 
 ```sql
 SET paradedb.vector_cluster_probe_epsilon = 0.5;

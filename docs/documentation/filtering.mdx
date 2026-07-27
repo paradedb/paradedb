@@ -74,18 +74,6 @@ await dbContext
 
 </CodeGroup>
 
-## Search Operators
-
-For the ParadeDB index to accelerate a query, at least one of ParadeDB's search operators must be present in the `WHERE` clause. Any of the following qualify:
-
-| Operator | Meaning                                                                                           |
-| -------- | ------------------------------------------------------------------------------------------------- |
-| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
-| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
-| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
-| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
-| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
-
 ## Filter Pushdown
 
 ### Non-Text Fields
@@ -162,6 +150,16 @@ Filter pushdown is currently supported for the following combinations of types a
   [`pdb.all`](/documentation/query-builder/compound/all) to force the ParadeDB
   index without changing the query output.
 </Note>
+
+Any of the following search operators qualify:
+
+| Operator | Meaning                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------- |
+| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
+| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
+| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
+| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
+| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
 
 ### Text Fields
 

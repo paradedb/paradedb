@@ -63,13 +63,14 @@ This operator must match the operator class the column was indexed with. Otherwi
 ## Filtered Nearest Neighbors
 
 To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the [search operators](/documentation/filtering#non-text-fields).
-For instance, the following query finds the nearest neighbors among results whose `category` contains the term `Footwear`.
+For instance, the following query finds the nearest neighbors among results whose `category` contains the term `footwear`.
+Note the lowercase `footwear` — the default tokenizer lowercases terms, so `Footwear` would not match.
 
 <CodeGroup>
 ```sql SQL
 SELECT id, description
 FROM mock_items
-WHERE category === 'Footwear'
+WHERE category === 'footwear'
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
@@ -110,7 +111,7 @@ Use `EXPLAIN` to confirm ParadeDB is accelerating the vector search. Look for a 
 ```sql
 EXPLAIN SELECT id, description
 FROM mock_items
-WHERE category === 'Footwear'
+WHERE category === 'footwear'
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
 LIMIT 5;
 ```
@@ -127,10 +128,10 @@ LIMIT 5;
          Scores: false
             TopK Order By: embedding <=> vector asc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear"}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"footwear"}}}}
 ```
 </Accordion>
 
-Notice that the `category === 'Footwear'` filter was pushed down into the same index scan that performs the vector search. Without pushdown, the filter would run as a separate step after the nearest neighbors were fetched.
+Notice that the `category === 'footwear'` filter was pushed down into the same index scan that performs the vector search. Without pushdown, the filter would run as a separate step after the nearest neighbors were fetched.
 
 If you do not see a `TopKScanExecState`, the query fell back to a less efficient sort. This usually means the distance operator does not match the index operator class, the query is missing a `LIMIT`, or an `ORDER BY` or filter field is not indexed.

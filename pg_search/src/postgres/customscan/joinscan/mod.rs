@@ -142,6 +142,7 @@ pub mod build;
 pub mod planning;
 pub mod predicate;
 pub mod privdat;
+pub mod range_partitioning_rule;
 pub mod scan_state;
 pub mod visibility_filter;
 

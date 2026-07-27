@@ -42,6 +42,7 @@ CREATE INDEX mpp_join_files_idx ON mpp_join_files
 USING bm25 (id, title, content)
 WITH (
     key_field='id',
+    partition_by='id',
     text_fields='{"title": {"fast": true}, "content": {}}'
 );
 
@@ -49,6 +50,7 @@ CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
 USING bm25 (id, file_id, page_text, size_bytes)
 WITH (
     key_field='id',
+    partition_by='file_id',
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {}}'
 );

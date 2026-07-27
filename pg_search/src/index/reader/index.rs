@@ -51,7 +51,7 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::ivf::ProbeBudget;
 use tantivy::vector::ProbeStats;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
@@ -1034,8 +1034,7 @@ impl SearchIndexReader {
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_adaptive_params(AdaptiveProbeParams {
-                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                    .with_probe_budget(ProbeBudget {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });

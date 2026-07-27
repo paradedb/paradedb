@@ -354,7 +354,23 @@ async fn resolve_template_params(
     size: Option<&str>,
     statements: &[String],
 ) -> anyhow::Result<HashMap<String, String>> {
-    let referenced: HashSet<String> = statements.iter().flat_map(|s| template_names(s)).collect();
+    resolve_template_params_except(conn, dataset, size, statements, &HashSet::new()).await
+}
+
+/// As [`resolve_template_params`], but skips names the caller supplies itself -- a swept param is
+/// provided per point by the sweep, so it needs no `[params]` entry.
+async fn resolve_template_params_except(
+    conn: &mut PgConnection,
+    dataset: &str,
+    size: Option<&str>,
+    statements: &[String],
+    skip: &HashSet<String>,
+) -> anyhow::Result<HashMap<String, String>> {
+    let referenced: HashSet<String> = statements
+        .iter()
+        .flat_map(|s| template_names(s))
+        .filter(|name| !skip.contains(name))
+        .collect();
     if referenced.is_empty() {
         return Ok(HashMap::new());
     }
@@ -800,16 +816,23 @@ async fn sweep_query(
     )
     .await?;
 
-    // Resolve the variant's params once at their configured values; each point then overrides
-    // just the swept one.
-    let base_params =
-        resolve_template_params(conn, &args.dataset, Some(size), &[raw_variant.to_owned()]).await?;
-    if !base_params.contains_key(&sweep.param) {
+    if !template_names(raw_variant).contains(&sweep.param) {
         bail!(
             "Sweep for `{query_stem}` varies `{0}`, but that query does not reference `{{{{ {0} }}}}`",
             sweep.param
         );
     }
+    // Resolve the variant's *other* params once; the swept one comes from the sweep per point, so
+    // it needs no `[params]` entry of its own.
+    let swept = HashSet::from([sweep.param.clone()]);
+    let base_params = resolve_template_params_except(
+        conn,
+        &args.dataset,
+        Some(size),
+        &[raw_variant.to_owned()],
+        &swept,
+    )
+    .await?;
     let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
 
     let mut points = Vec::new();

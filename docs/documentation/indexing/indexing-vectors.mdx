@@ -71,9 +71,9 @@ WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, clu
   build time. Higher values yield better-quality centroids at the cost of a
   slower build. Must be between `1` and `100000`.
 </ParamField>
-<ParamField body="cluster_replication" default={7}>
+<ParamField body="cluster_replication" default={1}>
   The number of clusters each vector is written into: its primary cluster plus
-  up to `cluster_replication - 1` next-nearest clusters. Higher values improve
-  recall for filtered queries at the cost of a larger index. `1` disables
-  replication.
+  up to `cluster_replication - 1` next-nearest clusters. Higher values can
+  improve recall for filtered queries at the cost of a larger index. The default
+  of `1` disables replication.
 </ParamField>

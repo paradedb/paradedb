@@ -31,7 +31,7 @@ USING paradedb (id, description, category, embedding vector_cosine_ops)
 WITH (key_field='id');
 ```
 
-The desired distance function is encoded into the index definition, and cannot be changed without reindexing. 
+The desired distance function is encoded into the index definition, and cannot be changed without reindexing.
 Use `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, or `vector_cosine_ops` for cosine distance.
 
 <Note>
@@ -59,11 +59,12 @@ WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, clu
 ```
 
 <ParamField body="centroid_ratio" default={0.01}>
-  Vectors are clustered by proximity, and a centroid is a cluster's representative vector.
-  This setting controls the number of centroids to build, as a fraction of the number of indexed
-  vectors (`num_centroids = centroid_ratio * num_vectors`). More centroids
-  produce smaller clusters, improving recall at the cost of a slower, more
-  memory-intensive build. Must be between `0.000001` and `1.0`.
+  Vectors are clustered by proximity, and a centroid is a cluster's
+  representative vector. This setting controls the number of centroids to build,
+  as a fraction of the number of indexed vectors (`num_centroids =
+  centroid_ratio * num_vectors`). More centroids produce smaller clusters,
+  improving recall at the cost of a slower, more memory-intensive build. Must be
+  between `0.000001` and `1.0`.
 </ParamField>
 <ParamField body="training_samples_per_centroid" default={32}>
   The number of vectors sampled per centroid to train the k-means clustering at

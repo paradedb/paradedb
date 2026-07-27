@@ -309,7 +309,7 @@ Postgres vector index is a standalone index that requires separate pre/post filt
 
 ## Top K Ordering
 
-In addition to BM25 and vector similarity, ParadeDB is also optimized for quickly sorting by an arbitrary field, also known as a [Top K](/documentation/sorting/topk) query. 
+In addition to BM25 and vector similarity, ParadeDB is also optimized for quickly sorting by an arbitrary field, also known as a [Top K](/documentation/sorting/topk) query.
 In SQL, this means queries that contain an `ORDER BY <field>...LIMIT`:
 
 <CodeGroup>
@@ -389,7 +389,8 @@ await dbContext
 ```
 
 <Note>
-The ordering field, in this case `rating`, must be indexed inside the ParadeDB index.
+  The ordering field, in this case `rating`, must be indexed inside the ParadeDB
+  index.
 </Note>
 
 ## Highlighting

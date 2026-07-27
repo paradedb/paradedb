@@ -126,7 +126,7 @@ LIMIT 10;
            :     │     CoalescePartitionsExec
            :     │       DistributedLeafExec:
            :     │         t0: PgSearchScan: segments=10, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"overview","query_string":"software","lenient":null,"conjunction_mode":null}}}}
-           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
            :     │       DistributedLeafExec:
            :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"with_index":{"query":{"term_set":{"field":"technology_name","terms":["Marketo"]}}}}]}}
            :     └──────────────────────────────────────────────────

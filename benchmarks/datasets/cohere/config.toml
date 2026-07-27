@@ -9,13 +9,6 @@ primary_key = "_id"  # used only if sampled later
 
 [params]
 lists = "sqrt({{ dataset_size }})::int"
-# tuned for 95% recall
-probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 28 WHEN 10000000 THEN 45 ELSE greatest(1, sqrt({{ dataset_size }})::int) END"
-probes_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 54 WHEN 10000000 THEN 108 ELSE round(0.035 * sqrt({{ dataset_size }}))::int END"
-probes_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 150 WHEN 10000000 THEN 240 ELSE round(0.079 * sqrt({{ dataset_size }}))::int END"
-ef_search_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 115 WHEN 10000000 THEN 185 ELSE 100 END"
-ef_search_10pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 280 WHEN 10000000 THEN 560 ELSE 200 END"
-ef_search_1pct = "1000"
 max_scan_tuples_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 500000 WHEN 10000000 THEN 5000000 ELSE 200000 END"
 scan_mem_multiplier_1pct = "16"
 
@@ -41,13 +34,90 @@ scan_mem_multiplier_1pct = "16"
 # the lists table is inlined in each ELSE (defensive fallback; CI only runs the 1m/10m arms).
 vchord_epsilon = "1.9"
 vchord_lists = "CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END"
-vchord_probes_unfiltered = "CASE {{ dataset_size }} WHEN 1000000 THEN 60 WHEN 10000000 THEN 160 ELSE greatest(1, round(0.03 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
-vchord_probes_10pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 10000000 THEN 300 ELSE greatest(1, round(0.04 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
-vchord_probes_10pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 80 WHEN 10000000 THEN 300 ELSE greatest(1, round(0.04 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
-vchord_probes_1pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
-vchord_probes_1pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 
-pg_search_max_probe = "0.05"
-pg_search_probe_epsilon_unfiltered = "0.4"
-pg_search_probe_epsilon_10pct = "0.45"
-pg_search_probe_epsilon_1pct = "0.65"
+pg_search_max_probe = "0.02"
+# Swept knobs (see [sweeps] below), which is where their benchmarked values come from. The values
+# here are only the fallback for a run that resolves them without sweeping them -- each shared
+# query file sets both pgvector knobs, so benchmarking hnsw still has to resolve ivfflat's
+# `probes_*` (and vice versa), even though that index ignores them.
+probes_unfiltered = "40"
+probes_10pct = "80"
+probes_1pct = "160"
+ef_search_unfiltered = "160"
+ef_search_10pct = "320"
+ef_search_1pct = "1000"
+vchord_probes_unfiltered = "80"
+vchord_probes_10pct_off = "80"
+vchord_probes_10pct_on = "80"
+vchord_probes_1pct_off = "320"
+vchord_probes_1pct_on = "320"
+pg_search_probe_epsilon_unfiltered = "0.2"
+pg_search_probe_epsilon_10pct = "0.2"
+pg_search_probe_epsilon_1pct = "0.4"
+
+# Operating-point sweeps. Each arm's knob is measured across these values and the points that
+# reach 90/95/99% recall are the ones benchmarked -- so no value here needs to be "the" tuned
+# setting, and none needs a per-size CASE: the sweep picks a different point at 1m than at 10m.
+# Ranges are chosen to bracket 90-99% recall at every benchmarked size.
+
+# pgvector ivfflat: probes (cells scanned).
+[sweeps.ivfflat.knn_top10_unfiltered]
+param = "probes_unfiltered"
+values = ["10", "20", "40", "80", "160", "320", "640"]
+
+[sweeps.ivfflat.knn_top10_10pct]
+param = "probes_10pct"
+values = ["10", "20", "40", "80", "160", "320", "640"]
+
+[sweeps.ivfflat.knn_top10_1pct]
+param = "probes_1pct"
+values = ["10", "20", "40", "80", "160", "320", "640"]
+
+# pgvector hnsw: ef_search (candidate queue size). The 1% arm's max_scan_tuples and
+# scan_mem_multiplier stay fixed -- they bound the filtered scan, they are not the recall knob.
+[sweeps.hnsw.knn_top10_unfiltered]
+param = "ef_search_unfiltered"
+values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
+
+[sweeps.hnsw.knn_top10_10pct]
+param = "ef_search_10pct"
+values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
+
+[sweeps.hnsw.knn_top10_1pct]
+param = "ef_search_1pct"
+values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
+
+# VectorChord: probes (lists scanned). epsilon stays at the docs default.
+[sweeps.vchord.knn_top10_unfiltered]
+param = "vchord_probes_unfiltered"
+values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+
+[sweeps.vchord.knn_top10_10pct_prefilter_off]
+param = "vchord_probes_10pct_off"
+values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+
+[sweeps.vchord.knn_top10_10pct_prefilter_on]
+param = "vchord_probes_10pct_on"
+values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+
+[sweeps.vchord.knn_top10_1pct_prefilter_off]
+param = "vchord_probes_1pct_off"
+values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+
+[sweeps.vchord.knn_top10_1pct_prefilter_on]
+param = "vchord_probes_1pct_on"
+values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+
+# pg_search: the distance-ratio gate. The probe ceiling (pg_search_max_probe) stays fixed -- it is
+# a tail-latency guard, not the recall knob.
+[sweeps.pg_search.knn_top10_unfiltered]
+param = "pg_search_probe_epsilon_unfiltered"
+values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]
+
+[sweeps.pg_search.knn_top10_10pct]
+param = "pg_search_probe_epsilon_10pct"
+values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]
+
+[sweeps.pg_search.knn_top10_1pct]
+param = "pg_search_probe_epsilon_1pct"
+values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]

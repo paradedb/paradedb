@@ -840,7 +840,7 @@ async fn sweep_query(
 /// Replace each query that declares a sweep with one entry per recall target, so only the selected
 /// operating points are benchmarked for latency. Queries without a sweep pass through untouched.
 ///
-/// Also writes `sweep_summary.tsv` (query, target, param, value, recall, reached) for the
+/// Also writes `sweep_summary_{size}.tsv` (query, target, param, value, recall, reached) for the
 /// workflow to render.
 async fn expand_sweeps(
     conn: &mut PgConnection,
@@ -890,8 +890,10 @@ async fn expand_sweeps(
     }
 
     if !summary.is_empty() {
-        std::fs::write("sweep_summary.tsv", summary.join("\n") + "\n")
-            .with_context(|| "Failed to write sweep_summary.tsv")?;
+        // Per size, so a later size's run does not clobber an earlier one's summary.
+        let path = format!("sweep_summary_{size}.tsv");
+        std::fs::write(&path, summary.join("\n") + "\n")
+            .with_context(|| format!("Failed to write {path}"))?;
     }
     Ok(expanded)
 }

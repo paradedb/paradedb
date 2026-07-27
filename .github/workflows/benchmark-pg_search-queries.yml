@@ -387,33 +387,6 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      # Reuses the index the benchmark step just built (same Postgres). Measures recall for every
-      # query file (unfiltered + each filtered kNN) at the same probes/ef_search the latency
-      # benchmark used, so the reported recall is the operating point being benchmarked.
-      - name: Measure "cohere" Recall (1M)
-        if: ${{ env.RUN_COHERE == 'true' }}
-        working-directory: benchmarks/
-        run: |
-          set -euo pipefail
-          : > recall_1m.tsv
-          # An index may ship its own query set under queries/{index}/; recall resolves --query
-          # relative to datasets/cohere/queries/, so prepend the subdir when present. Filter variants
-          # that share a ground truth (vchord's prefilter on/off) map to the base stem via
-          # --ground-truth (strip the _prefilter_{on,off} suffix).
-          sub=""; [ -d "datasets/cohere/queries/${{ env.COHERE_INDEX }}" ] && sub="${{ env.COHERE_INDEX }}/"
-          for f in datasets/cohere/queries/${sub}*.sql; do
-            q=$(basename "$f" .sql)
-            gt=$(printf '%s' "$q" | sed -E 's/_prefilter_(on|off)$//')
-            out=$(cargo run --release -- recall \
-              --dataset cohere \
-              --size 1m \
-              --query "${sub}${q}" \
-              --ground-truth "$gt" \
-              --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
-            echo "$out"
-            printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_1m.tsv
-          done
-
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
         run: |
@@ -456,26 +429,10 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      - name: Measure "cohere" Recall (10M)
-        if: ${{ env.RUN_COHERE == 'true' }}
-        working-directory: benchmarks/
-        run: |
-          set -euo pipefail
-          : > recall_10m.tsv
-          sub=""; [ -d "datasets/cohere/queries/${{ env.COHERE_INDEX }}" ] && sub="${{ env.COHERE_INDEX }}/"
-          for f in datasets/cohere/queries/${sub}*.sql; do
-            q=$(basename "$f" .sql)
-            gt=$(printf '%s' "$q" | sed -E 's/_prefilter_(on|off)$//')
-            out=$(cargo run --release -- recall \
-              --dataset cohere \
-              --size 10m \
-              --query "${sub}${q}" \
-              --ground-truth "$gt" \
-              --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
-            echo "$out"
-            printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_10m.tsv
-          done
-
+      # Renders the operating points the benchmark selected. The benchmark step measures recall
+      # across each query's swept values and keeps the cheapest one reaching each target, writing
+      # sweep_summary_{size}.tsv (query, target, param, value, recall, reached). Latency for those
+      # same points is published as the `{query}@r90|r95|r99` benchmark series.
       - name: Comment cohere recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
         working-directory: benchmarks/
@@ -483,22 +440,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # A recall step that was skipped/failed leaves its .tsv missing; touch both so `cat` (and
-          # thus pipefail) doesn't abort when only one size ran.
-          touch recall_1m.tsv recall_10m.tsv
-          # Build one row per query (union of whatever was measured at either size), so query files
-          # added to datasets/cohere/queries/ appear automatically.
-          rows=$(cat recall_1m.tsv recall_10m.tsv | cut -f1 | sort -u | while read -r q; do
-            [ -n "$q" ] || continue
-            r1=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_1m.tsv 2>/dev/null || true)
-            r10=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_10m.tsv 2>/dev/null || true)
-            printf '| `%s` | %s | %s |\n' "$q" "${r1:-n/a}" "${r10:-n/a}"
-          done)
+          # A size that was skipped/failed leaves its .tsv missing; touch both so `cat` (and thus
+          # pipefail) doesn't abort when only one size ran.
+          touch sweep_summary_1m.tsv sweep_summary_10m.tsv
+          if [ ! -s sweep_summary_1m.tsv ] && [ ! -s sweep_summary_10m.tsv ]; then
+            echo "No sweep summaries -- nothing to comment."
+            exit 0
+          fi
+          # One row per (query, target) measured at either size, so queries added to
+          # datasets/cohere/queries/ appear automatically.
+          rows=$(cat sweep_summary_1m.tsv sweep_summary_10m.tsv | cut -f1,2 | sort -u | \
+            while IFS=$'\t' read -r q t; do
+              [ -n "$q" ] || continue
+              # `value -> recall`, flagged when no swept value reached the target.
+              fmt='$1==q && $2==t { printf "`%s` → %s%s", $4, $5, ($6=="false" ? " ⚠️" : "") }'
+              c1=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_1m.tsv)
+              c10=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_10m.tsv)
+              printf '| `%s` | %s%% | %s | %s |\n' "$q" "${t#r}" "${c1:-n/a}" "${c10:-n/a}"
+            done)
           {
             printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
-            printf '| query | 1m | 10m |\n|-------|----|----|\n'
+            printf '| query | target | 1m | 10m |\n|-------|--------|----|----|\n'
             printf '%s\n' "$rows"
-            printf '\n<sub>recall@10 of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark. Probes are tuned per query+size for ~95%% recall</sub>\n'
+            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — and the recall it achieved. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
           } > recall_body.md
           cat recall_body.md
           if [ -n "${{ github.event.pull_request.number }}" ]; then

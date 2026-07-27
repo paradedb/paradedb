@@ -287,7 +287,7 @@ The `mock_items` table also contains an `embedding` column. Let's execute the sa
 instead of BM25 score:
 
 ```sql
-SELECT description
+SELECT description, embedding
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]'
@@ -295,11 +295,11 @@ LIMIT 5;
 ```
 
 ```ini Expected Response
-     description
----------------------
- White jogging shoes
- Sleek running shoes
- Generic shoes
+     description     |                                  embedding
+---------------------+------------------------------------------------------------------------------
+ White jogging shoes | [-0.042016,0.399574,-0.663812,-0.071006,0.430261,0.21037,0.392919,-0.095506]
+ Sleek running shoes | [-0.01708,0.467566,-0.757486,0.134082,0.33933,0.04403,0.185394,-0.194613]
+ Generic shoes       | [-0.28609,0.368785,-0.810201,0.011777,0.132327,0.199342,0.056281,-0.255287]
 (3 rows)
 ```
 

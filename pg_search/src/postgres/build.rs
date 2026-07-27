@@ -205,6 +205,50 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
             });
         }
     }
+
+    // Validate that `sort_by` and `partition_by` fields are single-valued
+    let check_single_valued = |field_name: &FieldName, context: &str| {
+        let attributes = options.attributes();
+        // Resolve alias if needed
+        let resolved_name = match options
+            .aliased_text_configs()
+            .into_iter()
+            .chain(options.aliased_json_configs())
+            .find(|(name, _)| name == field_name)
+        {
+            Some((_, config)) => FieldName::from(config.alias().unwrap().to_string()),
+            None => field_name.clone(),
+        };
+
+        if resolved_name.is_ctid() {
+            return;
+        }
+
+        if let Some(attr) = attributes.get(&resolved_name) {
+            let (_, is_array) =
+                crate::postgres::utils::resolve_base_type(PgOid::from_untagged(attr.inner_typoid))
+                    .unwrap_or_else(|| panic!("failed to resolve base type for `{resolved_name}`"));
+
+            let is_multi_valued = is_array
+                || matches!(
+                    attr.tantivy_type,
+                    SearchFieldType::Json(_) | SearchFieldType::Range(_)
+                );
+
+            if is_multi_valued {
+                panic!(
+                    "`{field_name}` cannot be used in `{context}` because it is a multi-valued field"
+                );
+            }
+        }
+    };
+
+    for sort_field in options.sort_by() {
+        check_single_valued(&sort_field.field_name, "sort_by");
+    }
+    for partition_field in options.partition_by() {
+        check_single_valued(&partition_field, "partition_by");
+    }
 }
 
 fn validate_field_config(

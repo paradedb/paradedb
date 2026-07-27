@@ -39,7 +39,7 @@ impl RangePartitioning {
     ///
     /// **Consumer Caveats**:
     /// - A row whose partition field is NULL will be deterministically routed to partition 0.
-    /// - A multi-valued field can fall into multiple partition ranges and duplicate the row.
+    /// - A multi-valued field can fall into multiple partition ranges and duplicate the row. This is statically prevented during index configuration for `partition_by` columns.
     pub fn partition_bounds(&self, partition: usize) -> SearchQueryInput {
         let lower = if partition > 0 {
             let val = &self.split_points[partition - 1];

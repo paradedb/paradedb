@@ -158,7 +158,7 @@ jobs:
 
           # Install PostgreSQL + build tooling
           DEBIAN_FRONTEND=noninteractive sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ env.PG_VERSION }} postgresql-server-dev-${{ env.PG_VERSION }} debhelper devscripts dput gnupg binutils
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ env.PG_VERSION }} postgresql-server-dev-${{ env.PG_VERSION }} debhelper devscripts dput gnupg binutils libopenblas-dev
 
           # Add Postgres bin dir to PATH for subsequent steps
           echo "/usr/lib/postgresql/${{ env.PG_VERSION }}/bin" >> "$GITHUB_PATH"
@@ -250,7 +250,7 @@ jobs:
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE
           echo 'Architecture: amd64' >> $CONTROL_FILE
-          echo 'Depends: postgresql-${{ env.PG_VERSION }}' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ env.PG_VERSION }}, libopenblas0' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 

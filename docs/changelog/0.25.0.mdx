@@ -4,41 +4,82 @@ noindex: true
 ---
 
 <Warning>
-  **Breaking change:** as of `0.25.0`,
-  [`pgvector`](https://github.com/pgvector/pgvector) is a required extension,
-  because [vector search](/documentation/vector/overview) stores and queries
-  values of `pgvector`'s `vector` type. Postgres enforces this before any of our
-  SQL runs, so `CREATE EXTENSION pg_search` and `ALTER EXTENSION pg_search
-  UPDATE TO '0.25.0'` both fail with `required extension "vector" is not
-  installed` until `pgvector` is present. Run `CREATE EXTENSION vector;` first
-  when upgrading, or `CREATE EXTENSION pg_search CASCADE;` on a fresh install.
+  **Breaking change:** As of `0.25.0`, [`pgvector`](https://github.com/pgvector/pgvector) is a required extension
+  of `pg_search`. Before upgrading or installing the extension, please ensure that `pgvector` is installed
+  on the same database.
+
+The reason is because `0.25.0` brings native vector search support to the ParadeDB index and relies on
+`pgvector`'s `vector` type and distance operators.
+
 </Warning>
 
 ## New Features 🎉
 
-- Vector search: the ParadeDB index now supports the `pgvector` `vector` type, using the same `vector_l2_ops`, `vector_cosine_ops` and `vector_ip_ops` opclass convention as `pgvector`. Vectors are backed by a SPANN-style index and sit alongside text and numeric fields, so filters, full text search, and ordering by vector similarity are served by a single index scan.
-- `paradedb` is now the primary index access method name. `USING bm25` continues to work as a backwards-compatible alias.
-- `ltree` hierarchy queries using the `<@` operator now use the index instead of falling back to a heap-side filter.
-- `CREATE INDEX` now reports `tuples_done` in `pg_stat_progress_create_index`, making it possible to monitor index build progress with standard Postgres tooling.
+### Index Renamed to `paradedb`
+
+`paradedb` is now the primary index access method name. Creating an index now looks like:
+
+<CodeGroup>
+```sql New
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category)
+WITH (key_field = id);
+```
+
+```sql Deprecated
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (key_field = id);
+```
+
+</CodeGroup>
+
+This rename reflects the fact that the index drives much more than BM25 scoring — vector search, Top K, composable filtering, aggregates, etc.
+`USING bm25` has been deprecated but continues to work as a backwards-compatible alias.
+
+<Note>
+  At the time of this release, the ParadeDB ORMs have not yet been updated and
+  still use the `bm25` naming. They will be updated shortly.
+</Note>
+
+### Native Vector Search (Beta)
+
+The ParadeDB index can now index the `vector` type. This index is completely separate from `pgvector`'s HNSW/IVF indexes:
+
+- Vectors are backed by a SPANN-style index, the state-of-the-art in vector search designed for datasets that are far larger than available memory.
+- Vectors sit alongside text and numeric fields, so filters, full text search, and ordering by vector similarity are pushed down into a single index scan.
+
+To index a vector field, simply add it to the index definition:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category, embedding vector_cosine_ops)
+WITH (key_field = id);
+```
+
+Please note that we will be shipping performance improvements in the coming minor releases. While vector search is marked as beta, future releases may change the vector storage format
+and require a reindex.
+
+### MPP Partitioning
+
+TODO
+
+### Ltree Support
+
+`ltree` hierarchy queries using the `<@` operator now use the index instead of falling back to a heap-side filter.
 
 ## Performance Improvements 🚀
 
-- MPP plan partitioning is now enabled by default. The join and aggregate scans hash-partition each table by the join key and shuffle intermediate rows between workers, so every row is scanned once. Set `paradedb.enable_mpp` to `false` to fall back to the previous behavior.
-- MPP worker metrics are now reported in `EXPLAIN ANALYZE`.
 - Block-WAND is now used for score-ordered joins.
 - Top-K queries now perform MVCC visibility checking inline rather than as a separate filter step.
 - Improved top-K selection, candidate materialization, and multi-buffer read caching.
 
 ## Stability Improvements 💪
 
-- Fixed several crashes in MPP plans, including `work_mem` overflow, query cancellation, and shared memory teardown on abort.
-- Fixed a `SIGABRT` during parallel index build merges.
 - `@@@` now preserves null semantics.
 - `ORDER BY` pushdown now accounts for collation.
 - Fixed several MVCC and `VACUUM` issues involving mutable segments.
-- The join scan now handles more plan shapes, including 3-way joins over `Gather Merge -> Sort` and right semi/anti joins.
-- Heap filters are now solved in MPP plans.
-- Upgraded to `pgvector` 0.8.4 and rebased onto the latest Tantivy.
+- `CREATE INDEX` now reports `tuples_done` in `pg_stat_progress_create_index`, making it possible to monitor index build progress with standard Postgres tooling.
 
 ## New Contributors 👋
 

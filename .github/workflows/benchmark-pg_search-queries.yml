@@ -452,8 +452,8 @@ jobs:
           rows=$(cat sweep_summary_1m.tsv sweep_summary_10m.tsv | cut -f1,2 | sort -u | \
             while IFS=$'\t' read -r q t; do
               [ -n "$q" ] || continue
-              # `value -> recall`, flagged when no swept value reached the target.
-              fmt='$1==q && $2==t { printf "`%s` → %s%s", $4, $5, ($6=="false" ? " ⚠️" : "") }'
+              # `value` → recall · latency, flagged when no swept value reached the target.
+              fmt='$1==q && $2==t { printf "`%s` → %s%s · %s ms", $4, $5, ($6=="false" ? " ⚠️" : ""), $7 }'
               c1=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_1m.tsv)
               c10=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_10m.tsv)
               printf '| `%s` | %s%% | %s | %s |\n' "$q" "${t#r}" "${c1:-n/a}" "${c10:-n/a}"
@@ -462,7 +462,7 @@ jobs:
             printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
             printf '| query | target | 1m | 10m |\n|-------|--------|----|----|\n'
             printf '%s\n' "$rows"
-            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — and the recall it achieved. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
+            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the mean latency measured at that point. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
           } > recall_body.md
           cat recall_body.md
           if [ -n "${{ github.event.pull_request.number }}" ]; then

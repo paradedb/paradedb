@@ -860,19 +860,30 @@ async fn sweep_query(
     Ok(points)
 }
 
+/// One selected operating point, held until latency has been measured for it so the run's summary
+/// can report the recall and the latency of the same point together.
+struct SweepSummaryRow {
+    query: String,
+    label: &'static str,
+    param: String,
+    value: String,
+    recall: f64,
+    reached: bool,
+}
+
 /// Replace each query that declares a sweep with one entry per recall target, so only the selected
 /// operating points are benchmarked for latency. Queries without a sweep pass through untouched.
 ///
-/// Also writes `sweep_summary_{size}.tsv` (query, target, param, value, recall, reached) for the
-/// workflow to render.
+/// Returns the rows for the run's sweep summary; latency is joined on afterwards by
+/// [`write_sweep_summary`].
 async fn expand_sweeps(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
     parsed: Vec<(String, String)>,
-) -> anyhow::Result<Vec<(String, String)>> {
+) -> anyhow::Result<(Vec<(String, String)>, Vec<SweepSummaryRow>)> {
     let (config, _) = load_dataset_config(&format!("datasets/{}/config.toml", args.dataset))?;
     if config.sweeps.is_empty() {
-        return Ok(parsed);
+        return Ok((parsed, Vec::new()));
     }
     let size = args
         .size
@@ -904,21 +915,48 @@ async fn expand_sweeps(
                     selected.recall
                 );
             }
-            summary.push(format!(
-                "{query_type}\t{}\t{}\t{}\t{:.4}\t{}",
-                selected.label, sweep.param, selected.value, selected.recall, selected.reached
-            ));
+            summary.push(SweepSummaryRow {
+                query: query_type.clone(),
+                label: selected.label,
+                param: sweep.param.clone(),
+                value: selected.value,
+                recall: selected.recall,
+                reached: selected.reached,
+            });
             expanded.push((format!("{query_type}@{}", selected.label), selected.query));
         }
     }
+    Ok((expanded, summary))
+}
 
-    if !summary.is_empty() {
-        // Per size, so a later size's run does not clobber an earlier one's summary.
-        let path = format!("sweep_summary_{size}.tsv");
-        std::fs::write(&path, summary.join("\n") + "\n")
-            .with_context(|| format!("Failed to write {path}"))?;
+/// Write `sweep_summary_{size}.tsv` for the workflow to render: each selected point with the recall
+/// it achieved and the latency measured at it.
+fn write_sweep_summary(
+    size: &str,
+    rows: &[SweepSummaryRow],
+    results: &[QueryResult],
+) -> anyhow::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
     }
-    Ok(expanded)
+    let mut out = Vec::new();
+    for r in rows {
+        // Latency was measured under the expanded label the sweep emitted.
+        let benchmarked = format!("{}@{}", r.query, r.label);
+        let latency = results
+            .iter()
+            .find(|q| q.query_type == benchmarked)
+            .map(|q| format!("{:.2}", mean(&q.results.samples)))
+            // A query that errored is skipped by the benchmark loop, so it has no latency.
+            .unwrap_or_else(|| "n/a".to_owned());
+        out.push(format!(
+            "{}\t{}\t{}\t{}\t{:.4}\t{}\t{}",
+            r.query, r.label, r.param, r.value, r.recall, r.reached, latency
+        ));
+    }
+    // Per size, so a later size's run does not clobber an earlier one's summary.
+    let path = format!("sweep_summary_{size}.tsv");
+    std::fs::write(&path, out.join("\n") + "\n").with_context(|| format!("Failed to write {path}"))
 }
 
 /// Load `source` (a parquet path/URL) into the already-created Postgres `table` via DuckDB's
@@ -999,7 +1037,8 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     // Expand any query declaring a sweep into one entry per recall target, measured against the
     // index just built. Swept entries come back fully substituted; the rest still hold `{{ }}`
     // references and are resolved below.
-    let parsed_queries = expand_sweeps(&mut utility_conn, args, parsed_queries).await?;
+    let (parsed_queries, sweep_summary) =
+        expand_sweeps(&mut utility_conn, args, parsed_queries).await?;
     let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,
@@ -1048,6 +1087,10 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
                 println!("Skipped (query error)\n");
             }
         }
+    }
+
+    if let Some(size) = args.size.as_deref() {
+        write_sweep_summary(size, &sweep_summary, &results)?;
     }
 
     Ok(results)

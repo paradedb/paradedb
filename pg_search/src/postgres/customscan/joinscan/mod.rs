@@ -832,15 +832,6 @@ impl JoinScan {
             .collect()
     }
 
-    fn source_queries_have_parameters(join_clause: &JoinCSClause) -> bool {
-        // TODO(#5445): Implement `SolvePostgresExpressions` for `JoinScan` to solve
-        // these parameters on the leader before dispatch.
-        join_clause.plan.sources().iter().any(|source| {
-            let mut query = source.scan_info.query.clone();
-            query.has_parameters()
-        })
-    }
-
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.plan.sources().iter().any(|source| {
             let mut query = source.scan_info.query.clone();

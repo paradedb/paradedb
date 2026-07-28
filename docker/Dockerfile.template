@@ -11,8 +11,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 # Install the locally built, Antithesis-instrumented pg_search package.
 ARG COMMIT_SHA
 COPY pg_search-antithesis-trixie-amd64-pg@@PG_VERSION_MAJOR@@-${COMMIT_SHA}.deb /tmp/pg_search.deb
-RUN dpkg -i /tmp/pg_search.deb && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
     rm /tmp/pg_search.deb && \
+    rm -rf /var/lib/apt/lists/* && \
     mkdir /symbols && \
     ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so
 # %%ANTITHESIS_END%%

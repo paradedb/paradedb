@@ -76,3 +76,31 @@ CREATE INDEX partition_by_test_idx ON partition_by_test
     WITH (key_field='id', partition_by=' , ');
 
 DROP TABLE partition_by_test CASCADE;
+
+-- SECTION 3: Multi-valued fields (should error)
+\echo '=== SECTION 3: Multi-valued fields ==='
+
+DROP TABLE IF EXISTS partition_by_multi_test CASCADE;
+CREATE TABLE partition_by_multi_test (
+    id SERIAL PRIMARY KEY,
+    tags TEXT[],
+    meta JSONB,
+    int_array INTEGER[]
+);
+
+\echo 'Test 3.1: partition_by with array field (should error)'
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, tags, meta)
+    WITH (key_field='id', partition_by='tags');
+
+\echo 'Test 3.2: partition_by with json field (should error)'
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, tags, meta)
+    WITH (key_field='id', partition_by='meta');
+
+\echo 'Test 3.3: partition_by with aliased array expression (should error)'
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, (int_array::pdb.alias('aliased_array')))
+    WITH (key_field='id', partition_by='aliased_array');
+
+DROP TABLE partition_by_multi_test CASCADE;

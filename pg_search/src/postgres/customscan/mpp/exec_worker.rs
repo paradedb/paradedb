@@ -50,14 +50,15 @@ use datafusion_distributed::shm::{
     ShmChannelResolver,
 };
 use datafusion_distributed::PartitionSink;
+use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
-use crate::postgres::customscan::mpp::task_estimator::PgSearchScanTaskEstimator;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
+use crate::scan::execution_plan::PgSearchScanTaskEstimator;
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
 use datafusion_distributed::shm::SetPlanFrame;
 
@@ -276,12 +277,15 @@ pub(crate) fn run_mpp_worker(
                 fragment.task_idx
             );
         };
+        // Deduplicating decode re-shares expressions by `expression_id`, so occurrences of one
+        // dynamic filter come back as a single shared instance instead of per-site snapshots.
         match deserialize_physical_plan_with_runtime(
             &set_plan.plan_proto,
             &decode_ctx,
             parallel_state,
             index_segment_ids.to_vec(),
             Some(expr_context_guard.as_ptr()),
+            &DeduplicatingProtoConverter {},
         ) {
             Ok(plan) => plans.push(plan),
             Err(e) => pgrx::error!(

@@ -20,7 +20,7 @@ Set `search_tokenizer` as a `WITH` option on the index to define a default searc
 
 ```sql
 CREATE INDEX search_idx ON products
-USING bm25 (
+USING paradedb (
   id,
   (title::pdb.ngram(1, 10, 'prefix_only=true'))
 ) WITH (key_field='id', search_tokenizer='unicode_words');
@@ -49,7 +49,7 @@ CREATE TABLE products (
 INSERT INTO products (title) VALUES
     ('shoes'), ('shirt'), ('shorts'), ('shoelaces'), ('socks');
 
-CREATE INDEX idx_products ON products USING bm25
+CREATE INDEX idx_products ON products USING paradedb
     (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
     WITH (key_field = 'id', search_tokenizer = 'unicode_words');
 

@@ -11,7 +11,7 @@ canonical: https://docs.paradedb.com/deploy/logical-replication/getting-started
 
 In production, ParadeDB is commonly deployed as a logical subscriber to your
 primary Postgres. Your application continues to write to the source database,
-while ParadeDB receives the same row changes and maintains local BM25 indexes
+while ParadeDB receives the same row changes and maintains local ParadeDB indexes
 for search and analytics.
 
 This deployment model is useful when:
@@ -209,7 +209,7 @@ FROM mock_items
 WHERE description = 'Blue running shoes';
 ```
 
-At this point, the base table is replicating correctly and you can create BM25
+At this point, the base table is replicating correctly and you can create ParadeDB
 indexes locally on ParadeDB. Continue to the [Logical Replication Operational
-Guide](/deploy/logical-replication/operational-guide) for BM25
+Guide](/deploy/logical-replication/operational-guide) for ParadeDB
 index build timing, monitoring, WAL retention, and troubleshooting.

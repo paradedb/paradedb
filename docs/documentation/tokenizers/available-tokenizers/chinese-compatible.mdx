@@ -9,7 +9,7 @@ any non-alphanumeric character. Additionally, it treats each CJK character as it
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.chinese_compatible))
+USING paradedb (id, (description::pdb.chinese_compatible))
 WITH (key_field='id');
 ```
 

@@ -106,6 +106,10 @@ runs:
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track_planning = on;"
         psql postgresql://localhost:288${{ inputs.pg_version }}/postgres -c "ALTER SYSTEM SET pg_stat_statements.track = top ;"
 
+    - name: Install pgvector
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector
+
     - name: Install pg_search
       shell: bash
       working-directory: pg_search/
@@ -124,12 +128,6 @@ runs:
     - name: Install pgBackRest
       shell: bash
       run: sudo apt-get update && sudo apt-get install -y pgbackrest
-
-    # Required by the "cohere" dataset, whose heap has a pgvector `vector` column. Harmless for
-    # datasets that don't use it (installs the extension binary; CREATE EXTENSION happens at load).
-    - name: Install pgvector
-      shell: bash
-      run: sudo apt-get install -y postgresql-${{ inputs.pg_version }}-pgvector
 
     # VectorChord (vchordrq) binary for the "cohere / vchord" index variant. Installs the extension
     # only; it depends on pgvector's `vector` type (installed above). CREATE EXTENSION happens at

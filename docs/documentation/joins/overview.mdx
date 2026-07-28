@@ -39,14 +39,14 @@ SET paradedb.enable_join_custom_scan TO on;
 
 Join pushdown is automatically used when a query meets several conditions. If any of these are not satisfied, PostgreSQL will simply execute the join normally.
 
-| Requirement         | Description                                                                                                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Supported join type | The query must use an `INNER`, `SEMI`, or `ANTI` join. Pushdown for other join types is coming soon.                                                         |
-| BM25 indexes        | All tables participating in the join must have a ParadeDB BM25 index.                                                                                        |
-| Search predicate    | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                        |
-| Equi-join key       | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                 |
-| Indexed fields      | All join keys, filters, and `ORDER BY` columns must be present in the BM25 index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
-| LIMIT clause        | The query must include a `LIMIT`.                                                                                                                            |
+| Requirement         | Description                                                                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supported join type | The query must use an `INNER`, `SEMI`, or `ANTI` join. Pushdown for other join types is coming soon.                                                             |
+| ParadeDB indexes    | All tables participating in the join must have a ParadeDB index.                                                                                                 |
+| Search predicate    | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                            |
+| Equi-join key       | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                     |
+| Indexed fields      | All join keys, filters, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
+| LIMIT clause        | The query must include a `LIMIT`.                                                                                                                                |
 
 If any checks fail, ParadeDB will emit a `NOTICE` explaining why and fall back to Postgres' native join execution.
 
@@ -65,7 +65,7 @@ FOREIGN KEY (product_id)
 REFERENCES mock_items(id);
 
 CREATE INDEX orders_idx ON orders
-USING bm25 (order_id, product_id, order_quantity, order_total, customer_name)
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
 WITH (key_field = 'order_id');
 ```
 

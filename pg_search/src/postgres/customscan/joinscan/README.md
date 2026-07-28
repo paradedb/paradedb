@@ -67,7 +67,7 @@ JoinScan does not use DataFusion's standard in-process multithreading. Since Pos
 Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. We map PostgreSQL parallel workers to distributed tasks based on segment count:
 
 1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`.
-2. **Task Estimation**: During MPP planning, [`PgSearchScanTaskEstimator`](../mpp/task_estimator.rs) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
+2. **Task Estimation**: During MPP planning, [`PgSearchScanTaskEstimator`](../../../scan/execution_plan.rs) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
 3. **Execution Routing**: This routes large multi-segment tables to scale out across all available PostgreSQL parallel workers, where each parallel worker uses `ParallelScanState` to lazily claim segments. Conversely, tables with a single segment evaluate to exactly 1 task; `datafusion-distributed` detects the absence of parallel work, avoids MPP planning overhead entirely, and falls back to running the query via local serial execution on a single worker.
 
 ## Key Files

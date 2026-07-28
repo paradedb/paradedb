@@ -10,7 +10,7 @@ punctuation, and symbols, it also splits on common casing conventions like camel
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.source_code))
+USING paradedb (id, (description::pdb.source_code))
 WITH (key_field='id');
 ```
 

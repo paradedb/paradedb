@@ -25,6 +25,7 @@ pub mod info;
 pub mod late_materialization;
 pub mod physical_codec;
 pub mod pre_filter;
+pub mod range_partitioning;
 pub mod search_predicate_udf;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;

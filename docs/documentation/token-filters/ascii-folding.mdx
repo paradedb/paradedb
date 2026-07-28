@@ -11,7 +11,7 @@ To enable, append `ascii_folding=true` to the tokenizer's arguments.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple('ascii_folding=true')))
+USING paradedb (id, (description::pdb.simple('ascii_folding=true')))
 WITH (key_field='id');
 ```
 

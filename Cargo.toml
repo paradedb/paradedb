@@ -27,12 +27,19 @@ panic = "unwind"
 opt-level = 3
 codegen-units = 1
 
+# Optimized + debug symbols, for profiling; debug-assertions off keeps dst asserts compiled out.
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+debug-assertions = false
+
+# Antithesis build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
+# without affecting `dev`.
+[profile.dst]
+inherits = "dev"
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "055cfd0afffa7823aa9e835d67ae290c765d616a", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "7d3c62369ad074a4cd480b02e75089f885356c96", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -45,44 +52,7 @@ pgrx-tests = "=0.19.0"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "055cfd0afffa7823aa9e835d67ae290c765d616a" }
-
-# datafusion 54.0.0 + the null-aware anti-join dynamic-filter fix (paradedb/datafusion PR #2, backported
-# to a 54.0.0 branch so it stays on arrow 58). Patch every datafusion crate, or two `datafusion-common`
-# versions collide.
-datafusion = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-catalog = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-catalog-listing = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-common = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-common-runtime = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-datasource = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-datasource-arrow = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-datasource-csv = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-datasource-json = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-datasource-parquet = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-doc = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-execution = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-expr = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-expr-common = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions-aggregate = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions-aggregate-common = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions-nested = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions-table = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions-window = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-functions-window-common = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-macros = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-optimizer = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-physical-expr = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-physical-expr-adapter = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-physical-expr-common = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-physical-optimizer = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-physical-plan = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-proto = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-proto-common = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-pruning = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-session = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
-datafusion-sql = { git = "https://github.com/paradedb/datafusion", rev = "65a35ad658bfa93c871b000c0fcecf36793ffeb1" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "7d3c62369ad074a4cd480b02e75089f885356c96" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

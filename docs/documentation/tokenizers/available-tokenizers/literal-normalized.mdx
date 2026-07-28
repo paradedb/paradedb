@@ -23,7 +23,7 @@ also [lowercases](/documentation/token-filters/lowercase) the text.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.literal_normalized))
+USING paradedb (id, (description::pdb.literal_normalized))
 WITH (key_field='id');
 ```
 

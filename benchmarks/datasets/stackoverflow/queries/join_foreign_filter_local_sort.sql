@@ -6,7 +6,7 @@
 -- - reputation > 100 selectivity on users.reputation: ~82% (active users are overrepresented at smaller sizes; likely lower for larger datasets)
 -- - 'error' selectivity on stackoverflow_posts.title: ~1%
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,
     p.creation_date,

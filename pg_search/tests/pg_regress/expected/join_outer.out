@@ -425,8 +425,8 @@ FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
 WHERE p.page_text @@@ 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.file_id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -436,17 +436,33 @@ LIMIT 10;
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, file_id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=10
-           :     SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
-           :       VisibilityFilterExec: tables=[p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(file_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, file_id@1, id@2]
-           :           CoalescePartitionsExec
-           :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-           :           VisibilityFilterExec: tables=[f]
-           :             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
-           :               PgSearchScan: segments=2, dynamic_filters=1, query="all"
-(19 rows)
+           : ┌───── DistributedExec
+           : │ ProjectionExec: expr=[id@3 as col_1, file_id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           : │   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=10
+           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   │ SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
+           :   │   VisibilityFilterExec: tables=[p]
+           :   │     HashJoinExec: mode=Partitioned, join_type=Left, on=[(file_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, file_id@1, id@2]
+           :   │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 6), input_partitions=2
+           :     │   DistributedLeafExec:
+           :     │     t0: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :     │     t1: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([id@1], 6), input_partitions=3
+           :     │   VisibilityFilterExec: tables=[f]
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query="all"
+           :     │         t1: PgSearchScan: segments=2, dynamic_filters=1, query="all"
+           :     └──────────────────────────────────────────────────
+(35 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id

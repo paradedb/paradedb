@@ -10,10 +10,9 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 ### JOIN Improvements
 
-- **Join pushdown (beta)**. [Join pushdown](/documentation/joins/overview) is available for `INNER`, `SEMI`, and `ANTI` joins, pushing search predicates directly into the index for significantly better performance.
+- **Join pushdown (beta)**. [Join pushdown](/documentation/joins/overview) pushes search predicates directly into the index for significantly better performance.
 - **Scoring and highlighting across JOINs**. BM25 score and snippet functions can be used in `JOIN` queries.
 - **Smarter JOIN planning for search indexes**. Apply index-aware optimizations and cost estimation strategies when multiple ParadeDB-indexed tables are joined.
-- **More join types for pushdown**. Extending pushdown support to `LEFT`, `RIGHT`, `FULL OUTER`, `CROSS`, and `LATERAL` joins.
 
 ### Ecosystem Integrations
 
@@ -26,7 +25,6 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 ### Deeper Analytics Improvements
 
 - **Push Postgres visibility rules into the index**. This is currently a filter applied post index scan that adds overhead to large scans.
-- **Parallel aggregate execution**. Aggregate pushdown across joins currently runs single-threaded. Two-phase parallel aggregation (partial + final) will unlock multi-core execution for high-cardinality GROUP BY on joined tables.
 
 ### Managed Cloud
 
@@ -42,6 +40,7 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 - **A custom scan node for aggregates**. Plain SQL aggregates like `COUNT`, and clauses like `GROUP BY`, go through the same fast execution path as our aggregate UDFs.
 - **Aggregate pushdown across joins**. Aggregates over multi-table joins are pushed down into the index when every joined table has a ParadeDB index.
+- **Parallel execution for joins and aggregates**. Utilizes an MPP strategy that partitions joins and aggregates into multiple shared-nothing stages executed by parallel workers.
 
 ### Write Throughput
 

@@ -14,8 +14,7 @@ ParadeDB supports all standard PostgreSQL `JOIN` types, including:
 - `ANTI JOIN`
 
 In most cases, join queries run using PostgreSQL’s native execution exactly as they would in a vanilla Postgres database.
-However, ParadeDB also includes a beta optimization called **join pushdown** that can significantly accelerate `INNER`, `SEMI`, and `ANTI`
-joins when they involve ParadeDB search queries.
+However, ParadeDB also includes a beta optimization called **join pushdown** that can significantly accelerate join queries when they involve ParadeDB search queries.
 
 ## Join Pushdown (Beta)
 
@@ -39,14 +38,13 @@ SET paradedb.enable_join_custom_scan TO on;
 
 Join pushdown is automatically used when a query meets several conditions. If any of these are not satisfied, PostgreSQL will simply execute the join normally.
 
-| Requirement         | Description                                                                                                                                                      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Supported join type | The query must use an `INNER`, `SEMI`, or `ANTI` join. Pushdown for other join types is coming soon.                                                             |
-| ParadeDB indexes    | All tables participating in the join must have a ParadeDB index.                                                                                                 |
-| Search predicate    | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                            |
-| Equi-join key       | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                     |
-| Indexed fields      | All join keys, filters, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
-| LIMIT clause        | The query must include a `LIMIT`.                                                                                                                                |
+| Requirement      | Description                                                                                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ParadeDB indexes | All tables participating in the join must have a ParadeDB index.                                                                                                 |
+| Search predicate | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                            |
+| Equi-join key    | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                     |
+| Indexed fields   | All join keys, filters, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
+| LIMIT clause     | The query must include a `LIMIT`.                                                                                                                                |
 
 If any checks fail, ParadeDB will emit a `NOTICE` explaining why and fall back to Postgres' native join execution.
 
@@ -230,7 +228,6 @@ To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Joi
 (15 rows)
 ```
 
-## Future Work
+## Performance
 
-We are actively improving join pushdown, specifically when it comes to pushing down more shapes of joins.
-If your join query is not currently supported by join pushdown (or isn't as fast as you'd like!), we invite you to [open a Github issue](https://github.com/paradedb/paradedb/issues).
+If your join query isn't as fast as you'd like, we invite you to [open a Github issue](https://github.com/paradedb/paradedb/issues).

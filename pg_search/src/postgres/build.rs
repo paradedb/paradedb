@@ -141,6 +141,12 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     let options = index_relation.options();
     let key_field_name = options.key_field_name();
 
+    // the key_field must be one of the indexed columns, otherwise the index builds fine but every
+    // subsequent INSERT fails when it can't find the key field
+    if options.get_field_type(&key_field_name).is_none() {
+        panic!("the key_field `{key_field_name}` does not exist in the USING clause");
+    }
+
     let options = index_relation.options();
     let text_configs = options.text_config();
     for (field_name, config) in text_configs.iter().flatten() {

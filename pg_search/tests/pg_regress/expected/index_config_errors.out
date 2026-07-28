@@ -38,4 +38,10 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING bm25 (id, name);
 ERROR:  index should have a `WITH (key_field='...')` option
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING bm25 (id, name) WITH (text_fields ='{"id": {"tokenizer": {"type": "default"}}}');
 ERROR:  index should have a `WITH (key_field='...')` option
+-- the key_field must be part of the USING clause, otherwise the index would be created
+-- successfully and only fail later, on the first INSERT
+CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
+    USING bm25 (name)
+    WITH (key_field = 'id');
+ERROR:  the key_field `id` does not exist in the USING clause
 DROP TABLE test_index_config_errors CASCADE;

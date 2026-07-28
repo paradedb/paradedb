@@ -62,7 +62,13 @@ and require a reindex.
 
 ### MPP Partitioning
 
-TODO
+When run with parallel workers, the join and aggregate scans (enabled by default in the `0.24.x` series) now use a massively parallel processing (MPP) partitioning strategy to assign work.
+
+The previous partitioning strategy for these scans meant that only a limited number of join shapes could be supported, and entirely prevented parallelism in aggregates atop joins.
+
+Via the MPP strategy, join and aggregate scans will now cut their execution plans into multiple shared-nothing stages, allowing for both increased scalability and support for additional join shapes (with more to follow.)
+
+This is an active area of work, so please expect further performance and generality improvements to joins, and continue to report bugs as soon as you see them!
 
 ### Ltree Support
 

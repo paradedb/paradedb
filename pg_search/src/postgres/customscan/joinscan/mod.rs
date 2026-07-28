@@ -2173,6 +2173,12 @@ impl JoinScan {
         // Sources whose ctid is NULL in this row: the row is null-extended by
         // an outer join on that side, so there is no heap tuple to fetch and
         // every column from that source must come out NULL.
+        //
+        // This can't resolve inside the DataFusion plan. Under late
+        // materialization only ctid columns cross the plan boundary, so the
+        // ctid's null bit is the one carrier of the null-extension; any
+        // plan-side rewrite would still hand this loop a per-row marker to
+        // check. The check is a null-bitmap read, not a heap access.
         let mut null_extended_sources = crate::api::HashSet::default();
 
         // Fetch tuples for all RTIs referenced in the output columns

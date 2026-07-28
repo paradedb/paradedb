@@ -40,6 +40,9 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
@@ -250,6 +253,13 @@ jobs:
             VERSION=${{ github.event.inputs.version }}
           fi
           echo "GitHub Tag Version: $VERSION"
+
+          # A tag push must never fall through to the 0.0.0 test default, or the assets get built
+          # with the wrong version and uploaded to the v0.0.0 release instead of the real one.
+          if [[ "$VERSION" == "0.0.0" && "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "Refusing to publish 0.0.0 assets for tag $GITHUB_REF"
+            exit 1
+          fi
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
           OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"

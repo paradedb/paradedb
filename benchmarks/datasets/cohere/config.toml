@@ -21,65 +21,67 @@ max_scan_tuples_1pct = "CASE {{ dataset_size }} WHEN 1000000 THEN 500000 WHEN 10
 # Operating-point sweeps. Each arm's knob is measured across these values and the points that
 # reach 90/95/99% recall are the ones benchmarked -- so no value here needs to be "the" tuned
 # setting, and none needs a per-size CASE: the sweep picks a different point at 1m than at 10m.
-# Ranges are chosen to bracket 90-99% recall at every benchmarked size.
+#
+# The ladders are ~1.3x geometric, subdividing every interval the first full run showed a target
+# falling into, so a selected point lands near its target rather than well past it.
 
-# pgvector ivfflat: probes (cells scanned).
+# pgvector ivfflat: probes (cells scanned). Extends past 640 -- 1% at 10m only reached 0.989 there.
 [sweeps.ivfflat.knn_top10_unfiltered]
 param = "probes_unfiltered"
-values = ["10", "20", "40", "80", "160", "320", "640"]
+values = ["10", "15", "22", "30", "45", "60", "80", "110", "145", "190", "250", "330", "440", "580", "780", "1000"]
 
 [sweeps.ivfflat.knn_top10_10pct]
 param = "probes_10pct"
-values = ["10", "20", "40", "80", "160", "320", "640"]
+values = ["10", "15", "22", "30", "45", "60", "80", "110", "145", "190", "250", "330", "440", "580", "780", "1000"]
 
 [sweeps.ivfflat.knn_top10_1pct]
 param = "probes_1pct"
-values = ["10", "20", "40", "80", "160", "320", "640"]
+values = ["10", "15", "22", "30", "45", "60", "80", "110", "145", "190", "250", "330", "440", "580", "780", "1000"]
 
-# pgvector hnsw: ef_search (candidate queue size).
+# pgvector hnsw: ef_search (candidate queue size). pgvector caps this at 1000, so the ladder stops
+# there -- an arm that cannot reach a target within the cap is reported flagged rather than faked.
 [sweeps.hnsw.knn_top10_unfiltered]
 param = "ef_search_unfiltered"
-values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
+values = ["20", "35", "55", "80", "110", "150", "200", "270", "350", "450", "580", "750", "1000"]
 
 [sweeps.hnsw.knn_top10_10pct]
 param = "ef_search_10pct"
-values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
+values = ["20", "35", "55", "80", "110", "150", "200", "270", "350", "450", "580", "750", "1000"]
 
 [sweeps.hnsw.knn_top10_1pct]
 param = "ef_search_1pct"
-values = ["40", "80", "160", "320", "640", "1000", "1600", "2400"]
+values = ["20", "35", "55", "80", "110", "150", "200", "270", "350", "450", "580", "750", "1000"]
 
 # VectorChord: probes (lists scanned). epsilon stays at the docs default.
 [sweeps.vchord.knn_top10_unfiltered]
 param = "vchord_probes_unfiltered"
-values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+values = ["20", "30", "45", "65", "90", "125", "170", "230", "310", "420", "570", "780", "1050", "1450", "2000"]
 
 [sweeps.vchord.knn_top10_10pct_prefilter_off]
 param = "vchord_probes_10pct_off"
-values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+values = ["20", "30", "45", "65", "90", "125", "170", "230", "310", "420", "570", "780", "1050", "1450", "2000"]
 
 [sweeps.vchord.knn_top10_10pct_prefilter_on]
 param = "vchord_probes_10pct_on"
-values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+values = ["20", "30", "45", "65", "90", "125", "170", "230", "310", "420", "570", "780", "1050", "1450", "2000"]
 
 [sweeps.vchord.knn_top10_1pct_prefilter_off]
 param = "vchord_probes_1pct_off"
-values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+values = ["20", "30", "45", "65", "90", "125", "170", "230", "310", "420", "570", "780", "1050", "1450", "2000"]
 
 [sweeps.vchord.knn_top10_1pct_prefilter_on]
 param = "vchord_probes_1pct_on"
-values = ["20", "40", "80", "160", "320", "640", "1200", "2000"]
+values = ["20", "30", "45", "65", "90", "125", "170", "230", "310", "420", "570", "780", "1050", "1450", "2000"]
 
-# pg_search: the distance-ratio gate. The probe ceiling is a fixed tail-latency guard, not a
-# recall knob, so it is a literal in the query SQL.
+# pg_search: the distance-ratio gate. Runs past 1.0 because 1% at 10m was still climbing at 0.9.
 [sweeps.pg_search.knn_top10_unfiltered]
 param = "pg_search_probe_epsilon_unfiltered"
-values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]
+values = ["0.1", "0.15", "0.2", "0.25", "0.3", "0.35", "0.4", "0.45", "0.5", "0.55", "0.6", "0.7", "0.8", "0.9", "1.0", "1.2"]
 
 [sweeps.pg_search.knn_top10_10pct]
 param = "pg_search_probe_epsilon_10pct"
-values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]
+values = ["0.1", "0.15", "0.2", "0.25", "0.3", "0.35", "0.4", "0.45", "0.5", "0.55", "0.6", "0.7", "0.8", "0.9", "1.0", "1.2"]
 
 [sweeps.pg_search.knn_top10_1pct]
 param = "pg_search_probe_epsilon_1pct"
-values = ["0.05", "0.1", "0.15", "0.2", "0.3", "0.45", "0.65", "0.9"]
+values = ["0.1", "0.15", "0.2", "0.25", "0.3", "0.35", "0.4", "0.45", "0.5", "0.55", "0.6", "0.7", "0.8", "0.9", "1.0", "1.2"]

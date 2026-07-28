@@ -38,6 +38,7 @@ use pgrx::pg_sys;
 
 use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_distributed::TaskKey;
+use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
 use crate::gucs::{
     mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
@@ -409,11 +410,15 @@ impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
         if let Some(bytes) = self.cache.lock().unwrap().get(&stage_id) {
             return Some(Ok(bytes.clone()));
         }
-        let bytes =
-            match crate::scan::physical_codec::serialize_physical_plan(Arc::clone(specialized)) {
-                Ok(bytes) => bytes,
-                Err(e) => return Some(Err(e)),
-            };
+        // The default converter stamps every expression with its `expression_id`, which is what
+        // lets the worker's deduplicating decode re-share dynamic filter instances.
+        let bytes = match crate::scan::physical_codec::serialize_physical_plan(
+            Arc::clone(specialized),
+            &DefaultPhysicalProtoConverter {},
+        ) {
+            Ok(bytes) => bytes,
+            Err(e) => return Some(Err(e)),
+        };
         self.cache.lock().unwrap().insert(stage_id, bytes.clone());
         Some(Ok(bytes))
     }

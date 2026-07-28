@@ -84,7 +84,8 @@ DROP TABLE IF EXISTS partition_by_multi_test CASCADE;
 CREATE TABLE partition_by_multi_test (
     id SERIAL PRIMARY KEY,
     tags TEXT[],
-    meta JSONB
+    meta JSONB,
+    int_array INTEGER[]
 );
 
 \echo 'Test 3.1: partition_by with array field (should error)'
@@ -96,5 +97,10 @@ CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
 CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
     USING bm25 (id, tags, meta)
     WITH (key_field='id', partition_by='meta');
+
+\echo 'Test 3.3: partition_by with aliased array expression (should error)'
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, (int_array::pdb.alias('aliased_array')))
+    WITH (key_field='id', partition_by='aliased_array');
 
 DROP TABLE partition_by_multi_test CASCADE;

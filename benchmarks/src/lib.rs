@@ -77,6 +77,31 @@ pub fn confidence_interval_half_width(data: &[f64], confidence_level: f64) -> f6
     t * ((variance / sample_count).sqrt())
 }
 
+/// Returns the `p`th percentile (0.0..=1.0) of `data`, by linear interpolation between the two
+/// closest ranks.
+///
+/// Interpolating rather than picking a nearest rank matters at the sample counts here: with one
+/// timing per held-out query vector, a nearest-rank p95 of 100 samples is just the 95th value,
+/// which moves in visible jumps between runs.
+pub fn percentile(data: &[f64], p: f64) -> f64 {
+    assert!(!data.is_empty());
+    assert!((0.0..=1.0).contains(&p));
+
+    let mut sorted = data.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+
+    let rank = p * (sorted.len() - 1) as f64;
+    let lo = rank.floor() as usize;
+    let hi = rank.ceil() as usize;
+    if lo == hi {
+        return sorted[lo];
+    }
+    sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo as f64)
+}
+
 /// Returns the variance of the slice contents
 fn variance(data: &[f64]) -> f64 {
     assert!(!data.is_empty());
@@ -158,5 +183,49 @@ mod tests {
         }
         assert!(window.is_full());
         assert_relative_eq!(window.variance_over_mean().unwrap(), expected);
+    }
+}
+
+#[cfg(test)]
+mod percentile_tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn bounds_are_min_and_max() {
+        let d = [5.0, 1.0, 3.0, 2.0, 4.0];
+        assert_relative_eq!(percentile(&d, 0.0), 1.0);
+        assert_relative_eq!(percentile(&d, 1.0), 5.0);
+    }
+
+    #[test]
+    fn median_interpolates_for_even_counts() {
+        assert_relative_eq!(percentile(&[1.0, 2.0, 3.0, 4.0], 0.5), 2.5);
+        assert_relative_eq!(percentile(&[1.0, 2.0, 3.0], 0.5), 2.0);
+    }
+
+    #[test]
+    fn input_order_does_not_matter() {
+        let asc: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        let desc: Vec<f64> = asc.iter().rev().copied().collect();
+        for p in [0.5, 0.9, 0.95, 0.99] {
+            assert_relative_eq!(percentile(&asc, p), percentile(&desc, p));
+        }
+    }
+
+    #[test]
+    fn matches_known_ranks_for_1_to_100() {
+        // With 100 samples the interpolated rank is p*(n-1), so p50 sits between 50 and 51.
+        let d: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        assert_relative_eq!(percentile(&d, 0.5), 50.5);
+        assert_relative_eq!(percentile(&d, 0.9), 90.1);
+        assert_relative_eq!(percentile(&d, 0.99), 99.01);
+    }
+
+    #[test]
+    fn single_sample_is_its_own_percentile() {
+        for p in [0.0, 0.5, 0.99, 1.0] {
+            assert_relative_eq!(percentile(&[42.0], p), 42.0);
+        }
     }
 }

@@ -1811,6 +1811,20 @@ async fn execute_query_multiple_times(
         }
     }
 
+    // Bind a vector before the EXPLAINs below: the kNN query files read it through
+    // `current_setting`, and that errors if the GUC was never set. The measured passes rebind it
+    // per vector, so which one seeds the plan does not affect any timing.
+    match query_vectors.first() {
+        Some(first) => set_query_vector(&mut conn, first).await?,
+        // Nothing would bind it, so fail with the cause rather than an "unrecognized configuration
+        // parameter" from deep inside the first EXPLAIN.
+        None if query.contains(&format!("current_setting('{QVEC_GUC}')")) => bail!(
+            "`{query_type}` reads {QVEC_GUC} but no query vectors were loaded; the dataset's \
+             recall fixtures must be present for a vector benchmark"
+        ),
+        None => {}
+    }
+
     let query_id = get_query_id(measured_query, &mut conn).await?;
     let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
 

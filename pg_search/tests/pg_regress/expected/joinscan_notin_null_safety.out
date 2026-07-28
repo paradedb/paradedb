@@ -95,7 +95,6 @@ SELECT COUNT(*) AS joinscan_result FROM (
     AND txt @@@ 'match'
   ORDER BY jnns_items.id LIMIT 1000
 ) sub;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  joinscan_result 
 -----------------
                0
@@ -114,9 +113,6 @@ SELECT COUNT(*) AS notexists_result FROM (
     AND txt @@@ 'match'
   ORDER BY jnns_items.id LIMIT 1000
 ) sub;
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  notexists_result 
 ------------------
                89

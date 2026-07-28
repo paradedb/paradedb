@@ -40,8 +40,6 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
-    # Container jobs default to `sh -e {0}`. That happens to be bash on UBI, but pin it so the
-    # `[[` tests below cannot silently no-op if the base image ever ships a POSIX `/bin/sh`.
     defaults:
       run:
         shell: bash

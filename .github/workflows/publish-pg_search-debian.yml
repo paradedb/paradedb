@@ -42,8 +42,6 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
-    # Container jobs default to `sh -e {0}`, and `/bin/sh` is dash on Debian, which supports
-    # neither `[[` nor some of the control characters the steps below emit.
     defaults:
       run:
         shell: bash

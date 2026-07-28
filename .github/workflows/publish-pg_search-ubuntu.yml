@@ -40,9 +40,6 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
-    # Container jobs default to `sh -e {0}`, and `/bin/sh` is dash on Ubuntu, which does not
-    # support `[[`. Without this, every `[[` below silently no-ops (dash reports `[[: not found`
-    # and, because the failure happens in an `if` condition, `-e` does not abort the step).
     defaults:
       run:
         shell: bash

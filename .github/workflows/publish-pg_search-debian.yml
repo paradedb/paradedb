@@ -42,6 +42,11 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
+    # Container jobs default to `sh -e {0}`, and `/bin/sh` is dash on Debian, which supports
+    # neither `[[` nor some of the control characters the steps below emit.
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         include:
@@ -182,7 +187,6 @@ jobs:
       # PG 18 .deb (both arches) that the PG 18 Docker image installs.
       - name: Determine Whether to Build This Row
         id: guard
-        shell: bash
         run: |
           if [[ "$GITHUB_REF" != *-rc.* || ( "${{ matrix.pg_version }}" == "18" && "${{ matrix.name }}" == "Debian 13 (Trixie)" ) ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
@@ -214,12 +218,9 @@ jobs:
           cache: false # Disable cache on publish workflows
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, since
-      # /bin/sh does not support the `[[` syntax.
       - name: Retrieve OS & GitHub Tag Versions
         if: steps.guard.outputs.build == 'true'
         id: version
-        shell: bash
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
@@ -233,6 +234,13 @@ jobs:
             VERSION=${{ github.event.inputs.version }}
           fi
           echo "GitHub Tag Version: $VERSION"
+
+          # A tag push must never fall through to the 0.0.0 test default, or the assets get built
+          # with the wrong version and uploaded to the v0.0.0 release instead of the real one.
+          if [[ "$VERSION" == "0.0.0" && "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "Refusing to publish 0.0.0 assets for tag $GITHUB_REF"
+            exit 1
+          fi
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
           OS_VERSION="$(lsb_release -cs)"
@@ -349,18 +357,14 @@ jobs:
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
       - name: Sign .deb with Cosign (keyless)
         if: steps.guard.outputs.build == 'true'
-        shell: bash
         env:
           COSIGN_YES: "true"
           DEB: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
         run: cosign sign-blob --yes --bundle "${DEB}.cosign.bundle" "$DEB"
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which
-      # is not capable of parsing certain control characters
       - name: Retrieve GitHub Release Upload URL
         if: steps.guard.outputs.build == 'true'
         id: upload_url
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

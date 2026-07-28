@@ -49,15 +49,13 @@ The ParadeDB index can now index the `vector` type. This index is completely sep
 - Vectors are backed by a SPANN-style index, the state-of-the-art in vector search designed for datasets that are far larger than available memory.
 - Vectors sit alongside text and numeric fields, so filters, full text search, and ordering by vector similarity are pushed down into a single index scan.
 
-To index a vector field, simply add it to the index definition:
+To [index a vector field](/documentation/indexing/indexing-vectors), simply add it to the index definition:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
 WITH (key_field = id);
 ```
-
-See the [vector search documentation](/documentation/vector/overview) for querying and tuning.
 
 Please note that we will be shipping performance improvements in the coming minor releases. While vector search is marked as beta, future releases may change the vector storage format
 and require a reindex.

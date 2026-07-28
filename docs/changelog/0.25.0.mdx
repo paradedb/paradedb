@@ -57,6 +57,8 @@ USING paradedb (id, description, category, embedding vector_cosine_ops)
 WITH (key_field = id);
 ```
 
+See the [vector search documentation](/documentation/vector/overview) for querying and tuning.
+
 Please note that we will be shipping performance improvements in the coming minor releases. While vector search is marked as beta, future releases may change the vector storage format
 and require a reindex.
 
@@ -74,18 +76,22 @@ This is an active area of work, so please expect further performance and general
 
 `ltree` hierarchy queries using the `<@` operator now use the index instead of falling back to a heap-side filter.
 
+### Index Build Progress
+
+`CREATE INDEX` now reports `tuples_done` in `pg_stat_progress_create_index`, making it possible to monitor index build progress with standard Postgres tooling.
+
 ## Performance Improvements 🚀
 
 - Block-WAND is now used for score-ordered joins.
 - Top-K queries atop joins now perform MVCC visibility checking inline rather than as a separate filter step.
-- Improved top-K selection, candidate materialization, and multi-buffer read caching.
+- Improved top-K selection and candidate materialization atop joins.
+- Improved multi-buffer read caching.
 
 ## Stability Improvements 💪
 
 - `@@@` now preserves null semantics.
 - `ORDER BY` pushdown now accounts for collation.
 - Fixed several MVCC and `VACUUM` issues involving mutable segments.
-- `CREATE INDEX` now reports `tuples_done` in `pg_stat_progress_create_index`, making it possible to monitor index build progress with standard Postgres tooling.
 
 ## New Contributors 👋
 

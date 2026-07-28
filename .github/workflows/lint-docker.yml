@@ -17,6 +17,9 @@ concurrency:
   group: lint-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint-docker:
     name: Lint Dockerfiles

@@ -1216,7 +1216,7 @@ mod tests {
                 ..Default::default()
             },
             vec![WhichFastField::Ctid],
-            false,
+            None,
         );
         provider.configure_deferred_outputs(
             &crate::api::HashSet::default(),
@@ -1591,9 +1591,8 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded =
-            deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![], vec![])
-                .expect("VisibilityFilterNode should deserialize");
+        let decoded = deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![])
+            .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {
             panic!("decoded root should be Extension");

@@ -1,0 +1,81 @@
+-- Tests for partition_by syntax in CREATE INDEX
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- SECTION 1: Basic syntax validation
+\echo '=== SECTION 1: Basic syntax validation ==='
+=== SECTION 1: Basic syntax validation ===
+DROP TABLE IF EXISTS partition_by_test CASCADE;
+CREATE TABLE partition_by_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    tenant_id INTEGER,
+    created_at TIMESTAMP
+);
+INSERT INTO partition_by_test (name, tenant_id, created_at) VALUES
+    ('Alice', 1, '2023-01-01'),
+    ('Bob', 2, '2023-06-01'),
+    ('Charlie', 1, '2023-12-01');
+\echo 'Test 1.1: partition_by with single field'
+Test 1.1: partition_by with single field
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, tenant_id)
+    WITH (key_field='id', partition_by='tenant_id');
+DROP INDEX partition_by_test_idx;
+\echo 'Test 1.2: partition_by with multiple fields'
+Test 1.2: partition_by with multiple fields
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, tenant_id, created_at)
+    WITH (key_field='id', partition_by='tenant_id, created_at');
+DROP INDEX partition_by_test_idx;
+\echo 'Test 1.3: partition_by with whitespace around fields'
+Test 1.3: partition_by with whitespace around fields
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, tenant_id, created_at)
+    WITH (key_field='id', partition_by=' tenant_id ,  created_at ');
+DROP INDEX partition_by_test_idx;
+DROP TABLE partition_by_test CASCADE;
+-- SECTION 2: Error cases
+\echo '=== SECTION 2: Error cases ==='
+=== SECTION 2: Error cases ===
+DROP TABLE IF EXISTS partition_by_test CASCADE;
+CREATE TABLE partition_by_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    score INTEGER
+);
+\echo 'Test 2.1: partition_by with nonexistent field (should error)'
+Test 2.1: partition_by with nonexistent field (should error)
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', partition_by='nonexistent');
+\echo 'Test 2.2: partition_by with invalid syntax / empty string (should error)'
+Test 2.2: partition_by with invalid syntax / empty string (should error)
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', partition_by='');
+ERROR:  relation "partition_by_test_idx" already exists
+-- Empty string disables it, so it succeeds. We drop it.
+DROP INDEX partition_by_test_idx;
+\echo 'Test 2.3: partition_by with whitespace only (should error)'
+Test 2.3: partition_by with whitespace only (should error)
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', partition_by='   ');
+ERROR:  invalid partition_by value: must specify at least one field
+\echo 'Test 2.4: partition_by with just commas (should error)'
+Test 2.4: partition_by with just commas (should error)
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', partition_by=',');
+ERROR:  invalid partition_by value: must specify at least one field
+\echo 'Test 2.5: partition_by with commas and whitespace (should error)'
+Test 2.5: partition_by with commas and whitespace (should error)
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', partition_by=' , ');
+ERROR:  invalid partition_by value: must specify at least one field
+DROP TABLE partition_by_test CASCADE;

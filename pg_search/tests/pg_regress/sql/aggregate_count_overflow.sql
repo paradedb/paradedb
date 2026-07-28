@@ -242,7 +242,6 @@ SET max_parallel_workers TO 8;
 SET parallel_leader_participation TO true;
 SET paradedb.add_doc_count_to_aggs TO true;
 SET paradedb.enable_columnar_exec TO false;
-SET paradedb.enable_mpp TO false;
 SET statement_timeout TO 60000;
 
 --
@@ -261,7 +260,6 @@ SET max_parallel_workers TO 0;
 SET parallel_leader_participation TO false;
 SET paradedb.add_doc_count_to_aggs TO true;
 SET paradedb.enable_columnar_exec TO false;
-SET paradedb.enable_mpp TO false;
 SET statement_timeout TO 60000;
 
 SELECT COUNT(*) FROM users JOIN products ON users.id = products.id

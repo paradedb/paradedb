@@ -1,0 +1,23 @@
+[package]
+name = "dst"
+description = "Deterministic simulation testing hooks shared by pg_search and Stressgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Off by default the crate compiles to nothing; `enabled` links the SDK + coverage shim. See lib.rs.
+enabled = ["dep:antithesis_sdk", "dep:antithesis-instrumentation"]
+
+[dependencies]
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "full",
+], optional = true }
+# Coverage shim: provides the sancov symbols and loads libvoidstar at runtime.
+antithesis-instrumentation = { version = "0.1", optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"

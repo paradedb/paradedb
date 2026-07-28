@@ -9,16 +9,19 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/test-pg_search-schema.yml"
       - ".github/scripts/check_migration_diff.py"
-      - "rust-toolchain.toml"
+      - ".github/workflows/test-pg_search-schema.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
+      - "rust-toolchain.toml"
   workflow_dispatch:
 
 concurrency:
   group: test-pg_search-schema-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test-pg_search-schema:
@@ -78,6 +81,10 @@ jobs:
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install OpenBLAS (superkmeans-rs BLAS backend)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libopenblas-dev
 
       - name: Install pg-schema-diff and its Required Dependencies
         run: |

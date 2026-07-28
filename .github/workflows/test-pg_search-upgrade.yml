@@ -9,8 +9,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - ".github/workflows/test-pg_search-upgrade.yml"
       - ".github/actions/test-pg_search-upgrade/**"
+      - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tests/**"
@@ -22,6 +22,9 @@ on:
 concurrency:
   group: test-pg_search-upgrade-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   # Resolves the immediately preceding released version on the upgrade path
@@ -109,7 +112,8 @@ jobs:
           save-if: false
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: |
+          sudo apt-get update && sudo apt-get install -y lsof libopenblas-dev
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

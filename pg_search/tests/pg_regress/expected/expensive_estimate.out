@@ -11,6 +11,10 @@ CALL paradedb.create_bm25_test_table(
         schema_name => 'public',
         table_name => 'mock_items'
 );
+-- These tests exercise BM25 estimation, not vector search. Drop the embedding column
+-- and rewrite the heap so it stays out of the row-width and cost estimates.
+ALTER TABLE mock_items DROP COLUMN embedding;
+VACUUM FULL mock_items;
 CREATE INDEX idx_mock_items
 ON mock_items
     USING bm25 (id, description, rating, category, in_stock, created_at, weight_range)

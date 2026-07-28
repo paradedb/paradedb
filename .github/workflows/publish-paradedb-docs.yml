@@ -13,6 +13,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   publish-paradedb-docs:
     name: Publish Docs to Mintlify

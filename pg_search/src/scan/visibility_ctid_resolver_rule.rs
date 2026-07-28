@@ -145,7 +145,7 @@ mod tests {
     fn matches_scan_by_deferred_ctid_plan_position() {
         let ffhelper = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
-            vec![],
+            None,
             empty_schema(),
             SearchQueryInput::All,
             None,
@@ -153,6 +153,9 @@ mod tests {
             Some(ffhelper.clone()),
             0,
             Some(7),
+            1,
+            None,
+            None,
         );
 
         let (_, found) = find_ffhelper_for_plan_position(&scan, 7)
@@ -191,13 +194,16 @@ mod tests {
         let schema = sort_schema();
         let ffhelper = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
-            vec![],
+            None,
             schema.clone(),
             SearchQueryInput::All,
             None,
             Vec::new(),
             Some(ffhelper.clone()),
             0,
+            None,
+            1,
+            None,
             None,
         );
         let stk = SegmentedTopKExec::new(
@@ -225,7 +231,7 @@ mod tests {
         let schema = sort_schema();
         let ffhelper_scan = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
-            vec![],
+            None,
             schema.clone(),
             SearchQueryInput::All,
             None,
@@ -233,6 +239,9 @@ mod tests {
             Some(ffhelper_scan.clone()),
             0,
             Some(plan_pos),
+            1,
+            None,
+            None,
         );
 
         let vis_data = Arc::new(AbsorbedVisibilityData::new(

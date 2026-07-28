@@ -13,7 +13,7 @@ from `min_gram` to `max_gram` characters long (clamped to the word length). Word
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.edge_ngram(2,5)))
+USING paradedb (id, (description::pdb.edge_ngram(2,5)))
 WITH (key_field='id');
 ```
 

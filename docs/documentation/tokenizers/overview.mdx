@@ -42,6 +42,6 @@ To configure a tokenizer for a column in the index, simply cast it to the desire
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.ngram(3,3)))
+USING paradedb (id, (description::pdb.ngram(3,3)))
 WITH (key_field='id');
 ```

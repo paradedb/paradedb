@@ -39,20 +39,19 @@ fn hybrid_deprecated(mut conn: PgConnection) {
     );
 
     CREATE EXTENSION IF NOT EXISTS vector;
-    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
     SET embedding = ('[' ||
         ((m.id + 1) % 10 + 1)::integer || ',' ||
         ((m.id + 2) % 10 + 1)::integer || ',' ||
-        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+        ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32, BigDecimal)> = r#"
     WITH semantic_search AS (
-        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
-        FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]') AS rank
+        FROM mock_items ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]' LIMIT 20
     ),
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
@@ -82,13 +81,12 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"
     CREATE EXTENSION IF NOT EXISTS vector;
-    ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
 
     UPDATE paradedb.bm25_search m
     SET embedding = ('[' ||
     ((m.id + 1) % 10 + 1)::integer || ',' ||
     ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+    ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;
 
     CREATE INDEX on paradedb.bm25_search
     USING hnsw (embedding vector_l2_ops)"#
@@ -96,9 +94,9 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
 
     let columns: Vec<(i32, f32, String)> = r#"
     WITH semantic AS (
-        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]') AS rank
         FROM paradedb.bm25_search
-        ORDER BY embedding <=> '[1,2,3]'
+        ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]'
         LIMIT 20
     ),
     bm25 AS (

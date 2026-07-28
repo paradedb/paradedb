@@ -68,10 +68,11 @@ Then start an interactive Postgres session with the extension built and loaded:
 cargo pgrx run
 ```
 
-Inside Postgres, create the extension:
+Inside Postgres, create the extension (`CASCADE` also creates `pgvector`, which
+`pg_search` requires):
 
 ```sql
-CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_search CASCADE;
 ```
 
 ## Modifying the Extension
@@ -88,7 +89,7 @@ After making changes to the extension code:
 
    ```sql
    DROP EXTENSION pg_search;
-   CREATE EXTENSION pg_search;
+   CREATE EXTENSION pg_search CASCADE;
    ```
 
 ## Testing

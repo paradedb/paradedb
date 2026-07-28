@@ -180,7 +180,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], null_aware
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -408,7 +408,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[label@0 as label], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, id@0)], projection=[label@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, eid@0)]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, eid@0)], null_aware
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -659,10 +659,10 @@ WHERE a.id NOT IN (
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
-     :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)]
+     :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)], null_aware
      :       CooperativeExec
      :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, y_id@1)], projection=[aid@1]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, y_id@1)], projection=[aid@0]
      :         CooperativeExec
      :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec

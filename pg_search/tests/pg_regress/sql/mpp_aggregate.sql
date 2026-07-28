@@ -35,16 +35,6 @@ CREATE TABLE mpp_pages (
     size_bytes INTEGER
 );
 
-INSERT INTO mpp_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-
-INSERT INTO mpp_pages (file_id, page_text, size_bytes)
-SELECT (g % 200) + 1,
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
-
 CREATE INDEX mpp_files_idx ON mpp_files
 USING bm25 (id, title, content)
 WITH (
@@ -60,11 +50,35 @@ WITH (
     text_fields='{"page_text": {}}'
 );
 
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+
+RESET paradedb.global_mutable_segment_rows;
+
 ANALYZE mpp_files;
 ANALYZE mpp_pages;
 
 -- =====================================================================
--- Pass 1: serial baseline (enable_mpp = off)
+-- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
 --
 -- Scalar COUNT(*) without GROUP BY: PG's planner doesn't parallelize
 -- scalar aggregates on small datasets (no natural Partial+Final split
@@ -72,7 +86,7 @@ ANALYZE mpp_pages;
 -- result is the correctness baseline for pass 2.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
@@ -100,7 +114,7 @@ ORDER BY f.title
 LIMIT 5;
 
 -- =====================================================================
--- Pass 2: MPP path (enable_mpp = on). Same queries, same expected results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same queries, same expected results.
 --
 -- The scalar COUNT(*) case still falls back to serial — PG won't
 -- parallelize scalar aggregates at this scale even with the parallel-
@@ -109,7 +123,7 @@ LIMIT 5;
 -- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)

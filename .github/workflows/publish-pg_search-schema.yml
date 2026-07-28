@@ -21,6 +21,11 @@ concurrency:
   group: publish-pg_search-schema-${{ github.ref }}
   cancel-in-progress: true
 
+# id-token: write lets cosign sign the schema keylessly via Sigstore.
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   publish-pg_search-schema:
     name: Publish pg_search (Schema)
@@ -67,7 +72,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }} libopenblas-dev
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
@@ -88,10 +93,20 @@ jobs:
             echo "version=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
           fi
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Keyless Sigstore signature over the schema. Works without GitHub Enterprise;
+      # the .cosign.bundle is uploaded next to it for `cosign verify-blob`.
+      - name: Sign Schema with Cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign-blob --yes --bundle pg_search.schema.sql.cosign.bundle pg_search.schema.sql
+
       - name: Upload Schema to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql --clobber
+        run: gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql pg_search.schema.sql.cosign.bundle --clobber
 
       - name: Notify Slack on Failure
         if: failure()

@@ -460,13 +460,12 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
     );
 
     CREATE EXTENSION IF NOT EXISTS vector;
-    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
     SET embedding = ('[' ||
         ((m.id + 1) % 10 + 1)::integer || ',' ||
         ((m.id + 2) % 10 + 1)::integer || ',' ||
-        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+        ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;
     "#
     .execute(&mut conn);
 
@@ -478,8 +477,8 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
 
     let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
     WITH semantic_search AS (
-        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
-        FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]') AS rank
+        FROM mock_items ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]' LIMIT 20
     ),
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
@@ -504,16 +503,24 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
             1,
             BigDecimal::from_str("0.03278688524590163934").unwrap(),
             String::from("Ergonomic metal keyboard"),
-            Vector::from(vec![3.0, 4.0, 5.0])
+            Vector::from(vec![3.0, 4.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         ),]
     );
 }
 
 #[rstest]
 fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
-    // Create the test table and index.
-    "CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');"
-        .execute(&mut conn);
+    // Create the test table and index. This test measures index size across a HOT update, so
+    // drop the embedding column (and rewrite the heap to reclaim its space) to keep the tuple
+    // layout free of the vector column.
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    ALTER TABLE mock_items DROP COLUMN embedding;
+    "#
+    .execute(&mut conn);
+
+    // VACUUM cannot run inside a transaction block, so it must be its own statement.
+    "VACUUM FULL mock_items".execute(&mut conn);
 
     // For this test, we'll turn off autovacuum, as we'll be measuring the size of the index.
     // We don't want a vacuum to happen and unexpectedly change the size.
@@ -765,13 +772,12 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     );
 
     CREATE EXTENSION IF NOT EXISTS vector;
-    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
     SET embedding = ('[' ||
         ((m.id + 1) % 10 + 1)::integer || ',' ||
         ((m.id + 2) % 10 + 1)::integer || ',' ||
-        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+        ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;
     "#
     .execute(&mut conn);
 
@@ -790,9 +796,9 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     assert!(ret.is_ok(), "{ret:?}");
 
     let rows: Vec<(i32, BigDecimal, String, String, Vector)> = r#"WITH semantic_search AS (
-    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]') AS rank
         FROM mock_items
-        ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+        ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]' LIMIT 20
     ),
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) AS rank
@@ -832,14 +838,14 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     SET embedding = ('[' ||
     ((m.id + 1) % 10 + 1)::integer || ',' ||
     ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;"
+    ((m.id + 3) % 10 + 1)::integer || ',0,0,0,0,0]')::vector;"
         .execute(&mut conn);
 
     let rows: Vec<(i32, BigDecimal, String, String, Vector)> = r#"
     WITH semantic_search AS (
-    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]') AS rank
         FROM mock_items
-        ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+        ORDER BY embedding <=> '[1,2,3,0,0,0,0,0]' LIMIT 20
     ),
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) AS rank

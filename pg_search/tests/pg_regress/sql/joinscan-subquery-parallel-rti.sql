@@ -80,7 +80,8 @@ INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(600001, 70
 INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(700001, 800000) i;
 INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(800001, 900000) i;
 INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(900001, 1000000) i;
-INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(1, 5000) x;
+INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(1, 2500) x;
+INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(2501, 5000) x;
 
 RESET paradedb.global_mutable_segment_rows;
 ANALYZE;
@@ -92,6 +93,24 @@ ANALYZE;
 --
 -- Before the fix, parallel workers panic with:
 -- "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments"
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id
+FROM js_rti_items i
+WHERE i.overview @@@ 'software'
+  AND i.id NOT IN (
+      SELECT DISTINCT e.company_id
+      FROM js_rti_excluded e
+      WHERE e.id @@@ pdb.all()
+        AND e.technology_name === ARRAY['Marketo']
+  )
+  AND EXISTS (
+      SELECT p.id
+      FROM js_rti_people p
+      WHERE p.company_id = i.id
+  )
+ORDER BY i.id DESC
+LIMIT 10;
+
 SELECT i.id
 FROM js_rti_items i
 WHERE i.overview @@@ 'software'

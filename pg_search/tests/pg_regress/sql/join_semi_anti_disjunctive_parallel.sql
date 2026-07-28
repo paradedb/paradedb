@@ -112,6 +112,18 @@ ANALYZE jsd_par_exclusions;
 -- on top-level queries; pick a bound that comfortably exceeds the
 -- ~1802-row result set so no rows are dropped. The matching LIMIT on
 -- the JoinScan-off side keeps the comparison apples-to-apples.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id
+FROM jsd_par_items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM jsd_par_exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5000;
+
 CREATE TEMP TABLE jsd_par_r1_on AS
 SELECT i.id
 FROM jsd_par_items i
@@ -166,6 +178,22 @@ DROP TABLE jsd_par_r1_off;
 -- =====================================================================
 -- LIMIT well above the ~198-row result set so both sides capture the
 -- full set for the EXCEPT comparison.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id
+FROM jsd_par_items i
+WHERE EXISTS (
+    SELECT 1 FROM jsd_par_exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          e.pattern = i.name
+          OR e.pattern = i.alt_name
+          OR e.pattern = i.category
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5000;
+
 CREATE TEMP TABLE jsd_par_r2_on AS
 SELECT i.id
 FROM jsd_par_items i

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -83,6 +84,19 @@ impl RowEstimate {
             _ => RowEstimate::Unknown,
         }
     }
+
+    /// The row estimate to provide to the DataFusion physical planner.
+    ///
+    /// It intentionally remains undivided by the number of parallel processes (for MPP) so
+    /// DataFusion's optimizer receives the true data scale, preventing it from mistakenly choosing
+    /// a broadcast join (CollectLeft) for partitioned parallel plans, leaving the slicing of the
+    /// workload up to `datafusion-distributed`.
+    pub fn as_planner_estimate(&self) -> u64 {
+        match self {
+            RowEstimate::Known(n) => *n,
+            RowEstimate::Unknown => 1000, // conservative fallback
+        }
+    }
 }
 
 /// Information about a scan of a ParadeDB table.
@@ -107,15 +121,13 @@ pub struct ScanInfo {
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
     pub fields: Vec<FieldInfo>,
+    /// The partitioning configuration of the BM25 index, if it was created with `partition_by`.
+    pub partition_by: Vec<FieldName>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
     pub estimate: RowEstimate,
     /// The number of segments in the index.
     pub segment_count: usize,
-    /// Estimated number of rows each worker will process.
-    /// This is computed during parallel planning by dividing the total estimate
-    /// by the expected number of workers.
-    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl ScanInfo {

@@ -72,24 +72,44 @@ WITH (
     numeric_fields = '{ "age": { "fast": true } }',
     target_segment_count = 2
 );
+SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO js_parallel_distinct_users (uuid, name, age)
 SELECT
     '550e8400-e29b-41d4-a716-446655440000'::uuid,
     CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
     i
-FROM generate_series(1, 100) AS g(i);
+FROM generate_series(1, 50) AS g(i);
+INSERT INTO js_parallel_distinct_users (uuid, name, age)
+SELECT
+    '550e8400-e29b-41d4-a716-446655440000'::uuid,
+    CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
+    i
+FROM generate_series(51, 100) AS g(i);
 INSERT INTO js_parallel_distinct_products (uuid, name, age)
 SELECT
     '550e8400-e29b-41d4-a716-446655440000'::uuid,
     CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
     i
-FROM generate_series(1, 100) AS g(i);
+FROM generate_series(1, 50) AS g(i);
+INSERT INTO js_parallel_distinct_products (uuid, name, age)
+SELECT
+    '550e8400-e29b-41d4-a716-446655440000'::uuid,
+    CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
+    i
+FROM generate_series(51, 100) AS g(i);
 INSERT INTO js_parallel_distinct_orders (uuid, name, age)
 SELECT
     '550e8400-e29b-41d4-a716-446655440000'::uuid,
     CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
     i
-FROM generate_series(1, 100) AS g(i);
+FROM generate_series(1, 50) AS g(i);
+INSERT INTO js_parallel_distinct_orders (uuid, name, age)
+SELECT
+    '550e8400-e29b-41d4-a716-446655440000'::uuid,
+    CASE WHEN i % 2 = 0 THEN 'bob' ELSE 'alice' END,
+    i
+FROM generate_series(51, 100) AS g(i);
+RESET paradedb.global_mutable_segment_rows;
 ANALYZE js_parallel_distinct_users;
 ANALYZE js_parallel_distinct_products;
 ANALYZE js_parallel_distinct_orders;
@@ -113,31 +133,29 @@ WHERE u.name @@@ 'bob'
   AND p.name @@@ 'bob'
 ORDER BY u.id, p.id, o.id
 LIMIT 48;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
-         ->  Gather Merge
-               Workers Planned: 1
-               ->  Parallel Custom Scan (ParadeDB Join Scan)
-                     Relation Tree: u INNER (p INNER o)
-                     Join Cond: u.id = p.id, p.age = o.age
-                     Limit: 48
-                     Distinct: true
-                     Order By: u.id asc, o.id asc, u.name asc
-                     DataFusion Physical Plan: 
-                       : SortExec: TopK(fetch=48), expr=[col_1@0 ASC NULLS LAST, col_4@3 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                       :   AggregateExec: mode=Single, gby=[id@1 as col_1, name@2 as col_2, id@4 as col_3, id@6 as col_4], aggr=[min(u_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(o_2.ctid_2) as ctid_2]
-                       :     VisibilityFilterExec: tables=[u, p, o]
-                       :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@5, age@1)], projection=[ctid_0@0, id@1, name@2, ctid_1@3, id@4, ctid_2@6, id@8]
-                       :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
-                       :           CooperativeExec
-                       :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-                       :           CooperativeExec
-                       :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-                       :         CooperativeExec
-                       :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(22 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Relation Tree: u INNER (p INNER o)
+               Join Cond: u.id = p.id, p.age = o.age
+               Limit: 48
+               Distinct: true
+               Order By: u.id asc, o.id asc, u.name asc
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=48), expr=[col_1@0 ASC NULLS LAST, col_4@3 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@1 as col_1, name@2 as col_2, id@4 as col_3, id@6 as col_4], aggr=[min(u_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(o_2.ctid_2) as ctid_2]
+                 :     VisibilityFilterExec: tables=[u, p, o]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@5, age@1)], projection=[ctid_0@0, id@1, name@2, ctid_1@3, id@4, ctid_2@6, id@8]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=2, dynamic_filters=1, query="all"
+(20 rows)
 
 -- And it must return the correct rows (DISTINCT + LIMIT).
 SELECT count(*) AS distinct_limited_rows

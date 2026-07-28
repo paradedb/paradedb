@@ -94,12 +94,6 @@ pub enum FragmentRouting {
     Hashed {
         /// `route_partition(q).consumer_task` for each producer output partition `q`.
         consumer_task: Vec<u32>,
-        /// `true` for broadcast. The build subtree is capped at `task_count = 1` via
-        /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees
-        /// `task_idx == 0` broadcast fragments; the cap is asserted at dispatch.
-        ///
-        /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
-        broadcast: bool,
     },
 }
 
@@ -154,7 +148,7 @@ fn collect_stages(
         // destination proc for every output partition from `(type, top_level)`. The fork's gRPC
         // path keys dispatch on resolver URLs and never has to decide this; our shm_mq peers are
         // push-driven without URLs, so the dispatcher has to. Shuffle and Broadcast share the
-        // receive-side math but Broadcast caps to task 0; Coalesce collapses to one consumer task;
+        // receive-side math; Coalesce collapses to one consumer task;
         // top-level (`nested == false`) routes to the leader.
         let routing = if plan.is::<NetworkCoalesceExec>() {
             if nested {
@@ -168,46 +162,22 @@ fn collect_stages(
                 // Top-level NetworkCoalesceExec (gather to leader): consumer is leader proc 0.
                 FragmentRouting::Coalesce { dest_proc: 0 }
             }
-        } else if plan.is::<NetworkShuffleExec>() {
+        } else if plan.is::<NetworkShuffleExec>() || plan.is::<NetworkBroadcastExec>() {
             if nested {
-                // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
-                // to the consumer task `route_partition(q)` selects.
+                // Nested NetworkShuffleExec or NetworkBroadcastExec: hash-partitioned mesh.
+                // Each output partition q maps to the consumer task `route_partition(q)` selects.
                 FragmentRouting::Hashed {
                     consumer_task: route_consumer_tasks()?,
-                    broadcast: false,
                 }
             } else {
-                // Top-level NetworkShuffleExec isn't a shape our customscan plans produce.
-                // Shuffles emit hash-partitioned output into a parent consumer stage, not directly
-                // into the leader. Coalescing the partitions to proc 0 would technically work (each
-                // batch reaches `select_all` exactly once) but it would mask a planner anomaly by
-                // silently treating hash-partitioned output as one logical stream.
+                // Top-level NetworkShuffleExec / NetworkBroadcastExec isn't a shape our customscan plans produce.
+                // They emit partitioned or broadcast output into a parent consumer stage, not directly
+                // into the leader.
                 crate::postgres::customscan::mpp::fail_loud(format!(
-                    "mpp worker_fragments: top-level NetworkShuffleExec is unsupported \
-                     (stage_id={stage_id}). Shuffles emit hash-partitioned output into a \
-                     parent consumer stage; a top-level shuffle is a planner anomaly."
-                ))
-            }
-        } else if plan.is::<NetworkBroadcastExec>() {
-            if nested {
-                // Nested NetworkBroadcastExec: same receive-side routing as Shuffle (via
-                // `route_partition`), but the dispatcher only runs the producer plan on task 0 to
-                // avoid the canonical-replica duplication described on `FragmentRouting::Hashed`.
-                FragmentRouting::Hashed {
-                    consumer_task: route_consumer_tasks()?,
-                    broadcast: true,
-                }
-            } else {
-                // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan
-                // plan produces; broadcast always sits nested inside the HashJoin build subtree.
-                // Falling through to `Coalesce { dest_proc: 0 }` would send every input task's full
-                // canonical replica to the leader and `select_all` would over-count by
-                // `input_task_count`. Fail loudly so a future planner change that hits this shape
-                // can't silently produce wrong answers.
-                crate::postgres::customscan::mpp::fail_loud(format!(
-                    "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
-                     (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
-                     produce this shape; route via a NetworkCoalesceExec gather instead."
+                    "mpp worker_fragments: top-level {} is unsupported \
+                     (stage_id={stage_id}). They emit output into a \
+                     parent consumer stage; a top-level boundary of this type is a planner anomaly.",
+                    plan.name()
                 ))
             }
         } else {
@@ -279,15 +249,10 @@ mod tests {
     fn routing_hashed_carries_consumer_tasks() {
         let r = FragmentRouting::Hashed {
             consumer_task: vec![0, 0, 1],
-            broadcast: false,
         };
         match r {
-            FragmentRouting::Hashed {
-                consumer_task,
-                broadcast,
-            } => {
+            FragmentRouting::Hashed { consumer_task } => {
                 assert_eq!(consumer_task, vec![0, 0, 1]);
-                assert!(!broadcast);
             }
             _ => panic!("expected Hashed"),
         }

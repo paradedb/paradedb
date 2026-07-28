@@ -90,17 +90,13 @@ mod tests {
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
         let partition = crate::scan::execution_plan::ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
-                parallel_state: None,
-                source_idx: None,
-                non_partitioning_index: None,
-                planner_estimated_rows: 0,
-                scanner_config: crate::scan::execution_plan::ScannerConfig {
-                    which_fast_fields: fields.clone(),
-                    heap_relid: heap_oid.into(),
-                    batch_size_hint: None,
-                    score_needed: false,
-                },
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
             },
             ffhelper: ffhelper.into(),
             visibility: Box::new(visibility),
@@ -108,13 +104,16 @@ mod tests {
         };
 
         let plan = PgSearchScanPlan::new(
-            vec![partition],
+            Some(partition),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
             None,
             Vec::new(),
             None,
             0,
+            None,
+            1,
+            None,
             None,
         );
 
@@ -319,7 +318,6 @@ mod tests {
                 heaprelid: heap_oid,
                 indexrelid: index_oid,
                 query: crate::query::SearchQueryInput::All,
-                estimated_rows_per_worker: Some(100),
                 ..Default::default()
             };
 
@@ -327,7 +325,7 @@ mod tests {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
             }
 
-            Arc::new(PgSearchTableProvider::new(scan_info, fields, false))
+            Arc::new(PgSearchTableProvider::new(scan_info, fields, None))
         }
 
         /// Assert all filters get Exact pushdown
@@ -487,5 +485,237 @@ mod tests {
         });
 
         pgrx::warning!("All DataFusion filter pushdown end-to-end tests passed!");
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_build() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![
+                PdbOwnedValue::I64(10),
+                PdbOwnedValue::I64(20),
+                PdbOwnedValue::I64(30),
+            ],
+        };
+
+        // Down-sample: target partitions (2) < sample size (4)
+        // 2 partitions requires 1 split point.
+        // i=1: (1 * 3) / 2 = 1. sample_points[1] is 20.
+        let build_2 = sample.build(2);
+        assert_eq!(build_2.split_points.len(), 1);
+        assert_eq!(build_2.split_points[0], PdbOwnedValue::I64(20));
+
+        // Exact match: target partitions (4) == sample size (4)
+        // 4 partitions requires 3 split points.
+        let build_4 = sample.build(4);
+        assert_eq!(build_4.split_points.len(), 3);
+        assert_eq!(build_4.split_points, sample.sample_points);
+
+        // Up-sample / Pad: target partitions (6) > sample size (4)
+        // Since we cap at sample_points.len() + 1, it will generate 3 split points (4 partitions).
+        // The remaining 2 partitions will yield empty streams at execution time.
+        let build_6 = sample.build(6);
+        assert_eq!(build_6.split_points.len(), 3);
+        assert_eq!(build_6.split_points[0], PdbOwnedValue::I64(10));
+        assert_eq!(build_6.split_points[1], PdbOwnedValue::I64(20));
+        assert_eq!(build_6.split_points[2], PdbOwnedValue::I64(30));
+
+        // Single partition (no splits)
+        let build_1 = sample.build(1);
+        assert_eq!(build_1.split_points.len(), 0);
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_nulls() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![
+                PdbOwnedValue::Null,
+                PdbOwnedValue::Null,
+                PdbOwnedValue::I64(10),
+            ],
+        };
+
+        // Down-sample to 4 partitions: 3 split points
+        let build = sample.build(4);
+        assert_eq!(build.split_points.len(), 3);
+        assert_eq!(build.split_points[0], PdbOwnedValue::Null);
+        assert_eq!(build.split_points[1], PdbOwnedValue::Null);
+        assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
+
+        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        let p0 = build.partition_bounds(0);
+        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+
+        // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
+        let p1 = build.partition_bounds(1);
+        assert!(matches!(p1, SearchQueryInput::Empty));
+
+        // partition 2: lower is Null (Unbounded), upper is Excluded(10) -> Range
+        let p2 = build.partition_bounds(2);
+        assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
+
+        // partition 3: lower is Included(10), upper is Unbounded -> Range
+        let p3 = build.partition_bounds(3);
+        assert!(matches!(p3, SearchQueryInput::FieldedQuery { .. }));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_all_nulls() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![PdbOwnedValue::Null, PdbOwnedValue::Null],
+        };
+
+        let build = sample.build(3);
+        assert_eq!(build.split_points.len(), 2);
+        assert_eq!(build.split_points[0], PdbOwnedValue::Null);
+        assert_eq!(build.split_points[1], PdbOwnedValue::Null);
+
+        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        let p0 = build.partition_bounds(0);
+        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+
+        // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
+        let p1 = build.partition_bounds(1);
+        assert!(matches!(p1, SearchQueryInput::Empty));
+
+        // partition 2: lower is Null (Unbounded), upper is Unbounded -> Range
+        let p2 = build.partition_bounds(2);
+        assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_sample_identical_values() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::scan::range_partitioning::RangePartitioningSample;
+
+        let sample = RangePartitioningSample {
+            partition_by: FieldName::from("id"),
+            sample_points: vec![
+                PdbOwnedValue::I64(10),
+                PdbOwnedValue::I64(10),
+                PdbOwnedValue::I64(10),
+            ],
+        };
+
+        let build = sample.build(4);
+        assert_eq!(build.split_points.len(), 3);
+        assert_eq!(build.split_points[0], PdbOwnedValue::I64(10));
+        assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
+        assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
+
+        // partition 0: upper is 10 -> Range OR Boolean(NOT Exists)
+        let p0 = build.partition_bounds(0);
+        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+
+        // partition 1: lower is 10, upper is 10 -> Range
+        let p1 = build.partition_bounds(1);
+        assert!(matches!(p1, SearchQueryInput::FieldedQuery { .. }));
+
+        // partition 2: lower is 10, upper is 10 -> Range
+        let p2 = build.partition_bounds(2);
+        assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
+
+        // partition 3: lower is 10, upper is Unbounded -> Range
+        let p3 = build.partition_bounds(3);
+        assert!(matches!(p3, SearchQueryInput::FieldedQuery { .. }));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_repartition() {
+        let (heap_oid, index_oid) = get_relation_oids();
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+        ];
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
+
+        unsafe {
+            pg_sys::CommandCounterIncrement();
+            let snap = pg_sys::GetTransactionSnapshot();
+            pg_sys::PushActiveSnapshot(snap);
+        }
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+
+        let partition = crate::scan::execution_plan::ScanState {
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
+            },
+            ffhelper: ffhelper.into(),
+            visibility: Box::new(visibility),
+            reader: reader.clone(),
+        };
+
+        let sample = crate::scan::range_partitioning::RangePartitioningSample {
+            partition_by: crate::api::FieldName::from("id"),
+            sample_points: vec![
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(10),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(20),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(30),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(40),
+            ],
+        };
+
+        let plan = PgSearchScanPlan::new(
+            Some(partition),
+            build_arrow_schema(&fields),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            index_oid.into(),
+            None,
+            5,
+            None,
+            Some(sample),
+        );
+
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 5);
+
+        let plan_2 = plan.repartition(2).unwrap();
+        assert_eq!(
+            plan_2.properties().output_partitioning().partition_count(),
+            2
+        );
+
+        let plan_10 = plan.repartition(10).unwrap();
+        assert_eq!(
+            plan_10.properties().output_partitioning().partition_count(),
+            10
+        );
     }
 }

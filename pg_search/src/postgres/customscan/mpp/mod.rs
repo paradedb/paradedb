@@ -19,7 +19,8 @@
 //!
 //! Hash-partitions every table by the join key and shuffles intermediate rows between
 //! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
-//! Guarded by `paradedb.enable_mpp` (default on).
+//! Guarded by `paradedb.mpp_worker_count >= 3`, plus enough `max_parallel_workers` /
+//! `max_parallel_workers_per_gather` to launch the producers.
 //!
 //! The transport lives in `datafusion_distributed::shm`. Deadlock avoidance is a
 //! cooperative inline drain: a producer stalled on a full outbound pulls its own inbound
@@ -31,7 +32,6 @@ pub mod glue;
 pub mod interrupt;
 pub mod launch;
 pub mod pg_seams;
-pub mod task_estimator;
 pub mod worker_fragments;
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.

@@ -97,6 +97,10 @@ jobs:
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}
+          # stackoverflow's bm25 indexes set no per-index `target_segment_count`, so bake the
+          # standard 48-segment operating point into its snapshot. Every other dataset keeps the
+          # extension default of 0, so an index's own `target_segment_count` is honored.
+          global_target_segment_count: ${{ matrix.dataset == 'stackoverflow' && '48' || '0' }}
 
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap

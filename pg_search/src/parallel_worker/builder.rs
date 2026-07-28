@@ -208,6 +208,12 @@ impl ParallelProcessFinish {
         &mut self.launcher.state_manager
     }
 
+    /// The DSM segment backing this parallel process, valid until [`Self::wait_for_finish`]
+    /// destroys the parallel context.
+    pub fn dsm_segment(&self) -> *mut pg_sys::dsm_segment {
+        unsafe { (*self.launcher.pcxt.as_ptr()).seg }
+    }
+
     /// Blocking receive from all worker message queues.
     ///
     /// Each worker sends at most one message. Queues that have already delivered

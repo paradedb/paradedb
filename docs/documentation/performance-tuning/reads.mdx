@@ -51,7 +51,7 @@ query patterns, and volume of data.
 shared_buffers = 8GB
 ```
 
-The `pg_prewarm` extension can be used to load the BM25 index into the buffer cache after Postgres restarts. A higher `shared_buffers` value allows more of the index to be
+The `pg_prewarm` extension can be used to load the ParadeDB index into the buffer cache after Postgres restarts. A higher `shared_buffers` value allows more of the index to be
 stored in the buffer cache.
 
 ```sql
@@ -91,7 +91,7 @@ By default, `CREATE INDEX`/`REINDEX` will create as many segments as there are C
 `target_segment_count` index option.
 
 ```sql
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', target_segment_count = 32, ...);
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description, rating) WITH (key_field = 'id', target_segment_count = 32, ...);
 ```
 
 This property is attached to the index so that during `REINDEX`, the same value will be used.

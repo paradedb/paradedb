@@ -63,12 +63,10 @@ fn dont_do_parallel_index_scan(mut conn: PgConnection) {
         plan.get("Node Type"),
         Some(&Value::String(String::from("Custom Scan")))
     );
-    // TODO: Make this not sporadically return 0 in CI:
-    //   see https://github.com/paradedb/paradedb/issues/2588
-    // pretty_assertions::assert_eq!(
-    //     plan.get("Virtual Tuples"),
-    //     Some(&Value::Number(serde_json::Number::from(3)))
-    // );
+    pretty_assertions::assert_eq!(
+        plan.get("Virtual Tuples"),
+        Some(&Value::Number(serde_json::Number::from(3)))
+    );
 
     let count = r#"
         select count(*) from paradedb.bm25_search where description @@@ 'shoes';

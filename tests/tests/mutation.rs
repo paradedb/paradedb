@@ -53,7 +53,7 @@ enum Action {
 
 fn setup(conn: &mut PgConnection, mutable_segment_rows: usize) {
     format!(r#"
-    CREATE EXTENSION IF NOT EXISTS pg_search;
+    CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
     SET log_error_verbosity TO VERBOSE;
     SET paradedb.global_mutable_segment_rows TO 0;
     DROP TABLE IF EXISTS test_table;

@@ -1,0 +1,62 @@
+# workflows/test-dst-crate.yml
+#
+# Test DST Crate
+# Lint and test the DST (deterministic simulation testing) crate in both of its feature
+# configurations. The crate has no Postgres dependency, so it needs none of the pgrx setup
+# that the pg_search workflows carry.
+
+name: Test DST Crate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/test-dst-crate.yml"
+      - "dst/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+  workflow_dispatch:
+
+concurrency:
+  group: test-dst-crate-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-dst-crate:
+    name: Lint & Test DST Crate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      # With `enabled` off the DST crate compiles to nothing — this is what pg_search ships,
+      # and it is the half the workspace-wide runs in lint-rust never see, since stressgres
+      # pins `enabled` and feature unification turns it on for the whole workspace.
+      - name: Lint & Test DST (SDK disabled)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: |
+          cargo clippy --package dst --all-targets -- -D warnings --no-deps
+          cargo doc --package dst --no-deps --document-private-items
+          RUST_BACKTRACE=1 cargo test --package dst
+
+      # With `enabled` on everything forwards to the SDK. This is the configuration stressgres
+      # links unconditionally and the one an Antithesis build of pg_search uses.
+      - name: Lint & Test DST (SDK enabled)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: |
+          cargo clippy --package dst --all-targets --features enabled -- -D warnings --no-deps
+          cargo doc --package dst --features enabled --no-deps --document-private-items
+          RUST_BACKTRACE=1 cargo test --package dst --features enabled

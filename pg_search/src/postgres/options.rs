@@ -72,6 +72,10 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
+pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
+pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
+pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
+
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
@@ -151,6 +155,25 @@ extern "C-unwind" fn validate_sort_by(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
+    let partition_by_str = cstr_to_rust_str(value);
+    if partition_by_str.is_empty() {
+        return;
+    }
+
+    let mut fields = 0;
+    for part in partition_by_str.split(',') {
+        if !part.trim().is_empty() {
+            fields += 1;
+        }
+    }
+
+    if fields == 0 {
+        panic!("invalid partition_by value: must specify at least one field");
+    }
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_char) {
     let s = cstr_to_rust_str(value);
     if s.is_empty() {
@@ -199,7 +222,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 14;
+const NUM_REL_OPTS: usize = 18;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -305,6 +328,35 @@ pub unsafe extern "C-unwind" fn amoptions(
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
+        pg_sys::relopt_parse_elt {
+            optname: "centroid_ratio".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "training_samples_per_centroid".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, training_samples_per_centroid)
+                as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "cluster_replication".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, cluster_replication) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "partition_by".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, partition_by_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -390,6 +442,18 @@ impl BM25IndexOptions {
         }
     }
 
+    pub fn centroid_ratio(&self) -> f32 {
+        self.options_data().centroid_ratio()
+    }
+
+    pub fn training_samples_per_centroid(&self) -> usize {
+        self.options_data().training_samples_per_centroid()
+    }
+
+    pub fn cluster_replication(&self) -> usize {
+        self.options_data().cluster_replication()
+    }
+
     pub fn key_field_name(&self) -> FieldName {
         self.options_data()
             .key_field_name()
@@ -402,6 +466,10 @@ impl BM25IndexOptions {
     /// - Otherwise: returns parsed sort fields
     pub fn sort_by(&self) -> Vec<SortByField> {
         self.options_data().sort_by()
+    }
+
+    pub fn partition_by(&self) -> Vec<FieldName> {
+        self.options_data().partition_by()
     }
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -681,6 +749,10 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
+    centroid_ratio: f64,
+    training_samples_per_centroid: i32,
+    cluster_replication: i32,
+    partition_by_offset: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -720,6 +792,26 @@ impl BM25IndexOptionsData {
         }
     }
 
+    pub fn centroid_ratio(&self) -> f32 {
+        self.centroid_ratio as f32
+    }
+
+    pub fn training_samples_per_centroid(&self) -> usize {
+        self.training_samples_per_centroid.max(1) as usize
+    }
+
+    /// Total cells a vector is written into (SPANN `ReplicaCount`): the primary
+    /// plus up to `cluster_replication - 1` next-nearest cells, selected by
+    /// tantivy at merge time in the field's metric. `1` is primary-only. Any
+    /// non-positive value is treated as `1`.
+    pub fn cluster_replication(&self) -> usize {
+        if self.cluster_replication <= 0 {
+            1
+        } else {
+            self.cluster_replication as usize
+        }
+    }
+
     pub fn key_field_name(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
         if key_field_name.is_empty() {
@@ -746,6 +838,19 @@ impl BM25IndexOptionsData {
             )];
         }
         parse_sort_by_string(&sort_by_str)
+    }
+
+    pub fn partition_by(&self) -> Vec<FieldName> {
+        let pb_str = self.get_str(self.partition_by_offset, "".to_string());
+        if pb_str.is_empty() {
+            vec![]
+        } else {
+            pb_str
+                .split(',')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| FieldName::from(s.trim().to_string()))
+                .collect()
+        }
     }
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -936,6 +1041,41 @@ pub unsafe fn init() {
         "Default search-time tokenizer for text/JSON fields".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_search_tokenizer),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_real_reloption(
+        RELOPT_KIND_PDB,
+        "centroid_ratio".as_pg_cstr(),
+        "IVF centroid ratio for k-means clustering at index build time".as_pg_cstr(),
+        DEFAULT_CENTROID_RATIO,
+        0.000001,
+        1.0,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "training_samples_per_centroid".as_pg_cstr(),
+        "k-means training vectors sampled per IVF centroid at index build time".as_pg_cstr(),
+        DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
+        1,
+        100_000,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "cluster_replication".as_pg_cstr(),
+        "Cells a vector is written into: primary + up to (value - 1) next-nearest cells (1 = no replication)".as_pg_cstr(),
+        DEFAULT_CLUSTER_REPLICATION,
+        1,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "partition_by".as_pg_cstr(),
+        "Comma-separated list of fields to partition index data by".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_partition_by),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }
@@ -1173,6 +1313,9 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             indexed: true,
             fast: true,
         },
+        SearchFieldType::Vector(_, _, _) => {
+            panic!("vector fields cannot be used as key fields")
+        }
     }
 }
 

@@ -50,6 +50,7 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -490,13 +491,22 @@ impl SearchIndexReader {
         &self.query
     }
 
-    pub fn and_query(&mut self, additional_query: Box<dyn Query>) {
-        let existing = std::mem::replace(&mut self.query, Box::new(tantivy::query::EmptyQuery));
+    /// Extends the reader's underlying query by AND-ing it with the provided query.
+    pub fn and_query(&self, additional_query: Box<dyn Query>) -> Self {
+        let mut clone = self.clone();
+        let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
         let boolean_query = tantivy::query::BooleanQuery::new(vec![
             (tantivy::query::Occur::Must, existing),
             (tantivy::query::Occur::Must, additional_query),
         ]);
-        self.query = Box::new(boolean_query);
+        clone.query = Box::new(boolean_query);
+        clone
+    }
+
+    /// Extends the reader's underlying query by AND-ing it with the provided query input.
+    pub fn and_query_input(&self, query: &SearchQueryInput) -> Self {
+        let tantivy_query = self.make_query(query, None);
+        self.and_query(tantivy_query)
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
@@ -695,7 +705,7 @@ impl SearchIndexReader {
     /// parallel state to allow load balancing across parallel workers.
     ///
     /// `source_idx = Some(i)` routes to `checkout_segment_for_source(i)` for MPP
-    /// non-partitioning sources. `None` uses the single-counter `checkout_segment` path.
+    /// non-partitioning sources. `None` uses the single-counter `checkout_segment_for_source(0)` path.
     ///
     /// `estimated_rows` is required because a lazily-evaluated iterator does not inherently know
     /// which or how many segments it will eventually open, and thus cannot compute an accurate
@@ -725,8 +735,9 @@ impl SearchIndexReader {
                 unsafe {
                     match self.source_idx {
                         Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
-                        None => crate::postgres::customscan::parallel::checkout_segment(
+                        None => crate::postgres::customscan::parallel::checkout_segment_for_source(
                             self.parallel_state,
+                            0,
                         ),
                     }
                 }
@@ -936,6 +947,41 @@ impl SearchIndexReader {
                 feature: OrderByFeature::NullTest { .. },
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+            OrderByInfo {
+                feature:
+                    OrderByFeature::VectorDistance {
+                        name, query_vector, ..
+                    },
+                ..
+            } => {
+                let only_score_feature =
+                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
+                if !(erased_features.is_empty() || only_score_feature) {
+                    panic!("secondary ORDER BY fields are not supported for vector distance");
+                }
+                let field = self
+                    .schema
+                    .search_field(name)
+                    .expect("vector field should exist in index schema");
+                let tantivy_field = field.field();
+                let query_vector = query_vector
+                    .resolved()
+                    .expect("vector ORDER BY query vector was never resolved")
+                    .to_vec();
+                let collector = TopDocs::with_limit(n)
+                    .and_offset(offset)
+                    .order_by_similarity(tantivy_field, query_vector)
+                    .with_adaptive_params(AdaptiveProbeParams {
+                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                        max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        ..Default::default()
+                    });
+                // Fruit is `VectorSimilarityFruit { results, stats }`. Drop probe
+                // stats for now; EXPLAIN plumbing lands in a follow-up.
+                let (fruit, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
+                TopKSearchResults::new_for_score(fruit.results, aggregation_results)
+            }
         }
     }
 
@@ -1440,6 +1486,13 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::VectorDistance { .. },
+                    ..
+                } => {
+                    // Vector distance cannot be a secondary sort key
+                    unimplemented!("Vector distance ORDER BY can only be the primary sort key")
+                }
             }
         }
 
@@ -1505,18 +1558,6 @@ impl SearchIndexManifest {
 
     pub fn segment_readers(&self) -> &[SegmentReader] {
         self.searcher.segment_readers()
-    }
-
-    pub fn segment_count(&self) -> usize {
-        self.searcher.segment_readers().len()
-    }
-
-    /// Total live document count across all visible segments. Used by MPP
-    /// to pick the partitioning source — the source whose row count makes
-    /// it most worth slicing N ways. Defers to `Searcher::num_docs`, which
-    /// is the canonical `max_doc - num_deleted` sum.
-    pub fn total_doc_count(&self) -> u64 {
-        self.searcher.num_docs()
     }
 }
 

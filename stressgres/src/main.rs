@@ -20,7 +20,6 @@
 mod auto;
 mod cli;
 mod csv;
-mod dst;
 mod fault_tolerance;
 mod graph;
 mod headless;

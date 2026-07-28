@@ -32,7 +32,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::parallel::checkout_segment;
+use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -152,7 +152,6 @@ impl TopKScanExecState {
     ///    allows all of the workers to load balance the work of searching the segments.
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
     ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
-    ///    to consistently revisit the same segments.
     fn segments_to_query<'s>(
         &'s self,
         search_reader: &SearchIndexReader,
@@ -178,7 +177,8 @@ impl TopKScanExecState {
                 let mut claimed_segments = Vec::new();
                 Box::new(std::iter::from_fn(move || {
                     check_for_interrupts!();
-                    let maybe_segment_id = unsafe { checkout_segment(parallel_state) };
+                    let maybe_segment_id =
+                        unsafe { checkout_segment_for_source(parallel_state, 0) };
                     let Some(segment_id) = maybe_segment_id else {
                         // No more segments: record that we successfully claimed all segments, and
                         // then conclude iteration.
@@ -308,6 +308,29 @@ impl ExecMethod for TopKScanExecState {
                         .resolve_mut(estate)
                         .expect("LIMIT must be resolvable from EState (param missing or NULL)")
                         .static_fetch();
+                }
+            }
+        }
+
+        // handle parameterized vectors
+        unsafe {
+            let estate = (*cstate).ss.ps.state;
+            let planstate = std::ptr::addr_of_mut!((*cstate).ss.ps);
+            if !estate.is_null() {
+                let resolve = |infos: &mut [OrderByInfo]| {
+                    for info in infos.iter_mut() {
+                        info.resolve_query_vector(estate, planstate);
+                    }
+                };
+                if let ExecMethodType::TopK {
+                    orderby_info: Some(infos),
+                    ..
+                } = &mut state.exec_method_type
+                {
+                    resolve(infos);
+                }
+                if let Some(infos) = self.orderby_info.as_mut() {
+                    resolve(infos);
                 }
             }
         }

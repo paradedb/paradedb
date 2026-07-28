@@ -703,3 +703,58 @@ fn test_join_aggregate_cross_join_falls_back(mut conn: PgConnection) {
         "CROSS JOIN should produce same count whether DataFusion is ON or OFF"
     );
 }
+
+#[rstest]
+fn test_explain_aggregate_join_with_heap_filter(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+    "SET paradedb.enable_join_custom_scan TO on".execute(&mut conn);
+
+    // EXPLAIN of an aggregate join query with a heap filter (ILIKE) used to panic with
+    // "An expression context must be provided when heap filtering." because
+    // begin_custom_scan skips creating the ExprContext in EXPLAIN-only mode, but
+    // explain_custom_scan still tried to build the full DataFusion physical plan.
+    let explain_lines: Vec<(String,)> = r#"
+        EXPLAIN
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop' AND p.description ILIKE '%laptop%'
+    "#
+    .fetch::<(String,)>(&mut conn);
+    let explain = explain_lines
+        .iter()
+        .map(|(s,)| s.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        explain.contains("ParadeDB Aggregate Scan"),
+        "Expected aggregate custom scan.\nEXPLAIN:\n{explain}"
+    );
+    assert!(
+        explain.contains("DataFusion Physical Plan"),
+        "Expected physical plan to be rendered during plain EXPLAIN.\nEXPLAIN:\n{explain}"
+    );
+    assert!(
+        !explain.contains("not available: heap-filter predicates require an execution context"),
+        "Physical plan should not be skipped when heap filters are present.\nEXPLAIN:\n{explain}"
+    );
+
+    // EXPLAIN ANALYZE should also work and render the physical plan.
+    let analyze_lines: Vec<(String,)> = r#"
+        EXPLAIN ANALYZE
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop' AND p.description ILIKE '%laptop%'
+    "#
+    .fetch::<(String,)>(&mut conn);
+    let analyze = analyze_lines
+        .iter()
+        .map(|(s,)| s.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        analyze.contains("DataFusion Physical Plan"),
+        "Expected physical plan during EXPLAIN ANALYZE.\nEXPLAIN ANALYZE:\n{analyze}"
+    );
+}

@@ -56,10 +56,34 @@ impl<'a> RelationAlias<'a> {
             .unwrap_or_else(|| format!("source_{}", index))
     }
 
-    /// For DataFusion execution, suffix the relation to make it unique
+    /// For DataFusion execution, suffix the relation with `index` to make it
+    /// unique. PostgreSQL accepts quoted-identifier characters that
+    /// DataFusion's `TableReference` bare-identifier syntax does not, so
+    /// the alias is sanitized: lowercased, non-`[a-z0-9_]` characters
+    /// replaced with `_`, and prefixed with `_` if the result would start
+    /// with a digit. The raw alias is preserved for user-facing surfaces
+    /// in [`Self::display`] and [`Self::warning_context`].
+    /// See paradedb/paradedb#5525.
     pub fn execution(&self, index: usize) -> String {
         match self.name {
-            Some(alias) => format!("{alias}_{index}"),
+            Some(alias) => {
+                let sanitized: String = alias
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '_' {
+                            c.to_ascii_lowercase()
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                let prefixed = if sanitized.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    format!("_{sanitized}")
+                } else {
+                    sanitized
+                };
+                format!("{}_{}", prefixed, index)
+            }
             None => format!("source_{}", index),
         }
     }
@@ -342,9 +366,9 @@ pub struct JoinSourceCandidate {
     pub alias: Option<String>,
     pub score_needed: bool,
     pub fields: Vec<FieldInfo>,
+    pub partition_by: Vec<crate::api::FieldName>,
     pub estimate: Option<RowEstimate>,
     pub segment_count: Option<usize>,
-    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl JoinSourceCandidate {
@@ -359,9 +383,9 @@ impl JoinSourceCandidate {
             alias: None,
             score_needed: false,
             fields: Vec::new(),
+            partition_by: Vec::new(),
             estimate: None,
             segment_count: None,
-            estimated_rows_per_worker: None,
         }
     }
 
@@ -387,6 +411,11 @@ impl JoinSourceCandidate {
 
     pub fn with_search_predicate(mut self) -> Self {
         self.has_search_predicate = true;
+        self
+    }
+
+    pub fn with_partition_by(mut self, partition_by: Vec<crate::api::FieldName>) -> Self {
+        self.partition_by = partition_by;
         self
     }
 
@@ -471,9 +500,9 @@ pub struct JoinSource {
     ///
     /// `indexrelid` is not sufficient here because the same underlying index can
     /// appear more than once in a single JoinScan plan (for example a self-join,
-    /// or the same source copied into partitioning/non-partitioning roles in
-    /// parallel execution). `plan_position` is the per-source identity that
-    /// keeps those otherwise-identical sources distinct inside the plan.
+    /// or the same source appearing multiple times in the plan). `plan_position` is
+    /// the per-source identity that keeps those otherwise-identical sources distinct
+    /// inside the plan.
     pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,
@@ -575,6 +604,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
                 fields: candidate.fields,
+                partition_by: candidate.partition_by,
                 estimate: candidate.estimate.ok_or_else(|| {
                     anyhow!(
                         "cannot build JoinSource for RTI {}: estimate is missing",
@@ -587,7 +617,6 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
-                estimated_rows_per_worker: candidate.estimated_rows_per_worker,
             },
         })
     }
@@ -1334,8 +1363,6 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
-    /// Optional index of the source that MUST be partitioned, overriding cost-based selection.
-    pub forced_partitioning_idx: Option<usize>,
 }
 
 impl JoinCSClause {
@@ -1348,7 +1375,6 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
-            forced_partitioning_idx: None,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1423,35 +1449,6 @@ impl JoinCSClause {
             predicate: expr,
         }));
         self
-    }
-
-    pub fn with_forced_partitioning(mut self, idx: usize) -> Self {
-        self.forced_partitioning_idx = Some(idx);
-        self
-    }
-
-    /// Returns the source that should be partitioned for parallel execution.
-    pub fn partitioning_source(&self) -> JoinSource {
-        let sources = self.plan.sources();
-        sources
-            .get(self.partitioning_source_index())
-            .cloned()
-            .expect("JoinScan requires at least one source")
-            .clone()
-    }
-
-    /// Returns the index of the source that should be partitioned for parallel execution.
-    pub fn partitioning_source_index(&self) -> usize {
-        if let Some(idx) = self.forced_partitioning_idx {
-            return idx;
-        }
-        let sources = self.plan.sources();
-        sources
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
-            .map(|(i, _)| i)
-            .expect("JoinScan requires at least one source")
     }
 
     /// Recursively collect all base relations in this join tree.

@@ -9,14 +9,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - ".github/workflows/lint-markdown.yml"
       - "**/*.md"
       - "**/*.mdx"
-      - ".github/workflows/lint-markdown.yml"
   workflow_dispatch:
 
 concurrency:
   group: lint-markdown-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   lint-markdown:

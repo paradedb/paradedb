@@ -16,15 +16,20 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
 
+// Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
+// here to keep its `.init_array` constructor.
+#[cfg(feature = "dst")]
+use antithesis_instrumentation as _;
+
 mod aggregate;
 mod api;
 mod bootstrap;
-mod dst;
 mod index;
 mod postgres;
 mod query;
 pub(crate) mod scan;
 mod schema;
+pub(crate) mod vector;
 
 pub mod gucs;
 pub mod parallel_worker;
@@ -124,9 +129,10 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     }
 
     // Register the DST assertion catalog for this process (a no-op outside `--features dst`)
-    crate::dst::init();
+    dst::init();
 
     postgres::options::init();
+    postgres::build_logging::init();
     gucs::init();
 
     // RegisterCustomRmgr can only be called during shared_preload_libraries init. If pg_search

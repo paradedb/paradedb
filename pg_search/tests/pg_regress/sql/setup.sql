@@ -1,10 +1,16 @@
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Pin parallelism so regress plans don't depend on the local cluster's worker config. The value
 -- drives how much a query parallelizes, MPP or not, so a stock cluster and a tuned one would
 -- otherwise produce different plans. Tests that want more workers raise it themselves.
-ALTER SYSTEM SET max_parallel_workers_per_gather = 2;
-SELECT pg_reload_conf();
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET max_parallel_workers_per_gather = 2', current_database());
+END
+$$;
+-- Also set it for the current session, in case any subsequent setup steps rely on it
+SET max_parallel_workers_per_gather = 2;
 
 DROP TABLE IF EXISTS mock_items_issue_2528;
 CALL paradedb.create_bm25_test_table(
@@ -27,6 +33,10 @@ CALL paradedb.create_bm25_test_table(
      );
 ALTER TABLE regress.mock_items ADD COLUMN sku UUID;
 UPDATE regress.mock_items SET sku = ('da2fea21-' || lpad(to_hex( id::int4), 4, '0') || '-411b-9e8c-2cb64e471293')::uuid;
+-- These tests exercise BM25 search, not vector search, and many of them `SELECT *`.
+-- Drop the embedding column so it stays out of their expected output and row-width
+-- estimates. The VACUUM FULL below reclaims its space.
+ALTER TABLE regress.mock_items DROP COLUMN embedding;
 VACUUM FULL regress.mock_items;
 CREATE INDEX idxregress_mock_items
     ON regress.mock_items

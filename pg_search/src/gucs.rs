@@ -130,10 +130,6 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Gate the MPP (Massively Parallel Processing) plan partitioning path for JoinScan
-/// and AggregateScan. When off, behavior is identical to the non-MPP path.
-static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(true);
-
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -165,15 +161,6 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// instead of N meshes), at which point the right user knob is more
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
-
-/// Per-source-per-worker build-side cache slot size (bytes). The build-side
-/// all-gather reserves N slots of this size in DSM; total cache reservation
-/// is `n_cache_sources × n_workers × mpp_cache_per_slot`. Sized so a 1.25M-row
-/// build side encoded in Arrow IPC (~400 MB total at our 25M bench, accounting
-/// for Utf8View widening + schema overhead) fits split across N workers with
-/// headroom for the worst single-worker slice. A future heuristic should
-/// derive this from index stats per query.
-static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -218,6 +205,31 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// multiple keys per block on non-unique columns. Matches
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
+
+/// Per-segment ceiling on IVF clusters probed by a vector ORDER BY query,
+/// expressed as a fraction of the segment's own cluster count and resolved
+/// per-segment (`ceil(fraction * num_clusters)`, at least one cluster). A
+/// fraction rather than an absolute count because every segment can have a
+/// different cluster count — an absolute cap scans small segments
+/// exhaustively while barely probing large ones. Default 0.02 (2% of
+/// clusters): with the default 0.01 centroid ratio that is ~2% of ~1% of
+/// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
+/// recall@1 within ~1% of clusters). `1.0` probes every cluster.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+
+pub fn vector_cluster_max_probe() -> f32 {
+    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+}
+
+/// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
+/// past the best centroid the IVF probe loop keeps probing clusters. Lower
+/// epsilon probes fewer clusters, decreasing latency at the expense of
+/// recall. Default `0.5`.
+static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+
+pub fn vector_cluster_probe_epsilon() -> f32 {
+    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
+}
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -311,8 +323,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.per_tuple_cost",
-        c"Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
-        c"Default is 100,000,000.0.  It is very expensive to use a USING bm25 index in the wrong query plan",
+        c"Arbitrary multiplier for the cost of retrieving a tuple from a USING paradedb index outside of an IndexScan",
+        c"Default is 100,000,000.0.  It is very expensive to use a USING paradedb index in the wrong query plan",
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
@@ -411,6 +423,28 @@ pub fn init() {
         c"Enable recursive estimates in EXPLAIN VERBOSE",
         c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
         &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_max_probe",
+        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Fraction of a segment's IVF clusters probed per vector ORDER BY query, resolved per-segment as ceil(fraction * cluster_count) and floored at one cluster. A fraction rather than an absolute count so the ceiling tracks each segment's own cluster count instead of scanning small segments exhaustively and barely probing large ones. 1.0 probes every cluster. Lower values reduce latency at the cost of recall.",
+        &VECTOR_CLUSTER_MAX_PROBE,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_probe_epsilon",
+        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
+        c"How far past the best centroid the IVF probe loop keeps probing clusters. Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
+        &VECTOR_CLUSTER_PROBE_EPSILON,
+        0.0,
+        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -551,17 +585,6 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.enable_mpp",
-        c"Enable ParadeDB's MPP (Massively Parallel Processing) plan partitioning",
-        c"When enabled, JoinScan and AggregateScan may hash-partition every table by the \
-          join key and shuffle intermediate rows between workers, so each row is scanned \
-          exactly once. Default is true; turn it off to fall back to the non-MPP path.",
-        &ENABLE_MPP,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
         c"paradedb.mpp_debug",
         c"Emit verbose MPP runtime diagnostics",
         c"When enabled, `mpp_log!()` calls route through `pgrx::warning!()` so MPP \
@@ -587,8 +610,8 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.mpp_worker_count",
         c"Total MPP participants (leader + parallel workers)",
-        c"Sets the number of MPP participants per query when `enable_mpp` is on. \
-          The queue mesh and drain thread are general over N.",
+        c"Sets the number of MPP participants per query when parallel execution is enabled. \
+          The queue mesh and drain thread are general over N. Setting this below 3 disables MPP.",
         &MPP_WORKER_COUNT,
         1,
         64,
@@ -609,21 +632,6 @@ pub fn init() {
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,
-        GucContext::Userset,
-        GucFlags::UNIT_BYTE,
-    );
-
-    GucRegistry::define_int_guc(
-        c"paradedb.mpp_cache_per_slot",
-        c"Per-source-per-worker build-side cache slot size",
-        c"Sets the per-source-per-worker build-side all-gather cache slot size, in \
-          bytes. Total cache reservation per query is \
-          `n_cache_sources × n_workers × mpp_cache_per_slot`. The default 256 MiB is \
-          sized for a 1.25M-row build side encoded in Arrow IPC (~400 MB total at the \
-          25M bench scale) split across N workers; raise it for larger build sides.",
-        &MPP_CACHE_PER_SLOT,
-        1024 * 1024,
-        i32::MAX,
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
@@ -820,10 +828,6 @@ pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
 }
 
-pub fn enable_mpp() -> bool {
-    ENABLE_MPP.get()
-}
-
 pub fn mpp_debug() -> bool {
     MPP_DEBUG.get()
 }
@@ -838,10 +842,6 @@ pub fn mpp_worker_count() -> i32 {
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
-}
-
-pub fn mpp_cache_per_slot() -> usize {
-    MPP_CACHE_PER_SLOT.get() as usize
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

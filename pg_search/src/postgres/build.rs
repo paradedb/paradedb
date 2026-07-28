@@ -28,7 +28,9 @@ use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
+use std::ffi::CStr;
 use tantivy::schema::Schema;
+use tantivy::vector::VectorOptions;
 use tantivy::Index;
 use tokenizers::SearchTokenizer;
 
@@ -56,7 +58,7 @@ pub extern "C-unwind" fn ambuild(
         build_empty(&index_relation);
     }
 
-    // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
+    // ensure we only allow one ParadeDB index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
     unsafe {
         let index_tuple = &(*index_relation.rd_index);
@@ -71,7 +73,7 @@ pub extern "C-unwind" fn ambuild(
                 }
 
                 if is_bm25_index(&existing_index) && !is_concurrent {
-                    panic!("a relation may only have one `USING bm25` index");
+                    panic!("a relation may only have one ParadeDB index");
                 }
             }
         }
@@ -258,8 +260,16 @@ pub fn is_bm25_index(indexrel: &PgSearchRelation) -> bool {
 }
 
 fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
+    // `paradedb` and its backwards-compatible alias `bm25` share the same handler
+    // function, so an index built with either access method has the same
+    // `rd_amhandler`. Resolve against whichever alias is present so index
+    // recognition is independent of the access method name.
+    am_handler_oid(c"paradedb").or_else(|| am_handler_oid(c"bm25"))
+}
+
+fn am_handler_oid(amname: &CStr) -> Option<pg_sys::Oid> {
     unsafe {
-        let name = pg_sys::Datum::from(c"bm25".as_ptr());
+        let name = pg_sys::Datum::from(amname.as_ptr());
         let pg_am_entry = pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::AMNAME as _, name);
         if pg_am_entry.is_null() {
             return None;
@@ -320,6 +330,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             // We use bytes storage with lexicographically sortable encoding from decimal-bytes.
             SearchFieldType::NumericBytes(..) => {
                 builder.add_bytes_field(name.as_ref(), config.clone())
+            }
+            SearchFieldType::Vector(_, dims, metric) => {
+                builder.add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()))
             }
         };
     }

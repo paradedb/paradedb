@@ -81,7 +81,7 @@ pub struct DataFusionAggState {
     pub group_df_indices: Vec<usize>,
     /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
     /// prepared on first exec before planning, launched once the plan's stages are committed.
-    /// Stays `Inactive` on the serial path. Applies only when `paradedb.enable_mpp = on` and
+    /// Stays `Inactive` on the serial path. Applies only when parallel execution is enabled and
     /// the query qualifies (binary join + supported aggregate).
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
 }
@@ -137,12 +137,6 @@ pub struct AggregateScanState {
     ///    background merges don't recycle the canonical segments before
     ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
     pub source_manifests: Vec<crate::index::reader::index::SearchIndexManifest>,
-
-    /// MPP-only: which entry in `plan.sources()` is the partitioning source
-    /// (the one whose segments workers claim from). Stamped into the DSM
-    /// header by the leader and read back by workers; used in
-    /// `exec_mpp_worker` to key `index_segment_ids` correctly.
-    pub mpp_partitioning_source_idx: Option<usize>,
 
     /// A collection of things needed for result-rewriting decisions that
     /// are expensive to look up.

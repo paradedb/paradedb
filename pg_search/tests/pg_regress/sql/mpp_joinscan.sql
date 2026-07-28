@@ -4,7 +4,7 @@
 -- Same dataset shape as mpp_aggregate.sql but the queries don't
 -- aggregate — they project columns through a JOIN under a LIMIT,
 -- which is what JoinScan activates on. Two passes: serial baseline
--- (enable_mpp = off) and MPP path (enable_mpp = on). Results must
+-- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 4). Results must
 -- match across the two passes; the EXPLAIN trees differ.
 -- =====================================================================
 
@@ -38,16 +38,6 @@ CREATE TABLE mpp_join_pages (
     size_bytes INTEGER
 );
 
-INSERT INTO mpp_join_files (title, content)
-SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
-FROM generate_series(1, 200) AS g;
-
-INSERT INTO mpp_join_pages (file_id, page_text, size_bytes)
-SELECT (g % 200) + 1,
-       'Page text for page ' || g,
-       (g * 17) % 4096
-FROM generate_series(1, 1000) AS g;
-
 CREATE INDEX mpp_join_files_idx ON mpp_join_files
 USING bm25 (id, title, content)
 WITH (
@@ -63,17 +53,41 @@ WITH (
     text_fields='{"page_text": {}}'
 );
 
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_join_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+
+INSERT INTO mpp_join_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+
+INSERT INTO mpp_join_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+
+INSERT INTO mpp_join_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+
+RESET paradedb.global_mutable_segment_rows;
+
 ANALYZE mpp_join_files;
 ANALYZE mpp_join_pages;
 
 -- =====================================================================
--- Pass 1: serial baseline (enable_mpp = off)
+-- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
 --
 -- The non-MPP JoinScan path produces the correctness baseline for
 -- pass 2.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -89,13 +103,13 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
--- Pass 2: MPP path (enable_mpp = on). Same query, same results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same query, same results.
 -- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
 -- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
 -- fragment dispatch, leader-side NetworkCoalesceExec gather).
 -- =====================================================================
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -145,7 +159,7 @@ DROP FUNCTION mpp_explain_analyze_lines(text);
 -- to the worker.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO on;
+SET max_parallel_workers_per_gather TO 4;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -168,7 +182,7 @@ LIMIT 10;
 -- Ensure the same query returns identical results when executed serially.
 -- =====================================================================
 
-SET paradedb.enable_mpp TO off;
+SET max_parallel_workers_per_gather TO 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes

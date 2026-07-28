@@ -483,7 +483,7 @@ impl JsonExpr {
 }
 
 fn json_pushdown_setup(conn: &mut PgConnection, index_config: &IndexConfig) -> String {
-    "CREATE EXTENSION IF NOT EXISTS pg_search;".execute(conn);
+    "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 

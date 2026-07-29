@@ -24,11 +24,10 @@ Each branch contributes `weight / (k + rank)`, and the contributions are added.
 Suppose a row comes back 5th in the lexical branch and 10th in the semantic branch, with `k = 60` and the lexical branch weighted `1.0` against the semantic branch's `0.7`:
 
 ```
-            weight / ( k + rank)
-lexical        1.0 / (60 +    5)  = 0.0154
-semantic       0.7 / (60 +   10)  = 0.0100
-                                    ------
-score(row)                           0.0254
+lexical      1.0 / (60 +  5) = 0.0154
+semantic     0.7 / (60 + 10) = 0.0100
+                               ------
+score(row)                     0.0254
 ```
 
 A row returned by only one branch gets only that branch's term. A row 5th in the lexical branch and absent from the semantic one scores `0.0154`, which is how a strong result from either search surfaces on its own. Adding a third branch means adding a third term.

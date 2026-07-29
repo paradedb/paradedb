@@ -795,7 +795,14 @@ impl CustomScan for BaseScan {
                 let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
                 let unnest_override = classify_target_list_srf(builder.args().root).is_safe();
 
-                (pg_says_pushable || lo.has_any_param() || unnest_override)
+                // PG zeroes `limit_tuples` whenever a WindowAgg sits between the LIMIT and the
+                // scan, because in general a window function needs every row. When the window is
+                // a bare ranking over the same order as the LIMIT, the top N rows *are* the first
+                // N in window order, so feeding the WindowAgg only those N is result-preserving.
+                // This is what makes the natural RRF hybrid-search shape a Top K scan. See #5742.
+                let window_override = window_limit_pushdown_is_safe(parse);
+
+                (pg_says_pushable || lo.has_any_param() || unnest_override || window_override)
                     && is_limit_pushdown_safe(
                         builder.args().root,
                         rel,
@@ -1807,6 +1814,100 @@ unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
         return false;
     };
     (*sort_clause).tleSortGroupRef == (*target_entry).ressortgroupref
+}
+
+/// Returns true if the scan may return only `LIMIT + OFFSET` rows even though a WindowAgg sits
+/// above it, i.e. the window functions compute the same values over that truncated input.
+///
+/// Three things all have to hold:
+///
+///   - Every window function is position-only (`row_number`, `rank`, `dense_rank`). One that reads
+///     the whole partition -- `sum(x) OVER ()`, `percent_rank()`, `cume_dist()` -- returns a
+///     different value over a truncated input.
+///   - No `PARTITION BY`. Partitions draw rows from outside the top N, so truncating first
+///     renumbers them.
+///   - The window ordering matches the query's `ORDER BY`. Otherwise the top N by the query's
+///     ordering are not the first N in window order, and the ranks shift.
+unsafe fn window_limit_pushdown_is_safe(parse: *mut pg_sys::Query) -> bool {
+    let Some(parse_ref) = parse.as_ref() else {
+        return false;
+    };
+    if parse_ref.windowClause.is_null() || parse_ref.sortClause.is_null() {
+        return false;
+    }
+
+    let windows = PgList::<pg_sys::WindowClause>::from_pg(parse_ref.windowClause);
+    for wc in windows.iter_ptr() {
+        if !(*wc).partitionClause.is_null() {
+            return false;
+        }
+        if !pg_sys::equal(
+            (*wc).orderClause.cast::<core::ffi::c_void>(),
+            parse_ref.sortClause.cast::<core::ffi::c_void>(),
+        ) {
+            return false;
+        }
+    }
+
+    window_funcs_are_position_only(parse)
+}
+
+/// Returns true if every window function in `parse` derives solely from a row's position in the
+/// window ordering (`row_number`, `rank`, `dense_rank`).
+unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
+    use pgrx::pg_guard;
+
+    struct Context {
+        position_only: bool,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        let ctx = context.cast::<Context>();
+
+        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node) {
+            if !matches!(
+                (*wfunc).winfnoid.to_u32(),
+                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
+            ) {
+                (*ctx).position_only = false;
+                return true;
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let Some(parse) = parse.as_ref() else {
+        return false;
+    };
+    if parse.targetList.is_null() {
+        return false;
+    }
+
+    let mut context = Context {
+        position_only: true,
+    };
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    for te in tlist.iter_ptr() {
+        if (*te).expr.is_null() {
+            continue;
+        }
+        walker(
+            (*te).expr.cast::<pg_sys::Node>(),
+            addr_of_mut!(context).cast::<core::ffi::c_void>(),
+        );
+        if !context.position_only {
+            return false;
+        }
+    }
+    context.position_only
 }
 
 ///

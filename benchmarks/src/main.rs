@@ -203,6 +203,9 @@ pub struct QueryRunResults {
     pub cold: f64,
     pub samples: Vec<f64>,
     pub num_results: usize,
+    /// True when each sample is a distinct query vector rather than a repeat of one. Only then is
+    /// the sample set a latency distribution, so only then are percentiles meaningful.
+    pub per_vector: bool,
 }
 
 enum IndexCreationResult {
@@ -268,44 +271,66 @@ struct JSONBenchmarkResult {
     extra: String,
 }
 
-impl From<QueryResult> for JSONBenchmarkResult {
-    fn from(res: QueryResult) -> Self {
-        let mean = mean(&res.results.samples);
-        let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
+/// Percentiles published as their own tracked series. Each becomes a separate gh-pages entry, so
+/// a regression alert fires on the percentile rather than on a mean that hides the tail.
+const TRACKED_PERCENTILES: [(&str, f64); 3] = [("p50", 0.50), ("p95", 0.95), ("p99", 0.99)];
 
-        let cold_query_extra = format!(
-            "cold_query_ms={:.3}; n={}; p50={:.3}; p90={:.3}; p95={:.3}; p99={:.3}; query={}",
+impl JSONBenchmarkResult {
+    /// One entry per tracked percentile when the samples are a distribution over query vectors;
+    /// otherwise a single mean entry, which is what datasets that repeat one query have always
+    /// reported.
+    fn from_query_result(res: QueryResult) -> Vec<Self> {
+        let extra = format!(
+            "cold_query_ms={:.3}; n={}; p50={:.3}; p95={:.3}; p99={:.3}; query={}",
             res.results.cold,
             res.results.samples.len(),
             percentile(&res.results.samples, 0.50),
-            percentile(&res.results.samples, 0.90),
             percentile(&res.results.samples, 0.95),
             percentile(&res.results.samples, 0.99),
             res.query
         );
-        let range_str = format!("±{ci_half_width:.3} ms");
+
+        if !res.results.per_vector {
+            let mean = mean(&res.results.samples);
+            let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
+            println!(
+                r"Query results: |
+            query: {},
+            mean: {mean:.3} ms,
+            confidence interval: ±{ci_half_width:.3} ms",
+                res.query
+            );
+            return vec![Self {
+                name: res.query_type,
+                unit: "mean ms",
+                value: mean,
+                range: format!("±{ci_half_width:.3} ms"),
+                extra,
+            }];
+        }
 
         println!(
             r"Query results: |
             query: {},
-            mean: {mean:.3} ms,
-            p50: {:.3} ms, p90: {:.3} ms, p95: {:.3} ms, p99: {:.3} ms (n={}),
-            confidence interval: ±{ci_half_width:.3} ms",
+            p50: {:.3} ms, p95: {:.3} ms, p99: {:.3} ms (n={} query vectors)",
             res.query,
             percentile(&res.results.samples, 0.50),
-            percentile(&res.results.samples, 0.90),
             percentile(&res.results.samples, 0.95),
             percentile(&res.results.samples, 0.99),
             res.results.samples.len()
         );
 
-        Self {
-            name: res.query_type,
-            unit: "mean ms",
-            value: mean,
-            range: range_str,
-            extra: cold_query_extra,
-        }
+        TRACKED_PERCENTILES
+            .iter()
+            .map(|(label, p)| Self {
+                name: format!("{} {label}", res.query_type),
+                unit: "ms",
+                value: percentile(&res.results.samples, *p),
+                // A mean's confidence interval says nothing about a percentile, so no error bar.
+                range: String::new(),
+                extra: extra.clone(),
+            })
+            .collect()
     }
 }
 
@@ -957,20 +982,26 @@ fn write_sweep_summary(
     for r in rows {
         // Latency was measured under the expanded label the sweep emitted.
         let benchmarked = format!("{}@{}", r.query, r.label);
-        let (p50, p95) = results
+        let latencies = results
             .iter()
             .find(|q| q.query_type == benchmarked)
             .map(|q| {
-                (
-                    format!("{:.2}", percentile(&q.results.samples, 0.50)),
-                    format!("{:.2}", percentile(&q.results.samples, 0.95)),
-                )
+                TRACKED_PERCENTILES
+                    .iter()
+                    .map(|(_, p)| format!("{:.2}", percentile(&q.results.samples, *p)))
+                    .collect::<Vec<_>>()
             })
             // A query that errored is skipped by the benchmark loop, so it has no latency.
-            .unwrap_or_else(|| ("n/a".to_owned(), "n/a".to_owned()));
+            .unwrap_or_else(|| vec!["n/a".to_owned(); TRACKED_PERCENTILES.len()]);
         out.push(format!(
-            "{}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}",
-            r.query, r.label, r.param, r.value, r.recall, r.reached, p50, p95
+            "{}\t{}\t{}\t{}\t{:.4}\t{}\t{}",
+            r.query,
+            r.label,
+            r.param,
+            r.value,
+            r.recall,
+            r.reached,
+            latencies.join("\t")
         ));
     }
     // Per size, so a later size's run does not clobber an earlier one's summary.
@@ -1600,7 +1631,7 @@ async fn run_benchmarks_json(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let results = run_benchmarks(args)
         .await?
         .into_iter()
-        .map(JSONBenchmarkResult::from)
+        .flat_map(JSONBenchmarkResult::from_query_result)
         .collect::<Vec<_>>();
     let results_json =
         serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
@@ -1872,6 +1903,7 @@ async fn execute_query_multiple_times(
                 results.cold = warm.0;
             }
         }
+        results.per_vector = true;
         for vector in query_vectors {
             set_query_vector(&mut conn, vector).await?;
             match run_once(&mut conn, query, stats_reset_query, &stats_query).await {

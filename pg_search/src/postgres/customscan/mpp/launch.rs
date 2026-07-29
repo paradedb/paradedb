@@ -332,7 +332,9 @@ fn launch_mpp(
     timing.prepare_us = t_prepare.elapsed().as_micros() as u64;
 
     // Spawn the workers; the go flag keeps them off the mesh until the rings and the dispatch
-    // payload are initialized below.
+    // payload are initialized below. The trace doubles as the regress observable that a
+    // launch was attempted at all (mpp_worker_sizing).
+    crate::mpp_log!("launch: spawning {producer_count} producers");
     let attach = launcher.launch()?;
 
     // Derive the per-stage subplans from the plan the leader itself will execute. A failure

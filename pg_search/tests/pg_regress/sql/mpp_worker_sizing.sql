@@ -6,8 +6,11 @@
 --     launch exactly 2 producers. EXPLAIN ANALYZE's "MPP Launch:
 --     workers=N" line is the launch's own report of what it spawned.
 --   - 1 segment per table produces no distributable stages: the query
---     runs serially and forks nothing ("MPP Launch" line absent — it is
---     only recorded when the query actually launched).
+--     runs serially ("MPP Launch" line absent), and under
+--     paradedb.mpp_debug no "spawning" trace appears — no launch is
+--     even attempted.
+--   - 4 segments per table under a cap of 2 launch exactly 2 producers;
+--     the extra tasks multiplex and results match the serial run.
 --
 -- Outcomes are collected in a table (not NOTICEs) so the expected
 -- output stays stable under client_min_messages.
@@ -105,13 +108,100 @@ BEGIN
     IF saw_launch THEN
         INSERT INTO mpp_ws_outcome VALUES ('1-segment join: UNEXPECTED distributed launch');
     ELSE
-        INSERT INTO mpp_ws_outcome VALUES ('1-segment join: ran serially, no workers forked');
+        INSERT INTO mpp_ws_outcome VALUES ('1-segment join: ran serially (no MPP launch recorded)');
     END IF;
 END$$;
 
+-- Four segments per index, cap of 2 (per_gather = 2): more tasks than workers.
+-- The launch must clamp to the cap and the extra tasks multiplex onto the two
+-- producers (dispatch::push_owned_tasks), returning the same results as serial.
+CREATE TABLE mpp_ws4_users    (id bigserial PRIMARY KEY, name text, age int);
+CREATE TABLE mpp_ws4_products (id bigserial PRIMARY KEY, name text, age int);
+CREATE INDEX mpp_ws4_users_idx ON mpp_ws4_users USING bm25 (id, name, age)
+WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_ws4_products_idx ON mpp_ws4_products USING bm25 (id, name, age)
+WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_ws4_users (name, age)
+SELECT (ARRAY['bob','alice'])[1 + (g % 2)], g % 50 FROM generate_series(1, 2500) g;
+INSERT INTO mpp_ws4_users (name, age)
+SELECT (ARRAY['bob','alice'])[1 + (g % 2)], g % 50 FROM generate_series(2501, 5000) g;
+INSERT INTO mpp_ws4_users (name, age)
+SELECT (ARRAY['bob','alice'])[1 + (g % 2)], g % 50 FROM generate_series(5001, 7500) g;
+INSERT INTO mpp_ws4_users (name, age)
+SELECT (ARRAY['bob','alice'])[1 + (g % 2)], g % 50 FROM generate_series(7501, 10000) g;
+INSERT INTO mpp_ws4_products (name, age)
+SELECT 'x', g % 50 FROM generate_series(1, 100) g;
+INSERT INTO mpp_ws4_products (name, age)
+SELECT 'x', g % 50 FROM generate_series(101, 200) g;
+INSERT INTO mpp_ws4_products (name, age)
+SELECT 'x', g % 50 FROM generate_series(201, 300) g;
+INSERT INTO mpp_ws4_products (name, age)
+SELECT 'x', g % 50 FROM generate_series(301, 400) g;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE mpp_ws4_users;
+ANALYZE mpp_ws4_products;
+
+SET work_mem TO '64MB';
+DO $$
+DECLARE
+    r record;
+    launched int := -1;
+    serial_cnt bigint;
+    serial_sum bigint;
+    mpp_cnt bigint;
+    mpp_sum bigint;
+    q constant text := 'SELECT count(*), coalesce(sum(id), 0) FROM (
+        SELECT u.id FROM mpp_ws4_users u JOIN mpp_ws4_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 50000) t';
+BEGIN
+    PERFORM set_config('max_parallel_workers_per_gather', '0', false);
+    EXECUTE q INTO serial_cnt, serial_sum;
+
+    PERFORM set_config('max_parallel_workers_per_gather', '2', false);
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+        IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
+            launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
+        END IF;
+    END LOOP;
+    EXECUTE q INTO mpp_cnt, mpp_sum;
+
+    IF launched = 2 AND mpp_cnt = serial_cnt AND mpp_sum = serial_sum THEN
+        INSERT INTO mpp_ws_outcome
+        VALUES ('4-segment join at cap 2: launched 2 producers, results match serial');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('4-segment join at cap 2: UNEXPECTED launched=' || launched
+                || ' rows=' || mpp_cnt || '/' || serial_cnt
+                || ' sum=' || mpp_sum || '/' || serial_sum);
+    END IF;
+END$$;
+RESET work_mem;
+SET max_parallel_workers_per_gather TO 8;
+
+-- A launch attempt traces "spawning N producers" as a WARNING under
+-- paradedb.mpp_debug. The 1-segment query must attempt none, distinguishing
+-- "never launched" from "launched then aborted": expect no warnings below.
+SET paradedb.mpp_debug TO on;
+DO $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+        SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+    LOOP
+        NULL;
+    END LOOP;
+END$$;
+SET paradedb.mpp_debug TO off;
+
 SELECT line FROM mpp_ws_outcome ORDER BY line;
 
-DROP TABLE mpp_ws_outcome, mpp_ws_users, mpp_ws_products, mpp_ws1_users, mpp_ws1_products;
+DROP TABLE mpp_ws_outcome, mpp_ws_users, mpp_ws_products, mpp_ws1_users, mpp_ws1_products,
+           mpp_ws4_users, mpp_ws4_products;
+RESET paradedb.mpp_debug;
 RESET paradedb.enable_join_custom_scan;
 RESET max_parallel_workers_per_gather;
 RESET max_parallel_workers;

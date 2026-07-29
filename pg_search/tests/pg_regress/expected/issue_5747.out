@@ -67,5 +67,13 @@ WHERE le.id @@@ paradedb.term('user_id', 'u1')
   AND sv.id @@@ paradedb.term('state', 'merged')
 ORDER BY le.id
 LIMIT 5;
-ERROR:  mpp worker_fragments: top-level NetworkBroadcastExec is unsupported (stage_id=1). They emit output into a parent consumer stage; a top-level boundary of this type is a planner anomaly.
+ id 
+----
+ 51
+ 52
+ 53
+ 54
+ 55
+(5 rows)
+
 DROP TABLE pc_big, pc_small CASCADE;

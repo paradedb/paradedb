@@ -26,13 +26,15 @@ use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
+use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
-use crate::postgres::{ParallelExplainData, ParallelScanArgs, ParallelScanState};
+use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
 
 use pgrx::heap_tuple::PgHeapTuple;
@@ -42,8 +44,10 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
-    pub parallel_state: Option<*mut ParallelScanState>,
-    pub parallel_explain_data: Option<ParallelExplainData>,
+    /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
+    pub telemetry: ScanTelemetry,
+    /// Set when this scan is parallel-aware (DSM attached).
+    pub parallel: Option<ParallelScanHandle>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -59,15 +63,7 @@ pub struct BaseScanState {
 
     pub targetlist_len: usize,
 
-    query_count: usize,
     pub virtual_tuple_count: usize,
-
-    /// Opaque per-segment JSON from TopK collector Fruits (e.g. vector probe
-    /// stats), retained for EXPLAIN ANALYZE VERBOSE. Re-queries use
-    /// last-write-wins per segment. On parallel scans workers flush into DSM
-    /// once at `EndCustomScan`; the leader keeps its local map and merges
-    /// worker DSM entries at `ShutdownCustomScan`.
-    pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
 
     pub heaprelid: pg_sys::Oid,
     pub heaprel: Option<PgSearchRelation>,
@@ -363,53 +359,49 @@ impl BaseScanState {
     }
 
     pub fn total_query_count(&self) -> usize {
-        if let Some(explain_data) = &self.parallel_explain_data {
-            explain_data.total_query_count
-        } else {
-            self.query_count
-        }
+        self.telemetry.total_query_count()
     }
 
     pub fn query_count(&self) -> usize {
-        self.query_count
+        self.telemetry.query_count()
     }
 
     pub fn increment_query_count(&mut self) {
-        self.query_count += 1;
-        if let Some(parallel_state) = self.parallel_state {
-            unsafe {
-                (*parallel_state).increment_query_count();
-            }
-        }
+        self.telemetry.record_query();
     }
 
     /// Merge per-segment JSON info. Last-write-wins per segment id (re-queries
     /// replace rather than append).
     pub fn accumulate_segment_info(&mut self, info: BTreeMap<SegmentId, serde_json::Value>) {
-        self.segment_info.extend(info);
+        self.telemetry.accumulate_segment_info(info);
     }
 
     /// EXPLAIN-friendly view: segment short UUID → JSON value.
     pub fn segment_info_for_explain(&self) -> BTreeMap<String, serde_json::Value> {
-        self.segment_info
-            .iter()
-            .map(|(id, value)| (id.short_uuid_string(), value.clone()))
-            .collect()
+        self.telemetry.segment_info_for_explain()
+    }
+
+    /// DSM pointer when this scan is parallel-aware.
+    pub fn parallel_state(&self) -> Option<*mut ParallelScanState> {
+        self.parallel.as_ref().map(|p| p.dsm_ptr())
+    }
+
+    /// Attach DSM for a parallel-aware scan.
+    ///
+    /// # Safety
+    /// `dsm` must point at a live [`ParallelScanState`] in DSM.
+    pub unsafe fn attach_parallel(&mut self, dsm: *mut ParallelScanState, role: ParallelRole) {
+        self.parallel = Some(ParallelScanHandle::new(dsm, role));
     }
 
     pub fn reset(&mut self) {
-        if let Some(parallel_state) = self.parallel_state {
-            unsafe {
-                let worker_number = pg_sys::ParallelWorkerNumber;
-                if worker_number == -1 {
-                    let _mutex = (*parallel_state).acquire_mutex();
-                    ParallelScanState::reset(&mut *parallel_state);
-                }
+        if let Some(parallel) = self.parallel {
+            if parallel.is_leader() {
+                parallel.reset_work_queue();
             }
         }
-        self.query_count = 0;
+        self.telemetry.reset();
         self.virtual_tuple_count = 0;
-        self.segment_info.clear();
         if self.visibility_checker.is_some() {
             self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
                 self.heaprel(),

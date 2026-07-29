@@ -22,11 +22,11 @@ CREATE TABLE vsp (
 );
 
 INSERT INTO vsp VALUES
-    (1, 'east',  '[1,    0,   0]'),
-    (2, 'east2', '[0.9,  0,   0.1]'),
-    (3, 'north', '[0,    1,   0]'),
-    (4, 'up',    '[0,    0,   1]'),
-    (5, 'mid',   '[0.7,  0.7, 0]');
+    (1, 'east wind',  '[1,    0,   0]'),
+    (2, 'east gate',  '[0.9,  0,   0.1]'),
+    (3, 'north wind', '[0,    1,   0]'),
+    (4, 'up draft',   '[0,    0,   1]'),
+    (5, 'mid point',  '[0.7,  0.7, 0]');
 
 
 -- ============================================================
@@ -159,6 +159,79 @@ EXECUTE vsp_p('[1,0,0]');
 
 DEALLOCATE vsp_p;
 RESET plan_cache_mode;
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- USING paradedb access method
+-- ============================================================
+-- Opclasses are declared per access method: the `paradedb` AM accepts the
+-- same three opclasses as `bm25`, with vector_l2_ops as its DEFAULT too.
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+-- match: <=> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_ip_ops)
+    WITH (key_field = id);
+DROP INDEX vsp_idx;
+
+-- a bare vector column resolves to vector_l2_ops, the AM default
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec)
+    WITH (key_field = id);
+
+SELECT opc.opcname
+FROM pg_index i
+JOIN unnest(i.indclass) WITH ORDINALITY AS c(opcoid, ord) ON true
+JOIN pg_opclass opc ON opc.oid = c.opcoid
+WHERE i.indexrelid = 'vsp_idx'::regclass AND opc.opcname LIKE 'vector%';
+
+-- match: <-> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+
+DROP INDEX vsp_idx;
+
+
+-- ============================================================
+-- Search operators (=== / &&& / ||| / ###) with vector ORDER BY
+-- ============================================================
+-- The predicate doesn't have to be `@@@ pdb.all()`: the search operators
+-- combined with a vector ORDER BY must still push down through TopK,
+-- ranking only the rows the predicate matches.
+CREATE INDEX vsp_idx ON vsp
+    USING bm25 (id, label, vec vector_cosine_ops)
+    WITH (key_field = id);
+
+-- === (term): rows 1 and 3 contain 'wind'; ranked 1 then 3 by distance
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label === 'wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE label === 'wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+-- &&& (all terms): only row 1 has both 'east' and 'wind'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label &&& 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE label &&& 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+-- ||| (any term): rows 1, 2, 3 match 'gate' or 'wind'; top-2 are 1 then 2
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label ||| 'gate wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE label ||| 'gate wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
+-- ### (phrase): only row 1 contains the phrase 'east wind'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label ### 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+SELECT id FROM vsp WHERE label ### 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+
 DROP INDEX vsp_idx;
 
 

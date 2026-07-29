@@ -11,7 +11,7 @@ canonical: https://docs.paradedb.com/deploy/logical-replication/getting-started
 
 In production, ParadeDB is commonly deployed as a logical subscriber to your
 primary Postgres. Your application continues to write to the source database,
-while ParadeDB receives the same row changes and maintains local BM25 indexes
+while ParadeDB receives the same row changes and maintains local ParadeDB indexes
 for search and analytics.
 
 This deployment model is useful when:
@@ -159,6 +159,14 @@ initial copy behavior of `CREATE SUBSCRIPTION`.
 CREATE EXTENSION pg_search CASCADE;
 ```
 
+<Note>
+  As of `0.25.0`, `pg_search` requires the
+  [`pgvector`](https://github.com/pgvector/pgvector) extension because it relies
+  on `pgvector`'s `vector` type. `pgvector` must be installed on the server
+  before `pg_search` is created — `CASCADE` then runs `CREATE EXTENSION vector`
+  automatically if it has not already been created.
+</Note>
+
 ### 5. Create a Publication on the Publisher
 
 ```sql
@@ -209,7 +217,7 @@ FROM mock_items
 WHERE description = 'Blue running shoes';
 ```
 
-At this point, the base table is replicating correctly and you can create BM25
+At this point, the base table is replicating correctly and you can create ParadeDB
 indexes locally on ParadeDB. Continue to the [Logical Replication Operational
-Guide](/deploy/logical-replication/operational-guide) for BM25
+Guide](/deploy/logical-replication/operational-guide) for ParadeDB
 index build timing, monitoring, WAL retention, and troubleshooting.

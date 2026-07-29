@@ -10,7 +10,7 @@ the tradeoff is that it is slower.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.jieba))
+USING paradedb (id, (description::pdb.jieba))
 WITH (key_field='id');
 ```
 

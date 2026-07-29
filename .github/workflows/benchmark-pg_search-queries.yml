@@ -28,7 +28,7 @@ on:
           - stackoverflow
           - cohere
       cohere_index:
-        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat / -vchord)."
+        description: "Which cohere index to benchmark (applies when dataset is cohere/all). For label-triggered runs the index comes from the label instead (benchmark-cohere-hnsw / -ivfflat / -vchord / -pg_search)."
         required: false
         default: hnsw
         type: choice
@@ -36,6 +36,7 @@ on:
           - hnsw
           - ivfflat
           - vchord
+          - pg_search
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
@@ -50,6 +51,11 @@ on:
         required: false
         type: boolean
         default: false
+      publish_baseline:
+        description: "Whether to write the results to the gh-pages baseline that later runs are diffed against. Ignored unless this run is on main. Untick for an exploratory run you do not want recorded."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   actions: write
@@ -75,7 +81,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
+        contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
       )
     env:
       pg_version: 18
@@ -90,8 +96,11 @@ jobs:
       # cohere: opt-in only -- the benchmark-cohere-{hnsw,ivfflat} PR labels, or a manual run. The
       # chosen index comes from the dispatch input or the label name (no default).
       RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)) }}
-      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)) }}
-      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
+      RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)) }}
+      # Only main writes the baseline. Every other run still fetches it and diffs against it,
+      # so a PR gets its comparison without being able to move the reference point.
+      PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
+      COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
@@ -99,7 +108,7 @@ jobs:
       - name: Maybe Remove Label
         if: >-
           github.event_name == 'pull_request' &&
-          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
+          contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -109,7 +118,8 @@ jobs:
             --remove-label benchmark-stackoverflow \
             --remove-label benchmark-cohere-hnsw \
             --remove-label benchmark-cohere-ivfflat \
-            --remove-label benchmark-cohere-vchord || true
+            --remove-label benchmark-cohere-vchord \
+            --remove-label benchmark-cohere-pg_search || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -152,7 +162,7 @@ jobs:
       # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch the Latest Composite Actions
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
         uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}
@@ -163,18 +173,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch latest benchmark code, suites
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow", "benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -276,6 +286,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -307,6 +318,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -338,8 +350,8 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
-      # Cohere (vector): restore a snapshot like stackoverflow, then benchmark (HNSW / IVFFlat / vchordrq index + kNN, per COHERE_INDEX).
       - name: Restore "cohere" Heap Snapshot (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
         run: |
@@ -385,33 +397,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
-
-      # Reuses the index the benchmark step just built (same Postgres). Measures recall for every
-      # query file (unfiltered + each filtered kNN) at the same probes/ef_search the latency
-      # benchmark used, so the reported recall is the operating point being benchmarked.
-      - name: Measure "cohere" Recall (1M)
-        if: ${{ env.RUN_COHERE == 'true' }}
-        working-directory: benchmarks/
-        run: |
-          set -euo pipefail
-          : > recall_1m.tsv
-          # An index may ship its own query set under queries/{index}/; recall resolves --query
-          # relative to datasets/cohere/queries/, so prepend the subdir when present. Filter variants
-          # that share a ground truth (vchord's prefilter on/off) map to the base stem via
-          # --ground-truth (strip the _prefilter_{on,off} suffix).
-          sub=""; [ -d "datasets/cohere/queries/${{ env.COHERE_INDEX }}" ] && sub="${{ env.COHERE_INDEX }}/"
-          for f in datasets/cohere/queries/${sub}*.sql; do
-            q=$(basename "$f" .sql)
-            gt=$(printf '%s' "$q" | sed -E 's/_prefilter_(on|off)$//')
-            out=$(cargo run --release -- recall \
-              --dataset cohere \
-              --size 1m \
-              --query "${sub}${q}" \
-              --ground-truth "$gt" \
-              --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
-            echo "$out"
-            printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_1m.tsv
-          done
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -454,27 +440,12 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
-      - name: Measure "cohere" Recall (10M)
-        if: ${{ env.RUN_COHERE == 'true' }}
-        working-directory: benchmarks/
-        run: |
-          set -euo pipefail
-          : > recall_10m.tsv
-          sub=""; [ -d "datasets/cohere/queries/${{ env.COHERE_INDEX }}" ] && sub="${{ env.COHERE_INDEX }}/"
-          for f in datasets/cohere/queries/${sub}*.sql; do
-            q=$(basename "$f" .sql)
-            gt=$(printf '%s' "$q" | sed -E 's/_prefilter_(on|off)$//')
-            out=$(cargo run --release -- recall \
-              --dataset cohere \
-              --size 10m \
-              --query "${sub}${q}" \
-              --ground-truth "$gt" \
-              --url "postgresql://localhost:288${{ env.pg_version }}/postgres")
-            echo "$out"
-            printf '%s\t%s\n' "$q" "$(printf '%s\n' "$out" | sed -n 's/^recall = //p')" >> recall_10m.tsv
-          done
-
+      # Renders the operating points the benchmark selected. The benchmark step measures recall
+      # across each query's swept values and keeps the cheapest one reaching each target, writing
+      # sweep_summary_{size}.tsv (query, target, param, value, recall, reached, p50, p95, p99).
+      # Latency for those same points is published as `{query}@r90|r95|r99 - p50|p95|p99` series.
       - name: Comment cohere recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
         working-directory: benchmarks/
@@ -482,22 +453,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # A recall step that was skipped/failed leaves its .tsv missing; touch both so `cat` (and
-          # thus pipefail) doesn't abort when only one size ran.
-          touch recall_1m.tsv recall_10m.tsv
-          # Build one row per query (union of whatever was measured at either size), so query files
-          # added to datasets/cohere/queries/ appear automatically.
-          rows=$(cat recall_1m.tsv recall_10m.tsv | cut -f1 | sort -u | while read -r q; do
-            [ -n "$q" ] || continue
-            r1=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_1m.tsv 2>/dev/null || true)
-            r10=$(awk -F'\t' -v q="$q" '$1==q{print $2}' recall_10m.tsv 2>/dev/null || true)
-            printf '| `%s` | %s | %s |\n' "$q" "${r1:-n/a}" "${r10:-n/a}"
-          done)
+          # A size that was skipped/failed leaves its .tsv missing; touch both so `cat` (and thus
+          # pipefail) doesn't abort when only one size ran.
+          touch sweep_summary_1m.tsv sweep_summary_10m.tsv
+          if [ ! -s sweep_summary_1m.tsv ] && [ ! -s sweep_summary_10m.tsv ]; then
+            echo "No sweep summaries -- nothing to comment."
+            exit 0
+          fi
+          # One row per (query, target) measured at either size, so queries added to
+          # datasets/cohere/queries/ appear automatically.
+          rows=$(cat sweep_summary_1m.tsv sweep_summary_10m.tsv | cut -f1,2 | sort -u | \
+            while IFS=$'\t' read -r q t; do
+              [ -n "$q" ] || continue
+              # `value` → recall · p50/p95/p99, flagged when no swept value reached the target.
+              fmt='$1==q && $2==t { printf "`%s` → %s%s · %s / %s / %s ms", $4, $5, ($6=="false" ? " ⚠️" : ""), $7, $8, $9 }'
+              c1=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_1m.tsv)
+              c10=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_10m.tsv)
+              printf '| `%s` | %s%% | %s | %s |\n' "$q" "${t#r}" "${c1:-n/a}" "${c10:-n/a}"
+            done)
           {
             printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
-            printf '| query | 1m | 10m |\n|-------|----|----|\n'
+            printf '| query | target | 1m | 10m |\n|-------|--------|----|----|\n'
             printf '%s\n' "$rows"
-            printf '\n<sub>recall@10 of the ANN index vs exact nearest neighbors over a held-out query set, at the same probes/ef_search as the latency benchmark. Probes are tuned per query+size for ~95%% recall</sub>\n'
+            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the p50 / p95 / p99 latency at that point. Latency is measured once per held-out query vector (the same set recall uses), not by repeating a single vector. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
           } > recall_body.md
           cat recall_body.md
           if [ -n "${{ github.event.pull_request.number }}" ]; then

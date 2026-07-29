@@ -9,7 +9,7 @@ The simple tokenizer splits on any non-alphanumeric character (e.g. whitespace, 
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple))
+USING paradedb (id, (description::pdb.simple))
 WITH (key_field='id');
 ```
 

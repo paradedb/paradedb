@@ -35,13 +35,15 @@ LIMIT 3;
 (3 rows)
 ```
 
-Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
+Next, let's create a ParadeDB index called `search_idx` on this table. A ParadeDB index is a covering index, which means that multiple columns can be included in the same index.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, embedding vector_cosine_ops, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
@@ -183,7 +185,7 @@ await db.execute(sql`
 `);
 ```
 
-Now, in a separate terminal, push the Drizzle schema to create the BM25 index:
+Now, in a separate terminal, push the Drizzle schema to create the ParadeDB index:
 
 ```bash
 npx drizzle-kit push
@@ -233,7 +235,7 @@ DATABASES = {
 }
 ```
 
-We can now add a model for ParadeDB's built-in test table and BM25 index:
+We can now add a model for ParadeDB's built-in test table and ParadeDB index:
 
 ```python models.py
 from django.db import models
@@ -877,7 +879,7 @@ Then apply the migration:
 dotnet ef database update
 ```
 
-This creates `mock_items`, the BM25 index, and loads the mock data. Now, run the query included in `Program.cs`:
+This creates `mock_items`, the ParadeDB index, and loads the mock data. Now, run the query included in `Program.cs`:
 
 ```bash
 dotnet run

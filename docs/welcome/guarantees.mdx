@@ -12,7 +12,7 @@ As of `0.24.0`, transactions are also durable, meaning they are write-ahead (WAL
 ### Concurrency
 
 ParadeDB is designed to support concurrent reads and writes in the same way that Postgres does — by adhering to Postgres' [multi-version
-concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the BM25
+concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the ParadeDB
 index under concurrent load.
 
 Both read and write throughput under concurrent load can be improved by tuning Postgres' settings. For instance, read throughput can be improved
@@ -35,15 +35,15 @@ Physical replication refers to running ParadeDB itself in a multi-node, high-ava
 [ParadeDB Community](https://github.com/paradedb/paradedb) supports logical replication, but not physical replication:
 
 - It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
-- The BM25 index does not get physically replicated and won't be available on other nodes in a high availability setup.
+- The ParadeDB index does not get physically replicated and won't be available on other nodes in a high availability setup.
 
 [ParadeDB Enterprise](/deploy/enterprise) supports both:
 
 - It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
-- It supports physical replication and high availability, ensuring that the BM25 index remains consistent and crash-safe across nodes.
+- It supports physical replication and high availability, ensuring that the ParadeDB index remains consistent and crash-safe across nodes.
 
 If your deployment requires high availability, or failover, we recommend using [ParadeDB Enterprise](/deploy/enterprise).
 
 ### Data Integrity
 
-All data inserted into the BM25 index must conform to the column’s declared type. ParadeDB relies on Postgres’ type system and input/output functions to ensure validity. For example, invalid data will result in a Postgres error at insert time, not at query time.
+All data inserted into the ParadeDB index must conform to the column’s declared type. ParadeDB relies on Postgres’ type system and input/output functions to ensure validity. For example, invalid data will result in a Postgres error at insert time, not at query time.

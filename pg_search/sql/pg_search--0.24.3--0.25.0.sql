@@ -47,16 +47,6 @@ STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'vector_info_wrapper';
 
--- Vector opclasses (pgvector convention). Pure metric tags: STORAGE only,
--- no strategy operators or support functions. bm25 reads the metric back at
--- build time; vector_l2_ops is DEFAULT so a bare `(embedding)` resolves to L2.
-CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
-CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
-CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
-
 -- Introduce `paradedb` as the primary name for the index access method (sharing the
 -- existing `bm25_handler`), a default operator class for it, and refresh the
 -- `index_layer_info` views so they recognize any index whose access method uses
@@ -73,3 +63,19 @@ CREATE OPERATOR CLASS anyelement_paradedb_ops DEFAULT FOR TYPE anyelement USING 
     OPERATOR 1 pg_catalog.@@@(anyelement, text),                         /* for querying with a tantivy-compatible text query */
     OPERATOR 2 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;
+
+-- Vector opclasses (pgvector convention). Pure metric tags: STORAGE only,
+-- no strategy operators or support functions. bm25 reads the metric back at
+-- build time; vector_l2_ops is DEFAULT so a bare `(embedding)` resolves to L2.
+CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING bm25 AS
+    STORAGE public.vector;
+CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING bm25 AS
+    STORAGE public.vector;
+CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING bm25 AS
+    STORAGE public.vector;
+CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING paradedb AS
+    STORAGE public.vector;
+CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING paradedb AS
+    STORAGE public.vector;
+CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING paradedb AS
+    STORAGE public.vector;

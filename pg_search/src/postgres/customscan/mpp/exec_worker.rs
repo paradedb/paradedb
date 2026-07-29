@@ -50,6 +50,7 @@ use datafusion_distributed::shm::{
     ShmChannelResolver,
 };
 use datafusion_distributed::PartitionSink;
+use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_cap;
@@ -280,12 +281,15 @@ pub(crate) fn run_mpp_worker(
                 fragment.task_idx
             );
         };
+        // Deduplicating decode re-shares expressions by `expression_id`, so occurrences of one
+        // dynamic filter come back as a single shared instance instead of per-site snapshots.
         match deserialize_physical_plan_with_runtime(
             &set_plan.plan_proto,
             &decode_ctx,
             parallel_state,
             index_segment_ids.to_vec(),
             Some(expr_context_guard.as_ptr()),
+            &DeduplicatingProtoConverter {},
         ) {
             Ok(plan) => plans.push(plan),
             Err(e) => pgrx::error!(

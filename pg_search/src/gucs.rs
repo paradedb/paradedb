@@ -42,11 +42,6 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// When `true`, a vector (IVF) ORDER BY scan emits one `probe_stats …` NOTICE
-/// per query with the aggregated probe-loop counters. Off by default and
-/// zero-cost when off (no `ProbeStats` is collected).
-static LOG_PROBE_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
-
 /// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
 static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -269,17 +264,6 @@ pub fn init() {
         c"Enable ParadeDB's experimental join custom scan",
         c"Enable ParadeDB's experimental join custom scan. Default is false.",
         &ENABLE_JOIN_CUSTOM_SCAN,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.log_probe_stats",
-        c"Emit a NOTICE with IVF probe-loop counters per vector query",
-        c"When on, a vector (IVF) ORDER BY scan emits one `probe_stats ...` NOTICE per query \
-          with the aggregated probe counters (visited/pruned/scored/clusters/termination). \
-          Off by default and zero-cost when off.",
-        &LOG_PROBE_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -643,10 +627,6 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
-}
-
-pub fn log_probe_stats() -> bool {
-    LOG_PROBE_STATS.get()
 }
 
 pub fn check_aggregate_scan() -> bool {

@@ -4,7 +4,7 @@ description: Filter search results based on metadata from other fields
 canonical: https://docs.paradedb.com/documentation/filtering
 ---
 
-Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
+Adding filters to a search query is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
 For instance, the following query filters out results that do not meet `rating > 2`.
 
 <CodeGroup>
@@ -74,19 +74,35 @@ await dbContext
 
 </CodeGroup>
 
+<Note>
+In order for the ParadeDB index to be used, at least one ParadeDB operator must be present in the query. Any of the following search operators qualify:
+
+| Operator | Meaning                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------- |
+| `@@@`    | [General search predicate](/documentation/full-text/overview)                                     |
+| `\|\|\|` | [Match disjunction](/documentation/full-text/match#match-disjunction) — contains any of the terms |
+| `&&&`    | [Match conjunction](/documentation/full-text/match#match-conjunction) — contains all of the terms |
+| `===`    | [Term](/documentation/full-text/term) — exact token match                                         |
+| `###`    | [Phrase](/documentation/full-text/phrase) — tokens in order and position                          |
+
+For queries that do not require text search, add [`pdb.all`](/documentation/query-builder/compound/all) to force the ParadeDB
+index without changing the query output.
+
+</Note>
+
 ## Filter Pushdown
 
 ### Non-Text Fields
 
-While not required, filtering performance over non-text columns can be improved by including them in the BM25 index.
+While not required, filtering performance over non-text columns can be improved by including them in the ParadeDB index.
 When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself.
 This can result in faster query execution over large datasets.
 
-For example, if `rating` and `created_at` are frequently used in filters, they can be added to the BM25 index during index creation:
+For example, if `rating` and `created_at` are frequently used in filters, they can be added to the ParadeDB index during index creation:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25(id, description, rating, created_at)
+USING paradedb(id, description, rating, created_at)
 WITH (key_field = 'id');
 ```
 
@@ -152,7 +168,7 @@ Suppose we have a text filter that looks for an exact string match like `categor
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' AND category = 'Footwear';
+WHERE description === 'shoes' AND category = 'Footwear';
 ```
 
 ```ts Drizzle
@@ -219,7 +235,7 @@ To push down the `category = 'Footwear'` filter, `category` must be indexed usin
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25(id, description, (category::pdb.literal))
+USING paradedb(id, description, (category::pdb.literal))
 WITH (key_field = 'id');
 ```
 
@@ -229,7 +245,7 @@ Pushdown of set filters over text fields also requires the literal tokenizer:
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
+WHERE description === 'shoes' AND category IN ('Footwear', 'Apparel');
 ```
 
 ```ts Drizzle

@@ -64,6 +64,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
 use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningSample};
@@ -1140,9 +1141,7 @@ fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSea
     // the plain walk would still reach every scan — but that invariant lives in
     // `segmented_topk_rule`, not here. Descend through `inner()` explicitly so a future
     // wrapping of a scan cannot silently escape the stamp.
-    if let Some(fp) =
-        plan.downcast_ref::<crate::scan::filter_passthrough_exec::FilterPassthroughExec>()
-    {
+    if let Some(fp) = plan.downcast_ref::<FilterPassthroughExec>() {
         visit_scan_nodes(fp.inner(), visit);
         return;
     }

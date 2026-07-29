@@ -272,21 +272,18 @@ fn launch_mpp(
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
-    // The plan was built with `target_partitions = cap` (PG's parallelism GUCs as the
-    // ceiling); its stage task counts reflect the data (segment counts, since #5657). Launch
-    // only as many producers as the widest stage can occupy. The `MIN_PRODUCER_COUNT` floor
-    // keeps the mesh-width invariant (`build_mpp_session_context` clamps `target_partitions`
-    // to 2; the mesh needs a queue for the second partition).
+    // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
+    // counts (#5657). The `MIN_PRODUCER_COUNT` floor keeps the mesh-width invariant:
+    // `build_mpp_session_context` clamps `target_partitions` to 2, so the mesh needs a queue
+    // for the second partition.
     let max_tasks = max_producer_task_count(physical);
     if max_tasks == 0 {
-        // No producer stages: nothing to distribute, nothing to fork.
         return None;
     }
     let cap = producer_worker_cap();
     if cap < MIN_PRODUCER_COUNT {
-        // Callers gate on `mpp_is_active()`, so this is unreachable today — but `clamp`
-        // panics when min > max, and a GUC-dependent panic is a worse failure mode than a
-        // serial run if a future call site forgets the gate.
+        // Unreachable when callers gate on `mpp_is_active()`, but `clamp` panics when
+        // min > max; a forgotten gate should mean a serial run, not a panic.
         return None;
     }
     let producer_count = (max_tasks as u32).clamp(MIN_PRODUCER_COUNT, cap);
@@ -380,12 +377,10 @@ fn launch_mpp(
         return None;
     }
 
-    // The plan was built before the DSM existed, so its `Shared` scans carry no parallel state
-    // yet; bind the pointer now, before the leader's first `execute()`. Deliberately after the
-    // last serial-fallback `return None` above: a stamped plan must never outlive its DSM, and
-    // the fallback paths replan — stamping here makes "stamped plan, no committed launch"
-    // unrepresentable. The workers never see this — dispatch encodes are context-free and each
-    // worker injects its own pointer at decode.
+    // Bind the shared scan state into the plan the leader will execute. Must stay below the
+    // last serial-fallback `return None`: a stamped plan must never outlive its DSM, and the
+    // fallback paths replan. Workers are unaffected — dispatch encodes are context-free and
+    // each worker injects its own pointer at decode.
     crate::scan::execution_plan::stamp_parallel_state(physical, scan_ptr);
 
     // Initialize the leader's rings now that we're committed to the parallel path. After launch on

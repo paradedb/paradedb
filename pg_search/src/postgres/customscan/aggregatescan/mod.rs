@@ -1493,15 +1493,13 @@ impl AggregateScan {
         let ps = state.planstate();
         let runtime_planstate = (!ps.is_null()).then_some(ps);
 
-        // First exec call?
         let first_call = state
             .custom_state()
             .datafusion_state
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
 
-        // Plan-first MPP (#5667): take the stashed logical-plan bytes when this query attempts
-        // MPP. Taken up front (not inside the df_state borrow below) because the launch needs
+        // Taken up front (not inside the df_state borrow below) because the launch needs
         // `state` for the source manifests.
         let mpp_plan_bytes = if first_call && mpp_is_active() {
             state
@@ -1548,10 +1546,8 @@ impl AggregateScan {
                 )
             };
 
-            // Launch MPP against the built plan: size the producer pool from its stages, spawn
-            // exactly that many workers, and hand the coordinator the same stages to dispatch.
-            // On a fallback (nothing to distribute, short launch) no workers remain and the
-            // `DistributedExec` shape has no mesh to read from, so replan serially below.
+            // On a launch fallback (nothing to distribute, short launch) no workers remain and
+            // the `DistributedExec` shape has no mesh to read from, so replan serially below.
             let leader = match &mpp_plan_bytes {
                 Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
                 None => None,

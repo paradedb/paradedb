@@ -1356,9 +1356,6 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                // Plan-first MPP (#5667): take the stashed logical-plan bytes when this query
-                // attempts MPP; the physical plan is built first (address-free) and the launch
-                // below sizes the worker pool from it. `None` means serial.
                 let mpp_plan_bytes = if mpp_is_active()
                     && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
                 {
@@ -1380,11 +1377,8 @@ impl CustomScan for JoinScan {
                 let plan = build_plan(&plan_ctx);
                 launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
 
-                // Launch MPP against the built plan: size the producer pool from its stages,
-                // spawn exactly that many workers, and hand the coordinator the same stages to
-                // dispatch. On a fallback (nothing to distribute, short launch) no workers
-                // remain and the `DistributedExec` shape has no mesh to read from, so replan
-                // serially.
+                // On a launch fallback (nothing to distribute, short launch) no workers remain
+                // and the `DistributedExec` shape has no mesh to read from, so replan serially.
                 let (ctx, plan) = match mpp_plan_bytes {
                     Some(bytes) => match Self::launch_mpp(state, &plan, bytes.len()) {
                         Some(leader) => {

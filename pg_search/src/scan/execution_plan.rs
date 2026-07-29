@@ -1120,8 +1120,8 @@ pub(crate) fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut Paral
 /// Visit every [`PgSearchScanPlan`] reachable from `plan`, including scans wrapped in
 /// [`DistributedLeafExec`] — whose `children()` is empty, and whose `original`/`variants` may be
 /// a repartitioned instance not present anywhere else in the tree. Split from
-/// [`stamp_parallel_state`] so the traversal (the part that silently broke once) is unit-testable
-/// without a live `ParallelScanState`.
+/// [`stamp_parallel_state`] so the traversal is unit-testable without a live
+/// `ParallelScanState`.
 ///
 /// [`DistributedLeafExec`]: datafusion_distributed::DistributedLeafExec
 fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSearchScanPlan)) {
@@ -1140,7 +1140,9 @@ fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSea
     // the plain walk would still reach every scan — but that invariant lives in
     // `segmented_topk_rule`, not here. Descend through `inner()` explicitly so a future
     // wrapping of a scan cannot silently escape the stamp.
-    if let Some(fp) = plan.downcast_ref::<crate::scan::filter_passthrough_exec::FilterPassthroughExec>() {
+    if let Some(fp) =
+        plan.downcast_ref::<crate::scan::filter_passthrough_exec::FilterPassthroughExec>()
+    {
         visit_scan_nodes(fp.inner(), visit);
         return;
     }

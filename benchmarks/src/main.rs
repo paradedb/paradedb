@@ -1188,7 +1188,12 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     // Index and query metrics share one results.json, so the publish step reports them as one set.
     let mut results = Vec::new();
     if !args.skip_index {
-        results.extend(index_creation_json(args).await?);
+        results.extend(
+            process_index_creation(args)
+                .await?
+                .iter()
+                .flat_map(index_creation_series),
+        );
         process_after_create_index_sql(args).await?;
     }
     results.extend(
@@ -1661,14 +1666,6 @@ fn index_creation_series(result: &IndexCreationResult) -> [JSONBenchmarkResult; 
             extra,
         },
     ]
-}
-
-async fn index_creation_json(args: &BenchmarkArgs) -> anyhow::Result<Vec<JSONBenchmarkResult>> {
-    Ok(process_index_creation(args)
-        .await?
-        .iter()
-        .flat_map(index_creation_series)
-        .collect())
 }
 
 ///

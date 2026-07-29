@@ -553,7 +553,7 @@ impl SegmentMetaEntry {
     pub fn num_docs(&self) -> usize {
         let max_doc = self.max_doc() as usize;
         let num_deleted = self.num_deleted_docs();
-        // [antithesis correctness] a segment can never have more deleted docs than it has docs; a
+        // [dst correctness] a segment can never have more deleted docs than it has docs; a
         // violation means count corruption (this subtraction would underflow, yielding a bogus
         // live-doc count and wrong query results / OOM allocations downstream)
         dst::observe!(|| {
@@ -903,7 +903,7 @@ impl MVCCEntry for SegmentMetaEntry {
         // and there's no pin on our pintest buffer, assuming we have a valid buffer
         && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some());
 
-        // [antithesis correctness] a recyclable segment must never be visible: recycling implies
+        // [dst correctness] a recyclable segment must never be visible: recycling implies
         // deleted (xmax == FrozenTransactionId), and visibility is exactly !deleted. Reclaiming the
         // blocks of a still-visible segment would be a use-after-free / MVCC violation (a live
         // snapshot could read freed/overwritten pages, returning wrong or corrupt results).

@@ -669,7 +669,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
                 .page()
                 .contents::<LinkedListData>();
 
-            // [antithesis correctness] the header published atomically to all readers must point at a
+            // [dst correctness] the header published atomically to all readers must point at a
             // valid start block: `atomically()` always builds at least one cloned block and links it
             // as the cloned header's start_blockno, so committing a header with an InvalidBlockNumber
             // start would make the list unreadable/empty for every reader (data loss / wrong results).

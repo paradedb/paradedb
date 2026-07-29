@@ -375,7 +375,7 @@ impl SegmentDeleter {
                 let segment = index.segment(inner.segment_entry.meta().clone());
                 advance_deletes(segment, &mut inner.segment_entry, inner.opstamp + 1)?;
                 let new_meta = inner.segment_entry.meta().clone();
-                // [antithesis correctness] VACUUM delete is monotonic and same-segment: applying this
+                // [dst correctness] VACUUM delete is monotonic and same-segment: applying this
                 // VACUUM's tombstones to an immutable segment must (a) keep the same segment id and
                 // physical max_doc (advance_deletes never rewrites the segment's docs, only its .del
                 // file), and (b) never resurrect a deleted doc -- num_deleted only grows and live docs

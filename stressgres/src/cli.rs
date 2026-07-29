@@ -41,8 +41,8 @@ pub struct ReconnectGraceArgs {
     ///
     /// This is how an external supervisor narrows the window at runtime: it heals every fault
     /// and then writes a shorter window here, so the run fails only if the database was provably
-    /// reachable and the workload still could not make progress. The Antithesis suites drive
-    /// this from their recovery-liveness command; see `stressgres/suites/antithesis/`.
+    /// reachable and the workload still could not make progress. The DST suites drive
+    /// this from their recovery-liveness command.
     #[arg(long)]
     pub reconnect_grace_file: Option<PathBuf>,
 }

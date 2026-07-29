@@ -605,7 +605,7 @@ impl Mergeable for SearchIndexMerger {
                     }
                 }
                 let output_live = new_segment.max_doc() as u64;
-                // [antithesis correctness] merge conserves live docs: output live == sum of input live docs
+                // [dst correctness] merge conserves live docs: output live == sum of input live docs
                 dst::assert_always!(
                     !all_found || output_live == sum_input_live,
                     "pg_search: merge live-doc conservation (output == sum of inputs)",

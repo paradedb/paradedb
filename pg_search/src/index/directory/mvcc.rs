@@ -490,7 +490,7 @@ impl Directory for MVCCDirectory {
             ) {
                 Err(e) => Err(e),
                 Ok(mut loaded) => {
-                    // [antithesis correctness] the visible segment set contains no duplicate
+                    // [dst correctness] the visible segment set contains no duplicate
                     // SegmentId. A duplicate would make a segment double-counted/double-read for
                     // this snapshot (wrong result counts) and corrupt the parallel-worker claim
                     // accounting.

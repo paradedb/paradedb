@@ -326,7 +326,9 @@ impl JSONBenchmarkResult {
             .map(|(label, p)| {
                 let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
                 Self {
-                    name: format!("{} {label}", res.query_type),
+                    // " - " is the dashboard's chart-grouping separator, so an operating point's
+                    // three percentiles share one chart instead of getting one each.
+                    name: format!("{} - {label}", res.query_type),
                     unit: "ms",
                     value: percentile(&res.results.samples, *p),
                     range: format!("95% CI [{lo:.3}, {hi:.3}]"),
@@ -334,6 +336,34 @@ impl JSONBenchmarkResult {
                 }
             })
             .collect()
+    }
+
+    /// Build cost as tracked series, so a regression in how long an index takes to build, or how
+    /// much disk it occupies, is caught the same way a query regression is.
+    ///
+    /// Segment count rides along in `extra` rather than becoming its own series: it is set by the
+    /// index definition, so tracking it would alert on deliberate retuning rather than a regression.
+    fn from_index_creation(result: &IndexCreationResult) -> [Self; 2] {
+        let extra = result
+            .segment_count()
+            .map_or_else(String::new, |c| format!("segments={c}"));
+
+        [
+            Self {
+                name: format!("{} build time", result.index_name()),
+                unit: "min",
+                value: result.duration_min_ms(),
+                range: String::new(),
+                extra: extra.clone(),
+            },
+            Self {
+                name: format!("{} index size", result.index_name()),
+                unit: "MB",
+                value: result.index_size() as f64,
+                range: String::new(),
+                extra,
+            },
+        ]
     }
 }
 
@@ -1185,11 +1215,29 @@ async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
 }
 
 async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    // Index and query metrics share one results.json, so the publish step reports them as one set.
+    let mut results = Vec::new();
     if !args.skip_index {
-        process_index_creation_json(args).await?;
+        results.extend(
+            process_index_creation(args)
+                .await?
+                .iter()
+                .flat_map(JSONBenchmarkResult::from_index_creation),
+        );
         process_after_create_index_sql(args).await?;
     }
-    run_benchmarks_json(args).await?;
+    results.extend(
+        run_benchmarks(args)
+            .await?
+            .into_iter()
+            .flat_map(JSONBenchmarkResult::from_query_result),
+    );
+
+    let mut file = File::create("results.json").with_context(|| "Failed to create output file")?;
+    let results_json =
+        serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
+    file.write_all(results_json.as_bytes())
+        .with_context(|| "Failed to write results")?;
     Ok(())
 }
 
@@ -1619,27 +1667,6 @@ fn write_benchmark_results_md(
 
     result_line.push_str(&format!("| {num_results} | `{md_query}` |"));
     writeln!(file, "{result_line}")?;
-    Ok(())
-}
-
-async fn process_index_creation_json(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    for _result in process_index_creation(args).await? {
-        // TODO: Record index creation results as JSON.
-    }
-    Ok(())
-}
-
-async fn run_benchmarks_json(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    let mut file = File::create("results.json").with_context(|| "Failed to create output file")?;
-    let results = run_benchmarks(args)
-        .await?
-        .into_iter()
-        .flat_map(JSONBenchmarkResult::from_query_result)
-        .collect::<Vec<_>>();
-    let results_json =
-        serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
-    file.write_all(results_json.as_bytes())
-        .with_context(|| "Failed to write results")?;
     Ok(())
 }
 
@@ -2106,9 +2133,9 @@ mod tests {
         assert_eq!(
             out.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
             [
-                "knn_top10_1pct@r95 p50",
-                "knn_top10_1pct@r95 p95",
-                "knn_top10_1pct@r95 p99"
+                "knn_top10_1pct@r95 - p50",
+                "knn_top10_1pct@r95 - p95",
+                "knn_top10_1pct@r95 - p99"
             ]
         );
         assert!(out
@@ -2132,5 +2159,58 @@ mod tests {
         assert_eq!(out[0].unit, "mean ms");
         assert_eq!(out[0].value, 12.0);
         assert!(out[0].extra.contains("p50=12.000"), "{}", out[0].extra);
+    }
+
+    #[test]
+    fn bm25_index_publishes_build_time_and_size_with_segments_in_extra() {
+        let series = JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Bm25 {
+            duration_min_ms: 4.25,
+            index_name: "search_idx".to_owned(),
+            index_size: 1234,
+            segment_count: 8,
+        });
+
+        assert_eq!(series[0].name, "search_idx build time");
+        assert_eq!(series[0].unit, "min");
+        assert_eq!(series[0].value, 4.25);
+        assert_eq!(series[1].name, "search_idx index size");
+        assert_eq!(series[1].unit, "MB");
+        assert_eq!(series[1].value, 1234.0);
+        assert!(series.iter().all(|s| s.extra == "segments=8"));
+    }
+
+    /// pgvector access methods have no segments, so `extra` has nothing to carry.
+    #[test]
+    fn non_bm25_index_publishes_the_same_series_without_segments() {
+        let series = JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Other {
+            duration_min_ms: 12.5,
+            index_name: "cohere_hnsw_idx".to_owned(),
+            index_size: 40960,
+        });
+
+        assert_eq!(
+            series.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            ["cohere_hnsw_idx build time", "cohere_hnsw_idx index size"]
+        );
+        assert!(series.iter().all(|s| s.extra.is_empty()));
+    }
+
+    /// github-action-benchmark's customSmallerIsBetter parser keys off these exact field names; a
+    /// rename would publish entries it silently drops.
+    #[test]
+    fn results_json_uses_the_field_names_the_publish_action_expects() {
+        let json = serde_json::to_string(
+            &JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Other {
+                duration_min_ms: 1.0,
+                index_name: "i".to_owned(),
+                index_size: 2,
+            })[0],
+        )
+        .unwrap();
+
+        assert_eq!(
+            json,
+            r#"{"name":"i build time","unit":"min","value":1.0,"range":"","extra":""}"#
+        );
     }
 }

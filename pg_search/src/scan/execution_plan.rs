@@ -1135,6 +1135,15 @@ fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSea
         }
         return;
     }
+    // `FilterPassthroughExec::children()` forwards to its inner node's children, skipping the
+    // inner node itself. Today it only ever wraps `SortPreservingMergeExec` (never a scan), so
+    // the plain walk would still reach every scan — but that invariant lives in
+    // `segmented_topk_rule`, not here. Descend through `inner()` explicitly so a future
+    // wrapping of a scan cannot silently escape the stamp.
+    if let Some(fp) = plan.downcast_ref::<crate::scan::filter_passthrough_exec::FilterPassthroughExec>() {
+        visit_scan_nodes(fp.inner(), visit);
+        return;
+    }
     for child in plan.children() {
         visit_scan_nodes(child, visit);
     }

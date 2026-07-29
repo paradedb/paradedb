@@ -168,6 +168,15 @@ fn scalar_value_for(value: &PdbOwnedValue, data_type: &DataType) -> Option<Scala
     match (data_type, value) {
         (DataType::Int64, PdbOwnedValue::I64(v)) => Some(ScalarValue::Int64(Some(*v))),
         (DataType::UInt64, PdbOwnedValue::U64(v)) => Some(ScalarValue::UInt64(Some(*v))),
+        // The sampler reads through FFType, whose integer classification follows the
+        // physical tantivy column rather than the declared field type; accept the
+        // lossless cross-representations.
+        (DataType::Int64, PdbOwnedValue::U64(v)) if *v <= i64::MAX as u64 => {
+            Some(ScalarValue::Int64(Some(*v as i64)))
+        }
+        (DataType::UInt64, PdbOwnedValue::I64(v)) if *v >= 0 => {
+            Some(ScalarValue::UInt64(Some(*v as u64)))
+        }
         (DataType::Float64, PdbOwnedValue::F64(v)) => Some(ScalarValue::Float64(Some(*v))),
         (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
         (DataType::Utf8View, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8View(Some(v.clone()))),

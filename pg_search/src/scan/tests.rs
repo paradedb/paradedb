@@ -784,6 +784,21 @@ mod tests {
         };
         assert!(with_null.to_datafusion(&schema).is_none());
 
+        // The sampler's FFType-driven integer classification can yield U64 for an
+        // Int64 column; the lossless cross-representation is accepted.
+        let cross_int = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::U64(10)],
+        };
+        let cross_partitioning = cross_int.to_datafusion(&schema).unwrap();
+        let Partitioning::Range(cross_range) = &cross_partitioning else {
+            panic!("expected range partitioning, got {cross_partitioning:?}");
+        };
+        assert_eq!(
+            cross_range.split_points()[0].values(),
+            &[ScalarValue::Int64(Some(10))]
+        );
+
         // Value/column type mismatches decline rather than declare imprecisely.
         let mismatched = RangePartitioning {
             partition_by: FieldName::from("id"),

@@ -105,7 +105,6 @@ The following join shapes are supported:
 
 | Feature | Supported |
 | --- | --- |
-| Join types | `INNER`, `LEFT`, `RIGHT`, `FULL OUTER` |
 | Number of tables | Two or more (arbitrary join trees) |
 | Aggregate functions | `COUNT`, `COUNT(DISTINCT ...)`, `SUM`, `SUM(DISTINCT ...)`, `AVG`, `AVG(DISTINCT ...)`, `MIN`, `MAX`, `STDDEV`, `STDDEV_POP`, `VARIANCE`, `VAR_POP`, `BOOL_AND`, `BOOL_OR`, `ARRAY_AGG`, `STRING_AGG` |
 | `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` |
@@ -126,9 +125,6 @@ ParadeDB falls back to native Postgres execution when any of the following are t
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.
 
-<Note>
-  Aggregate pushdown across joins is currently single-threaded. Parallel execution is on the [roadmap](/welcome/roadmap).
-</Note>
 
 ## NUMERIC Columns
 

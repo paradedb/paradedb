@@ -176,3 +176,31 @@ CREATE TABLE sort_by_alias (id SERIAL PRIMARY KEY, price INTEGER, qty INTEGER);
 CREATE INDEX idx ON sort_by_alias USING bm25 (id, ((price * qty)::pdb.alias('total')))
     WITH (key_field='id', sort_by='total DESC NULLS LAST');
 DROP TABLE sort_by_alias CASCADE;
+
+-- SECTION 6: Multi-valued fields (should error)
+\echo '=== SECTION 6: Multi-valued fields ==='
+
+DROP TABLE IF EXISTS sort_by_multi_test CASCADE;
+CREATE TABLE sort_by_multi_test (
+    id SERIAL PRIMARY KEY,
+    tags TEXT[],
+    meta JSONB,
+    int_array INTEGER[]
+);
+
+\echo 'Test 6.1: sort_by with array field (should error)'
+CREATE INDEX sort_by_multi_test_idx ON sort_by_multi_test
+    USING bm25 (id, tags, meta)
+    WITH (key_field='id', sort_by='tags ASC NULLS FIRST');
+
+\echo 'Test 6.2: sort_by with json field (should error)'
+CREATE INDEX sort_by_multi_test_idx ON sort_by_multi_test
+    USING bm25 (id, tags, meta)
+    WITH (key_field='id', sort_by='meta ASC NULLS FIRST');
+
+\echo 'Test 6.3: sort_by with aliased array expression (should error)'
+CREATE INDEX sort_by_multi_test_idx ON sort_by_multi_test
+    USING bm25 (id, (int_array::pdb.alias('aliased_array')))
+    WITH (key_field='id', sort_by='aliased_array ASC NULLS FIRST');
+
+DROP TABLE sort_by_multi_test CASCADE;

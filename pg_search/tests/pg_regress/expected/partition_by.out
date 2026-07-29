@@ -52,12 +52,12 @@ Test 2.1: partition_by with nonexistent field (should error)
 CREATE INDEX partition_by_test_idx ON partition_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', partition_by='nonexistent');
+ERROR:  `nonexistent` in `partition_by` does not exist
 \echo 'Test 2.2: partition_by with invalid syntax / empty string (should error)'
 Test 2.2: partition_by with invalid syntax / empty string (should error)
 CREATE INDEX partition_by_test_idx ON partition_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', partition_by='');
-ERROR:  relation "partition_by_test_idx" already exists
 -- Empty string disables it, so it succeeds. We drop it.
 DROP INDEX partition_by_test_idx;
 \echo 'Test 2.3: partition_by with whitespace only (should error)'
@@ -79,3 +79,32 @@ CREATE INDEX partition_by_test_idx ON partition_by_test
     WITH (key_field='id', partition_by=' , ');
 ERROR:  invalid partition_by value: must specify at least one field
 DROP TABLE partition_by_test CASCADE;
+-- SECTION 3: Multi-valued fields (should error)
+\echo '=== SECTION 3: Multi-valued fields ==='
+=== SECTION 3: Multi-valued fields ===
+DROP TABLE IF EXISTS partition_by_multi_test CASCADE;
+CREATE TABLE partition_by_multi_test (
+    id SERIAL PRIMARY KEY,
+    tags TEXT[],
+    meta JSONB,
+    int_array INTEGER[]
+);
+\echo 'Test 3.1: partition_by with array field (should error)'
+Test 3.1: partition_by with array field (should error)
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, tags, meta)
+    WITH (key_field='id', partition_by='tags');
+ERROR:  `tags` cannot be used in `partition_by` because it is a multi-valued field
+\echo 'Test 3.2: partition_by with json field (should error)'
+Test 3.2: partition_by with json field (should error)
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, tags, meta)
+    WITH (key_field='id', partition_by='meta');
+ERROR:  `meta` cannot be used in `partition_by` because it is a multi-valued field
+\echo 'Test 3.3: partition_by with aliased array expression (should error)'
+Test 3.3: partition_by with aliased array expression (should error)
+CREATE INDEX partition_by_multi_test_idx ON partition_by_multi_test
+    USING bm25 (id, (int_array::pdb.alias('aliased_array')))
+    WITH (key_field='id', partition_by='aliased_array');
+ERROR:  `aliased_array` cannot be used in `partition_by` because it is a multi-valued field
+DROP TABLE partition_by_multi_test CASCADE;

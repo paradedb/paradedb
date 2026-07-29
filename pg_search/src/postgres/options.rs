@@ -720,6 +720,47 @@ impl BM25IndexOptions {
         self.lazy.attributes.borrow()
     }
 
+    pub fn is_multi_valued(&self, field_name: &FieldName) -> bool {
+        if field_name.is_ctid() {
+            return false;
+        }
+
+        let mut current_name = field_name.clone();
+        loop {
+            if let Some(attr) = self.attributes().get(&current_name) {
+                let (_, is_array) = crate::postgres::utils::resolve_base_type(
+                    PgOid::from_untagged(attr.inner_typoid),
+                )
+                .unwrap_or_else(|| panic!("failed to resolve base type for `{current_name}`"));
+
+                return is_array
+                    || matches!(
+                        attr.tantivy_type,
+                        SearchFieldType::Json(_) | SearchFieldType::Range(_)
+                    );
+            }
+
+            let mut found_alias = false;
+            for (aliased_name, config) in self
+                .aliased_text_configs()
+                .into_iter()
+                .chain(self.aliased_json_configs())
+            {
+                if aliased_name == current_name {
+                    if let Some(alias) = config.alias() {
+                        current_name = FieldName::from(alias.to_string());
+                        found_alias = true;
+                        break;
+                    }
+                }
+            }
+
+            if !found_alias {
+                return false;
+            }
+        }
+    }
+
     #[inline(always)]
     fn options_data(&self) -> &BM25IndexOptionsData {
         unsafe {

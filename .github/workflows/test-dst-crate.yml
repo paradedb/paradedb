@@ -52,7 +52,7 @@ jobs:
           RUST_BACKTRACE=1 cargo test --package dst
 
       # With `enabled` on everything forwards to the SDK. This is the configuration stressgres
-      # links unconditionally and the one an Antithesis build of pg_search uses.
+      # links unconditionally and the one a DST build of pg_search uses.
       - name: Lint & Test DST (SDK enabled)
         env:
           RUSTDOCFLAGS: "-D warnings"

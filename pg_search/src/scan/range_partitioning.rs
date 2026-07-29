@@ -15,6 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
+use arrow_schema::{DataType, SchemaRef, SortOptions, TimeUnit};
+use datafusion::common::{ScalarValue, SplitPoint};
+use datafusion::physical_expr::{
+    LexOrdering, PhysicalSortExpr, RangePartitioning as DataFusionRangePartitioning,
+};
+use datafusion::physical_plan::expressions::Column;
+use datafusion::physical_plan::Partitioning;
 use serde::{Deserialize, Serialize};
 
 use crate::api::FieldName;
@@ -106,6 +115,67 @@ impl RangePartitioning {
         } else {
             range_query
         }
+    }
+
+    /// Translates these boundaries into a DataFusion [`Partitioning::Range`] declaration
+    /// over `schema`, so the planner can co-partition operators (e.g. joins) without a
+    /// repartition or broadcast.
+    ///
+    /// Returns `None` when the declaration would not be faithful to the execution
+    /// semantics of [`Self::partition_bounds`]:
+    /// - the `partition_by` column is missing from the schema, or
+    /// - a split point is NULL (`partition_bounds` gives NULL split points bespoke
+    ///   empty-range semantics that DataFusion's model does not express), or
+    /// - a split point cannot be represented as a `ScalarValue` of the column's type.
+    pub fn to_datafusion(&self, schema: &SchemaRef) -> Option<Partitioning> {
+        let (col_idx, field) = schema.column_with_name(self.partition_by.as_ref())?;
+
+        let split_points = self
+            .split_points
+            .iter()
+            .map(|value| {
+                scalar_value_for(value, field.data_type()).map(|sv| SplitPoint::new(vec![sv]))
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        // `partition_bounds` routes NULLs to partition 0 and uses lower-inclusive,
+        // upper-exclusive interior ranges, which is exactly DataFusion's split-point
+        // convention under an ascending NULLS FIRST ordering.
+        let sort_expr = PhysicalSortExpr {
+            expr: Arc::new(Column::new(self.partition_by.as_ref(), col_idx)),
+            options: SortOptions {
+                descending: false,
+                nulls_first: true,
+            },
+        };
+        let ordering = LexOrdering::new([sort_expr])?;
+
+        // `new` rather than `try_new`: a down-sampled distribution can legally repeat a
+        // split point, which produces an empty partition in both our execution model and
+        // DataFusion's, but fails `try_new`'s strict-ordering validation.
+        Some(Partitioning::Range(DataFusionRangePartitioning::new(
+            ordering,
+            split_points,
+        )))
+    }
+}
+
+/// Converts a sampled fast-field value into the `ScalarValue` representation of the
+/// column's arrow type. Returns `None` for NULLs and for any value/type combination
+/// that has no exact representation, in which case the caller declines to declare
+/// range partitioning rather than declare it imprecisely.
+fn scalar_value_for(value: &PdbOwnedValue, data_type: &DataType) -> Option<ScalarValue> {
+    match (data_type, value) {
+        (DataType::Int64, PdbOwnedValue::I64(v)) => Some(ScalarValue::Int64(Some(*v))),
+        (DataType::UInt64, PdbOwnedValue::U64(v)) => Some(ScalarValue::UInt64(Some(*v))),
+        (DataType::Float64, PdbOwnedValue::F64(v)) => Some(ScalarValue::Float64(Some(*v))),
+        (DataType::Boolean, PdbOwnedValue::Bool(v)) => Some(ScalarValue::Boolean(Some(*v))),
+        (DataType::Utf8View, PdbOwnedValue::Str(v)) => Some(ScalarValue::Utf8View(Some(v.clone()))),
+        // Datetime fields use v2 storage: i64 microseconds.
+        (DataType::Timestamp(TimeUnit::Microsecond, None), PdbOwnedValue::I64(v)) => {
+            Some(ScalarValue::TimestampMicrosecond(Some(*v), None))
+        }
+        _ => None,
     }
 }
 

@@ -704,18 +704,98 @@ mod tests {
             Some(sample),
         );
 
+        use datafusion::physical_plan::Partitioning;
+
+        // The boundaries cover the requested count exactly, so the plan declares
+        // `Partitioning::Range` and DataFusion can co-partition against it.
         assert_eq!(plan.properties().output_partitioning().partition_count(), 5);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
 
         let plan_2 = plan.repartition(2).unwrap();
         assert_eq!(
             plan_2.properties().output_partitioning().partition_count(),
             2
         );
+        assert!(matches!(
+            plan_2.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
 
+        // 10 partitions exceed what the 4-point sample can bound: the plan keeps
+        // the requested count as UnknownPartitioning and the extra partitions
+        // execute as empty streams.
         let plan_10 = plan.repartition(10).unwrap();
         assert_eq!(
             plan_10.properties().output_partitioning().partition_count(),
             10
         );
+        assert!(matches!(
+            plan_10.properties().output_partitioning(),
+            Partitioning::UnknownPartitioning(_)
+        ));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_to_datafusion() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::scan::range_partitioning::RangePartitioning;
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::common::ScalarValue;
+        use datafusion::physical_plan::Partitioning;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("ctid", DataType::UInt64, true),
+            Field::new("id", DataType::Int64, true),
+        ]));
+
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(10), PdbOwnedValue::I64(20)],
+        };
+
+        let partitioning = boundaries.to_datafusion(&schema).unwrap();
+        assert_eq!(partitioning.partition_count(), 3);
+        let Partitioning::Range(range) = &partitioning else {
+            panic!("expected range partitioning, got {partitioning:?}");
+        };
+        assert_eq!(range.split_points().len(), 2);
+        assert_eq!(
+            range.split_points()[0].values(),
+            &[ScalarValue::Int64(Some(10))]
+        );
+        assert_eq!(
+            range.split_points()[1].values(),
+            &[ScalarValue::Int64(Some(20))]
+        );
+        let sort_expr = range.ordering().iter().next().unwrap();
+        assert_eq!(sort_expr.expr.to_string(), "id@1");
+        assert!(!sort_expr.options.descending);
+        assert!(sort_expr.options.nulls_first);
+
+        // NULL split points have bespoke execution semantics that DataFusion's
+        // model does not express; decline to declare.
+        let with_null = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::Null],
+        };
+        assert!(with_null.to_datafusion(&schema).is_none());
+
+        // Value/column type mismatches decline rather than declare imprecisely.
+        let mismatched = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::F64(1.5)],
+        };
+        assert!(mismatched.to_datafusion(&schema).is_none());
+
+        // Columns missing from the schema decline.
+        let missing = RangePartitioning {
+            partition_by: FieldName::from("missing"),
+            split_points: vec![PdbOwnedValue::I64(10)],
+        };
+        assert!(missing.to_datafusion(&schema).is_none());
     }
 }

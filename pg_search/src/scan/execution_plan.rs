@@ -268,11 +268,14 @@ impl PgSearchScanPlan {
         }
         // Output partitioning tells datafusion-distributed how many tasks this leaf can naturally split into.
         // If state is None, execute() will return an EmptyStream for this single partition.
+        let range_boundaries = range_sample.as_ref().map(|s| s.build(partition_count));
+        let partitioning =
+            declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
-            Partitioning::UnknownPartitioning(partition_count),
+            partitioning,
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
@@ -303,9 +306,9 @@ impl PgSearchScanPlan {
 
         let exec_state = match state {
             Some(s) => {
-                if let Some(sample) = &range_sample {
+                if let Some(boundaries) = range_boundaries {
                     ExecutionState::RangePartitioned {
-                        range_boundaries: sample.build(partition_count),
+                        range_boundaries: boundaries,
                         scan_state: Box::new(UnsafeSendSync(s)),
                     }
                 } else {
@@ -375,9 +378,20 @@ impl PgSearchScanPlan {
             }
         };
 
+        let range_boundaries = match &new_state {
+            ExecutionState::RangePartitioned {
+                range_boundaries, ..
+            } => Some(range_boundaries),
+            _ => None,
+        };
+        let partitioning = declared_partitioning(
+            self.properties.eq_properties.schema(),
+            target_partitions,
+            range_boundaries,
+        );
         let new_properties = Arc::new(PlanProperties::new(
             self.properties.eq_properties.clone(),
-            Partitioning::UnknownPartitioning(target_partitions),
+            partitioning,
             self.properties.emission_type,
             self.properties.boundedness,
         ));
@@ -657,6 +671,30 @@ struct ScanDispatchDescriptor {
     partition_count: usize,
     range_sample: Option<RangePartitioningSample>,
     assigned_partition: Option<usize>,
+}
+
+/// The output partitioning a scan declares to DataFusion.
+///
+/// `Partitioning::Range` is declared only when the boundaries cover exactly
+/// `partition_count` partitions and translate faithfully to DataFusion's model.
+/// Otherwise `UnknownPartitioning` preserves the requested count, where any
+/// partitions beyond the boundaries execute as empty streams (e.g. when the
+/// sample is smaller than the requested count).
+fn declared_partitioning(
+    schema: &SchemaRef,
+    partition_count: usize,
+    range_boundaries: Option<&RangePartitioning>,
+) -> Partitioning {
+    if partition_count > 1 {
+        if let Some(boundaries) = range_boundaries {
+            if boundaries.split_points.len() + 1 == partition_count {
+                if let Some(partitioning) = boundaries.to_datafusion(schema) {
+                    return partitioning;
+                }
+            }
+        }
+    }
+    Partitioning::UnknownPartitioning(partition_count)
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.

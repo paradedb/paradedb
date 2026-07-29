@@ -463,7 +463,7 @@ jobs:
         run: |
           if [ -n "$SLACK_WEBHOOK_URL" ]; then
             JSON_DATA="{
-              \"text\": \"🚨 Nightly Antithesis Run Failed - <!here>\",
+              \"text\": \"🚨 Nightly Antithesis Run Failed - <!subteam^S0BLE20RYPM|@pg_search-maintainers>\",
               \"attachments\": [
                 {
                   \"color\": \"danger\",

@@ -335,6 +335,34 @@ impl JSONBenchmarkResult {
             })
             .collect()
     }
+
+    /// Build cost as tracked series, so a regression in how long an index takes to build, or how
+    /// much disk it occupies, is caught the same way a query regression is.
+    ///
+    /// Segment count rides along in `extra` rather than becoming its own series: it is set by the
+    /// index definition, so tracking it would alert on deliberate retuning rather than a regression.
+    fn from_index_creation(result: &IndexCreationResult) -> [Self; 2] {
+        let extra = result
+            .segment_count()
+            .map_or_else(String::new, |c| format!("segments={c}"));
+
+        [
+            Self {
+                name: format!("{} build time", result.index_name()),
+                unit: "min",
+                value: result.duration_min_ms(),
+                range: String::new(),
+                extra: extra.clone(),
+            },
+            Self {
+                name: format!("{} index size", result.index_name()),
+                unit: "MB",
+                value: result.index_size() as f64,
+                range: String::new(),
+                extra,
+            },
+        ]
+    }
 }
 
 /// Nominal row count for a size label like `100k`, `1m`, `20m`.
@@ -1192,7 +1220,7 @@ async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
             process_index_creation(args)
                 .await?
                 .iter()
-                .flat_map(index_creation_series),
+                .flat_map(JSONBenchmarkResult::from_index_creation),
         );
         process_after_create_index_sql(args).await?;
     }
@@ -1638,34 +1666,6 @@ fn write_benchmark_results_md(
     result_line.push_str(&format!("| {num_results} | `{md_query}` |"));
     writeln!(file, "{result_line}")?;
     Ok(())
-}
-
-/// Build cost as tracked series, so a regression in how long an index takes to build or how much
-/// disk it occupies is caught the same way a query regression is.
-///
-/// Segment count rides along in `extra` rather than becoming its own series: it is set by the index
-/// definition, so tracking it would alert on deliberate retuning rather than on a regression.
-fn index_creation_series(result: &IndexCreationResult) -> [JSONBenchmarkResult; 2] {
-    let extra = result
-        .segment_count()
-        .map_or_else(String::new, |c| format!("segments={c}"));
-
-    [
-        JSONBenchmarkResult {
-            name: format!("{} build time", result.index_name()),
-            unit: "min",
-            value: result.duration_min_ms(),
-            range: String::new(),
-            extra: extra.clone(),
-        },
-        JSONBenchmarkResult {
-            name: format!("{} index size", result.index_name()),
-            unit: "MB",
-            value: result.index_size() as f64,
-            range: String::new(),
-            extra,
-        },
-    ]
 }
 
 ///
@@ -2161,7 +2161,7 @@ mod tests {
 
     #[test]
     fn bm25_index_publishes_build_time_and_size_with_segments_in_extra() {
-        let series = index_creation_series(&IndexCreationResult::Bm25 {
+        let series = JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Bm25 {
             duration_min_ms: 4.25,
             index_name: "search_idx".to_owned(),
             index_size: 1234,
@@ -2180,7 +2180,7 @@ mod tests {
     /// pgvector access methods have no segments, so `extra` has nothing to carry.
     #[test]
     fn non_bm25_index_publishes_the_same_series_without_segments() {
-        let series = index_creation_series(&IndexCreationResult::Other {
+        let series = JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Other {
             duration_min_ms: 12.5,
             index_name: "cohere_hnsw_idx".to_owned(),
             index_size: 40960,
@@ -2198,7 +2198,7 @@ mod tests {
     #[test]
     fn results_json_uses_the_field_names_the_publish_action_expects() {
         let json = serde_json::to_string(
-            &index_creation_series(&IndexCreationResult::Other {
+            &JSONBenchmarkResult::from_index_creation(&IndexCreationResult::Other {
                 duration_min_ms: 1.0,
                 index_name: "i".to_owned(),
                 index_size: 2,

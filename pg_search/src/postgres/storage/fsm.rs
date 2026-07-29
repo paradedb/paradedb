@@ -788,7 +788,7 @@ pub mod v2 {
                     break;
                 };
 
-                // [antithesis correctness] a drained freelist's recyclable xid must never exceed the draining transaction's xid: reusing a block whose when_recyclable is in the future relative to the current transaction could hand out a block a live snapshot still needs (MVCC/visibility corruption). get_lte(&xid) guarantees found_xid <= xid, and xid only ever decreases from current_xid, so found_xid <= current_xid must always hold.
+                // [dst correctness] a drained freelist's recyclable xid must never exceed the draining transaction's xid: reusing a block whose when_recyclable is in the future relative to the current transaction could hand out a block a live snapshot still needs (MVCC/visibility corruption). get_lte(&xid) guarantees found_xid <= xid, and xid only ever decreases from current_xid, so found_xid <= current_xid must always hold.
                 dst::observe!(|| {
                     dst::assert_always!(
                         found_xid <= current_xid,
@@ -881,7 +881,7 @@ pub mod v2 {
                         while contents.len > 0 && blocks.len() < many {
                             contents.len -= 1;
                             let drained = contents.entries[contents.len as usize];
-                            // [antithesis correctness] every freelist entry within [0, len) was written by extend from a real allocated block chain, so a drained block handed back for reuse must be a valid block number. An InvalidBlockNumber here means metadata corruption (e.g. an inflated len reading uninitialized trailing slots) and would cause the caller to initialize/reuse a bogus block -> corruption.
+                            // [dst correctness] every freelist entry within [0, len) was written by extend from a real allocated block chain, so a drained block handed back for reuse must be a valid block number. An InvalidBlockNumber here means metadata corruption (e.g. an inflated len reading uninitialized trailing slots) and would cause the caller to initialize/reuse a bogus block -> corruption.
                             dst::observe!(|| {
                                 dst::assert_always!(
                                     drained != pg_sys::InvalidBlockNumber,

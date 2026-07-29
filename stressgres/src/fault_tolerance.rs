@@ -31,7 +31,7 @@
 //! us, so any window shorter than the run is one it can outlast. Liveness is instead
 //! asserted from the outside: the suites' recovery-liveness command heals every
 //! fault, then narrows the [`GraceWindow`] via its poke file to a window that *can*
-//! expire. See `stressgres/suites/antithesis/`.
+//! expire.
 //!
 //! When a non-zero grace is enabled, bug detection is expected to come from the DST harness's
 //! properties / postgres-side checks, not from stressgres exit codes.

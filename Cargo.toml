@@ -33,7 +33,7 @@ inherits = "release"
 debug = true
 debug-assertions = false
 
-# Antithesis build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
+# DST build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
 # without affecting `dev`.
 [profile.dst]
 inherits = "dev"

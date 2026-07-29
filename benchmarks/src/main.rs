@@ -326,7 +326,9 @@ impl JSONBenchmarkResult {
             .map(|(label, p)| {
                 let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
                 Self {
-                    name: format!("{} {label}", res.query_type),
+                    // " - " is the dashboard's chart-grouping separator, so an operating point's
+                    // three percentiles share one chart instead of getting one each.
+                    name: format!("{} - {label}", res.query_type),
                     unit: "ms",
                     value: percentile(&res.results.samples, *p),
                     range: format!("95% CI [{lo:.3}, {hi:.3}]"),
@@ -2131,9 +2133,9 @@ mod tests {
         assert_eq!(
             out.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
             [
-                "knn_top10_1pct@r95 p50",
-                "knn_top10_1pct@r95 p95",
-                "knn_top10_1pct@r95 p99"
+                "knn_top10_1pct@r95 - p50",
+                "knn_top10_1pct@r95 - p95",
+                "knn_top10_1pct@r95 - p99"
             ]
         );
         assert!(out

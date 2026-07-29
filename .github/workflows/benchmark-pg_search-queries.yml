@@ -445,7 +445,7 @@ jobs:
       # Renders the operating points the benchmark selected. The benchmark step measures recall
       # across each query's swept values and keeps the cheapest one reaching each target, writing
       # sweep_summary_{size}.tsv (query, target, param, value, recall, reached, p50, p95, p99).
-      # Latency for those same points is published as `{query}@r90|r95|r99 p50|p95|p99` series.
+      # Latency for those same points is published as `{query}@r90|r95|r99 - p50|p95|p99` series.
       - name: Comment cohere recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
         working-directory: benchmarks/

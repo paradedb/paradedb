@@ -11,6 +11,9 @@
 --     even attempted.
 --   - 4 segments per table under a cap of 2 launch exactly 2 producers;
 --     the extra tasks multiplex and results match the serial run.
+--   - AggregateScan rides the same launch: a 2-segment GROUP BY join
+--     also launches exactly 2 producers, and its 1-segment variant
+--     attempts no launch.
 --
 -- Outcomes are collected in a table (not NOTICEs) so the expected
 -- output stays stable under client_min_messages.
@@ -19,6 +22,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_custom_scan TO on;
 SET max_parallel_workers_per_gather TO 8;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
@@ -112,6 +116,31 @@ BEGIN
     END IF;
 END$$;
 
+-- AggregateScan rides the same plan-first launch: same 2-segment tables under
+-- a cap of 8 must also launch exactly 2 producers.
+DO $$
+DECLARE
+    r record;
+    launched int := -1;
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+        SELECT p.age, count(*) FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+    LOOP
+        IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
+            launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
+        END IF;
+    END LOOP;
+    IF launched = 2 THEN
+        INSERT INTO mpp_ws_outcome VALUES ('2-segment aggregate: launched exactly 2 producers');
+    ELSIF launched = -1 THEN
+        INSERT INTO mpp_ws_outcome VALUES ('2-segment aggregate: UNEXPECTED serial run (no MPP Launch line)');
+    ELSE
+        INSERT INTO mpp_ws_outcome
+        VALUES ('2-segment aggregate: UNEXPECTED worker count ' || launched);
+    END IF;
+END$$;
+
 -- Four segments per index, cap of 2 (per_gather = 2): more tasks than workers.
 -- The launch must clamp to the cap and the extra tasks multiplex onto the two
 -- producers (dispatch::push_owned_tasks), returning the same results as serial.
@@ -194,6 +223,12 @@ BEGIN
     LOOP
         NULL;
     END LOOP;
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+        SELECT p.age, count(*) FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
+        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+    LOOP
+        NULL;
+    END LOOP;
 END$$;
 SET paradedb.mpp_debug TO off;
 
@@ -202,6 +237,7 @@ SELECT line FROM mpp_ws_outcome ORDER BY line;
 DROP TABLE mpp_ws_outcome, mpp_ws_users, mpp_ws_products, mpp_ws1_users, mpp_ws1_products,
            mpp_ws4_users, mpp_ws4_products;
 RESET paradedb.mpp_debug;
+RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 RESET max_parallel_workers_per_gather;
 RESET max_parallel_workers;

@@ -114,6 +114,25 @@ pub struct MppLaunchTiming {
     pub workers: u32,
 }
 
+impl MppLaunchTiming {
+    /// The `MPP Launch` line for `EXPLAIN ANALYZE`, shared by JoinScan and AggregateScan so
+    /// the launched width is observable (and regress-assertable) on both paths.
+    pub fn explain_text(&self) -> String {
+        format!(
+            "workers={} prepare={}us plan={}us payload={}us attach={}us \
+             leader_setup={}us exec={}us first_frame={}us",
+            self.workers,
+            self.prepare_us,
+            self.plan_us,
+            self.payload_us,
+            self.attach_us,
+            self.leader_setup_us,
+            self.exec_us,
+            self.first_frame_us,
+        )
+    }
+}
+
 /// The leader's control senders behind their shared lock. The scan state and mesh cancel path
 /// share this `Arc`; `DsmDetachState` retains another reference so the detach callback can clear
 /// the stored senders while the DSM is still mapped.

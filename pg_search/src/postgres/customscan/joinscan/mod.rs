@@ -749,12 +749,11 @@ impl JoinScan {
 impl JoinScan {
     /// Capture lightweight segment manifests for all join sources.
     ///
-    /// Uses `SearchIndexManifest::capture` instead of opening full `SearchIndexReader`s
-    /// because this runs during DSM initialization (`estimate_dsm` / `initialize_dsm`),
-    /// which is part of executor startup — before `begin_custom_scan` sets up executor
-    /// state. Opening full readers would call `into_tantivy_query` on each source's
-    /// `scan_info.query`, which fails for parameterized predicates (prepared statements,
-    /// initplan-backed subqueries) that require a `PlanState` to evaluate.
+    /// Uses `SearchIndexManifest::capture` instead of opening full `SearchIndexReader`s:
+    /// manifests are cheap, hold the Tantivy segment pins the launch and workers rely on,
+    /// and avoid calling `into_tantivy_query` on each source's `scan_info.query` — which
+    /// fails for parameterized predicates (prepared statements, initplan-backed subqueries)
+    /// that require a `PlanState` to evaluate.
     ///
     /// Manifests also provide consistent segment counts for both DSM sizing and DSM
     /// population, avoiding the divergence that can occur when planning-time counts
@@ -1171,21 +1170,7 @@ impl CustomScan for JoinScan {
             // DataFusion plan, so surface its per-phase breakdown separately when the query ran
             // distributed.
             if let Some(t) = state.custom_state().launch_timing {
-                explainer.add_text(
-                    "MPP Launch",
-                    format!(
-                        "workers={} prepare={}us plan={}us payload={}us attach={}us \
-                         leader_setup={}us exec={}us first_frame={}us",
-                        t.workers,
-                        t.prepare_us,
-                        t.plan_us,
-                        t.payload_us,
-                        t.attach_us,
-                        t.leader_setup_us,
-                        t.exec_us,
-                        t.first_frame_us,
-                    ),
-                );
+                explainer.add_text("MPP Launch", t.explain_text());
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
@@ -1244,10 +1229,11 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
-            // MPP: stash the leader's serialized logical plan so estimate_dsm / initialize_dsm
-            // can write it into the DSM region. Only the leader runs this branch
-            // (`ParallelWorkerNumber == -1`); workers read the bytes back from DSM in
-            // initialize_worker_custom_scan via `worker_setup`.
+            // MPP: stash the leader's serialized logical plan for the first exec call, which
+            // deserializes it to build the physical plan and uses its length to size the DSM
+            // dispatch-payload region (`dispatch_plan_capacity`). Only the leader runs this
+            // branch (`ParallelWorkerNumber == -1`); workers receive per-stage physical
+            // subplans over the mesh, never these bytes.
             if mpp_is_active()
                 && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1

@@ -80,10 +80,14 @@ pub struct DataFusionAggState {
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
     /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
-    /// prepared on first exec before planning, launched once the plan's stages are committed.
-    /// Stays `Inactive` on the serial path. Applies only when parallel execution is enabled and
-    /// the query qualifies (binary join + supported aggregate).
+    /// launched on first exec once the built plan's stages are committed (#5667: the plan
+    /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
+    /// Applies only when parallel execution is enabled and the query qualifies (binary join +
+    /// supported aggregate).
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
+    /// query launched distributed.
+    pub launch_timing: Option<crate::postgres::customscan::mpp::glue::MppLaunchTiming>,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

@@ -421,6 +421,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: MppLifecycle::Inactive,
+                    launch_timing: None,
                 });
                 builder.build()
             }
@@ -520,6 +521,9 @@ impl CustomScan for AggregateScan {
                 // construction, not actual execute calls. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
+                if let Some(t) = df_state.launch_timing {
+                    explainer.add_text("MPP Launch", t.explain_text());
+                }
             }
             return;
         }
@@ -566,10 +570,10 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
-            // MPP: serialize the logical plan now, while the source manifests are alive, so
-            // the first-exec prepare can size the DSM payload region before the physical plan
-            // exists. Only the leader runs this branch (`ParallelWorkerNumber == -1` in the
-            // leader backend).
+            // MPP: serialize the logical plan now, while the source manifests are alive; the
+            // first exec call's launch sizes the DSM dispatch-payload region from its length.
+            // Only the leader runs this branch (`ParallelWorkerNumber == -1` in the leader
+            // backend).
             if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 Self::stash_mpp_plan_bytes(state);
             }
@@ -804,9 +808,8 @@ impl AggregateScan {
     }
 
     /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
-    /// to `PlanBytes`. The first-exec prepare uses the byte length to size the DSM payload
-    /// region; the dispatched stage plans themselves are derived later, from the leader's
-    /// physical plan.
+    /// to `PlanBytes`. `launch_mpp` uses the byte length to size the DSM payload region; the
+    /// dispatched stage plans themselves are derived later, from the leader's physical plan.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
         // Capture source manifests BEFORE building the logical plan.
         // We pass `is_mpp: false` below because this plan is only serialized to compute `.len()`
@@ -819,8 +822,8 @@ impl AggregateScan {
             return;
         };
         // Build a logical plan eagerly. The DataFusion exec path normally
-        // builds it lazily on first `exec_custom_scan` call; for MPP we
-        // need it before estimate_dsm fires.
+        // builds it lazily on first `exec_custom_scan` call; MPP serializes
+        // it at begin time so the launch can size the dispatch payload.
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1530,6 +1533,7 @@ impl AggregateScan {
                 create_aggregate_session_context()
             };
 
+            let t_plan = std::time::Instant::now();
             let physical_plan = {
                 let df_state = state
                     .custom_state_mut()
@@ -1545,6 +1549,7 @@ impl AggregateScan {
                     runtime_planstate,
                 )
             };
+            let plan_us = t_plan.elapsed().as_micros() as u64;
 
             // On a launch fallback (nothing to distribute, short launch) no workers remain and
             // the `DistributedExec` shape has no mesh to read from, so replan serially below.
@@ -1566,6 +1571,9 @@ impl AggregateScan {
                         let exec_ctx =
                             Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                                 .with_distributed_dispatch_plan_source(source);
+                        let mut timing = leader.timing;
+                        timing.plan_us = plan_us;
+                        df_state.launch_timing = Some(timing);
                         df_state.mpp = MppLifecycle::Launched(leader);
                         (exec_ctx, physical_plan)
                     }

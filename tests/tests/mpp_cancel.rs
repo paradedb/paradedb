@@ -82,11 +82,11 @@ ANALYZE mpp_orders;
 "#;
 
 // Forces the join through MPP and zeroes the parallel costs so the planner always picks it.
+// MPP width comes from PG's own parallelism GUCs (#5667): per_gather = 2 caps the launch at
+// 2 producers, matching this test's 2-segment tables.
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_mpp TO on;
-SET paradedb.mpp_worker_count TO 3;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 2;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;

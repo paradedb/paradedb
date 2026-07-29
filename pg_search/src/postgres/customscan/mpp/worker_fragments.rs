@@ -108,6 +108,35 @@ pub struct StageEntry {
     pub routing: FragmentRouting,
 }
 
+/// Walk the distributed physical plan and report the largest producer-stage task count, or 0
+/// when the plan has no network boundaries (#5667).
+///
+/// The plan-first launch sizes the worker pool from this number *before* any DSM or process
+/// exists: `producers = clamp(max_tasks, 2, cap)`. Routing is not computed here — it depends on
+/// the final worker count, which this walk is an input to; [`collect_dispatched_stages`] derives
+/// routing later, at dispatch time. The recursion mirrors `collect_stages` (a boundary's
+/// `children()` returns its stage plan, so descend through `local_plan()` to keep visit counts
+/// exact) without the routing classification's `fail_loud` arms: an unrecognized boundary here
+/// just counts, and dispatch remains the single place that rejects unroutable shapes.
+pub fn max_producer_task_count(root: &Arc<dyn ExecutionPlan>) -> usize {
+    fn walk(plan: &Arc<dyn ExecutionPlan>, max: &mut usize) {
+        if let Some(nb) = plan.as_ref().as_network_boundary() {
+            let stage = nb.input_stage();
+            if let Some(stage_plan) = stage.local_plan() {
+                *max = (*max).max(stage.task_count());
+                walk(stage_plan, max);
+            }
+            return;
+        }
+        for child in plan.children() {
+            walk(child, max);
+        }
+    }
+    let mut max = 0;
+    walk(root, &mut max);
+    max
+}
+
 /// Walk the distributed physical plan and collect every producer stage, once per boundary. The
 /// leader runs this (replacing the worker-side re-plan) to classify routing from the boundary
 /// type. Not filtered by proc; the blob is shared and each worker selects its own
@@ -232,6 +261,15 @@ mod tests {
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
         let out = collect_dispatched_stages(&plan, 3).unwrap();
         assert!(out.is_empty());
+    }
+
+    /// #5667: the sizing walk must agree with `collect_dispatched_stages` on the base case —
+    /// a boundary-free plan has nothing to distribute, so the launch spawns no workers at all.
+    #[test]
+    fn boundary_free_plan_has_zero_max_tasks() {
+        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
+        assert_eq!(max_producer_task_count(&plan), 0);
     }
 
     #[test]

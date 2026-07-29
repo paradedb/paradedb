@@ -61,7 +61,6 @@ use crate::postgres::customscan::joinscan::privdat::{
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use async_trait::async_trait;
 use datafusion::execution::context::{QueryPlanner, SessionState};
@@ -197,28 +196,22 @@ pub struct JoinScanState {
     /// plus first scan plus the network hop to the leader).
     pub stream_built_at: Option<std::time::Instant>,
 
-    /// Shared state for parallel execution.
-    /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
-    /// `initialize_worker_custom_scan` (in a worker), and then consumed in
-    /// `exec_custom_scan` to initialize the DataFusion execution plan.
-    pub parallel_state: Option<*mut ParallelScanState>,
-
     /// Captured source manifests held by the leader. Serves two purposes:
-    /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan` and
-    ///    segment readers for DSM population in `initialize_dsm_custom_scan`.
+    /// 1. Provides the segment readers `launch_mpp` needs (via `ParallelScanArgs`) to size
+    ///    and populate the shared `ParallelScanState` in DSM.
     /// 2. Keeps the underlying Tantivy buffer pins alive for the full duration of the
     ///    scan, preventing background merges from recycling the canonical segments.
     ///
-    /// Must live on `JoinScanState` (not as a local in `initialize_dsm`) because the
-    /// buffer pins must survive from DSM initialization through `exec_custom_scan`,
+    /// Must live on `JoinScanState` (not as a local in the launch) because the
+    /// buffer pins must survive from DSM population through `exec_custom_scan`,
     /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(ids)`.
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
     /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
-    /// prepared on first exec before planning, launched once the plan's stages are committed.
-    /// Stays `Inactive` on the serial path.
+    /// launched on first exec once the built plan's stages are committed (#5667: the plan
+    /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
 }
 

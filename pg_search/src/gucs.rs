@@ -147,17 +147,12 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Total number of MPP participants (leader + workers). Default 4 splits
-/// scan + shuffle + partial-aggregate work across 4 processes. PG's
-/// `max_parallel_workers_per_gather` still caps the actual worker count
-/// at exec time, so users in constrained environments see fewer.
-static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
-
 /// Per-edge shm_mq queue size in bytes. Each MPP query allocates
-/// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory: at
-/// N=4 with 3 meshes (group-by aggregate's worst case) the default 64 MiB
-/// produces ~2.3 GiB per query, sized so a ~100 MiB Partial-aggregate burst
-/// on the post-agg mesh fits without backpressure. Operators on memory-
+/// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory, where
+/// N is the proc count the plan-first launch derives from the plan (#5667):
+/// e.g. at N=4 with 3 meshes (group-by aggregate's worst case) the default
+/// 64 MiB produces ~2.3 GiB for that query, sized so a ~100 MiB
+/// Partial-aggregate burst on the post-agg mesh fits without backpressure. Operators on memory-
 /// constrained boxes will want to dial this down; that's the explicit
 /// reason it's exposed instead of held as a `pub const`.
 ///
@@ -624,24 +619,13 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.mpp_worker_count",
-        c"Total MPP participants (leader + parallel workers)",
-        c"Sets the number of MPP participants per query when parallel execution is enabled. \
-          The queue mesh and drain thread are general over N. Setting this below 3 disables MPP.",
-        &MPP_WORKER_COUNT,
-        1,
-        64,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-edge shm_mq queue size for MPP shuffles",
         c"Sets the per-edge shm_mq queue size for MPP shuffles. Accepts standard \
           Postgres byte units (e.g. '64MB', '1GB', '512kB'). Total DSM per query is \
-          `num_meshes × N×(N-1) × mpp_queue_size`; at the default 64MB and N=4 with \
-          3 meshes that is ~2.3GB per query. Lower this on memory-constrained boxes; \
+          `num_meshes × N×(N-1) × mpp_queue_size`, where N is the per-query proc count \
+          the launch derives from the plan; e.g. at the default 64MB and N=4 with \
+          3 meshes that is ~2.3GB. Lower this on memory-constrained boxes; \
           raise it only if a single shuffle batch routinely backs up the queue. \
           Foundation-era knob — likely to be replaced by a per-query DSM cap once \
           mesh multiplexing lands.",
@@ -854,10 +838,6 @@ pub fn mpp_debug() -> bool {
 
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
-}
-
-pub fn mpp_worker_count() -> i32 {
-    MPP_WORKER_COUNT.get()
 }
 
 pub fn mpp_queue_size() -> usize {

@@ -276,7 +276,11 @@ fn launch_mpp(
     // counts (#5657). The producer floor keeps the mesh-width invariant; see
     // [`MIN_TOTAL_WORKER_COUNT`].
     let max_tasks = max_producer_task_count(physical);
-    if max_tasks == 0 {
+    if max_tasks < 2 {
+        // 0: nothing to distribute. 1: no data parallelism — every 1-task stage lands on
+        // proc 1 (`proc_for_task`), leaving the second (floor) producer idle. Run serially.
+        // This also keeps `producer_count <= max_tasks`, so every launched proc owns at
+        // least one fragment of the widest stage.
         return None;
     }
     let cap = producer_worker_cap();

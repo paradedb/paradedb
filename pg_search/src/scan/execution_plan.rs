@@ -263,6 +263,9 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
 
         if range_sample.is_none() {
+            // A partition count exceeding the segment count indicates a bug in
+            // PgSearchScanTaskEstimator::task_estimation, which should cap the tasks
+            // to the segment count when range sampling is disabled.
             assert!(
                 partition_count <= segment_count.max(1),
                 "partition_count {} exceeds segment_count {}",
@@ -1066,7 +1069,12 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
 
         let partition_count = plan.properties().output_partitioning().partition_count();
 
-        Some(TaskEstimation::desired(partition_count))
+        // We use `maximum` rather than `desired` here because `partition_count` is already
+        // clamped to the number of physical index segments (when range sampling is disabled).
+        // Since a single segment cannot be concurrently scanned by multiple workers,
+        // allowing the stage to scale up beyond `partition_count` would just result in
+        // starved tasks doing useless setup work (like building empty hash tables) for zero rows.
+        Some(TaskEstimation::maximum(partition_count))
     }
 
     fn scale_up_leaf_node(

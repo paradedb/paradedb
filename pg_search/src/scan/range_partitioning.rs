@@ -116,7 +116,7 @@ impl RangePartitioning {
 ///
 /// **Precondition**: `sample_points` must be sorted ascending, otherwise the generated
 /// boundaries will produce overlapping or gapped ranges that silently drop or duplicate rows.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RangePartitioningSample {
     /// The index field used to define the boundaries.
     pub partition_by: FieldName,

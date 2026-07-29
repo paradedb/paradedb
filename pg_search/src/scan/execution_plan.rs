@@ -655,6 +655,36 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "PgSearchScan: segments={}", self.segment_count)?;
+        if let Some(range_sample) = &self.range_sample {
+            if let Some(assigned) = self.assigned_partition {
+                let partitioning =
+                    range_sample.build(self.properties.output_partitioning().partition_count());
+
+                let lower = if assigned > 0 {
+                    let val = &partitioning.split_points[assigned - 1];
+                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                } else {
+                    "-∞".to_string()
+                };
+
+                let upper = if assigned < partitioning.split_points.len() {
+                    let val = &partitioning.split_points[assigned];
+                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                } else {
+                    "∞".to_string()
+                };
+
+                write!(
+                    f,
+                    ", partition={}[{}..{})",
+                    range_sample.partition_by.as_ref(),
+                    lower,
+                    upper
+                )?;
+            } else {
+                write!(f, ", partition_by={}", range_sample.partition_by.as_ref())?;
+            }
+        }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
@@ -675,9 +705,6 @@ impl DisplayAs for PgSearchScanPlan {
             } else {
                 write!(f, ", dynamic_filter_pushdown={}", strategy_name(strategy))?;
             }
-        }
-        if let Some(range_sample) = &self.range_sample {
-            write!(f, ", partition_by={}", range_sample.partition_by.as_ref())?;
         }
         write!(f, ", query={}", self.resolved_query.explain_format())
     }

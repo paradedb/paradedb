@@ -199,6 +199,10 @@ impl PgSearchTableProvider {
         self.range_sample = range_sample;
     }
 
+    pub fn range_sample(&self) -> Option<&RangePartitioningSample> {
+        self.range_sample.as_ref()
+    }
+
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
     pub fn enable_late_materialization_schema(&self) {
         self.late_materialization_active
@@ -666,14 +670,18 @@ impl PgSearchTableProvider {
         let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
 
         let segment_count = reader.segment_readers().len();
-        // Number of target partitions.
+        let target_partitions = state.config().target_partitions();
+        // The output partitions of the scan default to min(segments, target_partitions),
+        // or exactly `target_partitions` when range partitioning is enabled.
+        // During distributed planning, the `PgSearchScanTaskEstimator` reads this partition
+        // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
         let partition_count = if self.range_sample.is_some() {
             // When using range partitioning, we target the session's target partitions.
             // The actual number of bounds will be dynamically limited by the sample size
             // when we create the plan.
-            state.config().target_partitions()
+            target_partitions
         } else {
-            std::cmp::min(segment_count, state.config().target_partitions()).max(1)
+            std::cmp::min(segment_count, target_partitions).max(1)
         };
 
         self.create_lazy_scan(

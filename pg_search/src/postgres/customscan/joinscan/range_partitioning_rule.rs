@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use datafusion::catalog::default_table_source::DefaultTableSource;
@@ -23,7 +22,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, DataFusionError, Result};
 use datafusion::logical_expr::{Expr, LogicalPlan, TableScan};
 use datafusion::optimizer::{optimizer::ApplyOrder, OptimizerConfig, OptimizerRule};
-use rand::seq::SliceRandom;
 use tantivy::SegmentReader;
 
 use crate::api::FieldName;
@@ -34,12 +32,15 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
-use crate::scan::late_materialization::trace_column;
 use crate::scan::range_partitioning::RangePartitioningSample;
 use crate::scan::table_provider::PgSearchTableProvider;
 
-/// Optimizer rule that injects range partitioning boundaries into `PgSearchTableProvider`
-/// when it participates in a join on partitioned columns.
+/// Optimizer rule that coordinates range partitioning across a join.
+///
+/// It detects when both sides of an equi-join are partitioned on matching column types,
+/// accesses the existing partition sample from one side, and injects that synchronized sample
+/// into the `PgSearchTableProvider`s of both sides. This guarantees that both sides of
+/// the join produce identical partition boundaries during MPP execution.
 #[derive(Debug, Default)]
 pub struct RangePartitioningRule;
 
@@ -56,8 +57,212 @@ fn pg_search_provider_from_scan(scan: &TableScan) -> Option<&PgSearchTableProvid
             .table_provider
             .downcast_ref::<PgSearchTableProvider>()
     } else {
-        (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
+        None
     }
+}
+
+/// Recursively searches the logical plan tree to find the underlying `PgSearchTableProvider`
+/// and the original index field name that corresponds to a given `Column` expression at the top level
+/// of the plan. This resolves aliases, subqueries, and projections to trace a join key back to its source.
+fn find_provider_for_column<'a>(
+    plan: &'a LogicalPlan,
+    col: &Column,
+) -> Option<(&'a PgSearchTableProvider, FieldName)> {
+    match plan {
+        LogicalPlan::TableScan(scan) => {
+            if scan.projected_schema.has_column(col) {
+                let (_, sf) = scan
+                    .projected_schema
+                    .qualified_field_from_column(col)
+                    .ok()?;
+                let provider = pg_search_provider_from_scan(scan)?;
+                for field in &provider.scan_info.partition_by {
+                    if sf.name() == field.as_ref() {
+                        return Some((provider, field.clone()));
+                    }
+                }
+            }
+            None
+        }
+        LogicalPlan::Projection(proj) => {
+            let idx = proj.schema.index_of_column(col).ok()?;
+            let expr = &proj.expr[idx];
+            let unaliased = match expr {
+                Expr::Alias(alias) => alias.expr.as_ref(),
+                e => e,
+            };
+            if let Expr::Column(c) = unaliased {
+                find_provider_for_column(proj.input.as_ref(), c)
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Filter(filter) => find_provider_for_column(filter.input.as_ref(), col),
+        LogicalPlan::Sort(sort) => find_provider_for_column(sort.input.as_ref(), col),
+        LogicalPlan::Limit(limit) => find_provider_for_column(limit.input.as_ref(), col),
+        LogicalPlan::SubqueryAlias(alias) => {
+            let idx = alias.schema.index_of_column(col).ok()?;
+            let (q, f) = alias.input.schema().qualified_field(idx);
+            find_provider_for_column(alias.input.as_ref(), &Column::new(q.cloned(), f.name()))
+        }
+        LogicalPlan::Join(join) => {
+            if join.left.schema().has_column(col) {
+                find_provider_for_column(join.left.as_ref(), col)
+            } else if join.right.schema().has_column(col) {
+                find_provider_for_column(join.right.as_ref(), col)
+            } else {
+                None
+            }
+        }
+        _ => {
+            let inputs = plan.inputs();
+            if inputs.len() == 1 {
+                let idx = plan.schema().index_of_column(col).ok()?;
+                let input_schema = inputs[0].schema();
+                if idx < input_schema.fields().len() {
+                    let (q, f) = input_schema.qualified_field(idx);
+                    find_provider_for_column(inputs[0], &Column::new(q.cloned(), f.name()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Recursively traverses the logical plan to locate the specific `TableScan` node
+/// that produces the given `Column`. Applies the mutating function `f` to that scan
+/// and rebuilds the plan tree to reflect the transformation.
+fn map_scan_for_column<F>(
+    plan: LogicalPlan,
+    col: &Column,
+    f: &mut F,
+) -> Result<Transformed<LogicalPlan>>
+where
+    F: FnMut(TableScan) -> Result<Transformed<LogicalPlan>>,
+{
+    match plan {
+        LogicalPlan::TableScan(scan) => {
+            if scan.projected_schema.has_column(col) {
+                f(scan)
+            } else {
+                Ok(Transformed::no(LogicalPlan::TableScan(scan)))
+            }
+        }
+        LogicalPlan::Projection(mut proj) => {
+            if let Ok(idx) = proj.schema.index_of_column(col) {
+                let expr = &proj.expr[idx];
+                let unaliased = match expr {
+                    Expr::Alias(alias) => alias.expr.as_ref(),
+                    e => e,
+                };
+                if let Expr::Column(c) = unaliased {
+                    let res = map_scan_for_column(Arc::unwrap_or_clone(proj.input.clone()), c, f)?;
+                    if res.transformed {
+                        proj.input = Arc::new(res.data);
+                        return Ok(Transformed::yes(LogicalPlan::Projection(proj)));
+                    }
+                }
+            }
+            Ok(Transformed::no(LogicalPlan::Projection(proj)))
+        }
+        LogicalPlan::Filter(mut filter) => {
+            let res = map_scan_for_column(Arc::unwrap_or_clone(filter.input.clone()), col, f)?;
+            if res.transformed {
+                filter.input = Arc::new(res.data);
+                Ok(Transformed::yes(LogicalPlan::Filter(filter)))
+            } else {
+                Ok(Transformed::no(LogicalPlan::Filter(filter)))
+            }
+        }
+        LogicalPlan::Sort(mut sort) => {
+            let res = map_scan_for_column(Arc::unwrap_or_clone(sort.input.clone()), col, f)?;
+            if res.transformed {
+                sort.input = Arc::new(res.data);
+                Ok(Transformed::yes(LogicalPlan::Sort(sort)))
+            } else {
+                Ok(Transformed::no(LogicalPlan::Sort(sort)))
+            }
+        }
+        LogicalPlan::Limit(mut limit) => {
+            let res = map_scan_for_column(Arc::unwrap_or_clone(limit.input.clone()), col, f)?;
+            if res.transformed {
+                limit.input = Arc::new(res.data);
+                Ok(Transformed::yes(LogicalPlan::Limit(limit)))
+            } else {
+                Ok(Transformed::no(LogicalPlan::Limit(limit)))
+            }
+        }
+        LogicalPlan::SubqueryAlias(mut alias) => {
+            if let Ok(idx) = alias.schema.index_of_column(col) {
+                let (q, field) = alias.input.schema().qualified_field(idx);
+                let inner_col = Column::new(q.cloned(), field.name());
+                let res =
+                    map_scan_for_column(Arc::unwrap_or_clone(alias.input.clone()), &inner_col, f)?;
+                if res.transformed {
+                    alias.input = Arc::new(res.data);
+                    return Ok(Transformed::yes(LogicalPlan::SubqueryAlias(alias)));
+                }
+            }
+            Ok(Transformed::no(LogicalPlan::SubqueryAlias(alias)))
+        }
+        LogicalPlan::Join(mut join) => {
+            if join.left.schema().has_column(col) {
+                let res = map_scan_for_column(Arc::unwrap_or_clone(join.left.clone()), col, f)?;
+                if res.transformed {
+                    join.left = Arc::new(res.data);
+                    return Ok(Transformed::yes(LogicalPlan::Join(join)));
+                }
+            } else if join.right.schema().has_column(col) {
+                let res = map_scan_for_column(Arc::unwrap_or_clone(join.right.clone()), col, f)?;
+                if res.transformed {
+                    join.right = Arc::new(res.data);
+                    return Ok(Transformed::yes(LogicalPlan::Join(join)));
+                }
+            }
+            Ok(Transformed::no(LogicalPlan::Join(join)))
+        }
+        _ => {
+            let inputs = plan.inputs();
+            if inputs.len() == 1 {
+                if let Ok(idx) = plan.schema().index_of_column(col) {
+                    let input_schema = inputs[0].schema();
+                    if idx < input_schema.fields().len() {
+                        let (q, field) = input_schema.qualified_field(idx);
+                        let inner_col = Column::new(q.cloned(), field.name());
+
+                        return plan
+                            .map_children(|child| map_scan_for_column(child, &inner_col, f));
+                    }
+                }
+            }
+            Ok(Transformed::no(plan))
+        }
+    }
+}
+
+fn apply_sample_to_scan(
+    mut scan: TableScan,
+    sample: &RangePartitioningSample,
+) -> Result<Transformed<LogicalPlan>> {
+    let Some(provider) = pg_search_provider_from_scan(&scan) else {
+        return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+    };
+
+    if provider.range_sample() == Some(sample) {
+        return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+    }
+
+    let mut new_provider = provider.clone();
+    new_provider.with_range_partitioning(Some(sample.clone()));
+
+    let new_source = Arc::new(DefaultTableSource::new(Arc::new(new_provider)))
+        as Arc<dyn datafusion::logical_expr::TableSource>;
+
+    scan.source = new_source;
+    Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
 }
 
 impl OptimizerRule for RangePartitioningRule {
@@ -74,71 +279,66 @@ impl OptimizerRule for RangePartitioningRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        let mut base_join_keys = HashSet::new();
-
-        plan.apply(|node| {
-            if let LogicalPlan::Join(join) = node {
-                for (l, r) in &join.on {
-                    if let Expr::Column(c) = l {
-                        if let Some(base_col) = trace_column(node, c) {
-                            base_join_keys.insert(base_col);
-                        }
-                    }
-                    if let Expr::Column(c) = r {
-                        if let Some(base_col) = trace_column(node, c) {
-                            base_join_keys.insert(base_col);
-                        }
-                    }
-                }
-            }
-            Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
-        })?;
-
-        if base_join_keys.is_empty() {
+        if !crate::postgres::customscan::mpp::glue::mpp_is_active() {
             return Ok(Transformed::no(plan));
         }
 
         plan.transform_up(|node| {
-            if let LogicalPlan::TableScan(mut scan) = node {
-                if let Some(provider) = pg_search_provider_from_scan(&scan) {
-                    let mut matched_partition_by = None;
+            if let LogicalPlan::Join(mut join) = node {
+                let mut transformed = false;
+                for (l, r) in &join.on {
+                    if let (Expr::Column(l_col), Expr::Column(r_col)) = (l, r) {
+                        let l_res = find_provider_for_column(&join.left, l_col);
+                        let r_res = find_provider_for_column(&join.right, r_col);
+                        if let (
+                            Some((l_provider, l_field_name)),
+                            Some((r_provider, r_field_name)),
+                        ) = (l_res, r_res)
+                        {
+                            let mut sample = None;
+                            if let Some(s) = l_provider.range_sample() {
+                                sample = Some(s.clone());
+                            } else if let Some(s) = r_provider.range_sample() {
+                                sample = Some(s.clone());
+                            }
 
-                    for field in &provider.scan_info.partition_by {
-                        let col = Column::new_unqualified(field.as_ref());
-                        if base_join_keys.contains(&col) {
-                            matched_partition_by = Some(field.clone());
-                            break;
+                            if sample.is_none() {
+                                sample = Some(sample_fast_field(l_provider, &l_field_name)?);
+                            }
+
+                            if let Some(mut shared_sample) = sample {
+                                shared_sample.partition_by = l_field_name;
+                                let left_res = map_scan_for_column(
+                                    Arc::unwrap_or_clone(join.left.clone()),
+                                    l_col,
+                                    &mut |scan| apply_sample_to_scan(scan, &shared_sample),
+                                )?;
+                                if left_res.transformed {
+                                    join.left = Arc::new(left_res.data);
+                                }
+
+                                shared_sample.partition_by = r_field_name;
+                                let right_res = map_scan_for_column(
+                                    Arc::unwrap_or_clone(join.right.clone()),
+                                    r_col,
+                                    &mut |scan| apply_sample_to_scan(scan, &shared_sample),
+                                )?;
+                                if right_res.transformed {
+                                    join.right = Arc::new(right_res.data);
+                                }
+                                transformed =
+                                    transformed || left_res.transformed || right_res.transformed;
+                            }
                         }
                     }
-
-                    if let Some(partition_by) = matched_partition_by {
-                        let sample = sample_fast_field(provider, &partition_by)?;
-                        let mut new_provider = provider.clone();
-                        new_provider.with_range_partitioning(Some(sample));
-
-                        let new_source = if scan
-                            .source
-                            .as_ref()
-                            .downcast_ref::<DefaultTableSource>()
-                            .is_some()
-                        {
-                            Arc::new(DefaultTableSource::new(Arc::new(new_provider)))
-                                as Arc<dyn datafusion::logical_expr::TableSource>
-                        } else {
-                            return Err(DataFusionError::Internal(
-                                "PgSearchTableProvider was not wrapped in a DefaultTableSource"
-                                    .to_string(),
-                            ));
-                        };
-
-                        scan.source = new_source;
-                        return Ok(Transformed::yes(LogicalPlan::TableScan(scan)));
-                    }
                 }
-                Ok(Transformed::no(LogicalPlan::TableScan(scan)))
-            } else {
-                Ok(Transformed::no(node))
+                if transformed {
+                    return Ok(Transformed::yes(LogicalPlan::Join(join)));
+                } else {
+                    return Ok(Transformed::no(LogicalPlan::Join(join)));
+                }
             }
+            Ok(Transformed::no(node))
         })
     }
 }
@@ -168,16 +368,17 @@ fn sample_fast_field(
     }
 
     let largest_segment: &SegmentReader =
-        segment_readers.iter().max_by_key(|s| s.num_docs()).unwrap();
+        segment_readers.iter().max_by_key(|s| s.max_doc()).unwrap();
 
-    let num_docs = largest_segment.num_docs();
-    if num_docs == 0 {
+    let max_doc = largest_segment.max_doc();
+    if max_doc == 0 {
         return Ok(RangePartitioningSample {
             partition_by: partition_by.clone(),
             sample_points: vec![],
         });
     }
 
+    // TODO: Validate that all partition_by columns are fast fields at `CREATE INDEX` time.
     let ff_type = FFType::new(largest_segment.fast_fields(), partition_by.as_ref());
 
     let search_field_type = provider.fields.iter().find_map(|f| {
@@ -189,12 +390,12 @@ fn sample_fast_field(
         None
     });
 
-    let target_samples = 512;
-    let mut rng = rand::rng();
+    let target_samples = std::cmp::min(512, max_doc as usize);
+    let step = (max_doc as f64) / (target_samples as f64);
 
-    let mut doc_ids: Vec<u32> = (0..num_docs).collect();
-    doc_ids.shuffle(&mut rng);
-    let sample_doc_ids: Vec<u32> = doc_ids.into_iter().take(target_samples).collect();
+    let sample_doc_ids: Vec<u32> = (0..target_samples)
+        .map(|i| (i as f64 * step) as u32)
+        .collect();
 
     let mut sample_points = Vec::with_capacity(sample_doc_ids.len());
     for doc_id in sample_doc_ids {
@@ -203,7 +404,17 @@ fn sample_fast_field(
     }
 
     // Sort points ascending so that build() produces sequential ranges
-    sample_points.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sample_points.sort_unstable_by(|a, b| {
+        if let (
+            crate::postgres::pdb_owned_value::PdbOwnedValue::F64(f1),
+            crate::postgres::pdb_owned_value::PdbOwnedValue::F64(f2),
+        ) = (a, b)
+        {
+            f1.total_cmp(f2)
+        } else {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
 
     Ok(RangePartitioningSample {
         partition_by: partition_by.clone(),

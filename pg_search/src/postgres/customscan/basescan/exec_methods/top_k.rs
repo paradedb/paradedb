@@ -423,17 +423,21 @@ impl ExecMethod for TopKScanExecState {
             let TopKSearch {
                 results,
                 segment_info,
-            } = self.search_reader.as_ref().unwrap().search_top_k_in_segments(
-                self.segments_to_query(
-                    state.search_reader.as_ref().unwrap(),
-                    state.parallel_state(),
-                ),
-                orderby_info,
-                local_limit,
-                self.offset,
-                maybe_aux_collector,
-                maybe_parallel_state,
-            );
+            } = self
+                .search_reader
+                .as_ref()
+                .unwrap()
+                .search_top_k_in_segments(
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state(),
+                    ),
+                    orderby_info,
+                    local_limit,
+                    self.offset,
+                    maybe_aux_collector,
+                    maybe_parallel_state,
+                );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
             // DSM once at EndCustomScan; the leader merges at Shutdown.
             if !segment_info.is_empty() {

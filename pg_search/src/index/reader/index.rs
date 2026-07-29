@@ -925,33 +925,33 @@ impl SearchIndexReader {
                 }
 
                 match field.field_entry().field_type().value_type() {
-                    tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
-                        self.top_in_segments(
+                    tantivy::schema::Type::Str => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    )
-                    .into(),
+                        ))
+                        .into()
+                    }
                     tantivy::schema::Type::U64 => sort_fast_value!(u64),
                     tantivy::schema::Type::I64 => sort_fast_value!(i64),
                     tantivy::schema::Type::F64 => sort_fast_value!(f64),
                     tantivy::schema::Type::Bool => sort_fast_value!(bool),
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
-                    tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
-                        self.top_in_segments(
+                    tantivy::schema::Type::Bytes => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    )
-                    .into(),
+                        ))
+                        .into()
+                    }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
                     }

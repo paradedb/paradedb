@@ -145,8 +145,8 @@
                       {
                         "group": "Hybrid Search",
                         "pages": [
-                          "documentation/hybrid/rrf",
-                          "documentation/hybrid/reranking"
+                          "documentation/hybrid/overview",
+                          "documentation/hybrid/rrf"
                         ]
                       },
                       "documentation/sorting/topk",

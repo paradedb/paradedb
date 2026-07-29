@@ -1,0 +1,37 @@
+---
+title: How Hybrid Search Works
+description: Understand how ParadeDB combines text and vector search into a single ranking
+canonical: https://docs.paradedb.com/documentation/hybrid/overview
+---
+
+<Note>
+  This section uses [vector search](/documentation/vector/overview), a beta
+  feature available in versions `0.25.0` and above.
+</Note>
+
+Hybrid search runs a [text search](/documentation/full-text/overview) and a [vector search](/documentation/vector/overview) over the same data, then merges the two result lists into a single ranking.
+
+The two methods fail in opposite ways:
+
+- **Text search** matches tokens, so it is precise on exact terms, product codes, names, and rare words. It misses paraphrase: a query for `laptop bag` does not match `notebook sleeve`, because the two share no tokens.
+- **Vector search** matches on semantic meaning, so it handles paraphrase and intent. It is fuzzy on exact strings: a serial number can rank below a row that is merely about the same topic.
+
+Because the failure modes differ, a row missed by one method is often found by the other. Running both and merging their results recovers those rows.
+
+## Why Scores Cannot Be Added
+
+The two searches do not produce comparable numbers.
+
+A [BM25 score](/documentation/sorting/score) is unbounded and derived from corpus statistics, so its range shifts with the query and the data. A cosine distance is bounded, and lower is better rather than higher. Adding or averaging them lets whichever number happens to be larger dominate, and normalizing them against each other requires knowing both distributions in advance — distributions that change with every query.
+
+## Fusing by Rank
+
+Rank-based fusion avoids the problem by discarding the scores and using only each row's **position** in its own result list. A row ranked first contributes the same amount whether its BM25 score was 2 or 200, so the two searches can be combined without ever being placed on a common scale.
+
+ParadeDB recommends [Reciprocal Rank Fusion](/documentation/hybrid/rrf) for this, which is expressed directly in SQL rather than as a separate API.
+
+## One Index, One Query
+
+Text, vectors, and filters all live in the same ParadeDB index. Each branch of a hybrid query is a [Top K](/documentation/sorting/topk) scan against that index, so both branches read only the rows they need and apply the same [filters](/documentation/filtering) at the index level.
+
+Because the results are ordinary rows, anything else in your database — inventory, recency, popularity, per-user data — can be joined in to adjust the final ordering without a second system to query or keep in sync.

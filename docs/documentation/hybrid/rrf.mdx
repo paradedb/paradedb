@@ -6,14 +6,12 @@ canonical: https://docs.paradedb.com/documentation/hybrid/rrf
 
 <Note>
   This section uses [vector search](/documentation/vector/querying), a beta
-  feature available in versions `0.25.0` and above.
+  feature available in versions `0.25.0` and above. See [How Hybrid Search
+  Works](/documentation/hybrid/overview) for background on why results are
+  merged by rank rather than by score.
 </Note>
 
-Hybrid search runs a full text query and a vector query over the same data, then merges the two result lists. Full text search is precise on exact terms and rare words; vector search understands paraphrase and intent. Merging them recovers results that either one alone would miss.
-
-The two searches do not produce comparable numbers. BM25 scores are unbounded and depend on corpus statistics, while cosine distance lives in a fixed range with the opposite polarity. Normalizing them against each other requires knowing both distributions in advance, and those shift with every query.
-
-Reciprocal Rank Fusion sidesteps the problem by discarding the scores and using only each row's **position** in its own list:
+Reciprocal Rank Fusion merges two ranked result lists by using each row's **position** in its own list, rather than its score:
 
 ```
 score(row) = sum over branches of  weight / (k + rank)
@@ -151,6 +149,17 @@ semantic AS (
 
 Apply the same filter to both branches. Filtering only one of them silently biases the fusion toward the unfiltered branch, since the filtered branch contributes fewer candidates.
 
-## Next Steps
+## Adjusting the Final Order
 
-Fusion produces a good candidate set, but it only knows about rank position. To order that candidate set using freshness, availability, popularity, or a dedicated relevance model, see [Reranking](/documentation/hybrid/reranking).
+Fusion only knows about rank position. Because the fused rows are ordinary rows, any other column can adjust the final ordering — join it in and sort by an expression:
+
+```sql
+SELECT m.id, m.description,
+       f.score * CASE WHEN m.in_stock THEN 1.0 ELSE 0.4 END AS final_score
+FROM fused f
+JOIN mock_items m USING (id)
+ORDER BY final_score DESC, m.id
+LIMIT 5;
+```
+
+Prefer bounded multiplicative adjustments over additive ones, so that a fresh or popular row cannot outrank a much better match outright.

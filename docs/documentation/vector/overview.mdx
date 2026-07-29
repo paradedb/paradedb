@@ -13,3 +13,5 @@ Today, most Postgres users rely on the [pgvector](https://github.com/pgvector/pg
 - **Index Quality Under Updates:** Indexes can degrade over time under update-heavy workloads.
 
 The ParadeDB index supports pgvector's `vector` type and is designed to solve these limitations. Vectors are indexed with a SPANN-style index, the state-of-the-art approach for billion-scale vector search.
+
+Because vectors live in the same index as text and filters, vector search can also be combined with [text search](/documentation/full-text/overview) into a single ranking. See [Hybrid Search](/documentation/hybrid/overview).

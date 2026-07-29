@@ -199,15 +199,11 @@ fn collect_stages(
                     consumer_task: route_consumer_tasks()?,
                 }
             } else {
-                // Top-level NetworkShuffleExec / NetworkBroadcastExec isn't a shape our customscan plans produce.
-                // They emit partitioned or broadcast output into a parent consumer stage, not directly
-                // into the leader.
-                crate::postgres::customscan::mpp::fail_loud(format!(
-                    "mpp worker_fragments: top-level {} is unsupported \
-                     (stage_id={stage_id}). They emit output into a \
-                     parent consumer stage; a top-level boundary of this type is a planner anomaly.",
-                    plan.name()
-                ))
+                // Top-level NetworkShuffleExec / NetworkBroadcastExec means the entire consumer
+                // pipeline collapsed to a single partition and remained on the leader instead of
+                // becoming a nested consumer stage. In this case, the single leader task is the
+                // only consumer, so it behaves identically to a Coalesce.
+                FragmentRouting::Coalesce { dest_proc: 0 }
             }
         } else {
             // `as_network_boundary()` matched, but the node isn't one of the three concrete

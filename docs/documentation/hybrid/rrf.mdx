@@ -76,7 +76,7 @@ Note that the `RANK()` window function sits at the **same query level** as the `
 
 ## Verifying Pushdown
 
-Both branches should reach the index as [Top K](/documentation/sorting/topk) scans, so that each one reads 20 rows instead of the whole result set:
+To verify that the hybrid query is being accelerated by ParadeDB, inspect the query plan by running `EXPLAIN`:
 
 ```sql
 EXPLAIN (COSTS OFF)
@@ -84,7 +84,7 @@ WITH text AS (...), vector AS (...), fused AS (...)
 SELECT ...;
 ```
 
-Look for two `Custom Scan (ParadeDB Base Scan)` nodes, each with `Exec Method: TopKScanExecState` and a `TopK Limit` matching the branch's `LIMIT`:
+If the query is accelerated, there should be a `TopKScanExecState` printed for each branch.
 
 ```
 ->  WindowAgg
@@ -95,20 +95,7 @@ Look for two `Custom Scan (ParadeDB Base Scan)` nodes, each with `Exec Method: T
                TopK Limit: 20
 ```
 
-If you see `NormalScanExecState` or a `Sort` node beneath the `WindowAgg`, the branch is reading and sorting every matching row.
-
-## Supported Shapes
-
-Postgres normally assumes a window function needs every row, and stops pushing the `LIMIT` down past it. ParadeDB overrides this when truncating the input provably cannot change the window function's output — the first N rows in window order **are** the top N. All of the following must hold:
-
-- **The window functions are ranking functions**: `ROW_NUMBER()`, `RANK()`, or `DENSE_RANK()`. Functions that read the whole partition, such as `PERCENT_RANK()`, `CUME_DIST()`, or `SUM(x) OVER ()`, return different values over a truncated input.
-- **No `PARTITION BY`**. Partitions draw rows from outside the top N, so truncating first renumbers them.
-- **The window's `ORDER BY` is identical to the query's `ORDER BY`**, including direction and any tiebreakers. Otherwise the top N by the query's ordering are not the first N in window order.
-- **No `GROUP BY`, `DISTINCT`, `HAVING`, or aggregates at the same query level.** Each of these collapses rows above the window function, so producing the top N of the final result requires more than N rows out of the scan.
-
-`OFFSET` is supported: the scan fetches `LIMIT + OFFSET` rows so that ranks past the offset are still computed over enough input.
-
-When a query falls outside these rules, results stay correct — the branch simply reads and sorts every matching row.
+If you do not see `TopKScanExecState`, the branch is not taking the optimized path.
 
 ## Choosing the Rank Constant
 

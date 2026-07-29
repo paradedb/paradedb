@@ -61,7 +61,7 @@ use crate::postgres::customscan::mpp::dispatch::{
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, producer_worker_cap, worker_setup, MppLeaderState,
-    MIN_PRODUCER_COUNT,
+    MIN_TOTAL_WORKER_COUNT,
 };
 use crate::postgres::customscan::mpp::worker_fragments::max_producer_task_count;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
@@ -273,20 +273,19 @@ fn launch_mpp(
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
-    // counts (#5657). The `MIN_PRODUCER_COUNT` floor keeps the mesh-width invariant:
-    // `build_mpp_session_context` clamps `target_partitions` to 2, so the mesh needs a queue
-    // for the second partition.
+    // counts (#5657). The producer floor keeps the mesh-width invariant; see
+    // [`MIN_TOTAL_WORKER_COUNT`].
     let max_tasks = max_producer_task_count(physical);
     if max_tasks == 0 {
         return None;
     }
     let cap = producer_worker_cap();
-    if cap < MIN_PRODUCER_COUNT {
+    if cap < MIN_TOTAL_WORKER_COUNT - 1 {
         // Unreachable when callers gate on `mpp_is_active()`, but `clamp` panics when
         // min > max; a forgotten gate should mean a serial run, not a panic.
         return None;
     }
-    let producer_count = (max_tasks as u32).clamp(MIN_PRODUCER_COUNT, cap);
+    let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
 
     let t_prepare = std::time::Instant::now();
     let payload_capacity = dispatch_plan_capacity(plan_bytes_len);

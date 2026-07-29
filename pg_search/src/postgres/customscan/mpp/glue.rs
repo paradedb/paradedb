@@ -42,21 +42,21 @@ use datafusion_distributed::TaskKey;
 use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
 use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
 
-/// Minimum producer count for MPP: the leader (proc 0) is consumer-only, and
-/// `build_mpp_session_context` clamps `target_partitions` to 2, so the mesh needs at least 2
-/// producers or it wouldn't have a queue for the second partition. Single source of truth so
-/// [`mpp_is_active`] and the launch's clamp floor don't drift on the threshold.
-pub const MIN_PRODUCER_COUNT: u32 = 2;
+/// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
+/// Below that, `build_mpp_session_context` still clamps `target_partitions` to 2 and the mesh
+/// wouldn't have a queue for the second partition. Single source of truth so [`mpp_is_active`]
+/// and the launch's clamp floor don't drift on the threshold.
+pub const MIN_TOTAL_WORKER_COUNT: u32 = 3;
 
-/// True iff PostgreSQL's parallelism budget allows at least [`MIN_PRODUCER_COUNT`] producer
-/// workers. There is no MPP-specific worker GUC (#5667): `max_parallel_workers_per_gather`
-/// caps the per-query width — the same knob that caps ordinary parallel scans, matching core
-/// PG's `compute_parallel_worker` convention — and `max_parallel_workers` is the cluster-wide
-/// pool. Setting `max_parallel_workers_per_gather` below 2 (or 0, PG's own
-/// parallelism-disable convention) disables MPP. Customscan path-builders gate
-/// `parallel_workers` on this.
+/// True iff PostgreSQL's parallelism budget allows at least `MIN_TOTAL_WORKER_COUNT - 1`
+/// producer workers. There is no MPP-specific worker GUC (#5667):
+/// `max_parallel_workers_per_gather` caps the per-query width — the same knob that caps
+/// ordinary parallel scans, matching core PG's `compute_parallel_worker` convention — and
+/// `max_parallel_workers` is the cluster-wide pool. Setting
+/// `max_parallel_workers_per_gather` below 2 (or 0, PG's own parallelism-disable convention)
+/// disables MPP. Customscan path-builders gate `parallel_workers` on this.
 pub fn mpp_is_active() -> bool {
-    producer_worker_cap() >= MIN_PRODUCER_COUNT
+    producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT - 1
 }
 
 // The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
@@ -80,9 +80,9 @@ pub fn estimate_dsm_size(n_procs: u32, plan_bytes_len: usize) -> Result<usize, S
 /// Maximum number of producer workers a launch may spawn:
 /// `min(max_parallel_workers_per_gather, max_parallel_workers)` (#5667). Also the planner's
 /// `target_partitions` ceiling. The plan-first launch spawns
-/// `clamp(max_stage_task_count, MIN_PRODUCER_COUNT, this)` producers, so the cap only bounds —
-/// the plan's task fragments decide the actual width. When [`mpp_is_active`] holds this is
-/// `>= MIN_PRODUCER_COUNT`.
+/// `clamp(max_stage_task_count, MIN_TOTAL_WORKER_COUNT - 1, this)` producers, so the cap only
+/// bounds — the plan's task fragments decide the actual width. When [`mpp_is_active`] holds
+/// this is `>= MIN_TOTAL_WORKER_COUNT - 1`.
 pub fn producer_worker_cap() -> u32 {
     let max_per_gather = unsafe { pg_sys::max_parallel_workers_per_gather };
     let max_workers = unsafe { pg_sys::max_parallel_workers };

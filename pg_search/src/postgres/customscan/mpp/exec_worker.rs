@@ -94,7 +94,7 @@ pub(crate) fn build_mpp_session_context(
 ) -> SessionContext {
     // Workers are procs 1..n_procs; leader is proc 0. Producer count = n_procs - 1.
     // n_procs >= 3 always holds: for mesh = Some, the launch clamps the spawned width to
-    // `MIN_PRODUCER_COUNT` (2) producers; for mesh = None, callers gate on `mpp_is_active()`
+    // `MIN_TOTAL_WORKER_COUNT - 1` (2) producers; for mesh = None, callers gate on `mpp_is_active()`
     // which requires a cap of >= 2 producers.
     //
     // `mesh = None` is the EXPLAIN-time / plan-time path: the planner only needs `n_workers`
@@ -219,7 +219,7 @@ pub(crate) fn run_mpp_worker(
 
     // Build this worker's fragment assignments by decoding the leader's dispatched per-stage
     // subplans from the DSM payload (no re-planning), then run them on the dispatcher loop below.
-    // `worker_mesh.n_procs >= 3` is guaranteed by the launch's `MIN_PRODUCER_COUNT` clamp
+    // `worker_mesh.n_procs >= MIN_TOTAL_WORKER_COUNT` is guaranteed by the launch's clamp
     // (it spawns at least 2 producers), so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();
     let (fragments, session) = match fragments_for_worker(

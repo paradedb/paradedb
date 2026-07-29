@@ -39,7 +39,7 @@ Each branch is an `ORDER BY ... LIMIT` with a `RANK()` window function over the 
 WITH text AS (
     SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
     FROM mock_items
-    WHERE description @@@ 'running shoes'
+    WHERE description ||| 'running shoes'
     ORDER BY pdb.score(id) DESC, id
     LIMIT 20
 ),
@@ -70,7 +70,7 @@ LIMIT 5;
 
 The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.
 
-The two `WHERE` clauses differ because each branch retrieves by its own method. `description @@@ 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. Restricting _which_ rows either branch may return is a separate concern — see [Filtering](#filtering).
+The two `WHERE` clauses differ because each branch retrieves by its own method. `description ||| 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. Restricting _which_ rows either branch may return is a separate concern — see [Filtering](#filtering).
 
 Note that the `RANK()` window function sits at the **same query level** as the `ORDER BY ... LIMIT`, rather than wrapping a nested subquery. This is the shape ParadeDB accelerates, and it is the shape you should write.
 
@@ -158,7 +158,7 @@ To restrict the query to footwear, add the filter to each branch alongside whate
 WITH text AS (
     SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
     FROM mock_items
-    WHERE description @@@ 'running shoes' AND category === 'footwear'
+    WHERE description ||| 'running shoes' AND category === 'footwear'
     ORDER BY pdb.score(id) DESC, id
     LIMIT 20
 ),

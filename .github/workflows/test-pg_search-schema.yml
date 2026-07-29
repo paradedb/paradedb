@@ -72,7 +72,6 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          cache-directories: .lindera-cache
           # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
           save-if: false
 

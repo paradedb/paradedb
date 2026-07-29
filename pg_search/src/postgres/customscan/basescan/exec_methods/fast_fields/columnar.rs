@@ -367,7 +367,7 @@ impl ColumnarExecState {
             index_rel.oid().to_u32(),
             None,
             1,
-            state.parallel_state,
+            state.parallel_state(),
             None,
         );
 

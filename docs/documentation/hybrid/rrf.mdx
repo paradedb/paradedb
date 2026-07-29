@@ -13,20 +13,22 @@ canonical: https://docs.paradedb.com/documentation/hybrid/rrf
 
 Reciprocal Rank Fusion merges two ranked result lists by using each row's position in its own list, rather than its score.
 
-Each list is called a **branch**. On this page the two branches are a full text search ordered by BM25 score (`lexical`) and a vector search ordered by distance (`semantic`). A row's fused score adds one term per branch that returned it:
+Each list is called a **branch**. On this page the two branches are a full text search ordered by BM25 score (`lexical`) and a vector search ordered by distance (`semantic`).
+
+Suppose a row comes back 5th in the lexical branch and 10th in the semantic branch. Each branch contributes `weight / (k + rank)`, and the contributions are added:
 
 ```
-score(row) = weight_lexical  / (k + rank_lexical)
-           + weight_semantic / (k + rank_semantic)
+lexical      1.0 / (60 + 5)  = 0.0154
+semantic     0.7 / (60 + 10) = 0.0100
+                               ------
+score(row)                     0.0254
 ```
 
-- **`rank`** is the row's position in that branch's list, starting at 1.
-- **`weight`** scales how much that branch contributes, letting you value one search over the other. See [Choosing Weights](#choosing-weights).
-- **`k`** is the rank constant. It softens the difference between adjacent positions, so that the top few results of a branch do not dominate everything below them. `60` is the conventional value and the one used throughout this page. See [Choosing k](#choosing-k).
+- **`rank`** is the row's position in that branch's list, starting at 1 — `5` and `10` above.
+- **`weight`** scales how much that branch contributes, letting you value one search over the other — `1.0` and `0.7` above. See [Choosing Weights](#choosing-weights).
+- **`k`** is the rank constant. It softens the difference between adjacent positions, so the top few results of a branch do not dominate everything below them. `60` is the conventional value and the one used throughout this page. See [Choosing k](#choosing-k).
 
-A row that appears in only one branch gets only that branch's term, which is what lets a strong result from either search surface on its own. Adding a third branch means adding a third term.
-
-So with `k = 60`, a row ranked first in a branch contributes `weight / 61`, and one ranked second contributes `weight / 62` — regardless of whether their BM25 scores were 2 and 1.9, or 200 and 3.
+A row returned by only one branch gets only that branch's term. A row 5th in the lexical branch and absent from the semantic one scores `0.0154`, which is how a strong result from either search surfaces on its own. Adding a third branch means adding a third term.
 
 ## Query Shape
 

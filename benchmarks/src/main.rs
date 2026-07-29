@@ -282,13 +282,15 @@ impl JSONBenchmarkResult {
     /// otherwise a single mean entry, which is what datasets that repeat one query have always
     /// reported.
     fn from_query_result(res: QueryResult) -> Vec<Self> {
+        let percentiles = TRACKED_PERCENTILES
+            .iter()
+            .map(|(label, p)| format!("{label}={:.3}", percentile(&res.results.samples, *p)))
+            .collect::<Vec<_>>()
+            .join("; ");
         let extra = format!(
-            "cold_query_ms={:.3}; n={}; p50={:.3}; p95={:.3}; p99={:.3}; query={}",
+            "cold_query_ms={:.3}; n={}; {percentiles}; query={}",
             res.results.cold,
             res.results.samples.len(),
-            percentile(&res.results.samples, 0.50),
-            percentile(&res.results.samples, 0.95),
-            percentile(&res.results.samples, 0.99),
             res.query
         );
 
@@ -314,11 +316,8 @@ impl JSONBenchmarkResult {
         println!(
             r"Query results: |
             query: {},
-            p50: {:.3} ms, p95: {:.3} ms, p99: {:.3} ms (n={} query vectors)",
+            {percentiles} (ms, over {} query vectors)",
             res.query,
-            percentile(&res.results.samples, 0.50),
-            percentile(&res.results.samples, 0.95),
-            percentile(&res.results.samples, 0.99),
             res.results.samples.len()
         );
 
@@ -2082,5 +2081,56 @@ mod tests {
     #[test]
     fn empty_sweep_selects_nothing() {
         assert!(select_points(&[]).is_empty());
+    }
+
+    fn query_result(per_vector: bool, samples: Vec<f64>) -> QueryResult {
+        QueryResult {
+            query_type: "knn_top10_1pct@r95".to_owned(),
+            query: "SELECT 1".to_owned(),
+            results: QueryRunResults {
+                cold: 11.108,
+                samples,
+                num_results: 10,
+                per_vector,
+            },
+        }
+    }
+
+    #[test]
+    fn per_vector_results_publish_one_series_per_tracked_percentile() {
+        let out = JSONBenchmarkResult::from_query_result(query_result(
+            true,
+            (1..=100).map(|i| i as f64).collect(),
+        ));
+
+        assert_eq!(
+            out.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            [
+                "knn_top10_1pct@r95 p50",
+                "knn_top10_1pct@r95 p95",
+                "knn_top10_1pct@r95 p99"
+            ]
+        );
+        assert!(out
+            .iter()
+            .all(|r| r.unit == "ms" && r.range.starts_with("95% CI [")));
+        assert_eq!(
+            out[0].extra,
+            "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
+        );
+    }
+
+    /// Datasets that repeat one query have gh-pages history under the bare query name, and their
+    /// samples are not a latency distribution. Renaming or re-valuing them would orphan that.
+    #[test]
+    fn repeated_query_results_still_publish_a_single_mean_series() {
+        let out =
+            JSONBenchmarkResult::from_query_result(query_result(false, vec![10.0, 12.0, 14.0]));
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "knn_top10_1pct@r95");
+        assert_eq!(out[0].unit, "mean ms");
+        assert_eq!(out[0].value, 12.0);
+        assert!(out[0].extra.contains("p50=12.000"), "{}", out[0].extra);
     }
 }

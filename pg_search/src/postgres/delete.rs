@@ -374,7 +374,41 @@ impl SegmentDeleter {
                 let old_meta = inner.segment_entry.meta().clone();
                 let segment = index.segment(inner.segment_entry.meta().clone());
                 advance_deletes(segment, &mut inner.segment_entry, inner.opstamp + 1)?;
-                Ok(Some((old_meta, inner.segment_entry.meta().clone())))
+                let new_meta = inner.segment_entry.meta().clone();
+                // [antithesis correctness] VACUUM delete is monotonic and same-segment: applying this
+                // VACUUM's tombstones to an immutable segment must (a) keep the same segment id and
+                // physical max_doc (advance_deletes never rewrites the segment's docs, only its .del
+                // file), and (b) never resurrect a deleted doc -- num_deleted only grows and live docs
+                // only shrink. A violation means the atomic swap would pair mismatched segments or
+                // un-delete already-dead rows (wrong results / resurrected tuples).
+                dst::observe!(|| {
+                    let old_segment_id = old_meta.id();
+                    let new_segment_id = new_meta.id();
+                    let old_max_doc = old_meta.max_doc();
+                    let new_max_doc = new_meta.max_doc();
+                    let old_num_deleted_docs = old_meta.num_deleted_docs();
+                    let new_num_deleted_docs = new_meta.num_deleted_docs();
+                    let old_num_docs = old_meta.num_docs();
+                    let new_num_docs = new_meta.num_docs();
+                    dst::assert_always!(
+                        new_segment_id == old_segment_id
+                            && new_max_doc == old_max_doc
+                            && new_num_deleted_docs >= old_num_deleted_docs
+                            && new_num_docs <= old_num_docs,
+                        "pg_search: ambulkdelete immutable delete counts are monotonic and same-segment",
+                        &::serde_json::json!({
+                            "old_segment_id": old_segment_id.to_string(),
+                            "new_segment_id": new_segment_id.to_string(),
+                            "old_max_doc": old_max_doc,
+                            "new_max_doc": new_max_doc,
+                            "old_num_deleted_docs": old_num_deleted_docs,
+                            "new_num_deleted_docs": new_num_deleted_docs,
+                            "old_num_docs": old_num_docs,
+                            "new_num_docs": new_num_docs,
+                        })
+                    );
+                });
+                Ok(Some((old_meta, new_meta)))
             }
             Self::Mutable(inner) => unsafe {
                 MetaPage::open(&inner.indexrel)

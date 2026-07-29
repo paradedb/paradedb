@@ -15,18 +15,21 @@ Reciprocal Rank Fusion merges two ranked result lists by using each row's positi
 
 Each list is called a **branch**. On this page the two branches are a full text search ordered by BM25 score (`lexical`) and a vector search ordered by distance (`semantic`).
 
-Suppose a row comes back 5th in the lexical branch and 10th in the semantic branch. Each branch contributes `weight / (k + rank)`, and the contributions are added:
+Each branch contributes `weight / (k + rank)`, and the contributions are added.
 
-```
-lexical      1.0 / (60 + 5)  = 0.0154
-semantic     0.7 / (60 + 10) = 0.0100
-                               ------
-score(row)                     0.0254
-```
-
-- **`rank`** is the row's position in that branch's list, starting at 1 — `5` and `10` above.
-- **`weight`** scales how much that branch contributes, letting you value one search over the other — `1.0` and `0.7` above. See [Choosing Weights](#choosing-weights).
+- **`rank`** is the row's position in that branch's list, starting at 1.
+- **`weight`** scales how much that branch contributes, letting you value one search over the other. See [Choosing Weights](#choosing-weights).
 - **`k`** is the rank constant. It softens the difference between adjacent positions, so the top few results of a branch do not dominate everything below them. `60` is the conventional value and the one used throughout this page. See [Choosing k](#choosing-k).
+
+Suppose a row comes back 5th in the lexical branch and 10th in the semantic branch, with `k = 60` and the lexical branch weighted `1.0` against the semantic branch's `0.7`:
+
+```
+            weight / ( k + rank)
+lexical        1.0 / (60 +    5)  = 0.0154
+semantic       0.7 / (60 +   10)  = 0.0100
+                                    ------
+score(row)                           0.0254
+```
 
 A row returned by only one branch gets only that branch's term. A row 5th in the lexical branch and absent from the semantic one scores `0.0154`, which is how a strong result from either search surfaces on its own. Adding a third branch means adding a third term.
 
@@ -69,6 +72,8 @@ LIMIT 5;
 </CodeGroup>
 
 The `1.0` and `0.7` are the per-branch weights, here valuing lexical matches over semantic ones, and `60` is `k`.
+
+The two `WHERE` clauses differ because each branch retrieves by its own method. `description @@@ 'running shoes'` is the lexical branch's query. The semantic branch's query is the vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. Restricting _which_ rows either branch may return is a separate concern — see [Filtering](#filtering).
 
 Note that the `RANK()` window function sits at the **same query level** as the `ORDER BY ... LIMIT`, rather than wrapping a nested subquery. This is the shape ParadeDB accelerates, and it is the shape you should write.
 
@@ -146,9 +151,20 @@ All tiebreaker columns must be in the ParadeDB index to keep the Top K optimizat
 
 ## Filtering
 
-Both branches accept the usual [filters](/documentation/filtering), and filters applied inside a branch are evaluated by the index rather than rechecked afterwards:
+A branch's `WHERE` clause holds two different things: the search condition that defines the branch, and any [filters](/documentation/filtering) restricting which rows are eligible.
+
+The search conditions are meant to differ, as above. Filters are the opposite — they must be identical on every branch, because they describe the same eligible set of rows.
+
+To restrict the query to footwear, add the filter to each branch alongside whatever search condition is already there:
 
 ```sql
+WITH lexical AS (
+    SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
+    FROM mock_items
+    WHERE description @@@ 'running shoes' AND category === 'footwear'
+    ORDER BY pdb.score(id) DESC, id
+    LIMIT 20
+),
 semantic AS (
     SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]') AS rank
     FROM mock_items
@@ -156,21 +172,9 @@ semantic AS (
     ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]'
     LIMIT 20
 )
+-- fused AS (...) unchanged
 ```
 
-Apply the same filter to both branches. Filtering only one of them silently biases the fusion toward the unfiltered branch, since the filtered branch contributes fewer candidates.
+The lexical branch `AND`s the filter onto its text query. The semantic branch replaces `pdb.all()` with it, since `pdb.all()` only ever meant "no restriction". Both branches still push down: the filter and the search condition are combined into a single index query rather than rechecked afterwards.
 
-## Adjusting the Final Order
-
-Fusion only knows about rank position. Because the fused rows are ordinary rows, any other column can adjust the final ordering — join it in and sort by an expression:
-
-```sql
-SELECT m.id, m.description,
-       f.score * CASE WHEN m.in_stock THEN 1.0 ELSE 0.4 END AS final_score
-FROM fused f
-JOIN mock_items m USING (id)
-ORDER BY final_score DESC, m.id
-LIMIT 5;
-```
-
-Prefer bounded multiplicative adjustments over additive ones, so that a fresh or popular row cannot outrank a much better match outright.
+Filtering only one branch is not merely uneven — rows excluded there still reach the fused result through the other branch, so the filter appears not to work.

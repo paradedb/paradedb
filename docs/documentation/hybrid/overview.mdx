@@ -9,17 +9,11 @@ canonical: https://docs.paradedb.com/documentation/hybrid/overview
   feature available in versions `0.25.0` and above.
 </Note>
 
-Hybrid search runs a [text search](/documentation/full-text/overview) and a [vector search](/documentation/vector/overview) over the same data, then merges the two result lists into a single ranking.
-
-The two methods fail in opposite ways:
-
-- **Text search** matches tokens, so it is precise on exact terms, product codes, names, and rare words. It misses paraphrase: a query for `laptop bag` does not match `notebook sleeve`, because the two share no tokens.
-- **Vector search** matches on semantic meaning, so it handles paraphrase and intent. It is fuzzy on exact strings: a serial number can rank below a row that is merely about the same topic.
-
-Because the failure modes differ, a row missed by one method is often found by the other. Running both and merging their results recovers those rows.
+Hybrid search is a technique that combines the strengths of [BM25 scoring](/documentation/full-text/overview) and [vector search](/documentation/vector/overview) to produce more relevant results.
+Because BM25 scores are produced by exact term matches while vector search matches on semantic meaning, a row missed by one method is often found by the other.
 
 ## Fusing by Rank
 
-[BM25 scores](/documentation/sorting/score) and vector distances are on different scales, so the two result lists cannot be merged by adding their scores. The standard approach is instead [Reciprocal Rank Fusion](/documentation/hybrid/rrf), which discards the scores and uses only each row's **position** in its own result list.
+Because BM25 scores and vector distances operate on different scales, the values cannot simply be added together. Instead, the standard approach is [Reciprocal Rank Fusion](/documentation/hybrid/rrf), which discards the scores and uses only each row's position, or rank, in its own result list.
 
-A row ranked first contributes the same amount whether its BM25 score was 2 or 200, so the two searches are combined without ever being placed on a common scale. In ParadeDB this is expressed directly in SQL rather than through a separate API.
+By using rank, a row that ranks first contributes the same amount whether its BM25 score was `1` or `100`, so the two searches can be combined without ever being placed on a common scale.

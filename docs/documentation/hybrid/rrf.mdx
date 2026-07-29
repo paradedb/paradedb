@@ -13,7 +13,7 @@ canonical: https://docs.paradedb.com/documentation/hybrid/rrf
 
 Reciprocal Rank Fusion merges two ranked result lists by using each row's position in its own list, rather than its score.
 
-Each list is called a **branch**. On this page the two branches are a full text search ordered by BM25 score (`text`) and a vector search ordered by distance (`vector`).
+Each list is called a branch. On this page the two branches are a full text search ordered by BM25 score (`text`) and a vector search ordered by distance (`vector`).
 
 Each branch contributes `weight / (k + rank)`, and the contributions are added.
 
@@ -29,8 +29,6 @@ vector      0.7 / (60 + 10) = 0.0100
                               ------
 score(row)                    0.0254
 ```
-
-A row returned by only one branch gets only that branch's term. A row 5th in the text branch and absent from the vector one scores `0.0154`, which is how a strong result from either search surfaces on its own. Adding a third branch means adding a third term.
 
 ## Query Shape
 

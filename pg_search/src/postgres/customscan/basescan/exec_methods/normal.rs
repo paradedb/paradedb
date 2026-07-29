@@ -76,7 +76,7 @@ impl ExecMethod for NormalScanExecState {
 
         let search_reader = state.search_reader.as_ref().unwrap();
 
-        self.search_results = if let Some(parallel_state) = state.parallel_state {
+        self.search_results = if let Some(parallel_state) = state.parallel_state() {
             // NormalScanExecState evaluates isolated batches directly, so it does not participate
             // in global statistics planning for `estimated_rows`. Thus, we pass 0 here.
             Some(search_reader.search_lazy(parallel_state, None, 0))

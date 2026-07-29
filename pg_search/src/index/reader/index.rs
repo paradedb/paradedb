@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -51,6 +52,7 @@ use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::ProbeStats;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -106,6 +108,57 @@ pub struct TopKSearchResults {
     results_original_len: usize,
     results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     aggregation_results: Option<IntermediateAggregationResults>,
+}
+
+/// Docs (+ optional aggregations) from a TopK search, plus opaque per-segment
+/// JSON info harvested from the collector Fruit (e.g. vector probe stats).
+pub struct TopKSearch {
+    pub results: TopKSearchResults,
+    pub segment_info: BTreeMap<SegmentId, serde_json::Value>,
+}
+
+impl TopKSearch {
+    fn from_results(results: TopKSearchResults) -> Self {
+        Self {
+            results,
+            segment_info: BTreeMap::new(),
+        }
+    }
+
+    fn with_segment_info(
+        results: TopKSearchResults,
+        segment_info: BTreeMap<SegmentId, serde_json::Value>,
+    ) -> Self {
+        Self {
+            results,
+            segment_info,
+        }
+    }
+}
+
+impl From<TopKSearchResults> for TopKSearch {
+    fn from(results: TopKSearchResults) -> Self {
+        Self::from_results(results)
+    }
+}
+
+fn probe_stats_to_segment_info(
+    segment_ids: &[SegmentId],
+    stats: &[ProbeStats],
+) -> BTreeMap<SegmentId, serde_json::Value> {
+    assert_eq!(
+        segment_ids.len(),
+        stats.len(),
+        "vector Fruit must yield one ProbeStats per collected segment"
+    );
+    segment_ids
+        .iter()
+        .zip(stats.iter())
+        .map(|(id, s)| {
+            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+            (*id, value)
+        })
+        .collect()
 }
 
 impl TopKSearchResults {
@@ -820,6 +873,10 @@ impl SearchIndexReader {
     /// results for MVCC visibility, and re-query if necessary.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
+    ///
+    /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
+    /// per-segment JSON in [`TopKSearch::segment_info`], not bolted onto
+    /// [`TopKSearchResults`].
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -828,7 +885,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-    ) -> TopKSearchResults {
+    ) -> TopKSearch {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -863,6 +920,7 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
+                        .into()
                     }};
                 }
 
@@ -876,6 +934,7 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
+                        .into()
                     }
                     tantivy::schema::Type::U64 => sort_fast_value!(u64),
                     tantivy::schema::Type::I64 => sort_fast_value!(i64),
@@ -891,6 +950,7 @@ impl SearchIndexReader {
                             offset,
                             aux_collector,
                         ))
+                        .into()
                     }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
@@ -931,18 +991,21 @@ impl SearchIndexReader {
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
+                .into()
             }
             OrderByInfo {
                 feature: OrderByFeature::Score { .. },
                 direction,
-            } => self.top_by_score_in_segments(
-                segment_ids,
-                *direction,
-                n,
-                offset,
-                aux_collector,
-                parallel_state_holding_shared_threshold,
-            ),
+            } => self
+                .top_by_score_in_segments(
+                    segment_ids,
+                    *direction,
+                    n,
+                    offset,
+                    aux_collector,
+                    parallel_state_holding_shared_threshold,
+                )
+                .into(),
             OrderByInfo {
                 feature: OrderByFeature::NullTest { .. },
                 ..
@@ -990,9 +1053,12 @@ impl SearchIndexReader {
                     tie_breaks.remove(i);
                 }
 
-                // Fruit is `VectorSimilarityFruit { results, stats }` for every
-                // tie-break shape. Drop probe stats for now; EXPLAIN plumbing
-                // lands in a follow-up.
+                // Record SegmentIds as the (possibly lazy) iterator is consumed so
+                // we can zip them with per-segment ProbeStats from the Fruit.
+                let collected_ids = std::cell::RefCell::new(Vec::new());
+                let segment_ids = segment_ids.inspect(|id| collected_ids.borrow_mut().push(*id));
+                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
+                // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
@@ -1023,7 +1089,12 @@ impl SearchIndexReader {
                         x + 1
                     ),
                 };
-                TopKSearchResults::new_for_score(fruit.results, aggregation_results)
+                let segment_ids = collected_ids.into_inner();
+                let segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                TopKSearch::with_segment_info(
+                    TopKSearchResults::new_for_score(fruit.results, aggregation_results),
+                    segment_info,
+                )
             }
         }
     }

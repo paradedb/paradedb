@@ -22,6 +22,7 @@ pub mod parallel;
 pub(crate) mod privdat;
 pub mod projections;
 mod scan_state;
+pub(crate) mod telemetry;
 
 use cost::{
     costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
@@ -147,7 +148,7 @@ impl BaseScan {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // the leader only sees snapshot-visible segments
                     MvccSatisfies::Snapshot
-                } else if let Some(parallel_state) = state.custom_state().parallel_state {
+                } else if let Some(parallel_state) = state.custom_state().parallel_state() {
                     // the workers have their own rules, which is literally every segment
                     // this is because the workers pick a specific segment to query that
                     // is known to be held open/pinned by the leader but might not pass a ::Snapshot
@@ -1472,8 +1473,12 @@ impl CustomScan for BaseScan {
                         .map_or(0, |vc| vc.invisible_tuple_count) as u64,
                     None,
                 );
-                if let Some(explain_data) = &state.custom_state().parallel_explain_data {
+                if let Some(explain_data) = state.custom_state().telemetry.parallel_explain() {
                     explainer.add_json("Parallel Workers", &explain_data.workers);
+                }
+                let segment_info = state.custom_state().segment_info_for_explain();
+                if !segment_info.is_empty() {
+                    explainer.add_json("Segment Info", &segment_info);
                 }
             }
         }
@@ -1770,13 +1775,27 @@ impl CustomScan for BaseScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        if let Some(parallel_state) = state.custom_state().parallel_state {
-            state.custom_state_mut().parallel_explain_data =
-                Some(unsafe { (*parallel_state).explain_data() });
-        }
+        // Leader-only: last chance to read DSM before Postgres destroys it.
+        let scan_state = state.custom_state_mut();
+        if let Some(parallel) = scan_state.parallel {
+            if parallel.is_leader() {
+                parallel.finalize_explain(&mut scan_state.telemetry);
+            }
+        };
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Workers: DSM is still alive; publish local telemetry once.
+        // Leader: do not touch DSM — Shutdown already ran (or serial path).
+        {
+            let scan_state = state.custom_state_mut();
+            if let Some(parallel) = scan_state.parallel {
+                if !parallel.is_leader() {
+                    parallel.publish_telemetry(&scan_state.telemetry);
+                }
+            }
+        }
+
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());

@@ -32,7 +32,7 @@ mod convert;
 mod sample;
 mod utils;
 
-use config::{load_dataset_config, LoadFormat};
+use config::{load_dataset_config, DatasetConfig, LoadFormat, SweepConfig};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -354,7 +354,23 @@ async fn resolve_template_params(
     size: Option<&str>,
     statements: &[String],
 ) -> anyhow::Result<HashMap<String, String>> {
-    let referenced: HashSet<String> = statements.iter().flat_map(|s| template_names(s)).collect();
+    resolve_template_params_except(conn, dataset, size, statements, &HashSet::new()).await
+}
+
+/// As [`resolve_template_params`], but skips names the caller supplies itself -- a swept param is
+/// provided per point by the sweep, so it needs no `[params]` entry.
+async fn resolve_template_params_except(
+    conn: &mut PgConnection,
+    dataset: &str,
+    size: Option<&str>,
+    statements: &[String],
+    skip: &HashSet<String>,
+) -> anyhow::Result<HashMap<String, String>> {
+    let referenced: HashSet<String> = statements
+        .iter()
+        .flat_map(|s| template_names(s))
+        .filter(|name| !skip.contains(name))
+        .collect();
     if referenced.is_empty() {
         return Ok(HashMap::new());
     }
@@ -371,14 +387,47 @@ async fn resolve_template_params(
         let expr = config.params.get(&name).with_context(|| {
             format!("SQL references `{{{{ {name} }}}}` but the dataset's [params] has no `{name}`")
         })?;
-        let expr = substitute_vars(expr, &vars).with_context(|| format!("In [params] `{name}`"))?;
-        let value: String = sqlx::query_scalar(&format!("SELECT ({expr})::numeric::text"))
-            .fetch_one(&mut *conn)
-            .await
-            .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))?;
+        let value = eval_param(conn, &name, expr, &vars).await?;
         params.insert(name, value);
     }
     Ok(params)
+}
+
+/// Substitute `vars` into a `[params]` expression and evaluate it server-side.
+///
+/// Evaluated through `numeric` (not `bigint`) so fractional params keep their decimals; integer
+/// values still render without a trailing `.0`.
+async fn eval_param(
+    conn: &mut PgConnection,
+    name: &str,
+    expr: &str,
+    vars: &HashMap<String, String>,
+) -> anyhow::Result<String> {
+    let expr = substitute_vars(expr, vars).with_context(|| format!("In [params] `{name}`"))?;
+    sqlx::query_scalar(&format!("SELECT ({expr})::numeric::text"))
+        .fetch_one(&mut *conn)
+        .await
+        .with_context(|| format!("Failed to evaluate [params] `{name}` = `{expr}`"))
+}
+
+/// Split a query file's variant into its operating-point `SET`s and the query itself. Handles the
+/// inline `SET ...; SET ...; SELECT ...` compound the harness uses.
+fn split_operating_point(variant: &str) -> anyhow::Result<(Vec<String>, String)> {
+    let mut sets = Vec::new();
+    let mut query = None;
+    for part in variant.split(';') {
+        let part = part.trim().to_string();
+        if part.is_empty() {
+            continue;
+        }
+        if part.to_uppercase().starts_with("SET ") {
+            sets.push(part);
+        } else {
+            query = Some(part);
+        }
+    }
+    let query = query.with_context(|| "query variant has no statement to run")?;
+    Ok((sets, query))
 }
 
 async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<IndexCreationResult>> {
@@ -528,21 +577,9 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     let first_variant = raw_statements
         .first()
         .with_context(|| format!("Query file {query_file} is empty"))?;
-    let mut set_statements = Vec::new();
-    let mut knn_query = None;
-    for part in substitute_vars(first_variant, &params)?.split(';') {
-        let part = part.trim().to_string();
-        if part.is_empty() {
-            continue;
-        }
-        if part.to_uppercase().starts_with("SET ") {
-            set_statements.push(part);
-        } else {
-            knn_query = Some(part);
-        }
-    }
-    let knn_query =
-        knn_query.with_context(|| format!("Query file {query_file} has no query to score"))?;
+    let (set_statements, knn_query) =
+        split_operating_point(&substitute_vars(first_variant, &params)?)
+            .with_context(|| format!("Query file {query_file} has no query to score"))?;
     if !knn_query.contains(&format!("current_setting('{QVEC_GUC}')")) {
         bail!(
             "Query file {query_file} does not order by current_setting('{QVEC_GUC}'); recall cannot \
@@ -556,6 +593,49 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         .clone()
         .unwrap_or_else(|| args.query.rsplit('/').next().unwrap().to_string());
 
+    let fixtures = load_recall_fixtures(
+        &mut conn,
+        &args.url,
+        &args.dataset,
+        &args.size,
+        &gt_stem,
+        base,
+    )
+    .await?;
+
+    // Apply the query file's SET statements so recall runs at the latency query's operating point.
+    for stmt in &set_statements {
+        sqlx::query(stmt)
+            .execute(&mut conn)
+            .await
+            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
+    }
+
+    let recall = score_recall(&mut conn, &knn_query, &fixtures).await?;
+    println!("recall = {recall:.4}");
+    Ok(())
+}
+
+/// Held-out query vectors (as pgvector text, ready to assign to `cohere.qvec`) and the exact
+/// ground truth, keyed by query id. Loaded once per (query, size) and reused across every recall
+/// measurement at that point, so a sweep re-scores the same fixtures at each operating point
+/// instead of re-reading them from S3.
+struct RecallFixtures {
+    vectors: Vec<(i32, String)>,
+    ground_truth: HashMap<i32, HashSet<String>>,
+}
+
+/// Create `recall.sql`'s fixture tables, load each from its exact parquet key, and read them back.
+async fn load_recall_fixtures(
+    conn: &mut PgConnection,
+    url: &str,
+    dataset: &str,
+    size: &str,
+    gt_stem: &str,
+    base: &str,
+) -> anyhow::Result<RecallFixtures> {
+    let recall_sql = format!("datasets/{dataset}/recall.sql");
+
     // Tables recall.sql creates, each loaded from an exact parquet key (not a glob, so a
     // public-GetObject bucket can be read cross-account without ListBucket) once it appears.
     let mut fixtures = vec![
@@ -565,10 +645,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         ),
         (
             "recall_gt",
-            format!(
-                "{base}/queries/ground_truth_{}_{}.parquet",
-                gt_stem, args.size
-            ),
+            format!("{base}/queries/ground_truth_{gt_stem}_{size}.parquet"),
         ),
     ];
 
@@ -577,7 +654,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
     // prior run before recall.sql drops/recreates it.)
     for statement in queries(Path::new(&recall_sql)) {
         sqlx::query(&statement)
-            .execute(&mut conn)
+            .execute(&mut *conn)
             .await
             .with_context(|| format!("Failed to run recall setup statement: {statement}"))?;
         let is_create = statement.to_lowercase().contains("create table");
@@ -585,7 +662,7 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         for (table, source) in fixtures {
             if is_create && statement.contains(table) {
                 println!("Loading {table} from {source}...");
-                load_parquet_into(&args.url, table, &source)?;
+                load_parquet_into(url, table, &source)?;
             } else {
                 pending.push((table, source));
             }
@@ -600,44 +677,47 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Apply the query file's SET statements so recall runs at the latency query's operating point.
-    for stmt in &set_statements {
-        sqlx::query(stmt)
-            .execute(&mut conn)
-            .await
-            .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
-    }
-
-    // Held-out query vectors (as pgvector text, ready to assign to cohere.qvec) and the exact ground
-    // truth, keyed by query id.
     let vectors: Vec<(i32, String)> =
         sqlx::query_as("SELECT id, emb::text FROM cohere_queries ORDER BY id")
-            .fetch_all(&mut conn)
+            .fetch_all(&mut *conn)
             .await
             .with_context(|| "Failed to read cohere_queries")?;
     let ground_truth: HashMap<i32, HashSet<String>> =
         sqlx::query_as::<_, (i32, Vec<String>)>("SELECT query_id, gt_ids FROM recall_gt")
-            .fetch_all(&mut conn)
+            .fetch_all(&mut *conn)
             .await
             .with_context(|| "Failed to read recall_gt")?
             .into_iter()
             .map(|(id, ids)| (id, ids.into_iter().collect()))
             .collect();
 
-    // For each held-out vector, set cohere.qvec then run the latency query verbatim via the simple
-    // protocol (matching the benchmark, so the planner picks the same plan), and intersect its
-    // top-k with the exact ground truth.
+    Ok(RecallFixtures {
+        vectors,
+        ground_truth,
+    })
+}
+
+/// Score recall@k of `knn_query` against `fixtures`. For each held-out vector, set `cohere.qvec`
+/// then run the latency query verbatim via the simple protocol (matching the benchmark, so the
+/// planner picks the same plan), and intersect its top-k with the exact ground truth. The
+/// session's operating-point `SET`s must already be applied.
+async fn score_recall(
+    conn: &mut PgConnection,
+    knn_query: &str,
+    fixtures: &RecallFixtures,
+) -> anyhow::Result<f64> {
     let mut total_hits = 0usize;
-    for (id, emb_text) in &vectors {
+    for (id, emb_text) in &fixtures.vectors {
         sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{emb_text}';"))
-            .execute(&mut conn)
+            .execute(&mut *conn)
             .await
             .with_context(|| format!("Failed to set {QVEC_GUC} for query {id}"))?;
-        let rows = sqlx::raw_sql(&knn_query)
-            .fetch_all(&mut conn)
+        let rows = sqlx::raw_sql(knn_query)
+            .fetch_all(&mut *conn)
             .await
             .with_context(|| format!("Failed to run recall query for query {id}"))?;
-        let gt = ground_truth
+        let gt = fixtures
+            .ground_truth
             .get(id)
             .with_context(|| format!("No ground truth for query id {id}"))?;
         for row in &rows {
@@ -649,10 +729,234 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
             }
         }
     }
+    Ok(total_hits as f64 / (fixtures.vectors.len() * RECALL_K) as f64)
+}
 
-    let recall = total_hits as f64 / (vectors.len() * RECALL_K) as f64;
-    println!("recall = {recall:.4}");
-    Ok(())
+/// Recall targets a sweep reports, lowest first.
+const RECALL_TARGETS: [(&str, f64); 3] = [("r90", 0.90), ("r95", 0.95), ("r99", 0.99)];
+
+/// One measured point of a sweep.
+struct SweepPoint {
+    /// The swept value, as written in `[sweeps].values`.
+    value: String,
+    recall: f64,
+    /// The variant (SETs + query) with `value` substituted, ready to benchmark.
+    query: String,
+}
+
+/// The point chosen for one recall target.
+struct SelectedPoint {
+    label: &'static str,
+    target: f64,
+    value: String,
+    recall: f64,
+    query: String,
+    /// False when no swept value reached the target. The closest (highest-recall) point is
+    /// reported instead, so too narrow a sweep range is visible rather than passing as a hit.
+    reached: bool,
+}
+
+/// For each target, the cheapest point that reaches it.
+///
+/// Recall rises monotonically with these knobs, so the cheapest qualifying point is the
+/// lowest-recall one at or above the target -- which avoids having to order the swept values
+/// themselves, since they are opaque SQL expressions.
+fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
+    let mut by_recall: Vec<&SweepPoint> = points.iter().collect();
+    by_recall.sort_by(|a, b| a.recall.total_cmp(&b.recall));
+
+    RECALL_TARGETS
+        .iter()
+        .filter_map(|(label, target)| {
+            let (point, reached) = match by_recall.iter().find(|p| p.recall >= *target) {
+                Some(point) => (*point, true),
+                None => (*by_recall.last()?, false),
+            };
+            Some(SelectedPoint {
+                label,
+                target: *target,
+                value: point.value.clone(),
+                recall: point.recall,
+                query: point.query.clone(),
+                reached,
+            })
+        })
+        .collect()
+}
+
+/// Measure recall at every value of `sweep` for one query, reusing a single set of fixtures.
+async fn sweep_query(
+    conn: &mut PgConnection,
+    args: &BenchmarkArgs,
+    config: &DatasetConfig,
+    size: &str,
+    query_stem: &str,
+    raw_variant: &str,
+    sweep: &SweepConfig,
+) -> anyhow::Result<Vec<SweepPoint>> {
+    // The exact top-10 depends only on filter selectivity, so variants of the same filter share
+    // one ground truth (vchord ships prefilter on/off variants of each).
+    let gt_stem = query_stem
+        .strip_suffix("_prefilter_on")
+        .or_else(|| query_stem.strip_suffix("_prefilter_off"))
+        .unwrap_or(query_stem);
+    let base = config.s3_base_path.as_deref().with_context(|| {
+        format!(
+            "Sweeping `{query_stem}` needs ground truth, but dataset '{}' has no s3_base_path",
+            args.dataset
+        )
+    })?;
+    let fixtures = load_recall_fixtures(
+        conn,
+        &args.url,
+        &args.dataset,
+        size,
+        gt_stem,
+        base.trim_end_matches('/'),
+    )
+    .await?;
+
+    if !template_names(raw_variant).contains(&sweep.param) {
+        bail!(
+            "Sweep for `{query_stem}` varies `{0}`, but that query does not reference `{{{{ {0} }}}}`",
+            sweep.param
+        );
+    }
+    // Resolve the variant's *other* params once; the swept one comes from the sweep per point, so
+    // it needs no `[params]` entry of its own.
+    let swept = HashSet::from([sweep.param.clone()]);
+    let base_params = resolve_template_params_except(
+        conn,
+        &args.dataset,
+        Some(size),
+        &[raw_variant.to_owned()],
+        &swept,
+    )
+    .await?;
+    let vars = HashMap::from([("dataset_size".to_owned(), dataset_rows(size)?.to_string())]);
+
+    let mut points = Vec::new();
+    for value in &sweep.values {
+        let resolved = eval_param(conn, &sweep.param, value, &vars).await?;
+        let mut params = base_params.clone();
+        params.insert(sweep.param.clone(), resolved);
+
+        let query = substitute_vars(raw_variant, &params)?;
+        let (sets, knn_query) = split_operating_point(&query)?;
+        for stmt in &sets {
+            sqlx::query(stmt)
+                .execute(&mut *conn)
+                .await
+                .with_context(|| format!("Failed to apply sweep setting: {stmt}"))?;
+        }
+        let recall = score_recall(conn, &knn_query, &fixtures).await?;
+        println!("  {} = {value} -> recall {recall:.4}", sweep.param);
+        points.push(SweepPoint {
+            value: value.clone(),
+            recall,
+            query,
+        });
+    }
+    Ok(points)
+}
+
+/// One selected operating point, held until latency has been measured for it so the run's summary
+/// can report the recall and the latency of the same point together.
+struct SweepSummaryRow {
+    query: String,
+    label: &'static str,
+    param: String,
+    value: String,
+    recall: f64,
+    reached: bool,
+}
+
+/// Replace each query that declares a sweep with one entry per recall target, so only the selected
+/// operating points are benchmarked for latency. Queries without a sweep pass through untouched.
+///
+/// Returns the rows for the run's sweep summary; latency is joined on afterwards by
+/// [`write_sweep_summary`].
+async fn expand_sweeps(
+    conn: &mut PgConnection,
+    args: &BenchmarkArgs,
+    parsed: Vec<(String, String)>,
+) -> anyhow::Result<(Vec<(String, String)>, Vec<SweepSummaryRow>)> {
+    let (config, _) = load_dataset_config(&format!("datasets/{}/config.toml", args.dataset))?;
+    if config.sweeps.is_empty() {
+        return Ok((parsed, Vec::new()));
+    }
+    let size = args
+        .size
+        .as_deref()
+        .with_context(|| "Sweeping needs --size to select the ground truth")?;
+
+    let mut expanded = Vec::new();
+    let mut summary = Vec::new();
+    for (query_type, query) in parsed {
+        // Only a file's first variant is labeled with the bare stem, so later variants (which
+        // recall does not score) never match a sweep.
+        let Some(sweep) = config.sweep_for(&args.index, &query_type) else {
+            expanded.push((query_type, query));
+            continue;
+        };
+
+        println!(
+            "Sweeping {query_type} over {} ({} values)",
+            sweep.param,
+            sweep.values.len()
+        );
+        let points = sweep_query(conn, args, &config, size, &query_type, &query, sweep).await?;
+        for selected in select_points(&points) {
+            if !selected.reached {
+                println!(
+                    "  WARNING: no value reached {:.0}% recall for {query_type}; \
+                     reporting the best point ({:.4}). Widen the sweep range.",
+                    selected.target * 100.0,
+                    selected.recall
+                );
+            }
+            summary.push(SweepSummaryRow {
+                query: query_type.clone(),
+                label: selected.label,
+                param: sweep.param.clone(),
+                value: selected.value,
+                recall: selected.recall,
+                reached: selected.reached,
+            });
+            expanded.push((format!("{query_type}@{}", selected.label), selected.query));
+        }
+    }
+    Ok((expanded, summary))
+}
+
+/// Write `sweep_summary_{size}.tsv` for the workflow to render: each selected point with the recall
+/// it achieved and the latency measured at it.
+fn write_sweep_summary(
+    size: &str,
+    rows: &[SweepSummaryRow],
+    results: &[QueryResult],
+) -> anyhow::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut out = Vec::new();
+    for r in rows {
+        // Latency was measured under the expanded label the sweep emitted.
+        let benchmarked = format!("{}@{}", r.query, r.label);
+        let latency = results
+            .iter()
+            .find(|q| q.query_type == benchmarked)
+            .map(|q| format!("{:.2}", mean(&q.results.samples)))
+            // A query that errored is skipped by the benchmark loop, so it has no latency.
+            .unwrap_or_else(|| "n/a".to_owned());
+        out.push(format!(
+            "{}\t{}\t{}\t{}\t{:.4}\t{}\t{}",
+            r.query, r.label, r.param, r.value, r.recall, r.reached, latency
+        ));
+    }
+    // Per size, so a later size's run does not clobber an earlier one's summary.
+    let path = format!("sweep_summary_{size}.tsv");
+    std::fs::write(&path, out.join("\n") + "\n").with_context(|| format!("Failed to write {path}"))
 }
 
 /// Load `source` (a parquet path/URL) into the already-created Postgres `table` via DuckDB's
@@ -730,6 +1034,11 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         .iter()
         .flat_map(|p| benchmark_queries(p))
         .collect();
+    // Expand any query declaring a sweep into one entry per recall target, measured against the
+    // index just built. Swept entries come back fully substituted; the rest still hold `{{ }}`
+    // references and are resolved below.
+    let (parsed_queries, sweep_summary) =
+        expand_sweeps(&mut utility_conn, args, parsed_queries).await?;
     let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,
@@ -778,6 +1087,10 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
                 println!("Skipped (query error)\n");
             }
         }
+    }
+
+    if let Some(size) = args.size.as_deref() {
+        write_sweep_summary(size, &sweep_summary, &results)?;
     }
 
     Ok(results)
@@ -1561,4 +1874,72 @@ async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<
         .await
         .with_context(|| format!("Failed to evict PostgreSQL buffer cache: {evict_query}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(value: &str, recall: f64) -> SweepPoint {
+        SweepPoint {
+            value: value.to_owned(),
+            recall,
+            query: format!("SET eps={value}; SELECT 1"),
+        }
+    }
+
+    #[test]
+    fn selects_cheapest_point_reaching_each_target() {
+        let points = vec![
+            point("0.1", 0.88),
+            point("0.2", 0.93),
+            point("0.3", 0.96),
+            point("0.5", 0.97),
+            point("0.8", 0.995),
+        ];
+        let selected = select_points(&points);
+
+        let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
+        // Cheapest at-or-above each target, not the nearest: 0.93 is closer to 0.90 than 0.88 is,
+        // and 0.96 is the first to clear 0.95 even though 0.97 is also above it.
+        assert_eq!(by_label["r90"].value, "0.2");
+        assert_eq!(by_label["r95"].value, "0.3");
+        assert_eq!(by_label["r99"].value, "0.8");
+        assert!(selected.iter().all(|s| s.reached));
+        // The selected point carries the query that produced it.
+        assert_eq!(by_label["r95"].query, "SET eps=0.3; SELECT 1");
+    }
+
+    #[test]
+    fn falls_back_to_best_point_and_flags_unreached_target() {
+        let points = vec![point("0.1", 0.90), point("0.2", 0.94)];
+        let selected = select_points(&points);
+        let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
+
+        assert!(by_label["r90"].reached);
+        // Nothing cleared 95% or 99%: report the best available, flagged so the caller can warn.
+        for label in ["r95", "r99"] {
+            assert!(!by_label[label].reached, "{label} should be unreached");
+            assert_eq!(by_label[label].value, "0.2");
+            assert_eq!(by_label[label].recall, 0.94);
+        }
+    }
+
+    #[test]
+    fn selection_ignores_the_order_values_were_measured_in() {
+        let ascending = vec![point("0.1", 0.88), point("0.3", 0.96)];
+        let descending = vec![point("0.3", 0.96), point("0.1", 0.88)];
+        let pick = |pts: &[SweepPoint]| {
+            select_points(pts)
+                .into_iter()
+                .map(|s| s.value)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(pick(&ascending), pick(&descending));
+    }
+
+    #[test]
+    fn empty_sweep_selects_nothing() {
+        assert!(select_points(&[]).is_empty());
+    }
 }

@@ -51,6 +51,11 @@ on:
         required: false
         type: boolean
         default: false
+      publish_baseline:
+        description: "Whether to write the results to the gh-pages baseline that later runs are diffed against. Ignored unless this run is on main. Untick for an exploratory run you do not want recorded."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   actions: write
@@ -92,6 +97,9 @@ jobs:
       # chosen index comes from the dispatch input or the label name (no default).
       RUN_STACKOVERFLOW: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackoverflow')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)) }}
       RUN_COHERE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'cohere')) || (github.event_name == 'pull_request' && contains(fromJson('["benchmark-cohere-hnsw", "benchmark-cohere-ivfflat", "benchmark-cohere-vchord", "benchmark-cohere-pg_search"]'), github.event.label.name)) }}
+      # Only main writes the baseline. Every other run still fetches it and diffs against it,
+      # so a PR gets its comparison without being able to move the reference point.
+      PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
       COHERE_INDEX: ${{ inputs.cohere_index || (github.event.label.name == 'benchmark-cohere-ivfflat' && 'ivfflat') || (github.event.label.name == 'benchmark-cohere-vchord' && 'vchord') || (github.event.label.name == 'benchmark-cohere-pg_search' && 'pg_search') || (github.event.label.name == 'benchmark-cohere-hnsw' && 'hnsw') }}
 
     steps:
@@ -278,6 +286,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -309,6 +318,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: ${{ env.RUN_STACKOVERFLOW == 'true' }}
@@ -340,6 +350,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -386,6 +397,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       - name: Restore "cohere" Heap Snapshot (10M)
         if: ${{ env.RUN_COHERE == 'true' }}
@@ -428,6 +440,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
+          publish: ${{ env.PUBLISH_BASELINE }}
 
       # Renders the operating points the benchmark selected. The benchmark step measures recall
       # across each query's swept values and keeps the cheapest one reaching each target, writing

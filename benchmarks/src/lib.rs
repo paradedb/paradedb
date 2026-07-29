@@ -102,6 +102,36 @@ pub fn percentile(data: &[f64], p: f64) -> f64 {
     sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo as f64)
 }
 
+/// Returns the `[lo, hi]` order-statistic confidence interval for the `p`th percentile of `data`.
+///
+/// A mean's t-interval describes the mean, not a quantile, so [`confidence_interval_half_width`]
+/// cannot be reused here. This is the distribution-free alternative: the bounds are the samples at
+/// ranks `np ± z*sqrt(np(1-p))`, clamped to the data.
+///
+/// The interval is asymmetric about the percentile, and wide in the tail: with one timing per
+/// held-out query vector (~100 samples), p99 is bounded by only the few slowest vectors.
+pub fn percentile_confidence_interval(data: &[f64], p: f64, confidence_level: f64) -> (f64, f64) {
+    assert!(!data.is_empty());
+    assert!((0.0..=1.0).contains(&p));
+    assert!(confidence_level > 0.0);
+    assert!(confidence_level < 1.0);
+
+    let mut sorted = data.to_vec();
+    sorted.sort_by(f64::total_cmp);
+
+    let n = sorted.len() as f64;
+    let half_alpha = (1.0 - confidence_level) / 2.0;
+    let z = distrs::Normal::ppf(1.0 - half_alpha, 0.0, 1.0);
+    let spread = z * (n * p * (1.0 - p)).sqrt();
+
+    // The ranks the formula produces are 1-based, hence the shift onto a 0-based index.
+    let index = |rank: f64| (rank.max(1.0).min(n) as usize) - 1;
+    let lo = index((n * p - spread).floor());
+    let hi = index((n * p + spread).ceil());
+
+    (sorted[lo], sorted[hi])
+}
+
 /// Returns the variance of the slice contents
 fn variance(data: &[f64]) -> f64 {
     assert!(!data.is_empty());
@@ -226,6 +256,56 @@ mod percentile_tests {
     fn single_sample_is_its_own_percentile() {
         for p in [0.0, 0.5, 0.99, 1.0] {
             assert_relative_eq!(percentile(&[42.0], p), 42.0);
+        }
+    }
+
+    /// Values are their own 1-based rank, so a bound reads back as the rank it selected.
+    fn ranks(n: usize, p: f64) -> (usize, usize) {
+        let d: Vec<f64> = (1..=n).map(|i| i as f64).collect();
+        let (lo, hi) = percentile_confidence_interval(&d, p, 0.95);
+        (lo as usize, hi as usize)
+    }
+
+    #[test]
+    fn median_interval_matches_published_ranks() {
+        // The textbook 95% interval for the median of 100 samples is the 40th to 60th value.
+        assert_eq!(ranks(100, 0.5), (40, 60));
+    }
+
+    #[test]
+    fn interval_brackets_the_percentile() {
+        let d: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        for p in [0.5, 0.95, 0.99] {
+            let (lo, hi) = percentile_confidence_interval(&d, p, 0.95);
+            let point = percentile(&d, p);
+            assert!(
+                lo <= point && point <= hi,
+                "p{p} {point} outside [{lo}, {hi}]"
+            );
+        }
+    }
+
+    #[test]
+    fn tail_intervals_are_narrower_in_rank_but_clamp_at_the_top() {
+        // p99 of 100 samples is bounded by only the slowest few, and cannot reach past the max.
+        let (lo, hi) = ranks(100, 0.99);
+        assert_eq!(hi, 100);
+        assert!(hi - lo <= 4, "p99 spanned {} ranks", hi - lo);
+        // A wider confidence level can only widen the interval.
+        let d: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        let (lo99, _) = percentile_confidence_interval(&d, 0.5, 0.99);
+        let (lo95, _) = percentile_confidence_interval(&d, 0.5, 0.95);
+        assert!(lo99 <= lo95);
+    }
+
+    #[test]
+    fn small_and_degenerate_inputs_stay_in_bounds() {
+        for n in 1..=5 {
+            let d: Vec<f64> = (1..=n).map(|i| i as f64).collect();
+            for p in [0.0, 0.5, 0.95, 0.99, 1.0] {
+                let (lo, hi) = percentile_confidence_interval(&d, p, 0.95);
+                assert!(lo >= 1.0 && hi <= n as f64 && lo <= hi, "n={n} p={p}");
+            }
         }
     }
 }

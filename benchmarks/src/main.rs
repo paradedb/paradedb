@@ -17,7 +17,9 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::{confidence_interval_half_width, mean, percentile, Window};
+use paradedb::{
+    confidence_interval_half_width, mean, percentile, percentile_confidence_interval, Window,
+};
 use sqlx::{Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -322,13 +324,15 @@ impl JSONBenchmarkResult {
 
         TRACKED_PERCENTILES
             .iter()
-            .map(|(label, p)| Self {
-                name: format!("{} {label}", res.query_type),
-                unit: "ms",
-                value: percentile(&res.results.samples, *p),
-                // A mean's confidence interval says nothing about a percentile, so no error bar.
-                range: String::new(),
-                extra: extra.clone(),
+            .map(|(label, p)| {
+                let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
+                Self {
+                    name: format!("{} {label}", res.query_type),
+                    unit: "ms",
+                    value: percentile(&res.results.samples, *p),
+                    range: format!("95% CI [{lo:.3}, {hi:.3}]"),
+                    extra: extra.clone(),
+                }
             })
             .collect()
     }

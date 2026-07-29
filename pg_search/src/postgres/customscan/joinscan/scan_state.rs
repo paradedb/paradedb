@@ -274,6 +274,9 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     builder = builder
         .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
         .with_optimizer_rule(Arc::new(
+            super::range_partitioning_rule::RangePartitioningRule::new(),
+        ))
+        .with_optimizer_rule(Arc::new(
             crate::scan::late_materialization::LateMaterializationRule,
         ));
 

@@ -108,33 +108,29 @@ pub struct ScanState {
 
 /// Execution state for a single `PgSearchScanPlan`.
 ///
-/// In multi-partition distributed execution, operators like `NestedLoopJoinExec` or `datafusion-distributed`'s
-/// worker fragment runner execute all partitions of a plan concurrently across tasks.
-/// For plans initialized with a `ScanState`, the first `execute()` takes the reader. If the plan has multiple
-/// partitions (`partition_count > 1`), subsequent calls up to `partition_count` yield an empty stream (`Empty`).
-/// Once all budget calls are spent, the state transitions to `Consumed`.
+/// Under multi-partition distributed or parallel execution, a plan variant's `assigned_partition` indicates
+/// which partition should consume the state and yield data. Calling `execute()` on that assigned partition
+/// consumes the state exactly once and transitions it to `Consumed`.
 ///
-/// Because all tasks/variants in a single process share the exact same `ExecutionState` instance (cloned via `Arc`),
-/// this state machine is essential for correctness when a process hosts multiple tasks for the same scan stage.
-/// The first task to poll `execute()` takes the `Ready` state and returns a stream that dynamically claims segments
-/// from the `ParallelScanState`. The subsequent tasks encounter the `Empty` state and return empty streams, safely
-/// allowing the first stream to do all the work for that process's portion of segments.
-#[derive(Default)]
+/// Any calls to `execute()` for a partition that does not match `assigned_partition` will yield an
+/// empty stream and leave the state untouched. This ensures each plan variant only yields data for its
+/// explicitly assigned slice of the workload.
+#[derive(Default, Clone)]
 pub enum ExecutionState {
     /// In Shared mode, we optionally load-balance via ParallelScanState.
-    /// The state is consumed by the first partition.
+    /// The state is consumed by the assigned partition.
     Shared {
         parallel_state: Option<UnsafeSendSync<*mut crate::postgres::ParallelScanState>>,
-        scan_state: Option<Box<UnsafeSendSync<ScanState>>>,
-        spent_partitions: Vec<bool>,
+        scan_state: Box<UnsafeSendSync<ScanState>>,
     },
     /// In RangePartitioned mode, we static-partition using RangePartitioning.
-    /// The state is cloned for each partition.
+    /// The state is consumed by the assigned partition.
     RangePartitioned {
         range_boundaries: RangePartitioning,
         scan_state: Box<UnsafeSendSync<ScanState>>,
-        spent_partitions: Vec<bool>,
     },
+    /// The state has been consumed by a call to execute().
+    Consumed,
     /// Uninitialized placeholder state.
     #[default]
     Uninitialized,
@@ -142,11 +138,11 @@ pub enum ExecutionState {
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// Under multi-partition distributed execution, this plan's `output_partitioning` declares
-/// a *capacity* (`min(segments, target_partitions)`). The partitions do not statically map
-/// to data; instead, tasks dynamically claim segments from the shared `ParallelScanState` as
-/// they process the stream returned by `execute()`. See `ExecutionState` for details on how
-/// multiple tasks safely share state within a single process.
+/// Under multi-partition parallel or distributed execution, this plan's `output_partitioning` declares
+/// a *capacity* (`min(segments, target_partitions)`). The plan is then cloned into multiple variants,
+/// where each variant has its `assigned_partition` explicitly set. When `execute()` is called, only
+/// the assigned partition actually consumes the scan state to produce a stream, guaranteeing exactly-once
+/// processing of the underlying data.
 pub struct PgSearchScanPlan {
     /// State for this single-partition scan.
     ///
@@ -198,6 +194,35 @@ pub struct PgSearchScanPlan {
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
     range_sample: Option<RangePartitioningSample>,
+    /// When executing in a multi-task distributed or parallel environment, this
+    /// indicates the specific execution partition this plan variant is responsible for.
+    /// It guarantees that the `ExecutionState` is consumed exactly once by the designated worker.
+    assigned_partition: Option<usize>,
+}
+
+impl Clone for PgSearchScanPlan {
+    fn clone(&self) -> Self {
+        let state_guard = self.state.lock().unwrap();
+        let new_state = state_guard.clone();
+        Self {
+            state: Mutex::new(new_state),
+            planner_estimated_rows: self.planner_estimated_rows,
+            segment_count: self.segment_count,
+            properties: Arc::clone(&self.properties),
+            resolved_query: self.resolved_query.clone(),
+            dynamic_filters: self.dynamic_filters.clone(),
+            metrics: self.metrics.clone(),
+            deferred_fields: self.deferred_fields.clone(),
+            ffhelper: self.ffhelper.clone(),
+            indexrelid: self.indexrelid,
+            deferred_ctid_plan_position: self.deferred_ctid_plan_position,
+            dynamic_filter_pushdown: Arc::clone(&self.dynamic_filter_pushdown),
+            sort_order: self.sort_order.clone(),
+            dynamic_filter_strategy: Arc::clone(&self.dynamic_filter_strategy),
+            range_sample: self.range_sample.clone(),
+            assigned_partition: self.assigned_partition,
+        }
+    }
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -276,13 +301,11 @@ impl PgSearchScanPlan {
                     ExecutionState::RangePartitioned {
                         range_boundaries: sample.build(partition_count),
                         scan_state: Box::new(UnsafeSendSync(s)),
-                        spent_partitions: vec![false; partition_count],
                     }
                 } else {
                     ExecutionState::Shared {
                         parallel_state: parallel_state.map(UnsafeSendSync),
-                        scan_state: Some(Box::new(UnsafeSendSync(s))),
-                        spent_partitions: vec![false; partition_count],
+                        scan_state: Box::new(UnsafeSendSync(s)),
                     }
                 }
             }
@@ -305,6 +328,7 @@ impl PgSearchScanPlan {
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
             range_sample,
+            assigned_partition: None,
         }
     }
 
@@ -328,22 +352,19 @@ impl PgSearchScanPlan {
             ExecutionState::Shared {
                 parallel_state,
                 scan_state,
-                ..
             } => ExecutionState::Shared {
                 parallel_state: parallel_state.clone(),
                 scan_state: scan_state.clone(),
-                spent_partitions: vec![false; target_partitions],
             },
             ExecutionState::RangePartitioned { scan_state, .. } => {
                 ExecutionState::RangePartitioned {
                     range_boundaries: self.range_sample.as_ref().unwrap().build(target_partitions),
                     scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
-                    spent_partitions: vec![false; target_partitions],
                 }
             }
             _ => {
                 return Err(DataFusionError::Internal(
-                    "Cannot repartition uninitialized plan".into(),
+                    "Cannot repartition uninitialized or consumed plan".into(),
                 ))
             }
         };
@@ -384,6 +405,7 @@ impl PgSearchScanPlan {
                 self.dynamic_filter_strategy.load(Ordering::Relaxed),
             )),
             range_sample: self.range_sample.clone(),
+            assigned_partition: self.assigned_partition,
         })
     }
 
@@ -411,10 +433,7 @@ impl PgSearchScanPlan {
             .lock()
             .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
         let state = match &*state_guard {
-            ExecutionState::Shared {
-                scan_state: Some(scan_state),
-                ..
-            } => scan_state,
+            ExecutionState::Shared { scan_state, .. } => scan_state,
             ExecutionState::RangePartitioned { scan_state, .. } => scan_state,
             _ => {
                 return Err(DataFusionError::Internal(
@@ -449,6 +468,7 @@ impl PgSearchScanPlan {
             planner_estimated_rows,
             partition_count: self.properties.output_partitioning().partition_count(),
             range_sample: self.range_sample.clone(),
+            assigned_partition: self.assigned_partition,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -539,7 +559,7 @@ impl PgSearchScanPlan {
             Some(ffhelper)
         };
 
-        Ok(Arc::new(PgSearchScanPlan::new(
+        let mut plan = PgSearchScanPlan::new(
             Some(state),
             schema,
             query,
@@ -547,11 +567,13 @@ impl PgSearchScanPlan {
             deferred,
             ffhelper_arg,
             descriptor.indexrelid,
-            deferred_ctid_plan_position,
+            descriptor.deferred_ctid_plan_position,
             descriptor.partition_count,
             parallel_state,
             descriptor.range_sample,
-        )))
+        );
+        plan.assigned_partition = descriptor.assigned_partition;
+        Ok(Arc::new(plan))
     }
 }
 
@@ -577,6 +599,7 @@ struct ScanDispatchDescriptor {
     planner_estimated_rows: u64,
     partition_count: usize,
     range_sample: Option<RangePartitioningSample>,
+    assigned_partition: Option<usize>,
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.
@@ -632,6 +655,36 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "PgSearchScan: segments={}", self.segment_count)?;
+        if let Some(range_sample) = &self.range_sample {
+            if let Some(assigned) = self.assigned_partition {
+                let partitioning =
+                    range_sample.build(self.properties.output_partitioning().partition_count());
+
+                let lower = if assigned > 0 {
+                    let val = &partitioning.split_points[assigned - 1];
+                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                } else {
+                    "-∞".to_string()
+                };
+
+                let upper = if assigned < partitioning.split_points.len() {
+                    let val = &partitioning.split_points[assigned];
+                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                } else {
+                    "∞".to_string()
+                };
+
+                write!(
+                    f,
+                    ", partition={}[{}..{})",
+                    range_sample.partition_by.as_ref(),
+                    lower,
+                    upper
+                )?;
+            } else {
+                write!(f, ", partition_by={}", range_sample.partition_by.as_ref())?;
+            }
+        }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
@@ -715,6 +768,20 @@ impl ExecutionPlan for PgSearchScanPlan {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
+        // TODO: The datafusion-distributed fork currently calls `execute` for ALL partitions in
+        // `run_worker_fragment`, even though this variant was only assigned to process a single
+        // partition. We should triage whether `run_worker_fragment` should be accessing all
+        // partitions, or only assigned partitions for a task. Until then, returning an empty
+        // stream for non-assigned partitions satisfies the fragment execution without crashing.
+        if let Some(assigned) = self.assigned_partition {
+            if partition != assigned {
+                let schema = self.properties.eq_properties.schema().clone();
+                return Ok(Box::pin(unsafe {
+                    UnsafeSendStream::new(futures::stream::empty(), schema)
+                }));
+            }
+        }
+
         let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
         })?;
@@ -727,45 +794,18 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
+        let state = std::mem::replace(&mut *state_guard, ExecutionState::Consumed);
+
         // Handle state transitions for execution.
-        let (scan_state, parallel_state, range_boundaries) = match &mut *state_guard {
+        let (scan_state, parallel_state, range_boundaries) = match state {
             ExecutionState::Shared {
                 parallel_state,
                 scan_state,
-                spent_partitions,
-            } => {
-                if spent_partitions.get(partition).copied().unwrap_or(false) {
-                    return Err(DataFusionError::Internal(format!(
-                        "PgSearchScanPlan partition {partition} executed more than once"
-                    )));
-                }
-                if partition < spent_partitions.len() {
-                    spent_partitions[partition] = true;
-                }
-
-                if let Some(state) = scan_state.take() {
-                    (state.0, parallel_state.as_ref().map(|p| p.0), None)
-                } else {
-                    let schema = self.properties.eq_properties.schema().clone();
-                    return Ok(Box::pin(unsafe {
-                        UnsafeSendStream::new(futures::stream::empty(), schema)
-                    }));
-                }
-            }
+            } => (scan_state.0, parallel_state.map(|p| p.0), None),
             ExecutionState::RangePartitioned {
                 range_boundaries,
                 scan_state,
-                spent_partitions,
             } => {
-                if spent_partitions.get(partition).copied().unwrap_or(false) {
-                    return Err(DataFusionError::Internal(format!(
-                        "PgSearchScanPlan partition {partition} executed more than once"
-                    )));
-                }
-                if partition < spent_partitions.len() {
-                    spent_partitions[partition] = true;
-                }
-
                 // If target_partitions scaled past the available sample boundaries, we
                 // just return empty streams for the extra partitions.
                 if partition > range_boundaries.split_points.len() {
@@ -775,7 +815,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }));
                 }
 
-                (scan_state.0.clone(), None, Some(range_boundaries.clone()))
+                (scan_state.0, None, Some(range_boundaries))
+            }
+            ExecutionState::Consumed => {
+                return Err(DataFusionError::Internal(format!(
+                    "PgSearchScanPlan partition {partition} executed more than once"
+                )));
             }
             ExecutionState::Uninitialized => {
                 let schema = self.properties.eq_properties.schema().clone();
@@ -1100,11 +1145,16 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
             Arc::clone(plan)
         };
 
-        // Each worker decodes its own copy, and `execute()` dynamically claims segments from the
-        // parallel state. Variants in the same process share state: see `ExecutionState` for why
-        // this is safe.
+        // Downcast back because repartition returns `Arc<dyn ExecutionPlan>`
+        let final_scan_plan = final_plan.downcast_ref::<PgSearchScanPlan>().unwrap();
+
+        // Assign each task its explicit execution partition to ensure it is the only one executing it.
         let variants = (0..task_count)
-            .map(|_| Arc::clone(&final_plan))
+            .map(|i| {
+                let mut variant = final_scan_plan.clone();
+                variant.assigned_partition = Some(i);
+                Arc::new(variant) as Arc<dyn ExecutionPlan>
+            })
             .collect::<Vec<_>>();
 
         Ok(Some(Arc::new(

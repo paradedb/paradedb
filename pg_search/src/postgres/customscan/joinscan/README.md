@@ -38,9 +38,10 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 [`scan_state.rs`](scan_state.rs) builds a DataFusion logical plan from the `JoinCSClause`, then runs [physical optimization][optimizer-rules]:
 
-1. **`LateMaterializationRule`** — injects [`TantivyLookupExec`][lookup-exec] to defer string materialization
-2. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
-3. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
+1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning
+2. **`LateMaterializationRule`** — injects [`TantivyLookupExec`][lookup-exec] to defer string materialization
+3. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
+4. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
 
 If `max_parallel_workers_per_gather > 0` and PostgreSQL has planned parallel execution, `DistributedPlanner` converts the finalized physical plan into an MPP execution tree (`DistributedExec`), slicing it into isolated tasks.
 
@@ -72,15 +73,16 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 
 ## Key Files
 
-| File                             | Purpose                                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------------- |
-| [`mod.rs`](mod.rs)               | Lifecycle, [activation checks][activation], parallel support                          |
-| [`build.rs`](build.rs)           | [`RelNode`][relnode], [`JoinCSClause`][joincsc], `JoinSource`                         |
-| [`scan_state.rs`](scan_state.rs) | DataFusion plan building, [optimizer registration][optimizer-rules], result streaming |
-| [`planning.rs`](planning.rs)     | Cost estimation, field validation, ORDER BY extraction                                |
-| [`predicate.rs`](predicate.rs)   | Postgres expression → `JoinLevelExpr`                                                 |
-| [`translator.rs`](translator.rs) | Postgres ↔ DataFusion expression mapping                                              |
-| [`explain.rs`](explain.rs)       | EXPLAIN output formatting                                                             |
+| File                                                       | Purpose                                                                               |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [`mod.rs`](mod.rs)                                         | Lifecycle, [activation checks][activation], parallel support                          |
+| [`build.rs`](build.rs)                                     | [`RelNode`][relnode], [`JoinCSClause`][joincsc], `JoinSource`                         |
+| [`scan_state.rs`](scan_state.rs)                           | DataFusion plan building, [optimizer registration][optimizer-rules], result streaming |
+| [`planning.rs`](planning.rs)                               | Cost estimation, field validation, ORDER BY extraction                                |
+| [`predicate.rs`](predicate.rs)                             | Postgres expression → `JoinLevelExpr`                                                 |
+| [`range_partitioning_rule.rs`](range_partitioning_rule.rs) | Optimizer rule for synchronizing Join-side MPP partition boundaries                   |
+| [`translator.rs`](translator.rs)                           | Postgres ↔ DataFusion expression mapping                                              |
+| [`explain.rs`](explain.rs)                                 | EXPLAIN output formatting                                                             |
 
 Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 

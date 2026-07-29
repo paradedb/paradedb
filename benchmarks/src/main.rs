@@ -17,7 +17,9 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::{confidence_interval_half_width, mean, Window};
+use paradedb::{
+    confidence_interval_half_width, mean, percentile, percentile_confidence_interval, Window,
+};
 use sqlx::{Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -203,6 +205,9 @@ pub struct QueryRunResults {
     pub cold: f64,
     pub samples: Vec<f64>,
     pub num_results: usize,
+    /// True when each sample is a distinct query vector rather than a repeat of one. Only then is
+    /// the sample set a latency distribution, so only then are percentiles meaningful.
+    pub per_vector: bool,
 }
 
 enum IndexCreationResult {
@@ -268,30 +273,67 @@ struct JSONBenchmarkResult {
     extra: String,
 }
 
-impl From<QueryResult> for JSONBenchmarkResult {
-    fn from(res: QueryResult) -> Self {
-        let mean = mean(&res.results.samples);
-        let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
+/// Percentiles published as their own tracked series. Each becomes a separate gh-pages entry, so
+/// a regression alert fires on the percentile rather than on a mean that hides the tail.
+const TRACKED_PERCENTILES: [(&str, f64); 3] = [("p50", 0.50), ("p95", 0.95), ("p99", 0.99)];
 
-        let cold_query_extra =
-            format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
-        let range_str = format!("±{ci_half_width:.3} ms");
+impl JSONBenchmarkResult {
+    /// One entry per tracked percentile when the samples are a distribution over query vectors;
+    /// otherwise a single mean entry, which is what datasets that repeat one query have always
+    /// reported.
+    fn from_query_result(res: QueryResult) -> Vec<Self> {
+        let percentiles = TRACKED_PERCENTILES
+            .iter()
+            .map(|(label, p)| format!("{label}={:.3}", percentile(&res.results.samples, *p)))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let extra = format!(
+            "cold_query_ms={:.3}; n={}; {percentiles}; query={}",
+            res.results.cold,
+            res.results.samples.len(),
+            res.query
+        );
+
+        if !res.results.per_vector {
+            let mean = mean(&res.results.samples);
+            let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
+            println!(
+                r"Query results: |
+            query: {},
+            mean: {mean:.3} ms,
+            confidence interval: ±{ci_half_width:.3} ms",
+                res.query
+            );
+            return vec![Self {
+                name: res.query_type,
+                unit: "mean ms",
+                value: mean,
+                range: format!("±{ci_half_width:.3} ms"),
+                extra,
+            }];
+        }
 
         println!(
             r"Query results: |
             query: {},
-            mean: {mean:.3} ms,
-            confidence interval: ±{ci_half_width:.3} ms",
-            res.query
+            {percentiles} (ms, over {} query vectors)",
+            res.query,
+            res.results.samples.len()
         );
 
-        Self {
-            name: res.query_type,
-            unit: "mean ms",
-            value: mean,
-            range: range_str,
-            extra: cold_query_extra,
-        }
+        TRACKED_PERCENTILES
+            .iter()
+            .map(|(label, p)| {
+                let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
+                Self {
+                    name: format!("{} {label}", res.query_type),
+                    unit: "ms",
+                    value: percentile(&res.results.samples, *p),
+                    range: format!("95% CI [{lo:.3}, {hi:.3}]"),
+                    extra: extra.clone(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -943,15 +985,26 @@ fn write_sweep_summary(
     for r in rows {
         // Latency was measured under the expanded label the sweep emitted.
         let benchmarked = format!("{}@{}", r.query, r.label);
-        let latency = results
+        let latencies = results
             .iter()
             .find(|q| q.query_type == benchmarked)
-            .map(|q| format!("{:.2}", mean(&q.results.samples)))
+            .map(|q| {
+                TRACKED_PERCENTILES
+                    .iter()
+                    .map(|(_, p)| format!("{:.2}", percentile(&q.results.samples, *p)))
+                    .collect::<Vec<_>>()
+            })
             // A query that errored is skipped by the benchmark loop, so it has no latency.
-            .unwrap_or_else(|| "n/a".to_owned());
+            .unwrap_or_else(|| vec!["n/a".to_owned(); TRACKED_PERCENTILES.len()]);
         out.push(format!(
             "{}\t{}\t{}\t{}\t{:.4}\t{}\t{}",
-            r.query, r.label, r.param, r.value, r.recall, r.reached, latency
+            r.query,
+            r.label,
+            r.param,
+            r.value,
+            r.recall,
+            r.reached,
+            latencies.join("\t")
         ));
     }
     // Per size, so a later size's run does not clobber an earlier one's summary.
@@ -1039,6 +1092,14 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     // references and are resolved below.
     let (parsed_queries, sweep_summary) =
         expand_sweeps(&mut utility_conn, args, parsed_queries).await?;
+    // Measure latency across every held-out query vector when this dataset has them.
+    let query_vectors = load_query_vectors(&mut utility_conn).await;
+    if !query_vectors.is_empty() {
+        println!(
+            "Measuring latency over {} held-out query vectors",
+            query_vectors.len()
+        );
+    }
     let query_stmts: Vec<String> = parsed_queries.iter().map(|(_, q)| q.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,
@@ -1069,6 +1130,7 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             &query,
             args.runs,
             args.fail_on_error,
+            &query_vectors,
         )
         .await?;
         match result {
@@ -1572,7 +1634,7 @@ async fn run_benchmarks_json(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let results = run_benchmarks(args)
         .await?
         .into_iter()
-        .map(JSONBenchmarkResult::from)
+        .flat_map(JSONBenchmarkResult::from_query_result)
         .collect::<Vec<_>>();
     let results_json =
         serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
@@ -1693,12 +1755,71 @@ async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i6
 /// limiting the amount of non-extension-code time captured.
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
+/// Bind one held-out vector for the next measured run. The query files read the vector through
+/// `current_setting`, so the SQL text -- and therefore its `pg_stat_statements` queryid -- is
+/// identical for every vector.
+async fn set_query_vector(conn: &mut PgConnection, vector: &str) -> anyhow::Result<()> {
+    sqlx::raw_sql(&format!("SET {QVEC_GUC} = '{vector}';"))
+        .execute(&mut *conn)
+        .await
+        .with_context(|| format!("Failed to set {QVEC_GUC}"))?;
+    Ok(())
+}
+
+/// Run the query once and read back its server-side timing, returning `(exec + plan ms, rows)`.
+async fn run_once(
+    conn: &mut PgConnection,
+    query: &str,
+    stats_reset_query: &str,
+    stats_query: &str,
+) -> anyhow::Result<(f64, i64)> {
+    sqlx::raw_sql(stats_reset_query)
+        .execute(&mut *conn)
+        .await
+        .with_context(|| format!("Failed to execute query: {stats_reset_query}"))?;
+    sqlx::raw_sql(query)
+        .execute(&mut *conn)
+        .await
+        .with_context(|| format!("Failed to execute query: {query}"))?;
+    let (exec_time_ms, plan_time_ms, rows): (f64, f64, i64) = sqlx::query_as(stats_query)
+        .fetch_one(&mut *conn)
+        .await
+        .with_context(|| format!("Failed to execute query: {stats_query}"))?;
+    Ok((exec_time_ms + plan_time_ms, rows))
+}
+
+/// A query that errors either aborts the run or is skipped, depending on `--fail-on-error`.
+fn on_query_error(
+    query_type: &str,
+    err: anyhow::Error,
+    fail_on_error: bool,
+) -> anyhow::Result<Option<QueryRunResults>> {
+    if fail_on_error {
+        panic!("Failed to execute benchmark query `{query_type}`:  {err}");
+    }
+    eprintln!("WARNING: Skipping query `{query_type}` due to error: {err}");
+    Ok(None)
+}
+
+/// The held-out query vectors, when the dataset has them loaded (the recall fixtures a sweep
+/// creates). Latency is then measured once per vector instead of by repeating a single one.
+/// Datasets without them -- anything non-vector -- get an empty slice and the repeat-one path.
+async fn load_query_vectors(conn: &mut PgConnection) -> Vec<String> {
+    // An error here means no fixtures table: not a vector dataset, or recall was never loaded for
+    // this run. Either way the caller falls back to repeating a single vector.
+    sqlx::query_scalar::<_, String>("SELECT emb::text FROM cohere_queries ORDER BY id")
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap_or_default()
+}
+
 async fn execute_query_multiple_times(
     url: &str,
     query_type: &str,
     query: &str,
     sample_count: usize,
     fail_on_error: bool,
+    query_vectors: &[String],
 ) -> anyhow::Result<Option<QueryRunResults>> {
     let mut conn = PgConnection::connect(url)
         .await
@@ -1722,6 +1843,20 @@ async fn execute_query_multiple_times(
                 .await
                 .with_context(|| format!("Failed to apply query setting: {stmt}"))?;
         }
+    }
+
+    // Bind a vector before the EXPLAINs below: the kNN query files read it through
+    // `current_setting`, and that errors if the GUC was never set. The measured passes rebind it
+    // per vector, so which one seeds the plan does not affect any timing.
+    match query_vectors.first() {
+        Some(first) => set_query_vector(&mut conn, first).await?,
+        // Nothing would bind it, so fail with the cause rather than an "unrecognized configuration
+        // parameter" from deep inside the first EXPLAIN.
+        None if query.contains(&format!("current_setting('{QVEC_GUC}')")) => bail!(
+            "`{query_type}` reads {QVEC_GUC} but no query vectors were loaded; the dataset's \
+             recall fixtures must be present for a vector benchmark"
+        ),
+        None => {}
     }
 
     let query_id = get_query_id(measured_query, &mut conn).await?;
@@ -1755,30 +1890,42 @@ async fn execute_query_multiple_times(
         }
     }
 
+    // With a set of held-out query vectors, measure one timing per vector rather than repeating a
+    // single vector: latency depends on which cells a vector routes to, so one vector reports the
+    // cost of that vector, not of the workload. A first pass over every vector warms the cache for
+    // all of them, then the measured pass records one sample each -- enough for percentiles.
+    if !query_vectors.is_empty() {
+        for (i, vector) in query_vectors.iter().enumerate() {
+            set_query_vector(&mut conn, vector).await?;
+            let warm = match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
+                Ok(v) => v,
+                Err(err) => return on_query_error(query_type, err, fail_on_error),
+            };
+            if i == 0 {
+                results.num_results = warm.1 as usize;
+                results.cold = warm.0;
+            }
+        }
+        results.per_vector = true;
+        for vector in query_vectors {
+            set_query_vector(&mut conn, vector).await?;
+            match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
+                Ok((time, _)) => results.samples.push(time),
+                Err(err) => return on_query_error(query_type, err, fail_on_error),
+            }
+        }
+        return Ok(Some(results));
+    }
+
     // run until run-to-run variance is sub-0.1% (query is warmed) or
     // until 10 runs have passed, then take the next sample_count results
     let mut runs_completed = 0;
     let mut samples_taken = 0;
     while samples_taken < sample_count {
-        let result: anyhow::Result<(f64, f64, i64)> = {
-            sqlx::raw_sql(stats_reset_query)
-                .execute(&mut conn)
-                .await
-                .with_context(|| format!("Failed to execute query: {stats_reset_query}"))?;
-            sqlx::raw_sql(query)
-                .execute(&mut conn)
-                .await
-                .with_context(|| format!("Failed to execute query: {query}"))?;
-            let res = sqlx::query_as(&stats_query)
-                .fetch_one(&mut conn)
-                .await
-                .with_context(|| format!("Failed to execute query: {stats_query}"))?;
-            Ok(res)
-        };
+        let result = run_once(&mut conn, query, stats_reset_query, &stats_query).await;
 
         match result {
-            Ok((exec_time_ms, plan_time_ms, rows)) => {
-                let time = exec_time_ms + plan_time_ms;
+            Ok((time, rows)) => {
                 window.push(time);
                 if runs_completed == 0 {
                     results.num_results = rows as usize;
@@ -1795,14 +1942,7 @@ async fn execute_query_multiple_times(
                     samples_taken += 1;
                 }
             }
-            Err(err) => {
-                if fail_on_error {
-                    panic!("Failed to execute benchmark query `{query_type}`:  {err}");
-                } else {
-                    eprintln!("WARNING: Skipping query `{query_type}` due to error: {err}");
-                    return Ok(None);
-                }
-            }
+            Err(err) => return on_query_error(query_type, err, fail_on_error),
         }
 
         runs_completed += 1;
@@ -1941,5 +2081,56 @@ mod tests {
     #[test]
     fn empty_sweep_selects_nothing() {
         assert!(select_points(&[]).is_empty());
+    }
+
+    fn query_result(per_vector: bool, samples: Vec<f64>) -> QueryResult {
+        QueryResult {
+            query_type: "knn_top10_1pct@r95".to_owned(),
+            query: "SELECT 1".to_owned(),
+            results: QueryRunResults {
+                cold: 11.108,
+                samples,
+                num_results: 10,
+                per_vector,
+            },
+        }
+    }
+
+    #[test]
+    fn per_vector_results_publish_one_series_per_tracked_percentile() {
+        let out = JSONBenchmarkResult::from_query_result(query_result(
+            true,
+            (1..=100).map(|i| i as f64).collect(),
+        ));
+
+        assert_eq!(
+            out.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            [
+                "knn_top10_1pct@r95 p50",
+                "knn_top10_1pct@r95 p95",
+                "knn_top10_1pct@r95 p99"
+            ]
+        );
+        assert!(out
+            .iter()
+            .all(|r| r.unit == "ms" && r.range.starts_with("95% CI [")));
+        assert_eq!(
+            out[0].extra,
+            "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
+        );
+    }
+
+    /// Datasets that repeat one query have gh-pages history under the bare query name, and their
+    /// samples are not a latency distribution. Renaming or re-valuing them would orphan that.
+    #[test]
+    fn repeated_query_results_still_publish_a_single_mean_series() {
+        let out =
+            JSONBenchmarkResult::from_query_result(query_result(false, vec![10.0, 12.0, 14.0]));
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "knn_top10_1pct@r95");
+        assert_eq!(out[0].unit, "mean ms");
+        assert_eq!(out[0].value, 12.0);
+        assert!(out[0].extra.contains("p50=12.000"), "{}", out[0].extra);
     }
 }

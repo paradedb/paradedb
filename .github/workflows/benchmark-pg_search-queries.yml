@@ -431,8 +431,8 @@ jobs:
 
       # Renders the operating points the benchmark selected. The benchmark step measures recall
       # across each query's swept values and keeps the cheapest one reaching each target, writing
-      # sweep_summary_{size}.tsv (query, target, param, value, recall, reached). Latency for those
-      # same points is published as the `{query}@r90|r95|r99` benchmark series.
+      # sweep_summary_{size}.tsv (query, target, param, value, recall, reached, p50, p95, p99).
+      # Latency for those same points is published as `{query}@r90|r95|r99 p50|p95|p99` series.
       - name: Comment cohere recall
         if: ${{ !cancelled() && env.RUN_COHERE == 'true' }}
         working-directory: benchmarks/
@@ -452,8 +452,8 @@ jobs:
           rows=$(cat sweep_summary_1m.tsv sweep_summary_10m.tsv | cut -f1,2 | sort -u | \
             while IFS=$'\t' read -r q t; do
               [ -n "$q" ] || continue
-              # `value` → recall · latency, flagged when no swept value reached the target.
-              fmt='$1==q && $2==t { printf "`%s` → %s%s · %s ms", $4, $5, ($6=="false" ? " ⚠️" : ""), $7 }'
+              # `value` → recall · p50/p95/p99, flagged when no swept value reached the target.
+              fmt='$1==q && $2==t { printf "`%s` → %s%s · %s / %s / %s ms", $4, $5, ($6=="false" ? " ⚠️" : ""), $7, $8, $9 }'
               c1=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_1m.tsv)
               c10=$(awk -F'\t' -v q="$q" -v t="$t" "$fmt" sweep_summary_10m.tsv)
               printf '| `%s` | %s%% | %s | %s |\n' "$q" "${t#r}" "${c1:-n/a}" "${c10:-n/a}"
@@ -462,7 +462,7 @@ jobs:
             printf '### Cohere recall — `%s` index\n\n' "${{ env.COHERE_INDEX }}"
             printf '| query | target | 1m | 10m |\n|-------|--------|----|----|\n'
             printf '%s\n' "$rows"
-            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the mean latency measured at that point. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
+            printf '\n<sub>Each cell is the swept parameter value the benchmark selected — the cheapest one whose measured recall@10 reaches the target — followed by the recall it achieved and the p50 / p95 / p99 latency at that point. Latency is measured once per held-out query vector (the same set recall uses), not by repeating a single vector. ⚠️ means no swept value reached that target, so the best available point is shown; widen the range in `[sweeps]`.</sub>\n'
           } > recall_body.md
           cat recall_body.md
           if [ -n "${{ github.event.pull_request.number }}" ]; then

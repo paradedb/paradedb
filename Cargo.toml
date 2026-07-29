@@ -44,7 +44,9 @@ debug = false
 lto = "thin"
 panic = "unwind"
 opt-level = 3
-codegen-units = 1
+# The release default of 16 lets codegen and optimization run in parallel;
+# thin LTO recovers the cross-unit inlining a single codegen unit provides.
+codegen-units = 16
 
 # Optimized + debug symbols, for profiling; debug-assertions off keeps dst asserts compiled out.
 [profile.release-with-debug]

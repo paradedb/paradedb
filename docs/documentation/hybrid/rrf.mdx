@@ -1,0 +1,156 @@
+---
+title: Reciprocal Rank Fusion
+description: Combine full text and vector search results into a single ranking
+canonical: https://docs.paradedb.com/documentation/hybrid/rrf
+---
+
+<Note>
+  This section uses [vector search](/documentation/vector/querying), a beta
+  feature available in versions `0.25.0` and above.
+</Note>
+
+Hybrid search runs a full text query and a vector query over the same data, then merges the two result lists. Full text search is precise on exact terms and rare words; vector search understands paraphrase and intent. Merging them recovers results that either one alone would miss.
+
+The two searches do not produce comparable numbers. BM25 scores are unbounded and depend on corpus statistics, while cosine distance lives in a fixed range with the opposite polarity. Normalizing them against each other requires knowing both distributions in advance, and those shift with every query.
+
+Reciprocal Rank Fusion sidesteps the problem by discarding the scores and using only each row's **position** in its own list:
+
+```
+score(row) = sum over branches of  weight / (k + rank)
+```
+
+A row ranked first in one branch contributes `weight / 61`, regardless of whether its BM25 score was 2 or 200.
+
+## Query Shape
+
+Each branch is an `ORDER BY ... LIMIT` with a `RANK()` window function over the same ordering. The `WITH` clause fuses them.
+
+<CodeGroup>
+```sql SQL
+WITH lexical AS (
+    SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
+    FROM mock_items
+    WHERE description @@@ 'running shoes'
+    ORDER BY pdb.score(id) DESC, id
+    LIMIT 20
+),
+semantic AS (
+    SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]') AS rank
+    FROM mock_items
+    WHERE id @@@ pdb.all()
+    ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]'
+    LIMIT 20
+),
+fused AS (
+    SELECT id, sum(weight) AS score
+    FROM (
+        SELECT id, 1.0 / (60 + rank) AS weight FROM lexical
+        UNION ALL
+        SELECT id, 0.7 / (60 + rank) AS weight FROM semantic
+    ) u
+    GROUP BY id
+)
+SELECT m.id, m.description, f.score
+FROM fused f
+JOIN mock_items m USING (id)
+ORDER BY f.score DESC, m.id
+LIMIT 5;
+```
+
+</CodeGroup>
+
+The `1.0` and `0.7` are per-branch weights, here valuing lexical matches over semantic ones. The `60` is the rank constant `k`.
+
+Note that the `RANK()` window function sits at the **same query level** as the `ORDER BY ... LIMIT`, rather than wrapping a nested subquery. This is the shape ParadeDB accelerates, and it is the shape you should write.
+
+## Verifying Pushdown
+
+Both branches should reach the index as [Top K](/documentation/sorting/topk) scans, so that each one reads 20 rows instead of the whole result set:
+
+```sql
+EXPLAIN (COSTS OFF)
+WITH lexical AS (...), semantic AS (...), fused AS (...)
+SELECT ...;
+```
+
+Look for two `Custom Scan (ParadeDB Base Scan)` nodes, each with `Exec Method: TopKScanExecState` and a `TopK Limit` matching the branch's `LIMIT`:
+
+```
+->  WindowAgg
+      Window: w1 AS (ORDER BY pdb.score(id), id ROWS UNBOUNDED PRECEDING)
+      ->  Custom Scan (ParadeDB Base Scan) on mock_items
+            Exec Method: TopKScanExecState
+               TopK Order By: pdb.score() desc, id asc
+               TopK Limit: 20
+```
+
+If you see `NormalScanExecState` or a `Sort` node beneath the `WindowAgg`, the branch is reading and sorting every matching row.
+
+## Supported Shapes
+
+Postgres normally assumes a window function needs every row, and stops pushing the `LIMIT` down past it. ParadeDB overrides this when truncating the input provably cannot change the window function's output — the first N rows in window order **are** the top N. All of the following must hold:
+
+- **The window functions are ranking functions**: `ROW_NUMBER()`, `RANK()`, or `DENSE_RANK()`. Functions that read the whole partition, such as `PERCENT_RANK()`, `CUME_DIST()`, or `SUM(x) OVER ()`, return different values over a truncated input.
+- **No `PARTITION BY`**. Partitions draw rows from outside the top N, so truncating first renumbers them.
+- **The window's `ORDER BY` is identical to the query's `ORDER BY`**, including direction and any tiebreakers. Otherwise the top N by the query's ordering are not the first N in window order.
+- **No `GROUP BY`, `DISTINCT`, `HAVING`, or aggregates at the same query level.** Each of these collapses rows above the window function, so producing the top N of the final result requires more than N rows out of the scan.
+
+`OFFSET` is supported: the scan fetches `LIMIT + OFFSET` rows so that ranks past the offset are still computed over enough input.
+
+When a query falls outside these rules, results stay correct — the branch simply reads and sorts every matching row.
+
+## Choosing k
+
+`k` controls how sharply rank position is discounted. The difference between rank 1 and rank 2 is `1/61 - 1/62` at `k = 60`, but `1/2 - 1/3` at `k = 1`.
+
+- **`k = 60`** is the widely used default and a good starting point.
+- **Lower `k` (20–40)** sharpens the curve, so the top few results of each branch dominate. Use when one branch is much stronger and you want its top hits to win outright.
+- **Higher `k` (80–100)** flattens the curve, spreading influence deeper into each list. Use when both branches are comparable in quality and you want agreement across them to matter more than either one's top hit.
+
+## Choosing Weights
+
+Weights scale each branch's whole contribution. Equal weights (`1.0` and `1.0`) treat the two searches as equally trustworthy. Lowering the semantic weight to `0.7` means a row must rank meaningfully higher in the vector branch to outrank a strong lexical match.
+
+Tune weights against a labelled query set rather than by intuition. A useful default is to start equal, then reduce whichever branch produces more false positives on your data.
+
+## Choosing the Branch Limit
+
+The fused result can only contain rows that at least one branch returned. A row missing from both candidate lists cannot be recovered later, so the branch `LIMIT` sets a hard ceiling on quality.
+
+Fetch considerably more per branch than you intend to return — 100 to 200 candidates per branch for a top-10 result is a reasonable starting point. Because both branches push the limit into the index, raising it is much cheaper than it would be with a full sort.
+
+## Deterministic Results
+
+Add a tiebreaker after the sort key so that rows with identical scores come back in a stable order:
+
+```sql
+ORDER BY pdb.score(id) DESC, id
+```
+
+All tiebreaker columns must be in the ParadeDB index to keep the Top K optimization. See [Deterministic Sorting](/documentation/sorting/score#deterministic-sorting).
+
+<Note>
+  Vector distance orderings do not support a secondary sort key. Write `ORDER BY
+  embedding <=> $1` on its own, without a trailing tiebreaker column. Ties in
+  the vector branch are broken arbitrarily.
+</Note>
+
+## Filtering
+
+Both branches accept the usual [filters](/documentation/filtering), and filters applied inside a branch are evaluated by the index rather than rechecked afterwards:
+
+```sql
+semantic AS (
+    SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]') AS rank
+    FROM mock_items
+    WHERE category === 'footwear'
+    ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]'
+    LIMIT 20
+)
+```
+
+Apply the same filter to both branches. Filtering only one of them silently biases the fusion toward the unfiltered branch, since the filtered branch contributes fewer candidates.
+
+## Next Steps
+
+Fusion produces a good candidate set, but it only knows about rank position. To order that candidate set using freshness, availability, popularity, or a dedicated relevance model, see [Reranking](/documentation/hybrid/reranking).

@@ -197,6 +197,11 @@ Next, let's compute a "combined BM25 score" over a join across both tables.
 
 The recommended approach for combining scores from multiple tables is to use [Reciprocal Rank Fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion). RRF combines the ranked results from separate queries into a single unified ranking.
 
+<Note>
+  To combine full text and vector search over a single table, see [Reciprocal
+  Rank Fusion](/documentation/hybrid/rrf).
+</Note>
+
 <CodeGroup>
 ```sql SQL
 WITH order_search AS (

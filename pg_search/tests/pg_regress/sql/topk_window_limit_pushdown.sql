@@ -125,6 +125,37 @@ SELECT count(*) AS mismatches FROM (
      ORDER BY n DESC LIMIT 10)
 ) d;
 
+-- `limit_tuples == -1` also stands in for DISTINCT / GROUP BY / HAVING / aggregates, all of
+-- which collapse rows above the WindowAgg. Overriding it on the window check alone would feed
+-- the collapse only LIMIT rows and lose whole output rows.
+-- DISTINCT: 4 distinct grp values, so LIMIT 3 must return 3 rows
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT grp, DENSE_RANK() OVER (ORDER BY grp DESC) AS rank
+FROM wlp WHERE label @@@ 'shoes'
+ORDER BY grp DESC LIMIT 3;
+
+SELECT DISTINCT grp, DENSE_RANK() OVER (ORDER BY grp DESC) AS rank
+FROM wlp WHERE label @@@ 'shoes'
+ORDER BY grp DESC LIMIT 3;
+
+-- GROUP BY on an expression the Aggregate Scan can't resolve, so it falls through to Base Scan
+SET paradedb.check_aggregate_scan = false;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
+FROM wlp WHERE label @@@ 'shoes'
+GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
+
+SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
+FROM wlp WHERE label @@@ 'shoes'
+GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
+
+SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
+FROM wlp WHERE label @@@ 'shoes'
+GROUP BY grp + 0 HAVING count(*) > 0 ORDER BY grp + 0 DESC LIMIT 3;
+
+RESET paradedb.check_aggregate_scan;
+
 -- ============================================================
 -- The RRF shape itself: both branches must be Top K
 -- ============================================================

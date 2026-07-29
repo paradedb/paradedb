@@ -1819,8 +1819,12 @@ unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
 /// Returns true if the scan may return only `LIMIT + OFFSET` rows even though a WindowAgg sits
 /// above it, i.e. the window functions compute the same values over that truncated input.
 ///
-/// Three things all have to hold:
+/// Four things all have to hold:
 ///
+///   - The window functions are the *only* reason PG zeroed `limit_tuples`. That one field also
+///     stands in for `GROUP BY`, `GROUPING SETS`, `DISTINCT`, aggregates and `HAVING`, each of
+///     which collapses rows above the WindowAgg, so the top N of the final result needs more
+///     than N rows out of the scan.
 ///   - Every window function is position-only (`row_number`, `rank`, `dense_rank`). One that reads
 ///     the whole partition -- `sum(x) OVER ()`, `percent_rank()`, `cume_dist()` -- returns a
 ///     different value over a truncated input.
@@ -1833,6 +1837,14 @@ unsafe fn window_limit_pushdown_is_safe(parse: *mut pg_sys::Query) -> bool {
         return false;
     };
     if parse_ref.windowClause.is_null() || parse_ref.sortClause.is_null() {
+        return false;
+    }
+    if !parse_ref.groupClause.is_null()
+        || !parse_ref.groupingSets.is_null()
+        || !parse_ref.distinctClause.is_null()
+        || !parse_ref.havingQual.is_null()
+        || parse_ref.hasAggs
+    {
         return false;
     }
 

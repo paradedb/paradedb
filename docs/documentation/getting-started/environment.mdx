@@ -39,9 +39,11 @@ Next, let's create a ParadeDB index called `search_idx` on this table. A ParadeD
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, embedding vector_cosine_ops, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
+
+Note that this includes text, vector, and metadata fields.
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,

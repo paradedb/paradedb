@@ -159,6 +159,14 @@ initial copy behavior of `CREATE SUBSCRIPTION`.
 CREATE EXTENSION pg_search CASCADE;
 ```
 
+<Note>
+  As of `0.25.0`, `pg_search` requires the
+  [`pgvector`](https://github.com/pgvector/pgvector) extension because it relies
+  on `pgvector`'s `vector` type. `pgvector` must be installed on the server
+  before `pg_search` is created — `CASCADE` then runs `CREATE EXTENSION vector`
+  automatically if it has not already been created.
+</Note>
+
 ### 5. Create a Publication on the Publisher
 
 ```sql

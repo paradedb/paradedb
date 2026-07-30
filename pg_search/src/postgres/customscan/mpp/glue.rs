@@ -396,7 +396,7 @@ mod tests {
 /// cached by stage.
 #[derive(Default)]
 pub struct StagePlanDispatchSource {
-    cache: std::sync::Mutex<std::collections::HashMap<usize, Vec<u8>>>,
+    cache: std::sync::Mutex<std::collections::HashMap<(usize, usize), Vec<u8>>>,
 }
 
 impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
@@ -407,7 +407,9 @@ impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
     ) -> Option<datafusion::common::Result<Vec<u8>>> {
         // One source per query execution, so the query id never varies here.
         let stage_id = task.stage_id;
-        if let Some(bytes) = self.cache.lock().unwrap().get(&stage_id) {
+        let task_number = task.task_number;
+        let key = (stage_id, task_number);
+        if let Some(bytes) = self.cache.lock().unwrap().get(&key) {
             return Some(Ok(bytes.clone()));
         }
         // The default converter stamps every expression with its `expression_id`, which is what
@@ -419,7 +421,7 @@ impl datafusion_distributed::DispatchPlanSource for StagePlanDispatchSource {
             Ok(bytes) => bytes,
             Err(e) => return Some(Err(e)),
         };
-        self.cache.lock().unwrap().insert(stage_id, bytes.clone());
+        self.cache.lock().unwrap().insert(key, bytes.clone());
         Some(Ok(bytes))
     }
 }

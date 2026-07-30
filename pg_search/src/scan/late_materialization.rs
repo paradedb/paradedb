@@ -94,7 +94,7 @@ fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
 /// Instead of relying on brittle string suffix matching (`ends_with`) or unsafe positional
 /// indices, this function explicitly recursively traces the `Column`'s lineage back down the
 /// plan tree to find its exact root `Column` at the `TableScan` level, allowing robust exact matching.
-fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<Column> {
+pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<Column> {
     match plan {
         LogicalPlan::TableScan(scan) => {
             if scan.projected_schema.has_column(col) {

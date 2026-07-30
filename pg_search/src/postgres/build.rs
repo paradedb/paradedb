@@ -205,6 +205,25 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
             });
         }
     }
+
+    // Validate that `sort_by` and `partition_by` fields are single-valued
+    let check_single_valued = |field_name: &FieldName, context: &str| {
+        if options.get_field_type(field_name).is_none() {
+            panic!("`{field_name}` in `{context}` does not exist");
+        }
+        if options.is_multi_valued(field_name) {
+            panic!(
+                "`{field_name}` cannot be used in `{context}` because it is a multi-valued field"
+            );
+        }
+    };
+
+    for sort_field in options.sort_by() {
+        check_single_valued(&sort_field.field_name, "sort_by");
+    }
+    for partition_field in options.partition_by() {
+        check_single_valued(&partition_field, "partition_by");
+    }
 }
 
 fn validate_field_config(

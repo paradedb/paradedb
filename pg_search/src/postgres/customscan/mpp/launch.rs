@@ -262,8 +262,9 @@ impl MppLifecycle {
 /// the DSM, stamp the shared scan state into the plan, spawn exactly the needed producers, and
 /// dispatch. `None` means run serially — the plan has nothing to distribute, the DSM couldn't
 /// be built, or the machine couldn't give us the full producer set. Nothing is forked on the
-/// nothing-to-distribute path. A `pgrx::error!` is reserved for setup that already committed a
-/// launched worker to the mesh, where a silent serial fallback would hide a real bug.
+/// nothing-to-distribute path. `None` covers only environmental shortfalls; a `pgrx::error!`
+/// means an invariant breach or a failure past mesh commitment, where a silent serial
+/// fallback would hide a real bug.
 fn launch_mpp(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     plan_bytes_len: usize,
@@ -363,18 +364,13 @@ fn launch_mpp(
         return None;
     }
 
-    // `max_producer_task_count > 0` implies dispatch finds the same stages (both walks gate on
-    // `local_plan()`), so this should be unreachable — but if the two walks ever drift, a
-    // zero-stage dispatch would leave workers waiting on `SetPlan` frames that never come.
-    // Abort them and run serially rather than hang.
+    // Sizing (`max_producer_task_count`) and dispatch walk the same plan and gate on
+    // `local_plan()` the same way, so a sized launch always dispatches at least one stage;
+    // zero means the walks drifted.
     if stage_count == 0 {
-        debug_assert!(
-            false,
-            "mpp: max_producer_task_count > 0 but dispatch found no stages"
-        );
         go.store(GO_ABORT, Ordering::Release);
         finish.wait_for_finish();
-        return None;
+        pgrx::error!("mpp: sized {producer_count} producers but dispatch found no stages");
     }
 
     // Bind the shared scan state into the plan the leader will execute. Must stay below the

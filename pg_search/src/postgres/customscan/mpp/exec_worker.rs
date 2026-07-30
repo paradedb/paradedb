@@ -234,13 +234,9 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
     };
     if fragments.is_empty() {
-        // Unreachable by construction: the launch spawns at most `max_tasks` producers
-        // (with `max_tasks >= 2`), so the widest stage's round-robin covers every proc.
-        // Kept as a drift guard.
-        pgrx::debug1!(
-            "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
-        );
-        return;
+        // The launch spawns `producer_count <= max_tasks` producers, so the widest stage's
+        // round-robin assigns every proc at least one fragment.
+        pgrx::error!("mpp worker: no fragments assigned (proc={this_proc})");
     }
 
     // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same

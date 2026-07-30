@@ -54,6 +54,8 @@ pub enum OrderByStyle {
         metric: Option<crate::vector::metric::VectorMetric>,
         k: i32,
         window: i32,
+        bm25_window: i32,
+        vector_window: i32,
     },
 }
 
@@ -133,6 +135,8 @@ impl From<&OrderByStyle> for OrderByInfo {
                 metric,
                 k,
                 window,
+                bm25_window,
+                vector_window,
                 ..
             } => OrderByFeature::Rrf {
                 name: name.clone(),
@@ -141,6 +145,8 @@ impl From<&OrderByStyle> for OrderByInfo {
                 metric: *metric,
                 k: *k,
                 window: *window,
+                bm25_window: *bm25_window,
+                vector_window: *vector_window,
             },
         };
         OrderByInfo {

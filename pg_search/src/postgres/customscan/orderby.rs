@@ -91,6 +91,9 @@ pub enum SortExpressionType {
         k: i32,
         /// Per-leg candidate pool; 0 = auto-size from the LIMIT.
         window: i32,
+        /// Per-arm overrides; 0 = inherit `window`.
+        bm25_window: i32,
+        vector_window: i32,
     },
 }
 
@@ -225,14 +228,14 @@ unsafe fn extract_rrf(
     // Both legs come from the target relation's own predicates. The relation
     // reference may also be written as pdb.score(relation).
     if (*funcexpr).funcid == relation_form_funcoid {
-        if args.len() != 3 {
+        if args.len() != 5 {
             return None;
         }
         let relation_arg = strip_cast_funcexpr(args.get_ptr(0)?);
         let relation_var =
             nodecast!(Var, T_Var, relation_arg).or_else(|| extract_score_var(relation_arg))?;
 
-        let (k, window) = extract_rrf_knobs(&args, 1)?;
+        let (k, window, bm25_window, vector_window) = extract_rrf_knobs(&args, 1)?;
         return Some((
             relation_var,
             SortExpressionType::Rrf {
@@ -240,11 +243,13 @@ unsafe fn extract_rrf(
                 metric: None,
                 k,
                 window,
+                bm25_window,
+                vector_window,
             },
         ));
     }
 
-    if args.len() != 4 {
+    if args.len() != 6 {
         return None;
     }
 
@@ -295,7 +300,7 @@ unsafe fn extract_rrf(
             }
         };
 
-    let (k, window) = extract_rrf_knobs(&args, 2)?;
+    let (k, window, bm25_window, vector_window) = extract_rrf_knobs(&args, 2)?;
 
     Some((
         leg_var,
@@ -304,32 +309,34 @@ unsafe fn extract_rrf(
             metric,
             k,
             window,
+            bm25_window,
+            vector_window,
         },
     ))
 }
 
-/// Extract the constant `k` and `window_size` arguments of a `pdb.rrf(...)`
-/// call, starting at `start` in its argument list.
-unsafe fn extract_rrf_knobs(args: &PgList<pg_sys::Node>, start: usize) -> Option<(i32, i32)> {
-    let k_const = nodecast!(Const, T_Const, args.get_ptr(start)?)?;
-    if (*k_const).constisnull {
-        return None;
-    }
-    let k = i32::from_datum((*k_const).constvalue, false)?;
-    if k < 0 {
-        panic!("pdb.rrf: k must be >= 0, got {k}");
+/// Extract the constant `k`, `window_size`, `bm25_window_size`, and
+/// `vector_window_size` arguments of a `pdb.rrf(...)` call, starting at
+/// `start` in its argument list.
+unsafe fn extract_rrf_knobs(
+    args: &PgList<pg_sys::Node>,
+    start: usize,
+) -> Option<(i32, i32, i32, i32)> {
+    let mut knobs = [0i32; 4];
+    let names = ["k", "window_size", "bm25_window_size", "vector_window_size"];
+    for (i, name) in names.into_iter().enumerate() {
+        let const_ = nodecast!(Const, T_Const, args.get_ptr(start + i)?)?;
+        if (*const_).constisnull {
+            return None;
+        }
+        let value = i32::from_datum((*const_).constvalue, false)?;
+        if value < 0 {
+            panic!("pdb.rrf: {name} must be >= 0, got {value}");
+        }
+        knobs[i] = value;
     }
 
-    let window_const = nodecast!(Const, T_Const, args.get_ptr(start + 1)?)?;
-    if (*window_const).constisnull {
-        return None;
-    }
-    let window = i32::from_datum((*window_const).constvalue, false)?;
-    if window < 0 {
-        panic!("pdb.rrf: window_size must be >= 0 (0 = auto-size from the LIMIT), got {window}");
-    }
-
-    Some((k, window))
+    Some((knobs[0], knobs[1], knobs[2], knobs[3]))
 }
 
 unsafe fn extract_lower_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
@@ -825,6 +832,8 @@ where
                         metric,
                         k,
                         window,
+                        bm25_window,
+                        vector_window,
                     } => {
                         // With an explicit distance leg the vector field name
                         // is required; without one (vector leg deferred to
@@ -845,6 +854,8 @@ where
                             metric,
                             k,
                             window,
+                            bm25_window,
+                            vector_window,
                         });
                         found_valid_member = true;
                         break;

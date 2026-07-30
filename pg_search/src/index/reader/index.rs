@@ -120,6 +120,44 @@ pub struct HybridDocScores {
     pub rank: usize,
 }
 
+/// The candidate-window sizes for a `pdb.rrf()` fused search: a shared
+/// `window_size` plus optional per-arm overrides, all `0 = inherit/auto`.
+#[derive(Debug, Clone, Copy)]
+struct RrfWindows {
+    shared: i32,
+    bm25: i32,
+    vector: i32,
+}
+
+impl RrfWindows {
+    /// Auto-sizing for a per-arm candidate window: a multiple of the
+    /// requested page so fusion sees meaningfully more than K docs.
+    const RRF_WINDOW_MULTIPLIER: usize = 4;
+    const RRF_MIN_WINDOW: usize = 100;
+
+    /// Effective window for one arm: the per-arm override if set, else the
+    /// shared `window_size`, else auto. Explicit values are respected
+    /// literally (an arm window smaller than the page bounds that arm's
+    /// contribution; the page still fills from the union of arms, though a
+    /// single-arm query with a too-small window can return fewer rows).
+    fn effective(per_arm: i32, shared: i32, n: usize, offset: usize) -> usize {
+        let explicit = if per_arm > 0 { per_arm } else { shared };
+        if explicit > 0 {
+            explicit as usize
+        } else {
+            (Self::RRF_WINDOW_MULTIPLIER * (n + offset)).max(Self::RRF_MIN_WINDOW)
+        }
+    }
+
+    fn bm25_window(&self, n: usize, offset: usize) -> usize {
+        Self::effective(self.bm25, self.shared, n, offset)
+    }
+
+    fn vector_window(&self, n: usize, offset: usize) -> usize {
+        Self::effective(self.vector, self.shared, n, offset)
+    }
+}
+
 /// A known-size iterator of results for Top K.
 pub struct TopKSearchResults {
     results_original_len: usize,
@@ -1089,6 +1127,8 @@ impl SearchIndexReader {
                         query_vector,
                         k,
                         window,
+                        bm25_window,
+                        vector_window,
                         ..
                     },
                 direction,
@@ -1111,7 +1151,11 @@ impl SearchIndexReader {
                     name,
                     query_vector,
                     *k,
-                    *window,
+                    RrfWindows {
+                        shared: *window,
+                        bm25: *bm25_window,
+                        vector: *vector_window,
+                    },
                     *direction,
                     n,
                     offset,
@@ -1145,18 +1189,13 @@ impl SearchIndexReader {
         field_name: &FieldName,
         query_vector: &QueryVector,
         k: i32,
-        window: i32,
+        windows: RrfWindows,
         direction: SortDirection,
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         rrf_bm25_leg: Option<(&SearchQueryInput, &SearchQueryInput)>,
     ) -> TopKSearchResults {
-        /// Auto-sizing for the per-leg candidate window: a multiple of the
-        /// requested page so fusion sees meaningfully more than K docs.
-        const RRF_WINDOW_MULTIPLIER: usize = 4;
-        const RRF_MIN_WINDOW: usize = 100;
-
         #[derive(Default)]
         struct Candidate {
             bm25: Option<f32>,
@@ -1165,13 +1204,8 @@ impl SearchIndexReader {
         }
 
         let segment_ids: Vec<SegmentId> = segment_ids.collect();
-        // An explicit window is floored at the page size so it cannot
-        // truncate the requested LIMIT; 0 auto-sizes from the page.
-        let window = if window > 0 {
-            (window as usize).max(n + offset)
-        } else {
-            (RRF_WINDOW_MULTIPLIER * (n + offset)).max(RRF_MIN_WINDOW)
-        };
+        let bm25_window = windows.bm25_window(n, offset);
+        let vector_window = windows.vector_window(n, offset);
 
         // Vector leg: top-`window` nearest matching docs. The auxiliary
         // (aggregation) collector piggybacks on this pass, mirroring the
@@ -1185,7 +1219,7 @@ impl SearchIndexReader {
             .expect("pdb.rrf query vector was never resolved")
             .to_vec();
         self.validate_query_vector_dims(field_name, &query_vector);
-        let collector = TopDocs::with_limit(window)
+        let collector = TopDocs::with_limit(vector_window)
             .order_by_similarity(field.field(), query_vector)
             .with_adaptive_params(AdaptiveProbeParams {
                 epsilon: crate::gucs::vector_cluster_probe_epsilon(),
@@ -1220,7 +1254,7 @@ impl SearchIndexReader {
             .top_by_score_in_segments(
                 segment_ids.iter().copied(),
                 SortDirection::DescNullsLast,
-                window,
+                bm25_window,
                 0,
                 None,
                 None,

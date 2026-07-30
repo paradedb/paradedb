@@ -111,6 +111,22 @@ ORDER BY pdb.rrf(pdb.score(id), vec <=> '[0.6,0.8,0]', window_size => 200)
 LIMIT 3;
 
 
+-- per-arm windows: shrinking the vector arm's window to the page size
+-- truncates its contribution. Vector top-3 for [0.05,0.1,0.99] is docs
+-- 4, 2, 5, so doc 3 (vector rank 4 with the default window) loses its
+-- vector contribution and doc 4 overtakes it: 2, 1, 4 instead of 2, 1, 3.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM hyb
+WHERE label ||| 'east wind' OR vec ~~~ '[0.05,0.1,0.99]'
+ORDER BY pdb.rrf(id, vector_window_size => 3)
+LIMIT 3;
+SELECT id, pdb.score(id, type => 'rank') AS fused_rank
+FROM hyb
+WHERE label ||| 'east wind' OR vec ~~~ '[0.05,0.1,0.99]'
+ORDER BY pdb.rrf(id, vector_window_size => 3)
+LIMIT 3;
+
+
 -- ============================================================
 -- filtered semantics: WHERE defines the candidate set
 -- ============================================================

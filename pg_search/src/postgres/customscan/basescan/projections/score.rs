@@ -91,9 +91,13 @@ mod pdb {
     /// `window_size` is the per-leg candidate pool (the overfetch): each leg
     /// contributes its top-`window_size` documents to the fusion. `0` (the
     /// default) auto-sizes it to `max(4 * (LIMIT + OFFSET), 100)`; explicit
-    /// values are floored at `LIMIT + OFFSET` so the page cannot be
-    /// truncated. (Named `window_size` rather than `window` because WINDOW
-    /// is a reserved keyword and could not be used in `=>` notation.)
+    /// values are respected literally, so an arm window smaller than the
+    /// page bounds that arm's contribution (and a single-arm query with a
+    /// too-small window can return fewer rows than the LIMIT).
+    /// `bm25_window_size` / `vector_window_size` override it per arm
+    /// (0 = inherit `window_size`). (Named `window_size` rather than
+    /// `window` because WINDOW is a reserved keyword and could not be used
+    /// in `=>` notation.)
     ///
     /// Both ranking legs are `float8` so the legs can be written in either
     /// order: `pdb.score(...)` is `real` and casts up implicitly, while a
@@ -109,6 +113,8 @@ mod pdb {
         vector_distance: Option<f64>,
         k: default!(i32, 60),
         window_size: default!(i32, 0),
+        bm25_window_size: default!(i32, 0),
+        vector_window_size: default!(i32, 0),
     ) -> f64 {
         panic!("pdb.rrf() requires a ParadeDB TopK scan: use `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>` on a table with a bm25-indexed vector column");
     }
@@ -130,6 +136,8 @@ mod pdb {
         relation_reference: AnyElement,
         k: default!(i32, 60),
         window_size: default!(i32, 0),
+        bm25_window_size: default!(i32, 0),
+        vector_window_size: default!(i32, 0),
     ) -> f64 {
         panic!("pdb.rrf() requires a ParadeDB TopK scan: use `ORDER BY pdb.rrf(<key>) LIMIT <n>` with a `~~~` predicate in the WHERE clause");
     }
@@ -215,11 +223,19 @@ pub fn rrf_funcoids() -> [pg_sys::Oid; 2] {
                 pg_sys::FLOAT8OID,
                 pg_sys::INT4OID,
                 pg_sys::INT4OID,
+                pg_sys::INT4OID,
+                pg_sys::INT4OID,
             ],
         ),
         crate::postgres::utils::lookup_pdb_function(
             "rrf",
-            &[pg_sys::ANYELEMENTOID, pg_sys::INT4OID, pg_sys::INT4OID],
+            &[
+                pg_sys::ANYELEMENTOID,
+                pg_sys::INT4OID,
+                pg_sys::INT4OID,
+                pg_sys::INT4OID,
+                pg_sys::INT4OID,
+            ],
         ),
     ]
 }

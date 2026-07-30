@@ -524,6 +524,11 @@ pub enum OrderByFeature {
         /// Per-leg candidate pool (the overfetch); 0 = auto-size from the
         /// LIMIT.
         window: i32,
+        /// Per-arm overrides; 0 = inherit `window`.
+        #[serde(default)]
+        bm25_window: i32,
+        #[serde(default)]
+        vector_window: i32,
     },
 }
 
@@ -557,6 +562,8 @@ impl std::fmt::Display for OrderByFeature {
                 metric,
                 k,
                 window,
+                bm25_window,
+                vector_window,
                 ..
             } => {
                 match (name, metric) {
@@ -569,6 +576,12 @@ impl std::fmt::Display for OrderByFeature {
                 }
                 if *window > 0 {
                     write!(f, ", window_size={window}")?;
+                }
+                if *bm25_window > 0 {
+                    write!(f, ", bm25_window_size={bm25_window}")?;
+                }
+                if *vector_window > 0 {
+                    write!(f, ", vector_window_size={vector_window}")?;
                 }
                 write!(f, ")")
             }

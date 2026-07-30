@@ -49,6 +49,9 @@ use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use datafusion_distributed::{TaskEstimation, TaskEstimator};
+use datafusion_proto::physical_plan::{
+    DefaultPhysicalExtensionCodec, PhysicalPlanDecodeContext, PhysicalProtoConverterExtension,
+};
 use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
@@ -288,6 +291,9 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
 
         if range_sample.is_none() {
+            // A partition count exceeding the segment count indicates a bug in
+            // PgSearchScanTaskEstimator::task_estimation, which should cap the tasks
+            // to the segment count when range sampling is disabled.
             assert!(
                 partition_count <= segment_count.max(1),
                 "partition_count {} exceeds segment_count {}",
@@ -445,7 +451,15 @@ impl PgSearchScanPlan {
     /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
     /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
-    pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
+    ///
+    /// Installed dynamic filters travel as proto expression nodes stamped with their
+    /// `expression_id`; decoding the fragment with a deduplicating proto converter re-shares
+    /// each filter's inner state with the operator that updates it (see
+    /// `deserialize_physical_plan_with_runtime`).
+    pub(crate) fn encode_for_dispatch(
+        &self,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<Vec<u8>> {
         let state_guard = self
             .state
             .lock()
@@ -471,8 +485,21 @@ impl PgSearchScanPlan {
                 DataFusionError::Internal(format!("PgSearchScan dispatch: schema encode: {e}"))
             })?;
 
+        // Dynamic filters self-serialize (columns/literals/comparisons only — no pg_search
+        // extension exprs), so the default codec suffices.
+        let codec = DefaultPhysicalExtensionCodec {};
+        let dynamic_filters = self
+            .dynamic_filters
+            .iter()
+            .map(|f| {
+                let node = proto_converter.physical_expr_to_proto(f, &codec)?;
+                Ok(prost::Message::encode_to_vec(&node))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
+            dynamic_filters,
             query: self.resolved_query.clone(),
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
@@ -497,10 +524,16 @@ impl PgSearchScanPlan {
     /// state. Mirrors the tail of `PgSearchTableProvider::scan_inner`: open the index reader
     /// under the worker's MVCC view, build the fast-field helper + visibility checker, and wrap
     /// a single lazy partition that claims segments at runtime from `parallel_state`.
+    ///
+    /// Dynamic filters decode through `proto_converter` — the fragment-wide deduplicating
+    /// deserializer — so the rebuilt instances share inner state with the copies decoded
+    /// inside the operators that update them (hash-join bounds, aggregate group filters).
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         parallel_state: Option<*mut ParallelScanState>,
         expr_context: Option<*mut pg_sys::ExprContext>,
+        ctx: &TaskContext,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
@@ -515,6 +548,25 @@ impl PgSearchScanPlan {
         let schema: SchemaRef = Arc::new((&schema_proto).try_into().map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: schema parse: {e}"))
         })?);
+
+        let codec = DefaultPhysicalExtensionCodec {};
+        let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
+        let dynamic_filters = descriptor
+            .dynamic_filters
+            .iter()
+            .map(|bytes| {
+                let node =
+                    <datafusion_proto::protobuf::PhysicalExprNode as prost::Message>::decode(
+                        bytes.as_slice(),
+                    )
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!(
+                            "PgSearchScan dispatch: dynamic filter decode: {e}"
+                        ))
+                    })?;
+                proto_converter.proto_to_physical_expr(&node, schema.as_ref(), &decode_ctx)
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let index_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.indexrelid));
         let heap_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.heap_relid));
@@ -591,6 +643,7 @@ impl PgSearchScanPlan {
             descriptor.range_sample,
         );
         plan.assigned_partition = descriptor.assigned_partition;
+        plan.dynamic_filters = dynamic_filters;
         Ok(Arc::new(plan))
     }
 }
@@ -602,6 +655,10 @@ impl PgSearchScanPlan {
 struct ScanDispatchDescriptor {
     /// Arrow schema, `datafusion_proto::protobuf::Schema`-encoded (arrow schema isn't serde).
     schema_proto: Vec<u8>,
+    /// Installed dynamic filters (join-key bounds, top-k thresholds), each a prost-encoded
+    /// `PhysicalExprNode`. Their `expr_id` lets a deduplicating decode re-share one instance
+    /// with the operator that updates it.
+    dynamic_filters: Vec<Vec<u8>>,
     query: SearchQueryInput,
     score_needed: bool,
     sort_order: Option<SortByField>,
@@ -1143,7 +1200,12 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
 
         let partition_count = plan.properties().output_partitioning().partition_count();
 
-        Some(TaskEstimation::desired(partition_count))
+        // We use `maximum` rather than `desired` here because `partition_count` is already
+        // clamped to the number of physical index segments (when range sampling is disabled).
+        // Since a single segment cannot be concurrently scanned by multiple workers,
+        // allowing the stage to scale up beyond `partition_count` would just result in
+        // starved tasks doing useless setup work (like building empty hash tables) for zero rows.
+        Some(TaskEstimation::maximum(partition_count))
     }
 
     fn scale_up_leaf_node(

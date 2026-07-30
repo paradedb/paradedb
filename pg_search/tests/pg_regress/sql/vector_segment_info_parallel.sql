@@ -1,0 +1,128 @@
+-- Parallel-plan coverage for EXPLAIN's per-segment vector telemetry: only
+-- parallel scans route Segment Info through the fixed 1024-byte DSM slots
+-- (serial scans keep a backend-local map and never touch them), so the
+-- serial suites cannot catch a payload outgrowing its slot. This test forces
+-- a parallel vector TopK, then asserts structurally over
+-- EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON):
+--   * the scan really ran parallel (workers launched);
+--   * Segment Info covers every segment claimed in Parallel Workers
+--     (both are keyed by short segment UUID);
+--   * every Segment Info entry still carries the probe-stats fields the
+--     harness derives clusters_probed from (postings_row + postings_skipped).
+-- An oversized payload would surface here twice: a "segment explain info …
+-- exceed … bytes; skipping" WARNING in the captured output, and a claimed
+-- segment missing from Segment Info.
+--
+-- client_min_messages is pinned to NOTICE for the assertion block: the pgrx
+-- server starts with -c client_min_messages=warning, which would swallow the
+-- success NOTICE; WARNINGs (the DSM overflow signal this test guards) pass
+-- either way.
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+
+DROP TABLE IF EXISTS seginfo_par;
+CREATE TABLE seginfo_par (
+    id  int PRIMARY KEY,
+    vec vector(16)
+);
+
+-- Same forcing recipe as vector_merge: immutable inserts, foreground merges,
+-- one clustered segment.
+CREATE INDEX seginfo_par_idx ON seginfo_par
+    USING bm25 (id, vec vector_l2_ops)
+    WITH (
+        key_field = id,
+        target_segment_count = 1,
+        mutable_segment_rows = 0,
+        layer_sizes = '600kb',
+        background_layer_sizes = '0'
+    );
+
+SET client_min_messages = WARNING;
+INSERT INTO seginfo_par
+SELECT g, ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+FROM generate_series(1, 15000) g;
+RESET client_min_messages;
+
+-- Force a parallel TopK plan.
+SET max_parallel_workers_per_gather = 2;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET paradedb.min_rows_per_worker = 1000;
+SET client_min_messages = notice;
+
+DO $$
+DECLARE
+    plan jsonb;
+    scan jsonb;
+    seg_info jsonb;
+    workers jsonb;
+    launched int;
+    claimed text;
+    claimed_total int := 0;
+    entry record;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON, COSTS OFF, TIMING OFF, SUMMARY OFF)
+             SELECT id FROM seginfo_par
+             WHERE id @@@ paradedb.all()
+             ORDER BY vec <-> ' || quote_literal('[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]') || '::vector
+             LIMIT 10'
+    INTO plan;
+
+    -- The ParadeDB scan node, wherever it sits in the (Gather-wrapped) tree.
+    scan := jsonb_path_query_first(plan, '$[0].** ? (exists(@."Segment Info"))');
+    IF scan IS NULL THEN
+        RAISE EXCEPTION 'no plan node carries Segment Info: %', plan;
+    END IF;
+    -- add_json emits these as TEXT properties whose value is JSON — re-parse.
+    seg_info := (scan ->> 'Segment Info')::jsonb;
+    workers  := (scan ->> 'Parallel Workers')::jsonb;
+
+    launched := (jsonb_path_query_first(plan, '$[0].** ? (exists(@."Workers Launched"))')
+                   ->> 'Workers Launched')::int;
+    IF launched IS NULL OR launched < 1 THEN
+        RAISE EXCEPTION 'plan did not run parallel (workers launched = %)', launched;
+    END IF;
+
+    IF workers IS NULL THEN
+        RAISE EXCEPTION 'parallel scan emitted no Parallel Workers section: %', scan;
+    END IF;
+
+    -- Every claimed segment must have survived the DSM round-trip into
+    -- Segment Info, with the probe counters intact.
+    FOR entry IN SELECT value FROM jsonb_each(workers)
+    LOOP
+        FOR claimed IN
+            SELECT seg ->> 'id' FROM jsonb_array_elements(entry.value -> 'claimed_segments') seg
+        LOOP
+            claimed_total := claimed_total + 1;
+            IF NOT seg_info ? claimed THEN
+                RAISE EXCEPTION 'claimed segment % missing from Segment Info % (dropped DSM payload?)',
+                    claimed, seg_info;
+            END IF;
+            IF seg_info -> claimed -> 'postings_row' IS NULL
+               OR seg_info -> claimed -> 'postings_skipped' IS NULL THEN
+                RAISE EXCEPTION 'segment % info lacks postings counters: %',
+                    claimed, seg_info -> claimed;
+            END IF;
+        END LOOP;
+    END LOOP;
+
+    IF claimed_total < 1 THEN
+        RAISE EXCEPTION 'no segments were claimed by any worker: %', workers;
+    END IF;
+
+    RAISE NOTICE 'parallel segment info intact: % claimed segment(s), % worker(s)',
+        claimed_total, launched;
+END
+$$;
+
+RESET client_min_messages;
+RESET max_parallel_workers_per_gather;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
+RESET paradedb.min_rows_per_worker;
+
+DROP TABLE seginfo_par;

@@ -1104,3 +1104,71 @@ pub struct ClaimedSegmentData {
     deleted_docs: u32,
     max_doc: u32,
 }
+
+#[cfg(test)]
+mod segment_info_budget_tests {
+    use super::SEGMENT_INFO_MAX_PER_SEG;
+    use tantivy::vector::{
+        IvfSearchMetrics, NeighborhoodGraphSearchMetrics, ProbeStats, ProbeTermination,
+        SearchTerminationReason,
+    };
+
+    /// The DSM slot per primary segment is a FIXED [`SEGMENT_INFO_MAX_PER_SEG`]
+    /// bytes, and `set_segment_info` drops the ENTIRE payload for a segment
+    /// (with a warning) when the JSON exceeds it — parallel queries would
+    /// silently lose that segment's telemetry. This test serializes a
+    /// worst-case `ProbeStats` — radius mode, every counter at the u32 row
+    /// ceiling (10 digits; counters are bounded by per-segment row counts),
+    /// routing graph populated, the longest `termination` variant — and pins
+    /// the byte length against the budget so the NEXT field someone adds
+    /// fails here first, not as a dropped EXPLAIN section in production.
+    #[test]
+    fn worst_case_probe_stats_fits_dsm_segment_info_slot() {
+        let worst = ProbeStats {
+            candidates_scored: u32::MAX as usize,
+            vectors_visited: u32::MAX as usize,
+            pruned_filter: u32::MAX as usize,
+            pruned_dead: u32::MAX as usize,
+            pruned_seen: u32::MAX as usize,
+            postings_row: u32::MAX as usize,
+            postings_skipped: u32::MAX as usize,
+            exact_rows_read: u32::MAX as usize,
+            routing: IvfSearchMetrics {
+                visited_count: u32::MAX as usize,
+                graph: Some(NeighborhoodGraphSearchMetrics {
+                    visited_count: u32::MAX as usize,
+                    expanded_count: u32::MAX as usize,
+                    edges_scanned: u32::MAX as usize,
+                    evictions: u32::MAX as usize,
+                    result_count: u32::MAX as usize,
+                    // Longest variant name wins the byte count.
+                    termination_reason: SearchTerminationReason::SearchConverged,
+                }),
+            },
+            // "Exhausted" is the longest ProbeTermination variant.
+            termination: ProbeTermination::Exhausted,
+            work_charged: f32::MAX, // widest float rendering
+            heap_saturated: true,
+            gate_armed_at_probe: Some(u32::MAX as usize),
+            gate_armed_at_ceiling: false,
+            radius_skips: u32::MAX as usize,
+        };
+        let json = serde_json::to_vec(&worst).expect("ProbeStats serializes");
+        assert!(
+            json.len() <= SEGMENT_INFO_MAX_PER_SEG,
+            "worst-case ProbeStats JSON is {} bytes — over the {}-byte DSM \
+             segment-info slot; parallel EXPLAIN would silently drop this \
+             segment's telemetry. Shrink or #[serde(skip)] a field (or take \
+             the slot size up with its owner).",
+            json.len(),
+            SEGMENT_INFO_MAX_PER_SEG,
+        );
+        // Headroom, stated as a number so budget spend shows up in review.
+        eprintln!(
+            "worst-case ProbeStats JSON: {} bytes; headroom {} of {}",
+            json.len(),
+            SEGMENT_INFO_MAX_PER_SEG - json.len(),
+            SEGMENT_INFO_MAX_PER_SEG,
+        );
+    }
+}

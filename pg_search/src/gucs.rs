@@ -206,29 +206,22 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Per-segment ceiling on IVF clusters probed by a vector ORDER BY query,
-/// expressed as a fraction of the segment's own cluster count and resolved
-/// per-segment (`ceil(fraction * num_clusters)`, at least one cluster). A
-/// fraction rather than an absolute count because every segment can have a
-/// different cluster count — an absolute cap scans small segments
-/// exhaustively while barely probing large ones. Default 0.02 (2% of
-/// clusters): with the default 0.01 centroid ratio that is ~2% of ~1% of
-/// rows, in line with SPANN Fig. 2 (99% of SIFT1M queries reach perfect
-/// recall@1 within ~1% of clusters). `1.0` probes every cluster.
+/// The single user-facing tuning knob for IVF vector probing: the
+/// fraction of the index's probe WORK a vector ORDER BY query may spend.
+/// Denominated in work units — 1 unit = one average cluster (a fixed
+/// opening share plus a per-vector remainder, charged per deduplicated
+/// vector as rows stream) — so uneven clusters charge proportionally to
+/// what they actually hold and replicas cost nothing on re-encounter.
+/// An exhaustive scan costs exactly the cluster count, so the fraction
+/// keeps its count-era scale: default 0.02 (2% of the index's work; with
+/// the default 0.01 centroid ratio ~2% of ~1% of rows, in line with
+/// SPANN Fig. 2). `1.0` scans everything. Allocation is per segment —
+/// f of the index's work, spent where the work is. Segments without
+/// stored radii meter plain cluster counts (legacy regime).
 static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
 
 pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
-}
-
-/// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
-/// past the best centroid the IVF probe loop keeps probing clusters. Lower
-/// epsilon probes fewer clusters, decreasing latency at the expense of
-/// recall. Default `0.5`.
-static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
-
-pub fn vector_cluster_probe_epsilon() -> f32 {
-    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
 }
 
 pub fn init() {
@@ -430,21 +423,10 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
         c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Fraction of a segment's IVF clusters probed per vector ORDER BY query, resolved per-segment as ceil(fraction * cluster_count) and floored at one cluster. A fraction rather than an absolute count so the ceiling tracks each segment's own cluster count instead of scanning small segments exhaustively and barely probing large ones. 1.0 probes every cluster. Lower values reduce latency at the cost of recall.",
+        c"Fraction of the index's IVF probe WORK spent per vector ORDER BY query. One work unit is one average cluster: a fixed opening share plus a per-vector remainder, charged per deduplicated vector as rows stream — uneven clusters charge proportionally, replicas cost nothing on re-encounter, and an exhaustive scan costs exactly the cluster count (the fraction keeps its scale). 1.0 scans everything; lower values reduce latency at the cost of recall. Segments without stored radii meter plain cluster counts.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_cluster_probe_epsilon",
-        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
-        c"How far past the best centroid the IVF probe loop keeps probing clusters. Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
-        &VECTOR_CLUSTER_PROBE_EPSILON,
-        0.0,
-        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );

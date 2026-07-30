@@ -301,21 +301,12 @@ impl OptimizerRule for RangePartitioningRule {
                             Some((r_provider, r_field_name)),
                         ) = (l_res, r_res)
                         {
-                            let mut sample = None;
-                            if let Some(s) = l_provider.range_sample() {
-                                sample = Some(s.clone());
-                            } else if let Some(s) = r_provider.range_sample() {
-                                sample = Some(s.clone());
-                            }
-
-                            if sample.is_none() {
-                                sample = merged_sample(
-                                    l_provider,
-                                    &l_field_name,
-                                    r_provider,
-                                    &r_field_name,
-                                )?;
-                            }
+                            let sample = merged_sample(
+                                l_provider,
+                                &l_field_name,
+                                r_provider,
+                                &r_field_name,
+                            )?;
 
                             if let Some(mut shared_sample) = sample {
                                 shared_sample.partition_by = l_field_name;

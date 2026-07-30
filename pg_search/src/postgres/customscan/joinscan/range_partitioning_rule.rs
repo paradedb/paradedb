@@ -474,9 +474,13 @@ fn sample_fast_field(
 /// partition `i` can only ever match probe-side partition `i`, so `Partitioned`
 /// mode joins each pair task-locally and the broadcast disappears.
 ///
-/// Must run after `EnforceDistribution` (which resolves `PartitionMode::Auto`
-/// and inserts the build side's `CoalescePartitionsExec`) and before the
-/// post-optimization `FilterPushdown` pass.
+/// A separate rule because `EnforceDistribution` picks `CollectLeft` for a small
+/// build side on size alone and never revisits the mode for range-partitioned
+/// inputs; declaring `Partitioning::Range` on the scans only lets an already
+/// `Partitioned` join skip its repartitions. Must run after `EnforceDistribution`
+/// (which resolves `PartitionMode::Auto` and inserts the build side's
+/// `CoalescePartitionsExec`) and before the post-optimization `FilterPushdown`
+/// pass.
 #[derive(Debug, Default)]
 pub struct RangeCoPartitionedJoinRule;
 
@@ -498,8 +502,9 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
             let Some(join) = node.downcast_ref::<HashJoinExec>() else {
                 return Ok(Transformed::no(node));
             };
-            // DataFusion's range-satisfaction bridge only covers Partitioned inner
-            // joins, so those are the only ones worth flipping.
+            // `HashJoinExec` enables `allow_range_satisfaction_for_key_partitioning`
+            // only for Partitioned inner joins; flipping any other shape would make
+            // `EnforceDistribution` re-introduce hash repartitions on both sides.
             if join.partition_mode() != &PartitionMode::CollectLeft
                 || join.join_type() != &JoinType::Inner
             {

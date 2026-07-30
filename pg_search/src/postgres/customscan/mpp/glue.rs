@@ -18,17 +18,17 @@
 //! High-level glue between PostgreSQL parallel-query callbacks and the
 //! leader/worker MPP architecture.
 //!
-//! Customscan code calls into this module from four hooks; everything else (the shared-memory
-//! layout, the ring mesh, the `WorkerTransport` plumbing) lives in
+//! The leader-driven launch (`mpp::launch`) calls into this module; everything else (the
+//! shared-memory layout, the ring mesh, the `WorkerTransport` plumbing) lives in
 //! `datafusion_distributed::shm` and is reached through these thin wrappers:
 //!
 //! - [`mpp_is_active`] — gate for the customscan path-builder.
-//! - [`estimate_dsm_size`] — `estimate_dsm_custom_scan` body.
-//! - [`leader_setup`] — `initialize_dsm_custom_scan` body. Returns the
-//!   leader's [`MppLeaderState`] which carries the runtime [`MppMesh`]
+//! - [`estimate_dsm_size`] — mesh-region sizing for the plan-first launch.
+//! - [`leader_setup`] — leader-side mesh init, called by `launch_mpp` after the workers
+//!   spawn. Returns the leader's [`MppLeaderState`] which carries the runtime [`MppMesh`]
 //!   handle the customscan installs on its DataFusion `SessionContext`.
-//! - [`worker_setup`] — `initialize_worker_custom_scan` body. Returns the
-//!   worker's [`MppWorkerState`] which carries the worker's outbound
+//! - [`worker_setup`] — worker-side mesh attach, called from `run_launched_worker`. Returns
+//!   the worker's [`MppWorkerState`] which carries the worker's outbound
 //!   senders and the deserialized plan bytes the worker runs.
 
 use std::ffi::c_void;
@@ -40,46 +40,24 @@ use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_distributed::TaskKey;
 use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
-use crate::gucs::{
-    mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
-};
+use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
 use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
-use crate::postgres::ParallelScanState;
 
-/// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
-/// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
-/// threshold. Below 3, [`producer_worker_count`] would be 1 while
-/// `build_mpp_session_context` still clamps `target_partitions` to 2; the mesh wouldn't
-/// have a queue for the second partition.
-const MIN_TOTAL_WORKER_COUNT: i32 = 3;
+/// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
+/// Below that, `build_mpp_session_context` still clamps `target_partitions` to 2 and the mesh
+/// wouldn't have a queue for the second partition. Single source of truth so [`mpp_is_active`]
+/// and the launch's clamp floor don't drift on the threshold.
+pub const MIN_TOTAL_WORKER_COUNT: u32 = 3;
 
-/// True iff `paradedb.mpp_worker_count >= MIN_TOTAL_WORKER_COUNT` and the system has
-/// enough `max_parallel_workers` and `max_parallel_workers_per_gather` to launch
-/// the requested number of producers. Customscan path-builders gate `parallel_workers` on this.
+/// True iff PostgreSQL's parallelism budget allows at least `MIN_TOTAL_WORKER_COUNT - 1`
+/// producer workers. There is no MPP-specific worker GUC (#5667):
+/// `max_parallel_workers_per_gather` caps the per-query width — the same knob that caps
+/// ordinary parallel scans, matching core PG's `compute_parallel_worker` convention — and
+/// `max_parallel_workers` is the cluster-wide pool. Setting
+/// `max_parallel_workers_per_gather` below 2 (or 0, PG's own parallelism-disable convention)
+/// disables MPP. Customscan path-builders gate `parallel_workers` on this.
 pub fn mpp_is_active() -> bool {
-    let active = gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT;
-    if !active {
-        return false;
-    }
-
-    let producer_count = gucs_mpp_worker_count() - 1;
-    let max_per_gather = unsafe { pg_sys::max_parallel_workers_per_gather };
-    let max_workers = unsafe { pg_sys::max_parallel_workers };
-
-    producer_count <= max_per_gather && producer_count <= max_workers
-}
-
-/// Total proc count: leader + producers. Equals the GUC value when [`mpp_is_active`] is
-/// true. Callers must gate on [`mpp_is_active`] first. Debug builds assert; release builds
-/// return the raw GUC, which can leave [`producer_worker_count`] below 2 and break the
-/// planner's `target_partitions` / mesh-width invariant.
-// TODO(#5667): Evaluate bounding or replacing mpp_worker_count dynamically based on df-d planner output.
-pub fn mpp_worker_count() -> u32 {
-    debug_assert!(
-        mpp_is_active(),
-        "mpp_worker_count() called when mpp_is_active() is false — callers must gate first"
-    );
-    gucs_mpp_worker_count() as u32
+    producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT - 1
 }
 
 // The shared-memory transport pins 8-byte alignment (its ring headers hold `u64` atomics). The
@@ -92,20 +70,24 @@ pub(super) fn mpp_queue_size() -> usize {
     gucs_mpp_queue_size()
 }
 
-/// Body of `estimate_dsm_custom_scan`. Returns the total DSM bytes the leader will need
-/// for the header, the worker plan, and one MPSC inbox per process. `n_procs` is the
-/// total proc count (leader + `producer_worker_count()` parallel workers).
-pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
-    shm::dsm_region_bytes(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
-        .map_err(|e| e.to_string())
+/// Total DSM bytes the leader will need for the mesh header, the worker plan, and one MPSC
+/// inbox per process. `n_procs` is the total proc count (leader + launched producers) the
+/// plan-first launch computed from the physical plan — the mesh grows as `n_procs²`, so this
+/// is sized from the plan's needs, not the GUC ceiling (#5667).
+pub fn estimate_dsm_size(n_procs: u32, plan_bytes_len: usize) -> Result<usize, String> {
+    shm::dsm_region_bytes(n_procs, mpp_queue_size(), plan_bytes_len).map_err(|e| e.to_string())
 }
 
-/// Number of producer workers PG should launch as `parallel_workers`.
-/// `mpp_worker_count - 1` because proc 0 is the leader (consumer-only). Callers must gate
-/// on [`mpp_is_active`] first; when active, [`MIN_TOTAL_WORKER_COUNT`] guarantees this is
-/// `>= 2` without further clamping.
-pub fn producer_worker_count() -> u32 {
-    mpp_worker_count() - 1
+/// Maximum number of producer workers a launch may spawn:
+/// `min(max_parallel_workers_per_gather, max_parallel_workers)` (#5667). Also the planner's
+/// `target_partitions` ceiling. The plan-first launch spawns
+/// `clamp(max_stage_task_count, MIN_TOTAL_WORKER_COUNT - 1, this)` producers, so the cap only
+/// bounds — the plan's task fragments decide the actual width. When [`mpp_is_active`] holds
+/// this is `>= MIN_TOTAL_WORKER_COUNT - 1`.
+pub fn producer_worker_cap() -> u32 {
+    let max_per_gather = unsafe { pg_sys::max_parallel_workers_per_gather };
+    let max_workers = unsafe { pg_sys::max_parallel_workers };
+    max_per_gather.min(max_workers).max(0) as u32
 }
 
 /// Leader-observable per-phase timing of an MPP launch, in microseconds. Populated so
@@ -131,6 +113,25 @@ pub struct MppLaunchTiming {
     pub first_frame_us: u64,
     /// Producer workers that attached.
     pub workers: u32,
+}
+
+impl MppLaunchTiming {
+    /// The `MPP Launch` line for `EXPLAIN ANALYZE`, shared by JoinScan and AggregateScan so
+    /// the launched width is observable (and regress-assertable) on both paths.
+    pub fn explain_text(&self) -> String {
+        format!(
+            "workers={} prepare={}us plan={}us payload={}us attach={}us \
+             leader_setup={}us exec={}us first_frame={}us",
+            self.workers,
+            self.prepare_us,
+            self.plan_us,
+            self.payload_us,
+            self.attach_us,
+            self.leader_setup_us,
+            self.exec_us,
+            self.first_frame_us,
+        )
+    }
 }
 
 /// The leader's control senders behind their shared lock. The scan state and mesh cancel path
@@ -173,19 +174,13 @@ pub struct MppLeaderState {
     /// the workers and destroy the parallel context. `None` until `launch` installs it on the
     /// success path.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
-    /// The shared `ParallelScanState` the leader populated in DSM. The leader runs the top fragment
-    /// itself, and a scan source can land there (e.g. under MPP's broadcast or shuffle strategy),
-    /// where the scan claims per-source segments against this state just like a worker. The leader
-    /// stashes it on its custom state so the codec installs it into those providers. Null until
-    /// `launch` sets it.
-    pub parallel_state: *mut ParallelScanState,
     /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
     pub timing: MppLaunchTiming,
 }
 
 /// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
 /// producer's [`PgWakeup`] can `SetLatch` us. Read on the backend thread (both setup paths run
-/// synchronously from PG's custom-scan init hooks before any tokio runtime spins up).
+/// synchronously from the launch / worker entry before any tokio runtime spins up).
 unsafe fn self_receiver_token() -> u64 {
     // `pg_sys::MyProcNumber` is the PG17+ global; PG15/16 carry the same value on
     // `MyProc->pgprocno` (it moved to a process-global plus a field rename in PG17).
@@ -202,10 +197,12 @@ unsafe fn self_receiver_token() -> u64 {
 ///
 /// # Safety
 /// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
+/// - `n_procs` must equal the proc count passed to [`estimate_dsm_size`] for this region.
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
+    n_procs: u32,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
     let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
@@ -213,13 +210,13 @@ pub unsafe fn leader_setup(
     // Register the leader as receiver so producers' wakeups resolve to this backend's procLatch.
     let token = unsafe { self_receiver_token() };
     // `mpp_trace` reads a pgrx GucSetting, which requires the backend thread. Safe here
-    // because this runs synchronously from `initialize_dsm_custom_scan` before any tokio
-    // runtime spins up.
+    // because this runs synchronously on the leader backend from `launch_mpp`, before any
+    // tokio runtime spins up.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let attach = unsafe {
         shm::leader_setup(
             coordinate,
-            mpp_worker_count(),
+            n_procs,
             mpp_queue_size(),
             &plan_bytes,
             wakeup,
@@ -249,7 +246,6 @@ pub unsafe fn leader_setup(
         mesh,
         control_senders,
         finish: None,
-        parallel_state: std::ptr::null_mut(),
         timing: MppLaunchTiming::default(),
     })
 }

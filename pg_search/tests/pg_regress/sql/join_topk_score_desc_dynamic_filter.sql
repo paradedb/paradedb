@@ -8,39 +8,58 @@
 --   WHERE p.body ||| '...' AND u.about_me ||| '...'
 --   ORDER BY score DESC LIMIT 5;
 --
--- The fixture is sized so that the *absence* of the HashJoin InList
--- dynamic-filter pushdown is visible in the EXPLAIN ANALYZE metrics:
+-- The benchmark's speedup comes from Top K score-threshold pushdown: the TopK
+-- sort publishes its current 5th-best score as a dynamic filter that is pushed
+-- down to the probe-side PgSearchScan, which then skips lower-scoring
+-- candidates at the scanner. This test makes the *absence* of that pushdown
+-- visible in the HashJoinExec probe hit rate reported by EXPLAIN ANALYZE.
 --
---   - users: 500 rows; only ids 1-25 match the users-side text predicate.
---   - posts: 5,000 rows; ALL of them match the posts-side text predicate
---     (the "high selectivity" candidate pool), owner_user_id cycles 1-500,
---     so exactly 250 posts (5,000 * 25/500) are owned by a matching user.
+-- Two batching quanta size the fixture:
+--   - The scanner consults the pushed-down threshold between batches;
+--     paradedb.dynamic_filter_batch_size = 2000 chunks the probe stream.
+--   - HashJoinExec coalesces ~8,192 output rows before emitting anything to
+--     the TopK sort, so the threshold cannot tighten until that many joined
+--     rows exist. The join must produce well over 8,192 rows, or the probe
+--     scan finishes before the threshold ever arrives (with a smaller
+--     fixture the EXPLAIN output is identical with pushdown disabled).
 --
--- With the dynamic filter delivered to the probe-side PgSearchScan, the scan
--- emits only the 250 posts owned by matching users and every probe row finds
--- a hash-table match:
+-- Fixture:
+--   - users: 500 rows; ids 1-250 match the users-side text predicate.
+--   - posts: 40,000 rows; ALL match the posts-side predicate (the "high
+--     selectivity" candidate pool); owner_user_id cycles 1-500, so 20,000
+--     posts are owned by a matching user. Five designated posts (ids
+--     5/10/15/20/25, all survivors) repeat the token 6/5/4/3/2 times, so the
+--     top 5 is seeded — with strictly distinct scores — within the first
+--     scanner batch; every other post ties strictly below them.
 --
---   HashJoinExec: ... probe_hit_rate=100% (250/250)
+-- With pushdown working, the threshold tightens to the 5th designated score
+-- as soon as the join emits its first coalesced batch (~9,000 probe rows in),
+-- and the scanner skips the rest of the candidate pool:
 --
--- If dynamic-filter delivery regresses (e.g. filters dropped between plan
--- fragments), the probe scan emits all 5,000 text-matching posts and the same
--- line degrades to probe_hit_rate=5% (250/5.00 K), with input_rows and the
--- probe scan's output_rows ballooning to match.
+--   HashJoinExec:  ... probe_hit_rate=100% (9.00 K/9.00 K)
+--   PgSearchScan:  ... rows_scanned=18.00 K   (of 40,000 candidates)
+--
+-- If the scanner-level threshold stops being applied, every candidate is
+-- surfaced (rows_scanned=40.0 K); if dynamic-filter delivery to the scan
+-- breaks entirely, the probe counts balloon as well (probe_hit_rate=50%
+-- (20.0 K/40.0 K)). Either way this file's expected output diffs loudly.
 --
 -- Determinism notes:
 --   - Serial execution, single-segment indexes, one INSERT ... SELECT per
---     table; the 250 surviving probe rows fit in one scanner batch.
---   - ORDER BY score DESC needs distinct scores in the top 5: five designated
---     surviving posts repeat the search token 6/5/4/3/2 times (BM25 tf grows
---     strictly with repetition), all other posts contain it exactly once and
---     tie strictly below them. The tied mass never reaches the output.
+--     table; batch boundaries are fixed by the batch-size cap over a fixed
+--     doc order.
+--   - ORDER BY score DESC needs distinct scores in the top 5: the designated
+--     posts' scores strictly descend (BM25 tf grows strictly with token
+--     repetition) and the tied mass below them never reaches the output.
 
--- Disable parallel workers so plans are deterministic, and force hash joins
--- (the InList dynamic-filter pushdown path composes with HashJoinExec).
+-- Disable parallel workers so plans are deterministic, and force hash joins.
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO off;
 SET enable_nestloop = off;
 SET enable_mergejoin = off;
+-- Cap the probe scanner batch size so the TopK score threshold is applied
+-- between batches; see the header comment.
+SET paradedb.dynamic_filter_batch_size = 2000;
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -64,28 +83,28 @@ CREATE TABLE hsel_users (
 );
 
 -- Every post matches ||| 'beer'. The five designated posts are all owned by
--- users 1-25 (id % 500 + 1 <= 25) and carry strictly descending term
--- frequencies, so they are the deterministic top 5 of the joined result.
+-- matching users and carry strictly descending term frequencies, so they are
+-- the deterministic top 5 of the joined result.
 INSERT INTO hsel_posts
 SELECT
     i,
     'Post ' || i,
     CASE i
-        WHEN    5 THEN repeat('beer ', 6)
-        WHEN  510 THEN repeat('beer ', 5)
-        WHEN 1015 THEN repeat('beer ', 4)
-        WHEN 1520 THEN repeat('beer ', 3)
-        WHEN 2020 THEN repeat('beer ', 2)
+        WHEN  5 THEN repeat('beer ', 6)
+        WHEN 10 THEN repeat('beer ', 5)
+        WHEN 15 THEN repeat('beer ', 4)
+        WHEN 20 THEN repeat('beer ', 3)
+        WHEN 25 THEN repeat('beer ', 2)
         ELSE 'beer'
     END,
     (i % 500) + 1
-FROM generate_series(1, 5000) AS i;
+FROM generate_series(1, 40000) AS i;
 
--- Only users 1-25 match ||| 'beer' on about_me.
+-- Only users 1-250 match ||| 'beer' on about_me.
 INSERT INTO hsel_users
 SELECT
     i,
-    CASE WHEN i <= 25
+    CASE WHEN i <= 250
         THEN 'brews beer at home'
         ELSE 'enjoys hiking and gardening'
     END
@@ -123,8 +142,9 @@ ORDER BY score DESC
 LIMIT 5;
 
 -- ===========================================================================
--- ParadeDB Join Scan: probe_hit_rate=100% (250/250) proves the build-side
--- InList dynamic filter reached the probe scan
+-- ParadeDB Join Scan: a ~9K-row probe input on the HashJoinExec
+-- probe_hit_rate (instead of the full 20K survivors) proves the TopK score
+-- threshold reached the probe scan and tightened mid-stream
 -- ===========================================================================
 
 SET paradedb.enable_join_custom_scan = on;
@@ -157,6 +177,7 @@ LIMIT 5;
 DROP TABLE IF EXISTS hsel_posts CASCADE;
 DROP TABLE IF EXISTS hsel_users CASCADE;
 
+RESET paradedb.dynamic_filter_batch_size;
 RESET paradedb.enable_join_custom_scan;
 RESET enable_mergejoin;
 RESET enable_nestloop;

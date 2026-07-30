@@ -8,38 +8,52 @@
 --   WHERE p.body ||| '...' AND u.about_me ||| '...'
 --   ORDER BY score DESC LIMIT 5;
 --
--- The fixture is sized so that the *absence* of the HashJoin InList
--- dynamic-filter pushdown is visible in the EXPLAIN ANALYZE metrics:
+-- The benchmark's speedup comes from Top K score-threshold pushdown: the
+-- TopK sort publishes its current 5th-best score as a dynamic filter that is
+-- pushed down to the probe-side PgSearchScan, which then skips lower-scoring
+-- candidates at the scanner. This test makes the *absence* of that pushdown
+-- visible in the probe hit rate reported by EXPLAIN ANALYZE.
 --
+-- Fixture:
 --   - users: 500 rows; only ids 1-25 match the users-side text predicate.
 --   - posts: 5,000 rows; ALL of them match the posts-side text predicate
 --     (the "high selectivity" candidate pool), owner_user_id cycles 1-500,
---     so exactly 250 posts (5,000 * 25/500) are owned by a matching user.
+--     so exactly 250 posts (5,000 * 25/500) are owned by a matching user
+--     and stream into the probe side of the join.
 --
--- With the dynamic filter delivered to the probe-side PgSearchScan, the scan
--- emits only the 250 posts owned by matching users and every probe row finds
--- a hash-table match:
+-- The score threshold is only consulted *between* scanner batches, and the
+-- default deferred-string batch size is 8,192 — left alone, all 250 probe
+-- rows arrive in a single batch and the threshold never gets a chance to
+-- prune, which would make a broken threshold pushdown invisible here.
+-- Setting paradedb.dynamic_filter_batch_size = 50 chunks the probe stream
+-- into 50-row batches: batch 1 seeds the top 5, and because every
+-- non-designated post ties at the base score, the threshold immediately
+-- tightens to that score and excludes every later tie. Only the designated
+-- high-scoring posts in batches 2-3 pass, so the probe side of HashJoinExec
+-- sees ~53 rows:
 --
---   HashJoinExec: ... probe_hit_rate=100% (250/250)
+--   HashJoinExec: ... probe_hit_rate=100% (53/53)
 --
--- If dynamic-filter delivery regresses (e.g. filters dropped between plan
--- fragments), the probe scan emits all 5,000 text-matching posts and the same
--- line degrades to probe_hit_rate=5% (250/5.00 K), with input_rows and the
--- probe scan's output_rows ballooning to match.
+-- If score-threshold pushdown regresses, nothing is skipped and all 250
+-- rows reach the join — probe_hit_rate=100% (250/250) — an unmistakable
+-- diff in this file's expected output.
 --
 -- Determinism notes:
 --   - Serial execution, single-segment indexes, one INSERT ... SELECT per
---     table; the 250 surviving probe rows fit in one scanner batch.
+--     table; batch boundaries are fixed by the batch-size cap over a fixed
+--     doc order.
 --   - ORDER BY score DESC needs distinct scores in the top 5: five designated
 --     surviving posts repeat the search token 6/5/4/3/2 times (BM25 tf grows
 --     strictly with repetition), all other posts contain it exactly once and
 --     tie strictly below them. The tied mass never reaches the output.
--- Disable parallel workers so plans are deterministic, and force hash joins
--- (the InList dynamic-filter pushdown path composes with HashJoinExec).
+-- Disable parallel workers so plans are deterministic, and force hash joins.
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO off;
 SET enable_nestloop = off;
 SET enable_mergejoin = off;
+-- Cap the probe scanner batch size so the TopK score threshold is applied
+-- between batches; see the header comment.
+SET paradedb.dynamic_filter_batch_size = 50;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- ===========================================================================
 -- Fixture
@@ -117,8 +131,9 @@ LIMIT 5;
 (5 rows)
 
 -- ===========================================================================
--- ParadeDB Join Scan: probe_hit_rate=100% (250/250) proves the build-side
--- InList dynamic filter reached the probe scan
+-- ParadeDB Join Scan: a ~53-row probe input on the HashJoinExec probe_hit_rate
+-- proves the TopK score threshold reached the probe scan and tightened
+-- between batches; without it, all 250 rows hit the join (250/250)
 -- ===========================================================================
 SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -144,12 +159,12 @@ LIMIT 5;
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=5, output_bytes=100.0 B, output_batches=1]
                  :   SortExec: TopK(fetch=5), expr=[score@1 DESC], preserve_partitioning=[false], filter=[score@1 IS NULL OR score@1 > 0.000107470645], metrics=[output_rows=5, output_bytes=100.0 B, output_batches=1, row_replacements=9]
                  :     VisibilityFilterExec: tables=[u, p], metrics=[output_rows=250, output_bytes=35.9 KB, output_batches=1]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3], metrics=[output_rows=250, output_bytes=160.0 KB, output_batches=1, build_mem_used=500.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=25, input_batches=1, input_rows=250, avg_fanout=100% (250/250), probe_hit_rate=100% (250/250)]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3], metrics=[output_rows=250, output_bytes=160.0 KB, output_batches=1, build_mem_used=500.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=25, input_batches=5, input_rows=250, avg_fanout=100% (250/250), probe_hit_rate=100% (250/250)]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"match":{"field":"about_me","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=25, output_bytes=400.0 B, output_batches=1]
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id], metrics=[output_rows=250, output_bytes=4.9 KB, output_batches=1]
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id], metrics=[output_rows=250, output_bytes=4.9 KB, output_batches=5]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query={"with_index":{"query":{"match":{"field":"body","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=250, output_bytes=4.9 KB, output_batches=1, rows_pruned=0, rows_scanned=250]
+                 :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query={"with_index":{"query":{"match":{"field":"body","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=250, output_bytes=4.9 KB, output_batches=5, rows_pruned=0, rows_scanned=250]
 (17 rows)
 
 SELECT
@@ -175,6 +190,7 @@ LIMIT 5;
 -- ===========================================================================
 DROP TABLE IF EXISTS hsel_posts CASCADE;
 DROP TABLE IF EXISTS hsel_users CASCADE;
+RESET paradedb.dynamic_filter_batch_size;
 RESET paradedb.enable_join_custom_scan;
 RESET enable_mergejoin;
 RESET enable_nestloop;

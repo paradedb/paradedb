@@ -391,6 +391,7 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 1m
+          alert_strategy: ci-overlap
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
@@ -434,6 +435,7 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 10m
+          alert_strategy: ci-overlap
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}

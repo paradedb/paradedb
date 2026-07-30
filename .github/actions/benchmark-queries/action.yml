@@ -34,6 +34,14 @@ inputs:
     description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
     required: false
     default: "false"
+  alert_strategy:
+    description: >-
+      How regressions are detected. "point-ratio": github-action-benchmark alerts when a value
+      exceeds the baseline by 15%. "ci-overlap": alert only when a series' 95% confidence interval
+      sits entirely above the baseline's and the value regressed >5%, so single-run percentile
+      noise (wide tail CIs) cannot fire; series without CIs keep the point-ratio rule.
+    required: false
+    default: "point-ratio"
 
 runs:
   using: "composite"
@@ -79,10 +87,36 @@ runs:
         gh-pages-branch: gh-pages
         auto-push: ${{ inputs.publish }}
         benchmark-data-dir-path: benchmarks
-        alert-threshold: "115%"
+        # Under ci-overlap the compare step below owns alerting; 500% stays as a backstop for
+        # catastrophic regressions in case that step is skipped (e.g. no parseable baseline).
+        alert-threshold: ${{ inputs.alert_strategy == 'ci-overlap' && '500%' || '115%' }}
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
+
+    # The publish step above appends the current run to its local gh-pages clone, so the script
+    # takes the newest entry from a different commit as the baseline.
+    - name: Compare Against Baseline (CI Overlap)
+      if: inputs.alert_strategy == 'ci-overlap'
+      id: ci_overlap
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/compare_baseline.py" \
+          --results benchmarks/results.json \
+          --data-js benchmark-data-repository/benchmarks/data.js \
+          --suite "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)" \
+          --sha "${{ github.sha }}" \
+          --out benchmark-alert.md
+
+    - name: Comment on Alert (CI Overlap)
+      if: inputs.alert_strategy == 'ci-overlap' && steps.ci_overlap.outputs.alert == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        printf '\ncc @%s\n' "${{ github.actor }}" >> benchmark-alert.md
+        gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+          -F body=@benchmark-alert.md
 
     - name: Upload Benchmark Results to Slack (push only)
       if: github.ref == 'refs/heads/main'

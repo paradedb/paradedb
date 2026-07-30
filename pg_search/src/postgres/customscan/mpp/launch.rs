@@ -56,14 +56,14 @@ use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, SessionContextProfile,
 };
 use crate::postgres::customscan::mpp::dispatch::{
-    dispatch_payload_from_plan, dispatch_plan_capacity,
+    dispatch_payload_from_stages, dispatch_plan_capacity,
 };
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, producer_worker_cap, worker_setup, MppLeaderState,
     MIN_TOTAL_WORKER_COUNT,
 };
-use crate::postgres::customscan::mpp::worker_fragments::max_producer_task_count;
+use crate::postgres::customscan::mpp::worker_fragments::{collect_stages, max_producer_task_count};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
@@ -273,10 +273,12 @@ fn launch_mpp(
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
+    let stages = collect_stages(physical);
+
     // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
     // counts (#5657). The producer floor keeps the mesh-width invariant; see
     // [`MIN_TOTAL_WORKER_COUNT`].
-    let max_tasks = max_producer_task_count(physical);
+    let max_tasks = max_producer_task_count(&stages);
     if max_tasks < 2 {
         // 0: nothing to distribute. 1: no data parallelism — every 1-task stage lands on
         // proc 1 (`proc_for_task`), leaving the second (floor) producer idle. Run serially.
@@ -337,11 +339,10 @@ fn launch_mpp(
     // here is a hard error: a serialization gap is a codec bug, and the parked workers die
     // with the transaction.
     let t_payload = std::time::Instant::now();
-    let (payload, stage_count) =
-        match dispatch_payload_from_plan(physical, producer_count, payload_capacity) {
-            Ok(p) => p,
-            Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
-        };
+    let payload = match dispatch_payload_from_stages(&stages, producer_count, payload_capacity) {
+        Ok(p) => p,
+        Err(e) => pgrx::error!("mpp: dispatch payload build failed: {e}"),
+    };
     timing.payload_us = t_payload.elapsed().as_micros() as u64;
 
     let t_attach = std::time::Instant::now();
@@ -362,15 +363,6 @@ fn launch_mpp(
             "mpp: launched {launched} of {producer_count} requested workers; running serially"
         );
         return None;
-    }
-
-    // Sizing (`max_producer_task_count`) and dispatch walk the same plan and gate on
-    // `local_plan()` the same way, so a sized launch always dispatches at least one stage;
-    // zero means the walks drifted.
-    if stage_count == 0 {
-        go.store(GO_ABORT, Ordering::Release);
-        finish.wait_for_finish();
-        pgrx::error!("mpp: sized {producer_count} producers but dispatch found no stages");
     }
 
     // Bind the shared scan state into the plan the leader will execute. Must stay below the

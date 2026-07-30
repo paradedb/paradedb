@@ -34,7 +34,6 @@ use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
-use datafusion::config::ConfigOptions;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -48,7 +47,10 @@ use datafusion::physical_plan::metrics::{
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
-use datafusion_distributed::{TaskEstimation, TaskEstimator};
+use datafusion_distributed::{
+    DesiredTaskCountEvent, DesiredTaskCountEventResponse, ScaleUpLeafNodeEvent,
+    ScaleUpLeafNodeEventResponse,
+};
 use datafusion_proto::physical_plan::{
     DefaultPhysicalExtensionCodec, PhysicalPlanDecodeContext, PhysicalProtoConverterExtension,
 };
@@ -200,7 +202,7 @@ pub struct PgSearchScanPlan {
     /// When executing in a multi-task distributed or parallel environment, this
     /// indicates the specific execution partition this plan variant is responsible for.
     /// It guarantees that the `ExecutionState` is consumed exactly once by the designated worker.
-    assigned_partition: Option<usize>,
+    pub(crate) assigned_partition: Option<usize>,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -294,7 +296,7 @@ impl PgSearchScanPlan {
 
         if range_sample.is_none() {
             // A partition count exceeding the segment count indicates a bug in
-            // PgSearchScanTaskEstimator::task_estimation, which should cap the tasks
+            // pg_search_scan_desired_task_count, which should cap the tasks
             // to the segment count when range sampling is disabled.
             assert!(
                 partition_count <= segment_count.max(1),
@@ -1199,57 +1201,48 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
     }
 }
 
-/// `PgSearchScanTaskEstimator` intercepts `PgSearchScanPlan` during distributed planning
-/// and requests a number of tasks equal to the plan's `partition_count`.
+/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks.
 ///
 /// This correctly maps PostgreSQL parallel workers to tasks, ensuring that tables with 1 segment
 /// do not force MPP planning and fall back to local serial execution (under `Shared` partitioning),
 /// whereas large tables or tables utilizing `Range` partitioning scale out efficiently across
-/// available workers. When scaled up via `scale_up_leaf_node`, the plan internally repartitions
-/// itself to exactly match the requested task count.
-#[derive(Debug)]
-pub(crate) struct PgSearchScanTaskEstimator;
+/// available workers.
+pub(crate) fn pg_search_scan_desired_task_count(
+    ev: DesiredTaskCountEvent,
+) -> Option<DesiredTaskCountEventResponse> {
+    let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
+    let partition_count = ev.plan.properties().output_partitioning().partition_count();
+    // `maximum` rather than `desired`: `partition_count` is already clamped to the number
+    // of physical index segments (when range sampling is disabled). A single segment cannot
+    // be concurrently scanned by multiple workers, so scaling the stage past it would just
+    // starve tasks with useless setup work (like building empty hash tables) for zero rows.
+    Some(DesiredTaskCountEventResponse::maximum(partition_count))
+}
 
-impl TaskEstimator for PgSearchScanTaskEstimator {
-    fn task_estimation(
-        &self,
-        plan: &Arc<dyn ExecutionPlan>,
-        _cfg: &ConfigOptions,
-    ) -> Option<TaskEstimation> {
-        let _ = plan.downcast_ref::<PgSearchScanPlan>()?;
+/// Replaces a `PgSearchScanPlan` leaf with per-task variants once its stage's task
+/// count is final. One partition per task is the distributed contract: the plan is
+/// repartitioned so the counts match, and each variant consumes exactly its own
+/// partition; partitions past a short range sample bound empty ranges rather than
+/// re-chunking tasks.
+pub(crate) fn pg_search_scan_scale_up_leaf_node(
+    ev: ScaleUpLeafNodeEvent,
+) -> Option<datafusion::error::Result<ScaleUpLeafNodeEventResponse>> {
+    let scan_plan = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
 
-        let partition_count = plan.properties().output_partitioning().partition_count();
-
-        // We use `maximum` rather than `desired` here because `partition_count` is already
-        // clamped to the number of physical index segments (when range sampling is disabled).
-        // Since a single segment cannot be concurrently scanned by multiple workers,
-        // allowing the stage to scale up beyond `partition_count` would just result in
-        // starved tasks doing useless setup work (like building empty hash tables) for zero rows.
-        Some(TaskEstimation::maximum(partition_count))
-    }
-
-    fn scale_up_leaf_node(
-        &self,
-        plan: &Arc<dyn ExecutionPlan>,
-        task_count: usize,
-        _cfg: &ConfigOptions,
-    ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
-        let Some(scan_plan) = plan.downcast_ref::<PgSearchScanPlan>() else {
-            return Ok(None);
-        };
-
-        let current_partitions = plan.properties().output_partitioning().partition_count();
-        let final_plan = if task_count != current_partitions {
-            scan_plan.repartition(task_count)?
+    let scale = || -> datafusion::error::Result<ScaleUpLeafNodeEventResponse> {
+        let current_partitions = ev.plan.properties().output_partitioning().partition_count();
+        let final_plan = if ev.task_count != current_partitions {
+            scan_plan.repartition(ev.task_count)?
         } else {
-            Arc::clone(plan)
+            Arc::clone(ev.plan)
         };
 
         // Downcast back because repartition returns `Arc<dyn ExecutionPlan>`
         let final_scan_plan = final_plan.downcast_ref::<PgSearchScanPlan>().unwrap();
 
-        // Assign each task its explicit execution partition to ensure it is the only one executing it.
-        let variants = (0..task_count)
+        // Assign each task its explicit execution partition to ensure it is the only one
+        // executing it.
+        let variants = (0..ev.task_count)
             .map(|i| {
                 let mut variant = final_scan_plan.clone();
                 variant.assigned_partition = Some(i);
@@ -1257,10 +1250,11 @@ impl TaskEstimator for PgSearchScanTaskEstimator {
             })
             .collect::<Vec<_>>();
 
-        Ok(Some(Arc::new(
+        Ok(ScaleUpLeafNodeEventResponse::new(Arc::new(
             datafusion_distributed::DistributedLeafExec::try_new(final_plan, variants)?,
         )))
-    }
+    };
+    Some(scale())
 }
 
 #[cfg(any(test, feature = "pg_test"))]

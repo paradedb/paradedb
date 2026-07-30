@@ -813,4 +813,108 @@ mod tests {
         };
         assert!(missing.to_datafusion(&schema).is_none());
     }
+
+    #[pg_test]
+    fn test_range_partitioned_assigned_execution() {
+        use datafusion::physical_plan::Partitioning;
+
+        let (heap_oid, index_oid) = get_relation_oids();
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+        ];
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
+
+        unsafe {
+            pg_sys::CommandCounterIncrement();
+            let snap = pg_sys::GetTransactionSnapshot();
+            pg_sys::PushActiveSnapshot(snap);
+        }
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+
+        let scan_state = crate::scan::execution_plan::ScanState {
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
+            },
+            ffhelper: ffhelper.into(),
+            visibility: Box::new(visibility),
+            reader: reader.clone(),
+        };
+
+        // Table t has ids 1..=100; split points [25, 50, 75] give partitions
+        // (-inf, 25), [25, 50), [50, 75), [75, inf).
+        let sample = crate::scan::range_partitioning::RangePartitioningSample {
+            partition_by: crate::api::FieldName::from("id"),
+            sample_points: vec![
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(25),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(50),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(75),
+            ],
+        };
+
+        let mut plan = PgSearchScanPlan::new(
+            Some(scan_state),
+            build_arrow_schema(&fields),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            index_oid.into(),
+            None,
+            4,
+            None,
+            Some(sample),
+        );
+        // As one of four task variants: this one owns partition 1 alone.
+        plan.assigned_partition = Some(1);
+
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 4);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let count_rows = |partition: usize| {
+            let mut stream = plan
+                .execute(partition, Arc::new(TaskContext::default()))
+                .unwrap();
+            let mut rows = 0;
+            runtime.block_on(async {
+                while let Some(batch) = stream.next().await {
+                    rows += batch.unwrap().num_rows();
+                }
+            });
+            rows
+        };
+
+        // Non-assigned partitions yield empty streams without touching the state, so
+        // the assigned partition still consumes it afterwards.
+        assert_eq!(count_rows(0), 0);
+        assert_eq!(count_rows(2), 0);
+        assert_eq!(count_rows(3), 0);
+        assert_eq!(count_rows(1), 25); // ids 25..=49
+
+        // The state is consumed exactly once.
+        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
+    }
 }

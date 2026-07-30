@@ -76,7 +76,7 @@ DECLARE
     r record;
     launched int := -1;
 BEGIN
-    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT u.id FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
         WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
@@ -101,7 +101,7 @@ DECLARE
     r record;
     saw_launch boolean := false;
 BEGIN
-    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
         WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
@@ -123,7 +123,7 @@ DECLARE
     r record;
     launched int := -1;
 BEGIN
-    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT p.age, count(*) FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
         WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
     LOOP
@@ -189,7 +189,7 @@ BEGIN
     EXECUTE q INTO serial_cnt, serial_sum;
 
     PERFORM set_config('max_parallel_workers_per_gather', '2', false);
-    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF) ' || q LOOP
         IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
             launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
         END IF;
@@ -217,13 +217,13 @@ DO $$
 DECLARE
     r record;
 BEGIN
-    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
         WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
         NULL;
     END LOOP;
-    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT p.age, count(*) FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
         WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
     LOOP

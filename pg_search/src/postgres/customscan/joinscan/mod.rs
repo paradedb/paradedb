@@ -1171,8 +1171,10 @@ impl CustomScan for JoinScan {
             // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
             // DataFusion plan, so surface its per-phase breakdown separately when the query ran
             // distributed.
-            if let Some(t) = state.custom_state().launch_timing {
-                explainer.add_text("MPP Launch", t.explain_text());
+            if explainer.is_verbose() {
+                if let Some(t) = state.custom_state().launch_timing {
+                    explainer.add_text("MPP Launch", t.explain_text());
+                }
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical

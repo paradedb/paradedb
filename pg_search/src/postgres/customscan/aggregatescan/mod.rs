@@ -521,8 +521,10 @@ impl CustomScan for AggregateScan {
                 // construction, not actual execute calls. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
-                if let Some(t) = df_state.launch_timing {
-                    explainer.add_text("MPP Launch", t.explain_text());
+                if explainer.is_verbose() {
+                    if let Some(t) = df_state.launch_timing {
+                        explainer.add_text("MPP Launch", t.explain_text());
+                    }
                 }
             }
             return;

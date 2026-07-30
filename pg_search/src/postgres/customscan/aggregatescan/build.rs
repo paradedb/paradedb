@@ -376,7 +376,8 @@ impl AggregateCSClause {
                 OrderByFeature::Score { .. }
                 | OrderByFeature::Var { .. }
                 | OrderByFeature::NullTest { .. }
-                | OrderByFeature::VectorDistance { .. } => None,
+                | OrderByFeature::VectorDistance { .. }
+                | OrderByFeature::Rrf { .. } => None,
             })
             .collect()
     }

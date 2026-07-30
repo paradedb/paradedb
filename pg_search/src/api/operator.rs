@@ -27,6 +27,7 @@ mod ororor;
 mod proximity;
 mod searchqueryinput;
 pub(crate) mod slop;
+mod tildetildetilde;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
@@ -71,6 +72,8 @@ enum RHSValue {
     TextArray(Vec<String>),
     PdbQuery(pdb::Query),
     ProximityClause(ProximityClause),
+    /// A pgvector value, used by the `~~~(vector, vector)` knn operator.
+    Vector(Vec<f32>),
 }
 
 #[derive(Debug)]
@@ -182,7 +185,7 @@ pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
         let is_ours = match opername {
             // These have anyelement as the left type.
             // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
-            "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
+            "@@@" | "|||" | "&&&" | "===" | "###" | "~~~" => oprleft == pg_sys::ANYELEMENTOID,
 
             // Proximity operators use proximityclause (a ParadeDB type) on the left.
             // No built-in collision risk, but we still verify it's not a geometric ##
@@ -358,7 +361,10 @@ pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> (Option<f64>, Option<u64>) {
-    if estimate_heuristically(&search_query_input) {
+    // A knn (`~~~`) leaf can never be converted to a tantivy query (it is
+    // resolved by the rank-fusion TopK path instead), so queries containing
+    // one must always take the heuristic path rather than opening the index.
+    if estimate_heuristically(&search_query_input) || search_query_input.contains_knn() {
         // #4172 skips opening the index, so derive the work estimate from the same
         // heuristic: these shapes drive far more docset work than they match, so scale the
         // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
@@ -950,6 +956,13 @@ where
                     .expect("rhs fielded proximity clause must not be NULL");
                 RHSValue::ProximityClause(prox)
             }
+
+            // pgvector values, used by the `~~~(vector, vector)` knn operator
+            other if crate::postgres::catalog::is_pgvector_oid(other) => RHSValue::Vector(
+                crate::vector::PgVector::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs vector value must not be NULL")
+                    .0,
+            ),
 
             other => panic!("operator does not support rhs type {other}"),
         };

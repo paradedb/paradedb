@@ -76,6 +76,10 @@ pub(super) enum WorkerDecisionReason {
     /// The row-count heuristic (`compute_nworkers`): no ANALYZE stats, or an unsorted scan with no
     /// usable cost estimate. Caps workers so each gets at least `min_rows_per_worker` rows.
     RowHeuristic,
+    /// A `pdb.rrf()` rank-fusion ordering: ranks are computed over the full
+    /// candidate set, so per-worker segment splits would fuse per-worker
+    /// ranks and produce wrong results. Always serial.
+    RankFusion,
 }
 
 impl WorkerDecisionReason {
@@ -87,6 +91,7 @@ impl WorkerDecisionReason {
             Self::CostModelLimited => "Cost model (LIMIT)",
             Self::SortedPerSegment => "Per-segment",
             Self::RowHeuristic => "Row-capped",
+            Self::RankFusion => "Rank fusion (serial)",
         }
     }
 }

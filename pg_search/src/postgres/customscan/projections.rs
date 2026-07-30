@@ -28,6 +28,9 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
+use crate::postgres::customscan::basescan::projections::score::{
+    rrf_funcoids, typed_score_funcoid, typed_score_kind_from_funcexpr,
+};
 use crate::postgres::customscan::basescan::projections::snippet::{
     extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
     snippet_positions_funcoids, SnippetType,
@@ -393,6 +396,10 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let data = &*data.cast::<Data>();
             if data.score_funcoids.contains(&(*funcexpr).funcid)
+                || (data.typed_score_funcoid != pg_sys::Oid::INVALID
+                    && (*funcexpr).funcid == data.typed_score_funcoid)
+                || ((*funcexpr).funcid != pg_sys::Oid::INVALID
+                    && data.rrf_funcoids.contains(&(*funcexpr).funcid))
                 || data.snippet_funcoids.contains(&(*funcexpr).funcid)
                 || data
                     .snippet_positions_funcoids
@@ -407,12 +414,16 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
 
     struct Data {
         score_funcoids: [pg_sys::Oid; 2],
+        typed_score_funcoid: pg_sys::Oid,
+        rrf_funcoids: [pg_sys::Oid; 2],
         snippet_funcoids: [pg_sys::Oid; 2],
         snippet_positions_funcoids: [pg_sys::Oid; 2],
     }
 
     let mut data = Data {
         score_funcoids: score_funcoids(),
+        typed_score_funcoid: typed_score_funcoid(),
+        rrf_funcoids: rrf_funcoids(),
         snippet_funcoids: snippet_funcoids(),
         snippet_positions_funcoids: snippet_positions_funcoids(),
     };
@@ -494,6 +505,8 @@ pub unsafe fn inject_placeholders(
     targetlist: *mut pg_sys::List,
     rti: pg_sys::Index,
     score_funcoids: [pg_sys::Oid; 2],
+    typed_score_funcoid: pg_sys::Oid,
+    rrf_funcoids: [pg_sys::Oid; 2],
     snippet_funcoids: [pg_sys::Oid; 2],
     snippets_funcoids: [pg_sys::Oid; 2],
     snippet_positions_funcoids: [pg_sys::Oid; 2],
@@ -502,6 +515,8 @@ pub unsafe fn inject_placeholders(
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
+    [Option<*mut pg_sys::Const>; 4],
+    Option<*mut pg_sys::Const>,
     HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 ) {
     #[pg_guard]
@@ -519,6 +534,45 @@ pub unsafe fn inject_placeholders(
 
             if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.const_score_node.cast());
+            }
+
+            if data.typed_score_funcoid != pg_sys::Oid::INVALID
+                && (*funcexpr).funcid == data.typed_score_funcoid
+            {
+                // one shared Const per score type, created lazily on first use
+                let kind = typed_score_kind_from_funcexpr(funcexpr)?;
+                let slot = &mut data.const_typed_score_nodes[kind as usize];
+                if slot.is_none() {
+                    *slot = Some(pg_sys::makeConst(
+                        pg_sys::FLOAT4OID,
+                        -1,
+                        pg_sys::Oid::INVALID,
+                        size_of::<f32>() as _,
+                        pg_sys::Datum::null(),
+                        true,
+                        true,
+                    ));
+                }
+                return Some(slot.unwrap().cast());
+            }
+
+            if (*funcexpr).funcid != pg_sys::Oid::INVALID
+                && data.rrf_funcoids.contains(&(*funcexpr).funcid)
+            {
+                // one shared float8 Const for all pdb.rrf() calls, created
+                // lazily on first use
+                if data.const_rrf_node.is_none() {
+                    data.const_rrf_node = Some(pg_sys::makeConst(
+                        pg_sys::FLOAT8OID,
+                        -1,
+                        pg_sys::Oid::INVALID,
+                        size_of::<f64>() as _,
+                        pg_sys::Datum::null(),
+                        true,
+                        true,
+                    ));
+                }
+                return Some(data.const_rrf_node.unwrap().cast());
             }
 
             let mut this_snippet_type = None;
@@ -601,6 +655,12 @@ pub unsafe fn inject_placeholders(
         score_funcoids: [pg_sys::Oid; 2],
         const_score_node: *mut pg_sys::Const,
 
+        typed_score_funcoid: pg_sys::Oid,
+        const_typed_score_nodes: [Option<*mut pg_sys::Const>; 4],
+
+        rrf_funcoids: [pg_sys::Oid; 2],
+        const_rrf_node: Option<*mut pg_sys::Const>,
+
         snippet_funcoids: [pg_sys::Oid; 2],
         snippets_funcoids: [pg_sys::Oid; 2],
         snippet_positions_funcoids: [pg_sys::Oid; 2],
@@ -624,6 +684,12 @@ pub unsafe fn inject_placeholders(
             true,
         ),
 
+        typed_score_funcoid,
+        const_typed_score_nodes: [None; 4],
+
+        rrf_funcoids,
+        const_rrf_node: None,
+
         snippet_funcoids,
         snippets_funcoids,
         snippet_positions_funcoids,
@@ -635,6 +701,8 @@ pub unsafe fn inject_placeholders(
     (
         targetlist.cast(),
         data.const_score_node,
+        data.const_typed_score_nodes,
+        data.const_rrf_node,
         data.const_snippet_nodes,
     )
 }

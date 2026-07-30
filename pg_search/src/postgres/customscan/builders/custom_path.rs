@@ -43,6 +43,18 @@ pub enum OrderByStyle {
         /// See `OrderByFeature::VectorDistance::metric`.
         metric: crate::vector::metric::VectorMetric,
     },
+    /// See `OrderByFeature::Rrf`.
+    Rrf {
+        pathkey: *mut pg_sys::PathKey,
+        /// The vector field of the distance leg; `None` when the vector leg
+        /// is deferred to the WHERE clause's `~~~` predicate.
+        name: Option<FieldName>,
+        rti: u32,
+        query_vector: Option<crate::api::QueryVector>,
+        metric: Option<crate::vector::metric::VectorMetric>,
+        k: i32,
+        window: i32,
+    },
 }
 
 impl OrderByStyle {
@@ -51,6 +63,7 @@ impl OrderByStyle {
             OrderByStyle::Score { pathkey, .. } => *pathkey,
             OrderByStyle::Field { pathkey, .. } => *pathkey,
             OrderByStyle::VectorDistance { pathkey, .. } => *pathkey,
+            OrderByStyle::Rrf { pathkey, .. } => *pathkey,
         }
     }
 
@@ -112,6 +125,22 @@ impl From<&OrderByStyle> for OrderByInfo {
                 rti: *rti,
                 query_vector: query_vector.clone(),
                 metric: *metric,
+            },
+            OrderByStyle::Rrf {
+                name,
+                rti,
+                query_vector,
+                metric,
+                k,
+                window,
+                ..
+            } => OrderByFeature::Rrf {
+                name: name.clone(),
+                rti: *rti,
+                query_vector: query_vector.clone(),
+                metric: *metric,
+                k: *k,
+                window: *window,
             },
         };
         OrderByInfo {

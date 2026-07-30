@@ -45,7 +45,9 @@ use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::uses_scores;
+use crate::postgres::customscan::basescan::projections::score::{
+    collect_typed_score_kinds, rrf_funcoids, typed_score_funcoid, uses_rrf, uses_scores, ScoreKind,
+};
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
@@ -121,11 +123,50 @@ impl BaseScan {
     ///    In this case, every worker executes the full scan independently using its own
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        Self::validate_hybrid_usage(state.custom_state());
+
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
             .custom_state_mut()
             .prepare_query_for_execution(planstate, expr_context);
+
+        let search_query_input = state.custom_state().search_query_input();
+        let need_scores = state.custom_state().need_scores();
+        let needs_tokenizer_manager =
+            search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
+
+        // A `~~~` knn predicate splits the query into per-leg queries for the
+        // rank-fusion TopK: the reader is opened with the vector leg's
+        // driving query `W[knn := true]`; the text leg `W[knn := false]` is
+        // stashed for the bm25 side of the fusion.
+        let knn_leaves = search_query_input.knn_leaves();
+        let search_query_input = if knn_leaves.is_empty() {
+            search_query_input.clone()
+        } else {
+            if !state.custom_state().orderby_is_rrf() {
+                pgrx::error!(
+                    "the `~~~(vector, vector)` operator requires a rank-fusion ordering: `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>`"
+                );
+            }
+            if knn_leaves.len() > 1 {
+                pgrx::error!("only one `~~~(vector, vector)` predicate is supported per query");
+            }
+            let (field, query_vector, negated) = knn_leaves.into_iter().next().unwrap();
+            if negated {
+                pgrx::error!(
+                    "the `~~~(vector, vector)` operator cannot be used in a negated (NOT) position"
+                );
+            }
+
+            let vector_leg = search_query_input.substitute_knn(true);
+            let bm25_leg = search_query_input.substitute_knn(false);
+            let scoring = search_query_input.without_knn();
+            state.custom_state_mut().knn_bm25_leg_query = Some(bm25_leg);
+            state.custom_state_mut().knn_scoring_query = Some(scoring);
+            state.custom_state_mut().knn_leaf = Some((field, query_vector));
+            vector_leg
+        };
 
         // Open the index
         let indexrel = state
@@ -134,14 +175,9 @@ impl BaseScan {
             .as_ref()
             .expect("custom_state.indexrel should already be open");
 
-        let search_query_input = state.custom_state().search_query_input();
-        let need_scores = state.custom_state().need_scores();
-        let needs_tokenizer_manager =
-            search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
-
         let search_reader = SearchIndexReader::open_with_context(
             indexrel,
-            search_query_input.clone(),
+            search_query_input,
             need_scores,
             unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
@@ -193,9 +229,12 @@ impl BaseScan {
                 };
 
             for (snippet_type, generator) in &mut snippet_generators {
-                // Use enhanced query if available, otherwise use base query
+                // Use enhanced query if available, otherwise use base query.
+                // A `~~~` knn leaf has no text terms to highlight, so the
+                // text leg substitute stands in for it.
                 let query_to_use = enhanced_query_for_snippets
                     .as_ref()
+                    .or(state.custom_state().knn_scoring_query.as_ref())
                     .unwrap_or_else(|| state.custom_state().search_query_input());
 
                 let mut new_generator = state
@@ -222,6 +261,60 @@ impl BaseScan {
 
         unsafe {
             inject_pdb_placeholders(state);
+        }
+    }
+
+    /// Validate that the `pdb.rrf()` / `pdb.score(relation, type)` usages in
+    /// the query are computable by this scan's shape, erroring with
+    /// actionable messages when they are not.
+    fn validate_hybrid_usage(custom_state: &BaseScanState) {
+        let kinds = custom_state.typed_score_kinds;
+        if !kinds.has_any() && !custom_state.uses_rrf {
+            return;
+        }
+
+        let rrf_mode = custom_state.orderby_is_rrf();
+        let vector_mode = custom_state.orderby_is_vector_distance();
+
+        if custom_state.uses_rrf && !rrf_mode {
+            pgrx::error!(
+                "pdb.rrf() must drive the scan's ordering: use `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>`"
+            );
+        }
+
+        for kind in [ScoreKind::Hybrid, ScoreKind::Rank] {
+            if kinds.contains(kind) && !rrf_mode {
+                pgrx::error!(
+                    "pdb.score(relation, '{}') requires a rank-fusion ordering: `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>`",
+                    kind.type_name()
+                );
+            }
+        }
+
+        if kinds.contains(ScoreKind::Vector) && !rrf_mode && !vector_mode {
+            pgrx::error!(
+                "pdb.score(relation, 'vector') requires a vector ranking: order by `pdb.rrf(...)` or by a vector distance operator with a LIMIT"
+            );
+        }
+
+        if (custom_state.uses_rrf || kinds.contains(ScoreKind::Hybrid))
+            && custom_state.parallel_state.is_some()
+        {
+            pgrx::error!(
+                "pdb.rrf() is not supported under parallel query; try `SET max_parallel_workers_per_gather = 0`"
+            );
+        }
+
+        // Rank fusion over one partition of a partitioned table computes
+        // per-partition ranks that a Merge Append then interleaves, which is
+        // not the global fusion the query asks for (ranks, unlike scores,
+        // are not comparable across partitions).
+        if (custom_state.uses_rrf || rrf_mode)
+            && unsafe { (*custom_state.heaprel().rd_rel).relispartition }
+        {
+            pgrx::error!(
+                "pdb.rrf() is not supported on partitioned tables: per-partition fused ranks cannot be merged into a global ranking; query one partition directly or fuse per-partition results in SQL"
+            );
         }
     }
 
@@ -950,23 +1043,41 @@ impl CustomScan for BaseScan {
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
                 let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
 
+                // A rank-fusion (`pdb.rrf()`) ordering computes ranks over the
+                // full candidate set: per-worker segment splits would fuse
+                // per-worker ranks and produce wrong results, so it is always
+                // serial.
+                let is_rrf_ordering = matches!(
+                    &method,
+                    ExecMethodType::TopK {
+                        orderby_info: Some(infos),
+                        ..
+                    } if infos.iter().any(|info| info.is_rrf())
+                );
+
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = decide_scan_parallelism(ScanParallelismInputs {
-                    prunability,
-                    query: &query,
-                    drive_cost,
-                    row_estimate,
-                    is_sorted,
-                    limit: float_limit,
-                    base_result_rows,
-                    segment_count,
-                    consider_parallel: consider_parallel_local,
-                    quals: &quals,
-                    root: builder.args().root,
-                    parallel_leader_participates,
-                    is_join_context,
-                    has_grouping,
-                });
+                let policy = if is_rrf_ordering {
+                    WorkerPathPolicy::SerialOnly {
+                        reason: WorkerDecisionReason::RankFusion,
+                    }
+                } else {
+                    decide_scan_parallelism(ScanParallelismInputs {
+                        prunability,
+                        query: &query,
+                        drive_cost,
+                        row_estimate,
+                        is_sorted,
+                        limit: float_limit,
+                        base_result_rows,
+                        segment_count,
+                        consider_parallel: consider_parallel_local,
+                        quals: &quals,
+                        root: builder.args().root,
+                        parallel_leader_participates,
+                        is_join_context,
+                        has_grouping,
+                    })
+                };
                 let reason = policy.reason();
 
                 // Path cost. A prunable TopK excludes `drive_cost`: Block-WAND prunes it sublinear, so
@@ -978,7 +1089,8 @@ impl CustomScan for BaseScan {
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited
                     | WorkerDecisionReason::SortedPerSegment
-                    | WorkerDecisionReason::RowHeuristic => drive_cost,
+                    | WorkerDecisionReason::RowHeuristic
+                    | WorkerDecisionReason::RankFusion => drive_cost,
                 };
                 let drive = match (path_drive_cost, row_estimate.known_rows()) {
                     (Some(cost), Some(matches)) => Some(DriveCost { cost, matches }),
@@ -1293,11 +1405,25 @@ impl CustomScan for BaseScan {
             builder.custom_state().snippet_funcoids = snippet_funcoids;
             builder.custom_state().snippets_funcoids = snippets_funcoids;
             builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-            builder.custom_state().need_scores = uses_scores(
+            builder.custom_state().typed_score_kinds = collect_typed_score_kinds(
                 builder.target_list().as_ptr().cast(),
-                score_funcoids,
+                typed_score_funcoid(),
                 builder.custom_state().execution_rti,
             );
+            builder.custom_state().uses_rrf = uses_rrf(
+                builder.target_list().as_ptr().cast(),
+                rrf_funcoids(),
+                builder.custom_state().execution_rti,
+            );
+            // typed score projection and rank fusion need tantivy scoring
+            // enabled just like pdb.score does
+            builder.custom_state().need_scores =
+                uses_scores(
+                    builder.target_list().as_ptr().cast(),
+                    score_funcoids,
+                    builder.custom_state().execution_rti,
+                ) || builder.custom_state().typed_score_kinds.has_any()
+                    || builder.custom_state().uses_rrf;
 
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
@@ -1622,7 +1748,7 @@ impl CustomScan for BaseScan {
                 ExecState::FromHeap {
                     ctid,
                     score,
-                    doc_address: _,
+                    doc_address,
                 } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
@@ -1672,12 +1798,45 @@ impl CustomScan for BaseScan {
                             per_tuple_context.reset();
 
                             if state.custom_state().need_scores() {
+                                // `pdb.score(relation)` always means the BM25
+                                // score. Under a plain vector-distance
+                                // ordering the exec method's `score` is the
+                                // similarity, and under a `pdb.rrf()` union a
+                                // row may not match the text leg at all, so
+                                // in both cases the BM25 value comes from the
+                                // per-document component map.
+                                let bm25 = if state.custom_state().orderby_is_vector_distance()
+                                    || state.custom_state().orderby_is_rrf()
+                                {
+                                    state
+                                        .custom_state()
+                                        .hybrid_doc_scores
+                                        .as_ref()
+                                        .and_then(|scores| scores.get(&doc_address))
+                                        .and_then(|doc_scores| doc_scores.bm25)
+                                } else {
+                                    Some(score)
+                                };
                                 let const_score_node = state
                                     .custom_state()
                                     .const_score_node
                                     .expect("const_score_node should be set");
-                                (*const_score_node).constvalue = score.into_datum().unwrap();
-                                (*const_score_node).constisnull = false;
+                                match bm25 {
+                                    Some(bm25) => {
+                                        (*const_score_node).constvalue = bm25.into_datum().unwrap();
+                                        (*const_score_node).constisnull = false;
+                                    }
+                                    None => {
+                                        (*const_score_node).constvalue = pg_sys::Datum::null();
+                                        (*const_score_node).constisnull = true;
+                                    }
+                                }
+                            }
+
+                            if state.custom_state().has_typed_scores()
+                                || state.custom_state().uses_rrf
+                            {
+                                inject_hybrid_consts(state.custom_state(), score, doc_address);
                             }
 
                             // Update window aggregate values
@@ -2193,10 +2352,18 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     // forced projection we must do later.
     let planstate = state.planstate();
 
-    let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
+    let (
+        targetlist,
+        const_score_node,
+        const_typed_score_nodes,
+        const_rrf_node,
+        const_snippet_nodes,
+    ) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoids,
+        typed_score_funcoid(),
+        rrf_funcoids(),
         state.custom_state().snippet_funcoids,
         state.custom_state().snippets_funcoids,
         state.custom_state().snippet_positions_funcoids,
@@ -2223,9 +2390,83 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
 
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
+    state.custom_state_mut().const_typed_score_nodes = const_typed_score_nodes;
+    state.custom_state_mut().const_rrf_node = const_rrf_node;
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
     state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
     state.custom_state_mut().vector_distance_placeholder = vector_distance_placeholder;
+}
+
+/// Fill the `pdb.rrf()` and per-kind `pdb.score(relation, type)` placeholder
+/// `Const` nodes for the current row.
+///
+/// `score` is the row's score as produced by the exec method: the BM25 score
+/// in an ordinary search scan (including `pdb.rrf()` fused scans, which emit
+/// the BM25 leg score as the row score), or the vector similarity when the
+/// scan's TopK ordering is a plain vector distance. Everything else comes
+/// from the per-document `hybrid_doc_scores` component map.
+unsafe fn inject_hybrid_consts(
+    custom_state: &BaseScanState,
+    score: f32,
+    doc_address: tantivy::DocAddress,
+) {
+    let rrf_mode = custom_state.orderby_is_rrf();
+    let vector_mode = custom_state.orderby_is_vector_distance();
+    let components = custom_state
+        .hybrid_doc_scores
+        .as_ref()
+        .and_then(|scores| scores.get(&doc_address));
+
+    if let Some(const_rrf_node) = custom_state.const_rrf_node {
+        match components {
+            // validated: rrf consts only exist under an rrf ordering
+            Some(doc_scores) if rrf_mode => {
+                (*const_rrf_node).constvalue = (doc_scores.rank as f64).into_datum().unwrap();
+                (*const_rrf_node).constisnull = false;
+            }
+            _ => {
+                (*const_rrf_node).constvalue = pg_sys::Datum::null();
+                (*const_rrf_node).constisnull = true;
+            }
+        }
+    }
+
+    for kind in ScoreKind::ALL {
+        let Some(const_node) = custom_state.const_typed_score_nodes[kind as usize] else {
+            continue;
+        };
+
+        let value = match kind {
+            // the exec-method score IS the BM25 score except under a
+            // vector-distance or rank-fusion ordering, where the component
+            // map carries it (None for union rows outside the text leg)
+            ScoreKind::Bm25 if !vector_mode && !rrf_mode => Some(score),
+            ScoreKind::Bm25 => components.and_then(|doc_scores| doc_scores.bm25),
+            // under a plain vector-distance ordering the exec-method score IS
+            // the similarity; under rrf it comes from the vector leg (None
+            // for docs outside the vector window)
+            ScoreKind::Vector if vector_mode => Some(score),
+            ScoreKind::Vector => components.and_then(|doc_scores| doc_scores.similarity),
+            // validated: only computable under an rrf ordering
+            ScoreKind::Hybrid => components
+                .filter(|_| rrf_mode)
+                .map(|doc_scores| doc_scores.fused),
+            ScoreKind::Rank => components
+                .filter(|_| rrf_mode)
+                .map(|doc_scores| doc_scores.rank as f32),
+        };
+
+        match value {
+            Some(value) => {
+                (*const_node).constvalue = value.into_datum().unwrap();
+                (*const_node).constisnull = false;
+            }
+            None => {
+                (*const_node).constvalue = pg_sys::Datum::null();
+                (*const_node).constisnull = true;
+            }
+        }
+    }
 }
 
 /// Replace every *junk* top-level pgvector distance `OpExpr`
@@ -2575,6 +2816,9 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+
+        // A knn candidate predicate is a search predicate
+        SearchQueryInput::Knn { .. } => true,
 
         // HeapFilter contains search predicates
         SearchQueryInput::HeapFilter { indexed_query, .. } => {

@@ -18,10 +18,11 @@
 use std::cell::RefCell;
 
 use crate::api::version::VersionInfo;
-use crate::api::{HashMap, OrderByInfo};
+use crate::api::{HashMap, OrderByFeature, OrderByInfo};
 use crate::gucs;
 use crate::gucs::WorkMem;
 use crate::index::fast_fields_helper::{resolve_ctid, FFType};
+use crate::index::reader::index::HybridDocScores;
 use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
@@ -256,6 +257,33 @@ impl TopKScanExecState {
         })
     }
 
+    /// Populate `state.hybrid_doc_scores` with the BM25 score of each
+    /// document in the batch just fetched by `query`, for
+    /// `pdb.score(relation, 'bm25')` projection under a plain vector-distance
+    /// ordering (where the scan's own score is the similarity).
+    fn compute_vector_order_bm25_scores(&self, state: &mut BaseScanState) {
+        let batch = self.search_results.remaining();
+        if batch.is_empty() {
+            return;
+        }
+
+        let search_reader = self.search_reader.as_ref().unwrap();
+        let bm25_scores = search_reader.bm25_scores_for_docs(batch.iter().map(|(_, doc)| *doc));
+
+        let doc_scores = state.hybrid_doc_scores.get_or_insert_with(Default::default);
+        for (similarity, doc_address) in batch {
+            doc_scores.insert(
+                *doc_address,
+                HybridDocScores {
+                    bm25: bm25_scores.get(doc_address).copied(),
+                    similarity: Some(similarity.bm25),
+                    fused: 0.0,
+                    rank: 0,
+                },
+            );
+        }
+    }
+
     fn finalize_aggregates(
         &self,
         aggregations: PreparedAggregations,
@@ -332,6 +360,58 @@ impl ExecMethod for TopKScanExecState {
                 if let Some(infos) = self.orderby_info.as_mut() {
                     resolve(infos);
                 }
+            }
+        }
+
+        // Fill an omitted pdb.rrf() distance leg from the WHERE clause's
+        // `~~~` knn predicate, so the query vector only has to be written
+        // once.
+        {
+            let knn_fill = state.knn_leaf.clone().map(|(field, vector)| {
+                let schema = state
+                    .search_reader
+                    .as_ref()
+                    .expect("search reader should be initialized before the exec method")
+                    .schema();
+                let Some(crate::schema::SearchFieldType::Vector(_, _, metric)) =
+                    schema.get_field_type(field.root())
+                else {
+                    pgrx::error!("\"{field}\" is not a vector field of the bm25 index");
+                };
+                (field, vector, metric)
+            });
+
+            let fill = |infos: &mut [OrderByInfo]| {
+                for info in infos.iter_mut() {
+                    if let OrderByFeature::Rrf {
+                        name,
+                        query_vector,
+                        metric,
+                        ..
+                    } = &mut info.feature
+                    {
+                        if query_vector.is_none() {
+                            let Some((field, vector, field_metric)) = knn_fill.as_ref() else {
+                                pgrx::error!(
+                                    "pdb.rrf() without a distance leg requires a `~~~(vector, vector)` predicate in the WHERE clause"
+                                );
+                            };
+                            *name = Some(field.clone());
+                            *query_vector = Some(crate::api::QueryVector::Resolved(vector.clone()));
+                            *metric = Some(*field_metric);
+                        }
+                    }
+                }
+            };
+            if let ExecMethodType::TopK {
+                orderby_info: Some(infos),
+                ..
+            } = &mut state.exec_method_type
+            {
+                fill(infos);
+            }
+            if let Some(infos) = self.orderby_info.as_mut() {
+                fill(infos);
             }
         }
 
@@ -420,6 +500,36 @@ impl ExecMethod for TopKScanExecState {
             } else {
                 None
             };
+            // A `~~~` knn predicate must rank by the same vector as
+            // pdb.rrf()'s distance leg — its candidates are collected by
+            // that leg's ordering.
+            if let Some((knn_field, knn_vector)) = &state.knn_leaf {
+                let rrf_feature = orderby_info.first().map(|info| &info.feature);
+                let Some(OrderByFeature::Rrf {
+                    name, query_vector, ..
+                }) = rrf_feature
+                else {
+                    unreachable!(
+                        "a `~~~` predicate requires an rrf ordering (validated at scan init)"
+                    )
+                };
+                if name.as_ref() != Some(knn_field) {
+                    let name = name
+                        .as_ref()
+                        .map(|name| name.to_string())
+                        .unwrap_or_else(|| "<unresolved>".to_string());
+                    pgrx::error!(
+                        "the `~~~` operator's vector column (\"{knn_field}\") must match pdb.rrf()'s distance leg (\"{name}\")"
+                    );
+                }
+                if query_vector.as_ref().and_then(|qv| qv.resolved()) != Some(knn_vector.as_slice())
+                {
+                    pgrx::error!(
+                        "the `~~~` operator's query vector must match pdb.rrf()'s distance leg query vector"
+                    );
+                }
+            }
+
             self.search_reader
                 .as_ref()
                 .unwrap()
@@ -433,6 +543,10 @@ impl ExecMethod for TopKScanExecState {
                     self.offset,
                     maybe_aux_collector,
                     maybe_parallel_state,
+                    state
+                        .knn_bm25_leg_query
+                        .as_ref()
+                        .zip(state.knn_scoring_query.as_ref()),
                 )
         } else {
             self.search_reader
@@ -502,6 +616,23 @@ impl ExecMethod for TopKScanExecState {
             );
 
             state.window_aggregate_results = Some(window_aggregate_results);
+        }
+
+        // A `pdb.rrf()` fused search hands back per-document score components
+        // for `pdb.rrf()` / `pdb.score(relation, type)` projection.
+        if let Some(components) = self.search_results.take_hybrid_components() {
+            state
+                .hybrid_doc_scores
+                .get_or_insert_with(Default::default)
+                .extend(components);
+        }
+
+        // Under a plain vector-distance ordering the collector only produced
+        // similarity scores; recover per-document BM25 scores whenever score
+        // projection is in play — `pdb.score(relation)` always means the BM25
+        // score, regardless of what ranking drove the scan.
+        if state.orderby_is_vector_distance() && state.need_scores() {
+            self.compute_vector_order_bm25_scores(state);
         }
 
         // Record the offset to start from for the next query.

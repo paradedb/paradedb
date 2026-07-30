@@ -240,6 +240,7 @@ fn inject_estimates_into_json(
         | SearchQueryInput::TermSet { .. }
         | SearchQueryInput::PostgresExpression { .. }
         | SearchQueryInput::FieldedQuery { .. }
+        | SearchQueryInput::Knn { .. }
         | SearchQueryInput::Uninitialized => {
             // These are leaf nodes, no children to process
         }

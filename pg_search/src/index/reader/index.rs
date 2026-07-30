@@ -24,7 +24,7 @@ use std::sync::Arc;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, QueryVector, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
@@ -37,7 +37,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
 use crate::scan::info::RowEstimate;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -101,11 +101,33 @@ type TopKWithAggregate<T> = (
     Option<IntermediateAggregationResults>,
 );
 
+/// Per-document score components computed by the `pdb.rrf()` rank-fusion
+/// TopK path, consumed by `pdb.rrf()` / `pdb.score(relation, type)`
+/// projection.
+#[derive(Debug, Clone, Copy)]
+pub struct HybridDocScores {
+    /// BM25 score of the document against the text leg's query. `None` when
+    /// the document does not match the text leg (surfaced only by a `~~~`
+    /// knn predicate).
+    pub bm25: Option<f32>,
+    /// Vector similarity of the document against the query vector. `None`
+    /// when the document was outside the vector leg's candidate window.
+    pub similarity: Option<f32>,
+    /// The positive RRF score: `1/(k + bm25_rank) [+ 1/(k + vector_rank)]`.
+    pub fused: f32,
+    /// 1-based rank of the document in the fused ordering. This is the value
+    /// `pdb.rrf()` projects and sorts by (ascending = best first).
+    pub rank: usize,
+}
+
 /// A known-size iterator of results for Top K.
 pub struct TopKSearchResults {
     results_original_len: usize,
     results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     aggregation_results: Option<IntermediateAggregationResults>,
+    /// Per-document score components, present only for `pdb.rrf()` fused
+    /// searches.
+    hybrid_components: Option<HashMap<DocAddress, HybridDocScores>>,
 }
 
 impl TopKSearchResults {
@@ -121,6 +143,7 @@ impl TopKSearchResults {
             results_original_len: results.len(),
             results: results.into_iter(),
             aggregation_results,
+            hybrid_components: None,
         }
     }
 
@@ -157,6 +180,17 @@ impl TopKSearchResults {
 
     pub fn original_len(&self) -> usize {
         self.results_original_len
+    }
+
+    /// The not-yet-consumed results, in emit order.
+    pub fn remaining(&self) -> &[(SearchIndexScore, DocAddress)] {
+        self.results.as_slice()
+    }
+
+    /// Take the per-document score components produced by a `pdb.rrf()`
+    /// fused search, if any.
+    pub fn take_hybrid_components(&mut self) -> Option<HashMap<DocAddress, HybridDocScores>> {
+        self.hybrid_components.take()
     }
 
     pub fn take_aggregation_results(&mut self) -> Option<IntermediateAggregationResults> {
@@ -509,6 +543,16 @@ impl SearchIndexReader {
         self.and_query(tantivy_query)
     }
 
+    /// A copy of this reader whose driving query is `query`, sharing the
+    /// underlying searcher and segment state. Used by the `pdb.rrf()`
+    /// rank-fusion path to score the text leg against a different query than
+    /// the vector leg when a `~~~` knn predicate splits them.
+    pub fn with_query_input(&self, query: &SearchQueryInput) -> Self {
+        let mut clone = self.clone();
+        clone.query = self.make_query(query, None);
+        clone
+    }
+
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
             .weight(if self.need_scores {
@@ -523,6 +567,59 @@ impl SearchIndexReader {
                 }
             })
             .expect("weight should be constructable")
+    }
+
+    /// Compute the BM25 score of each of `docs` against this reader's query.
+    ///
+    /// Used by `pdb.rrf()` fused searches and by `pdb.score(relation, 'bm25')`
+    /// under a vector-distance TopK ordering, where the collector produces
+    /// similarity scores and the BM25 scores of the top-K documents must be
+    /// recovered separately. Creates one scorer per segment
+    /// and seeks it through that segment's docs in ascending order, so the
+    /// cost is proportional to the number of distinct segments plus docs.
+    ///
+    /// Documents that do not match the query are absent from the returned
+    /// map (this happens for docs surfaced only by a `~~~` knn predicate,
+    /// which need not match the text leg).
+    pub fn bm25_scores_for_docs(
+        &self,
+        docs: impl IntoIterator<Item = DocAddress>,
+    ) -> HashMap<DocAddress, Score> {
+        let mut docs_by_segment: HashMap<SegmentOrdinal, Vec<DocId>> = HashMap::default();
+        for doc in docs {
+            docs_by_segment
+                .entry(doc.segment_ord)
+                .or_default()
+                .push(doc.doc_id);
+        }
+
+        let weight = self
+            .query
+            .weight(EnableScoring::Enabled {
+                searcher: &self.searcher,
+                statistics_provider: &self.searcher,
+            })
+            .expect("weight should be constructable");
+
+        let mut scores = HashMap::default();
+        for (segment_ord, mut doc_ids) in docs_by_segment {
+            doc_ids.sort_unstable();
+            doc_ids.dedup();
+
+            let segment_reader = self.searcher.segment_reader(segment_ord);
+            let mut scorer = weight
+                .scorer(segment_reader, 1.0)
+                .expect("scorer should be constructable");
+            for doc_id in doc_ids {
+                if scorer.doc() < doc_id {
+                    scorer.seek(doc_id);
+                }
+                if scorer.doc() == doc_id {
+                    scores.insert(DocAddress::new(segment_ord, doc_id), scorer.score());
+                }
+            }
+        }
+        scores
     }
 
     fn make_query(
@@ -820,6 +917,7 @@ impl SearchIndexReader {
     /// results for MVCC visibility, and re-query if necessary.
     ///
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -828,6 +926,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        rrf_bm25_leg: Option<(&SearchQueryInput, &SearchQueryInput)>,
     ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -968,6 +1067,7 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
+                self.validate_query_vector_dims(name, &query_vector);
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
@@ -982,7 +1082,240 @@ impl SearchIndexReader {
                     self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
                 TopKSearchResults::new_for_score(fruit.results, aggregation_results)
             }
+            OrderByInfo {
+                feature:
+                    OrderByFeature::Rrf {
+                        name,
+                        query_vector,
+                        k,
+                        window,
+                        ..
+                    },
+                direction,
+            } => {
+                let only_score_feature =
+                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
+                if !(erased_features.is_empty() || only_score_feature) {
+                    panic!("secondary ORDER BY fields are not supported for pdb.rrf()");
+                }
+                // An omitted distance leg is filled in from the `~~~` knn
+                // predicate before execution (see the TopK exec method init).
+                let name = name
+                    .as_ref()
+                    .expect("pdb.rrf distance leg should have been resolved before execution");
+                let query_vector = query_vector
+                    .as_ref()
+                    .expect("pdb.rrf distance leg should have been resolved before execution");
+                self.rrf_top_k_in_segments(
+                    segment_ids,
+                    name,
+                    query_vector,
+                    *k,
+                    *window,
+                    *direction,
+                    n,
+                    offset,
+                    aux_collector,
+                    rrf_bm25_leg,
+                )
+            }
         }
+    }
+
+    /// `ORDER BY pdb.rrf(pdb.score(key), vector_col <op> query_vector, k)`:
+    /// run the query's BM25 ranking and a vector-similarity ranking as two
+    /// top-`window` legs over the matching documents, fuse them with
+    /// Reciprocal Rank Fusion, and return the requested page in fused-rank
+    /// order along with the per-document components for score projection.
+    ///
+    /// Ranking details:
+    ///   * When a `~~~` knn predicate split the query, `rrf_bm25_leg` is the
+    ///     text leg's query `W[knn := false]` and this reader's own query is
+    ///     the vector leg's driving query `W[knn := true]`; without a knn
+    ///     predicate both legs share this reader's query.
+    ///   * Candidates are the union of both windows. Documents get a BM25
+    ///     rank only when they match the text leg (backfilled via
+    ///     [`Self::bm25_scores_for_docs`] for vector-window docs), and a
+    ///     vector rank only inside the vector window; each present rank
+    ///     contributes `1/(k + rank)` to the fused score.
+    #[allow(clippy::too_many_arguments)]
+    fn rrf_top_k_in_segments(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        field_name: &FieldName,
+        query_vector: &QueryVector,
+        k: i32,
+        window: i32,
+        direction: SortDirection,
+        n: usize,
+        offset: usize,
+        aux_collector: Option<TopKAuxiliaryCollector>,
+        rrf_bm25_leg: Option<(&SearchQueryInput, &SearchQueryInput)>,
+    ) -> TopKSearchResults {
+        /// Auto-sizing for the per-leg candidate window: a multiple of the
+        /// requested page so fusion sees meaningfully more than K docs.
+        const RRF_WINDOW_MULTIPLIER: usize = 4;
+        const RRF_MIN_WINDOW: usize = 100;
+
+        #[derive(Default)]
+        struct Candidate {
+            bm25: Option<f32>,
+            similarity: Option<f32>,
+            vector_rank: Option<usize>,
+        }
+
+        let segment_ids: Vec<SegmentId> = segment_ids.collect();
+        // An explicit window is floored at the page size so it cannot
+        // truncate the requested LIMIT; 0 auto-sizes from the page.
+        let window = if window > 0 {
+            (window as usize).max(n + offset)
+        } else {
+            (RRF_WINDOW_MULTIPLIER * (n + offset)).max(RRF_MIN_WINDOW)
+        };
+
+        // Vector leg: top-`window` nearest matching docs. The auxiliary
+        // (aggregation) collector piggybacks on this pass, mirroring the
+        // vector-distance arm above.
+        let field = self
+            .schema
+            .search_field(field_name)
+            .expect("pdb.rrf vector field should exist in index schema");
+        let query_vector = query_vector
+            .resolved()
+            .expect("pdb.rrf query vector was never resolved")
+            .to_vec();
+        self.validate_query_vector_dims(field_name, &query_vector);
+        let collector = TopDocs::with_limit(window)
+            .order_by_similarity(field.field(), query_vector)
+            .with_adaptive_params(AdaptiveProbeParams {
+                epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                ..Default::default()
+            });
+        let (fruit, aggregation_results) =
+            self.collect_maybe_auxiliary(segment_ids.iter().copied(), collector, aux_collector);
+
+        let mut candidates: HashMap<DocAddress, Candidate> = HashMap::default();
+        for (index, (similarity, doc_address)) in fruit.results.into_iter().enumerate() {
+            let candidate = candidates.entry(doc_address).or_default();
+            candidate.similarity = Some(similarity);
+            candidate.vector_rank = Some(index + 1);
+        }
+
+        // BM25 leg: top-`window` matching docs by score. With a `~~~` knn
+        // split the text leg has its own candidate-source query
+        // (`W[knn := false]`) and text-relevance scoring query (`W` with the
+        // knn leaf deleted); otherwise both legs share this reader's query.
+        // The two leg queries only differ when the knn predicate is ANDed
+        // with the text query, where the candidate source is empty (no row
+        // matches independently of the knn set) but candidates surfaced by
+        // the vector window are still scored for text relevance.
+        let candidate_reader =
+            rrf_bm25_leg.map(|(match_query, _)| self.with_query_input(match_query));
+        let candidate_reader = candidate_reader.as_ref().unwrap_or(self);
+        let scoring_reader =
+            rrf_bm25_leg.map(|(_, scoring_query)| self.with_query_input(scoring_query));
+        let scoring_reader = scoring_reader.as_ref().unwrap_or(self);
+        for (scored, doc_address) in candidate_reader
+            .top_by_score_in_segments(
+                segment_ids.iter().copied(),
+                SortDirection::DescNullsLast,
+                window,
+                0,
+                None,
+                None,
+            )
+            .remaining()
+        {
+            candidates.entry(*doc_address).or_default().bm25 = Some(scored.bm25);
+        }
+
+        // Backfill BM25 scores for docs surfaced only by the vector leg;
+        // docs that don't match the text leg stay `None`.
+        let missing: Vec<DocAddress> = candidates
+            .iter()
+            .filter(|(_, candidate)| candidate.bm25.is_none())
+            .map(|(doc_address, _)| *doc_address)
+            .collect();
+        if !missing.is_empty() {
+            let backfilled = scoring_reader.bm25_scores_for_docs(missing);
+            for (doc_address, score) in backfilled {
+                candidates.entry(doc_address).or_default().bm25 = Some(score);
+            }
+        }
+
+        // BM25 ranks over the text-leg-matching candidates, then fuse: each
+        // present rank contributes its reciprocal.
+        let mut by_bm25: Vec<(DocAddress, f32)> = candidates
+            .iter()
+            .filter_map(|(doc_address, candidate)| candidate.bm25.map(|bm25| (*doc_address, bm25)))
+            .collect();
+        by_bm25.sort_unstable_by(|a, b| {
+            b.1.total_cmp(&a.1)
+                .then_with(|| (a.0.segment_ord, a.0.doc_id).cmp(&(b.0.segment_ord, b.0.doc_id)))
+        });
+        let bm25_ranks: HashMap<DocAddress, usize> = by_bm25
+            .into_iter()
+            .enumerate()
+            .map(|(index, (doc_address, _))| (doc_address, index + 1))
+            .collect();
+
+        let k = k as f32;
+        let mut fused: Vec<(DocAddress, HybridDocScores)> = candidates
+            .iter()
+            .map(|(doc_address, candidate)| {
+                let fused_score = bm25_ranks
+                    .get(doc_address)
+                    .map(|rank| 1.0 / (k + *rank as f32))
+                    .unwrap_or(0.0)
+                    + candidate
+                        .vector_rank
+                        .map(|rank| 1.0 / (k + rank as f32))
+                        .unwrap_or(0.0);
+                (
+                    *doc_address,
+                    HybridDocScores {
+                        bm25: candidate.bm25,
+                        similarity: candidate.similarity,
+                        fused: fused_score,
+                        rank: 0, // assigned below, once sorted
+                    },
+                )
+            })
+            .collect();
+
+        fused.sort_unstable_by(|a, b| {
+            b.1.fused
+                .total_cmp(&a.1.fused)
+                .then_with(|| (a.0.segment_ord, a.0.doc_id).cmp(&(b.0.segment_ord, b.0.doc_id)))
+        });
+        for (index, (_, scores)) in fused.iter_mut().enumerate() {
+            scores.rank = index + 1;
+        }
+
+        // Ascending rank is the natural direction (rank 1 = best first); a
+        // DESC ORDER BY honestly reverses it.
+        if !direction.is_asc() {
+            fused.reverse();
+        }
+
+        let results: Vec<(SearchIndexScore, DocAddress)> = fused
+            .iter()
+            .skip(offset)
+            .take(n)
+            .map(|(doc_address, scores)| {
+                (
+                    SearchIndexScore {
+                        bm25: scores.bm25.unwrap_or(0.0),
+                    },
+                    *doc_address,
+                )
+            })
+            .collect();
+
+        let mut top_k = TopKSearchResults::new(results, aggregation_results);
+        top_k.hybrid_components = Some(fused.into_iter().collect());
+        top_k
     }
 
     /// Called by `search_top_k_in_segments`.
@@ -1493,6 +1826,13 @@ impl SearchIndexReader {
                     // Vector distance cannot be a secondary sort key
                     unimplemented!("Vector distance ORDER BY can only be the primary sort key")
                 }
+                OrderByInfo {
+                    feature: OrderByFeature::Rrf { .. },
+                    ..
+                } => {
+                    // Rank fusion cannot be a secondary sort key
+                    unimplemented!("pdb.rrf() ORDER BY can only be the primary sort key")
+                }
             }
         }
 
@@ -1510,6 +1850,24 @@ impl SearchIndexReader {
 
     fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
         self.segment_ordinal_by_id.get(segment_id).copied()
+    }
+
+    /// Validate that a resolved query vector's dimensionality matches the
+    /// indexed vector field, erroring with an actionable message instead of
+    /// letting the similarity kernel fail an internal assertion.
+    fn validate_query_vector_dims(&self, field_name: &FieldName, query_vector: &[f32]) {
+        if let Some(SearchFieldType::Vector(_, dims, _)) =
+            self.schema.get_field_type(field_name.root())
+        {
+            if dims != query_vector.len() {
+                pgrx::error!(
+                    "query vector has {} dimensions but field \"{}\" is indexed with {}",
+                    query_vector.len(),
+                    field_name,
+                    dims
+                );
+            }
+        }
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because

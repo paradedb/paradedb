@@ -125,6 +125,16 @@ pub enum SearchQueryInput {
         oid: pg_sys::Oid,
         query: Box<SearchQueryInput>,
     },
+    /// The `~~~(vector, vector)` knn operator: "this row is among the
+    /// top-`window_size` nearest neighbors of `query_vector`". Not a
+    /// standalone tantivy query — a query containing a `Knn` leaf must be
+    /// executed by the `pdb.rrf()` rank-fusion TopK path, which splits the
+    /// tree into per-leg queries (substituting the leaf with `All`/`Empty`)
+    /// before any tantivy conversion.
+    Knn {
+        field: FieldName,
+        query_vector: Vec<f32>,
+    },
     PostgresExpression {
         expr: PostgresExpression,
     },
@@ -392,6 +402,7 @@ impl SearchQueryInput {
             | SearchQueryInput::All
             | SearchQueryInput::Empty
             | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::Knn { .. }
             | SearchQueryInput::PostgresExpression { .. } => false,
 
             SearchQueryInput::Parse { .. } | SearchQueryInput::MoreLikeThis { .. } => true,
@@ -428,6 +439,8 @@ impl SearchQueryInput {
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {
         match self {
+            // not estimable at all: a knn leaf cannot become a tantivy query
+            SearchQueryInput::Knn { .. } => true,
             SearchQueryInput::Boolean {
                 must,
                 should,
@@ -464,6 +477,9 @@ impl SearchQueryInput {
         use crate::MORE_LIKE_THIS_SELECTIVITY;
 
         match self {
+            // knn candidacy is bounded by the rank-fusion window, which is
+            // tiny relative to the table
+            SearchQueryInput::Knn { .. } => 0.01,
             SearchQueryInput::Boolean { must, should, .. } => {
                 // AND: product of children selectivities; OR: max of children selectivities.
                 let must_sel = must
@@ -686,7 +702,185 @@ impl SearchQueryInput {
             | SearchQueryInput::Parse { .. }
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. }
+            | SearchQueryInput::Knn { .. }
             | SearchQueryInput::FieldedQuery { .. } => {}
+        }
+    }
+
+    /// True when this query tree contains a [`SearchQueryInput::Knn`] leaf
+    /// (the `~~~` operator).
+    pub fn contains_knn(&self) -> bool {
+        let mut this = self.clone();
+        let mut found = false;
+        this.visit(&mut |query| {
+            if matches!(query, SearchQueryInput::Knn { .. }) {
+                found = true;
+            }
+        });
+        found
+    }
+
+    /// The `(field, query_vector)` of every [`SearchQueryInput::Knn`] leaf in
+    /// this tree, paired with whether the leaf sits in a negated position (a
+    /// `must_not` clause at any level).
+    pub fn knn_leaves(&self) -> Vec<(FieldName, Vec<f32>, bool)> {
+        fn walk(
+            query: &SearchQueryInput,
+            negated: bool,
+            leaves: &mut Vec<(FieldName, Vec<f32>, bool)>,
+        ) {
+            match query {
+                SearchQueryInput::Knn {
+                    field,
+                    query_vector,
+                } => leaves.push((field.clone(), query_vector.clone(), negated)),
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                    ..
+                } => {
+                    for q in must.iter().chain(should.iter()) {
+                        walk(q, negated, leaves);
+                    }
+                    for q in must_not {
+                        walk(q, true, leaves);
+                    }
+                }
+                SearchQueryInput::Boost { query, .. }
+                | SearchQueryInput::ConstScore { query, .. }
+                | SearchQueryInput::WithIndex { query, .. } => walk(query, negated, leaves),
+                SearchQueryInput::ScoreFilter {
+                    query: Some(query), ..
+                } => walk(query, negated, leaves),
+                SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                    walk(indexed_query, negated, leaves)
+                }
+                SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                    for q in disjuncts {
+                        walk(q, negated, leaves);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut leaves = Vec::new();
+        walk(self, false, &mut leaves);
+        leaves
+    }
+
+    /// Return a copy of this tree with every [`SearchQueryInput::Knn`] leaf
+    /// replaced by [`SearchQueryInput::All`] (`assume_matches = true`) or
+    /// [`SearchQueryInput::Empty`] (`assume_matches = false`).
+    ///
+    /// This is how the `pdb.rrf()` rank-fusion path splits a query `W`
+    /// containing a knn predicate into its two legs: the text leg's
+    /// candidate source is `W[knn := false]` and the vector leg's driving
+    /// query is `W[knn := true]` (the knn candidates are then the top-window
+    /// nearest among that leg's matches).
+    pub fn substitute_knn(&self, assume_matches: bool) -> SearchQueryInput {
+        let mut this = self.clone();
+        this.visit(&mut |query| {
+            if matches!(query, SearchQueryInput::Knn { .. }) {
+                *query = if assume_matches {
+                    SearchQueryInput::All
+                } else {
+                    SearchQueryInput::Empty
+                };
+            }
+        });
+        this
+    }
+
+    /// True when this query (possibly through score-transparent wrappers) is
+    /// nothing but a [`SearchQueryInput::Knn`] leaf.
+    fn is_knn_only(&self) -> bool {
+        match self {
+            SearchQueryInput::Knn { .. } => true,
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => query.is_knn_only(),
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => query.is_knn_only(),
+            _ => false,
+        }
+    }
+
+    /// Return a copy of this tree with every [`SearchQueryInput::Knn`] leaf
+    /// *deleted from its boolean context* (removed from the `must`/`should`
+    /// list that contains it), rather than substituted with a constant.
+    ///
+    /// This is the text-RELEVANCE query for the `pdb.rrf()` text leg: under
+    /// `text OR knn` it equals `text` (same as `W[knn := false]`), but under
+    /// `text AND knn` it also equals `text` — where the `false` substitution
+    /// would collapse the whole conjunction to `Empty` and erase the text
+    /// leg's contribution to the fusion. A tree that consists solely of the
+    /// knn predicate becomes `Empty` (there is no text relevance).
+    pub fn without_knn(&self) -> SearchQueryInput {
+        match self {
+            SearchQueryInput::Knn { .. } => SearchQueryInput::Empty,
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                let strip = |clauses: &[SearchQueryInput]| {
+                    clauses
+                        .iter()
+                        .filter(|clause| !clause.is_knn_only())
+                        .map(|clause| clause.without_knn())
+                        .collect::<Vec<_>>()
+                };
+                let (must, should, must_not) = (strip(must), strip(should), strip(must_not));
+                if must.is_empty() && should.is_empty() && must_not.is_empty() {
+                    SearchQueryInput::Empty
+                } else {
+                    SearchQueryInput::Boolean {
+                        must,
+                        should,
+                        must_not,
+                        minimum_should_match: *minimum_should_match,
+                    }
+                }
+            }
+            SearchQueryInput::WithIndex { oid, query } => SearchQueryInput::WithIndex {
+                oid: *oid,
+                query: Box::new(query.without_knn()),
+            },
+            SearchQueryInput::Boost { query, factor } => SearchQueryInput::Boost {
+                query: Box::new(query.without_knn()),
+                factor: *factor,
+            },
+            SearchQueryInput::ConstScore { query, score } => SearchQueryInput::ConstScore {
+                query: Box::new(query.without_knn()),
+                score: *score,
+            },
+            SearchQueryInput::ScoreFilter { bounds, query } => SearchQueryInput::ScoreFilter {
+                bounds: bounds.clone(),
+                query: query.as_ref().map(|query| Box::new(query.without_knn())),
+            },
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => SearchQueryInput::HeapFilter {
+                indexed_query: Box::new(indexed_query.without_knn()),
+                field_filters: field_filters.clone(),
+            },
+            SearchQueryInput::DisjunctionMax {
+                disjuncts,
+                tie_breaker,
+            } => SearchQueryInput::DisjunctionMax {
+                disjuncts: disjuncts
+                    .iter()
+                    .filter(|disjunct| !disjunct.is_knn_only())
+                    .map(|disjunct| disjunct.without_knn())
+                    .collect(),
+                tie_breaker: *tie_breaker,
+            },
+            other => other.clone(),
         }
     }
 
@@ -1114,6 +1308,9 @@ impl SearchQueryInput {
             SearchQueryInput::All => {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
                 Ok(builder.build_leaf(query, || "All Query".to_string(), cloned_for_estimate))
+            }
+            SearchQueryInput::Knn { .. } => {
+                panic!("the `~~~(vector, vector)` operator requires a ParadeDB TopK rank-fusion scan: use `ORDER BY pdb.rrf(pdb.score(<key>), <vector_column> <op> <query_vector>) LIMIT <n>`")
             }
             SearchQueryInput::Boolean {
                 must,

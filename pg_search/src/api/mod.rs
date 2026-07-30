@@ -505,6 +505,26 @@ pub enum OrderByFeature {
         /// L2-normalized for cosine/L2 ordering.
         metric: VectorMetric,
     },
+    /// `ORDER BY pdb.rrf(pdb.score(key), vector_col <op> query_vector [, k])`:
+    /// Reciprocal Rank Fusion of the query's BM25 ranking and a
+    /// vector-distance ranking. Produces rows in fused-rank order (ascending
+    /// rank = best first).
+    Rrf {
+        /// The vector field of the distance leg. `None` when the distance
+        /// leg was omitted from `pdb.rrf(...)`; filled in at execution time
+        /// from the WHERE clause's `~~~` knn predicate.
+        name: Option<FieldName>,
+        rti: u32,
+        /// See [`OrderByFeature::VectorDistance::query_vector`].
+        query_vector: Option<QueryVector>,
+        /// See [`OrderByFeature::VectorDistance::metric`].
+        metric: Option<VectorMetric>,
+        /// The RRF constant: each leg contributes `1 / (k + rank)`.
+        k: i32,
+        /// Per-leg candidate pool (the overfetch); 0 = auto-size from the
+        /// LIMIT.
+        window: i32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -532,6 +552,26 @@ impl std::fmt::Display for OrderByFeature {
             Self::VectorDistance { name, metric, .. } => {
                 write!(f, "{name} {} vector", metric.operator())
             }
+            Self::Rrf {
+                name,
+                metric,
+                k,
+                window,
+                ..
+            } => {
+                match (name, metric) {
+                    (Some(name), Some(metric)) => write!(
+                        f,
+                        "pdb.rrf(pdb.score(), {name} {} vector, k={k}",
+                        metric.operator()
+                    )?,
+                    _ => write!(f, "pdb.rrf(pdb.score(), ~~~ knn, k={k}")?,
+                }
+                if *window > 0 {
+                    write!(f, ", window_size={window}")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -550,6 +590,10 @@ impl OrderByInfo {
 
     pub fn is_vector_distance(&self) -> bool {
         matches!(self.feature, OrderByFeature::VectorDistance { .. })
+    }
+
+    pub fn is_rrf(&self) -> bool {
+        matches!(self.feature, OrderByFeature::Rrf { .. })
     }
 
     /// If the ORDER BY is a vector distance, return
@@ -581,8 +625,17 @@ impl OrderByInfo {
         estate: *mut pgrx::pg_sys::EState,
         planstate: *mut pgrx::pg_sys::PlanState,
     ) {
-        if let OrderByFeature::VectorDistance { query_vector, .. } = &mut self.feature {
-            query_vector.resolve(estate, planstate);
+        match &mut self.feature {
+            OrderByFeature::VectorDistance { query_vector, .. } => {
+                query_vector.resolve(estate, planstate);
+            }
+            OrderByFeature::Rrf {
+                query_vector: Some(query_vector),
+                ..
+            } => {
+                query_vector.resolve(estate, planstate);
+            }
+            _ => {}
         }
     }
 }

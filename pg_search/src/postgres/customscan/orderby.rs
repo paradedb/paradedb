@@ -31,6 +31,9 @@ use crate::postgres::catalog::{
     lookup_collation_locale, lookup_database_collation_locale, CollationLocale, CollationProvider,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
+use crate::postgres::customscan::basescan::projections::score::{
+    is_rrf_funcoid, rrf_funcoids, typed_score_funcoid, typed_score_kind_from_funcexpr, ScoreKind,
+};
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel_get_bm25_index;
@@ -73,6 +76,21 @@ pub enum SortExpressionType {
     VectorMetricMismatch {
         field_metric: VectorMetric,
         op_metric: VectorMetric,
+    },
+    /// Sorting by Reciprocal Rank Fusion:
+    /// `ORDER BY pdb.rrf(pdb.score(key) [, vector_col <op> query_vector] [, k, window])`.
+    /// Fuses the query's BM25 ranking with a vector-distance ranking; rows
+    /// come out in fused-rank order (ascending = best first).
+    ///
+    /// `query_vector`/`metric` are `None` when the distance leg was omitted;
+    /// they are filled in at execution time from the WHERE clause's `~~~`
+    /// knn predicate.
+    Rrf {
+        query_vector: Option<QueryVector>,
+        metric: Option<VectorMetric>,
+        k: i32,
+        /// Per-leg candidate pool; 0 = auto-size from the LIMIT.
+        window: i32,
     },
 }
 
@@ -145,8 +163,173 @@ unsafe fn extract_score_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var>
                 return nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
             }
         }
+
+        // `pdb.score(relation, 'bm25')` sorts by score too; the other score
+        // types cannot drive a score-ordered TopK.
+        let typed = typed_score_funcoid();
+        if typed != pg_sys::Oid::INVALID
+            && (*funcexpr).funcid == typed
+            && typed_score_kind_from_funcexpr(funcexpr) == Some(ScoreKind::Bm25)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            return nodecast!(Var, T_Var, args.get_ptr(0)?);
+        }
     }
     None
+}
+
+/// Unwrap a single-argument cast `FuncExpr` (e.g. the `real -> double
+/// precision` coercion Postgres inserts around `pdb.score(...)` to match
+/// `pdb.rrf`'s float8 parameters), returning the cast's argument.
+unsafe fn strip_cast_funcexpr(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if (*funcexpr).funcformat == pg_sys::CoercionForm::COERCE_IMPLICIT_CAST
+            || (*funcexpr).funcformat == pg_sys::CoercionForm::COERCE_EXPLICIT_CAST
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            if args.len() == 1 {
+                return args.get_ptr(0).unwrap();
+            }
+        }
+    }
+    node
+}
+
+/// Detect `pdb.rrf(...)` in either form:
+///
+///   * explicit legs — `pdb.rrf(pdb.score(key), vector_col <op> query_vector
+///     [, k, window_size])`, legs in either order;
+///   * relation form — `pdb.rrf(relation [, k, window_size])`, where the BM25
+///     leg is the WHERE clause's text query and the vector leg its `~~~` knn
+///     predicate (filled in at execution time).
+///
+/// Returns a `Var` of the target relation (for pathkey validation and, when
+/// an explicit distance leg is present, field-name resolution) and the sort
+/// descriptor. A metric/opclass mismatch on an explicit distance leg is
+/// propagated as `SortExpressionType::VectorMetricMismatch` so the planner
+/// surfaces the specific warning instead of silently falling back.
+unsafe fn extract_rrf(
+    node: *mut pg_sys::Node,
+    context: VarContext,
+    schema: &SearchIndexSchema,
+) -> Option<(*mut pg_sys::Var, SortExpressionType)> {
+    let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+    if !is_rrf_funcoid((*funcexpr).funcid) {
+        return None;
+    }
+    let [_, relation_form_funcoid] = rrf_funcoids();
+
+    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+
+    // The fully-implied relation form: pdb.rrf(relation, k, window_size).
+    // Both legs come from the target relation's own predicates. The relation
+    // reference may also be written as pdb.score(relation).
+    if (*funcexpr).funcid == relation_form_funcoid {
+        if args.len() != 3 {
+            return None;
+        }
+        let relation_arg = strip_cast_funcexpr(args.get_ptr(0)?);
+        let relation_var =
+            nodecast!(Var, T_Var, relation_arg).or_else(|| extract_score_var(relation_arg))?;
+
+        let (k, window) = extract_rrf_knobs(&args, 1)?;
+        return Some((
+            relation_var,
+            SortExpressionType::Rrf {
+                query_vector: None,
+                metric: None,
+                k,
+                window,
+            },
+        ));
+    }
+
+    if args.len() != 4 {
+        return None;
+    }
+
+    // `pdb.rrf`'s ranking parameters are float8, so Postgres wraps the `real`
+    // `pdb.score(...)` leg in an implicit cast; unwrap before classifying.
+    let (first, second) = (
+        strip_cast_funcexpr(args.get_ptr(0)?),
+        strip_cast_funcexpr(args.get_ptr(1)?),
+    );
+    let (score_leg, distance_leg) = if extract_score_var(first).is_some() {
+        (first, second)
+    } else if extract_score_var(second).is_some() {
+        (second, first)
+    } else {
+        return None;
+    };
+    let score_var = extract_score_var(score_leg)?;
+
+    let distance_leg = strip_identity_wrappers(distance_leg);
+
+    // The distance leg is optional (a NULL Const when defaulted): the vector
+    // leg then comes from the WHERE clause's `~~~` knn predicate, resolved
+    // at execution time. The relation Var for pathkey validation is the
+    // vector column's when present, else the score leg's relation reference.
+    let (leg_var, query_vector, metric) =
+        if let Some(const_) = nodecast!(Const, T_Const, distance_leg) {
+            if !(*const_).constisnull {
+                return None;
+            }
+            (score_var, None, None)
+        } else {
+            let (vector_var, vector_sort) = extract_vector_distance(distance_leg, context, schema)?;
+
+            // Both legs must reference the same relation.
+            if (*score_var).varno != (*vector_var).varno {
+                return None;
+            }
+
+            match vector_sort {
+                SortExpressionType::VectorDistance {
+                    query_vector,
+                    metric,
+                } => (vector_var, Some(query_vector), Some(metric)),
+                mismatch @ SortExpressionType::VectorMetricMismatch { .. } => {
+                    return Some((vector_var, mismatch));
+                }
+                _ => return None,
+            }
+        };
+
+    let (k, window) = extract_rrf_knobs(&args, 2)?;
+
+    Some((
+        leg_var,
+        SortExpressionType::Rrf {
+            query_vector,
+            metric,
+            k,
+            window,
+        },
+    ))
+}
+
+/// Extract the constant `k` and `window_size` arguments of a `pdb.rrf(...)`
+/// call, starting at `start` in its argument list.
+unsafe fn extract_rrf_knobs(args: &PgList<pg_sys::Node>, start: usize) -> Option<(i32, i32)> {
+    let k_const = nodecast!(Const, T_Const, args.get_ptr(start)?)?;
+    if (*k_const).constisnull {
+        return None;
+    }
+    let k = i32::from_datum((*k_const).constvalue, false)?;
+    if k < 0 {
+        panic!("pdb.rrf: k must be >= 0, got {k}");
+    }
+
+    let window_const = nodecast!(Const, T_Const, args.get_ptr(start + 1)?)?;
+    if (*window_const).constisnull {
+        return None;
+    }
+    let window = i32::from_datum((*window_const).constvalue, false)?;
+    if window < 0 {
+        panic!("pdb.rrf: window_size must be >= 0 (0 = auto-size from the LIMIT), got {window}");
+    }
+
+    Some((k, window))
 }
 
 unsafe fn extract_lower_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
@@ -255,6 +438,12 @@ pub unsafe fn analyze_sort_expression(
     }
 
     if let Some(info) = index_info {
+        if let Some((var, rrf_sort)) = extract_rrf(node, context, info.schema) {
+            let (relid, attno) = context.var_relation(var);
+            let field_name = fieldname_from_var(relid, var, attno);
+            return Some((rrf_sort, var, field_name));
+        }
+
         if let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema) {
             let (relid, attno) = context.var_relation(var);
             let field_name = fieldname_from_var(relid, var, attno);
@@ -631,6 +820,35 @@ where
                             break;
                         }
                     }
+                    SortExpressionType::Rrf {
+                        ref query_vector,
+                        metric,
+                        k,
+                        window,
+                    } => {
+                        // With an explicit distance leg the vector field name
+                        // is required; without one (vector leg deferred to
+                        // the WHERE clause's `~~~` predicate) there is none.
+                        let name = if query_vector.is_some() {
+                            match field_name_opt {
+                                Some(field_name) => Some(field_name),
+                                None => continue,
+                            }
+                        } else {
+                            None
+                        };
+                        pathkey_styles.push(OrderByStyle::Rrf {
+                            pathkey,
+                            name,
+                            rti,
+                            query_vector: query_vector.clone(),
+                            metric,
+                            k,
+                            window,
+                        });
+                        found_valid_member = true;
+                        break;
+                    }
                     SortExpressionType::VectorMetricMismatch {
                         field_metric,
                         op_metric,
@@ -803,6 +1021,10 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             }
             SortExpressionType::VectorDistance { .. } => {
                 // Vector distance is always valid if the field exists in the index
+                continue;
+            }
+            SortExpressionType::Rrf { .. } => {
+                // Rank fusion is always valid if the vector field exists in the index
                 continue;
             }
             SortExpressionType::VectorMetricMismatch { .. } => {

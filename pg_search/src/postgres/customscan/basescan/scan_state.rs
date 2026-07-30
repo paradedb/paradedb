@@ -17,11 +17,13 @@
 
 use std::cell::UnsafeCell;
 
-use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
+use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
+use crate::index::reader::index::HybridDocScores;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
+use crate::postgres::customscan::basescan::projections::score::ScoreKindSet;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
@@ -37,6 +39,7 @@ use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct BaseScanState {
@@ -74,6 +77,38 @@ pub struct BaseScanState {
     pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoids: [pg_sys::Oid; 2],
+
+    /// Which `pdb.score(relation, type)` score types appear in the target
+    /// list (empty when the typed overload is not used).
+    pub typed_score_kinds: ScoreKindSet,
+    /// True when the target list contains a `pdb.rrf(...)` call for this
+    /// relation.
+    pub uses_rrf: bool,
+    /// Placeholder `Const` nodes for `pdb.score(relation, type)` calls, one
+    /// slot per
+    /// [`crate::postgres::customscan::basescan::projections::score::ScoreKind`],
+    /// mutated per row during projection.
+    pub const_typed_score_nodes: [Option<*mut pg_sys::Const>; 4],
+    /// Placeholder `Const` node (float8) for `pdb.rrf(...)` calls, mutated
+    /// per row with the document's fused rank.
+    pub const_rrf_node: Option<*mut pg_sys::Const>,
+    /// Per-document score components (BM25, similarity, fused RRF score and
+    /// rank) computed by the exec method for `pdb.rrf()` orderings and for
+    /// typed score projection under a vector-distance ordering.
+    pub hybrid_doc_scores: Option<HashMap<DocAddress, HybridDocScores>>,
+
+    /// When the WHERE clause contains a `~~~` knn predicate, the text leg's
+    /// candidate-source query `W[knn := false]` (the search reader itself is
+    /// opened with the vector leg's driving query `W[knn := true]`).
+    pub knn_bm25_leg_query: Option<SearchQueryInput>,
+    /// The text-relevance scoring query: `W` with the knn leaf deleted from
+    /// its boolean context. Identical to the candidate-source query for OR
+    /// shapes; under `text AND ~~~` it preserves the text query where the
+    /// `false` substitution would collapse to `Empty`.
+    pub knn_scoring_query: Option<SearchQueryInput>,
+    /// The `(vector field, query vector)` of the `~~~` knn predicate, for
+    /// validating that it matches `pdb.rrf()`'s distance leg.
+    pub knn_leaf: Option<(FieldName, Vec<f32>)>,
 
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
     /// targetlist was replaced with a NULL placeholder `Const` (see
@@ -229,6 +264,37 @@ impl BaseScanState {
     #[inline(always)]
     pub fn need_snippets(&self) -> bool {
         !self.snippet_generators.is_empty()
+    }
+
+    #[inline(always)]
+    pub fn has_typed_scores(&self) -> bool {
+        self.typed_score_kinds.has_any()
+    }
+
+    /// True when this scan's TopK ordering is a vector-distance feature, i.e.
+    /// the per-row score produced by the exec method is a vector similarity
+    /// rather than a BM25 score.
+    pub fn orderby_is_vector_distance(&self) -> bool {
+        self.orderby_info()
+            .as_ref()
+            .map(|infos| {
+                infos
+                    .iter()
+                    .any(|info| matches!(info.feature, OrderByFeature::VectorDistance { .. }))
+            })
+            .unwrap_or(false)
+    }
+
+    /// True when this scan's TopK ordering is a `pdb.rrf(...)` rank fusion.
+    pub fn orderby_is_rrf(&self) -> bool {
+        self.orderby_info()
+            .as_ref()
+            .map(|infos| {
+                infos
+                    .iter()
+                    .any(|info| matches!(info.feature, OrderByFeature::Rrf { .. }))
+            })
+            .unwrap_or(false)
     }
 
     #[track_caller]
@@ -396,6 +462,7 @@ impl BaseScanState {
             self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
         }
         self.window_aggregate_results = None;
+        self.hybrid_doc_scores = None;
         self.exec_method_mut().reset(self);
     }
 

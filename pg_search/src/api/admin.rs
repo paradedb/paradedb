@@ -478,6 +478,84 @@ fn vector_info(
     Ok(TableIterator::new(rows))
 }
 
+/// Returns the stored per-cluster IVF radii of one vector `field` of
+/// `index`, one row per cluster per segment - the observation instrument
+/// for the radius-aware probe gate. The radius is `.centroids` slot `[3]`:
+/// the max stored-representation displacement of the cluster's NATIVE
+/// (rank-0) members from its centroid (chord space for cosine fields).
+/// A zero radius is a real value, not a missing one: it says every native
+/// member of that cluster sits exactly on its centroid. Indexes built
+/// before radii became required do not reach this function at all - they
+/// fail to open, with a message naming REINDEX. Same field resolution and
+/// locking discipline as [`vector_info`]; flat segments contribute no
+/// rows.
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn ivf_cluster_radii(
+    index: PgRelation,
+    field: String,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(segno, String),
+            name!(vector_field, String),
+            name!(cluster_ord, i32),
+            name!(radius, f32),
+        ),
+    >,
+> {
+    // # Safety
+    //
+    // Same read-only AccessShareLock discipline as `vector_info`.
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index_kind = IndexKind::for_index(index.clone())?;
+    if !index.is_usable() {
+        return Ok(TableIterator::new(Vec::new()));
+    }
+
+    let mut rows = Vec::new();
+    for index in index_kind.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+        let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
+        let resolved = search_reader
+            .schema()
+            .fields()
+            .find_map(|(f, field_entry)| {
+                (field_entry.name() == field
+                    && matches!(
+                        search_reader.schema().get_field_type(field_entry.name()),
+                        Some(SearchFieldType::Vector(..))
+                    ))
+                .then_some(f)
+            });
+        let Some(vector_field) = resolved else {
+            anyhow::bail!("`{field}` is not a vector field of the index");
+        };
+        for segment_reader in search_reader.segment_readers() {
+            let vec_reader = segment_reader.vector_index(vector_field)?;
+            let Some(ivf) = vec_reader.index() else {
+                continue;
+            };
+            let segno = segment_reader.segment_id().short_uuid_string();
+            for cluster in 0..ivf.num_clusters() {
+                rows.push((
+                    segno.clone(),
+                    field.clone(),
+                    cluster as i32,
+                    // `Radius` is the engine's validated type; the SRF
+                    // reports the magnitude.
+                    ivf.cluster_radius(cluster).get(),
+                ));
+            }
+        }
+    }
+
+    Ok(TableIterator::new(rows))
+}
+
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple
 /// identifier.
 ///

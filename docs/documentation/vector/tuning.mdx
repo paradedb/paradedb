@@ -4,27 +4,32 @@ description: Trade recall against latency for vector search
 canonical: https://docs.paradedb.com/documentation/vector/tuning
 ---
 
-Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. Two session-level settings control this tradeoff:
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. One session-level setting controls this tradeoff:
 
 ```sql
-SET paradedb.vector_cluster_probe_epsilon = 0.5;
 SET paradedb.vector_cluster_max_probe = 0.02;
 ```
 
-<ParamField body="paradedb.vector_cluster_probe_epsilon" default={0.5}>
-  The primary recall driver. A higher epsilon improves recall by probing more
-  clusters at the expense of higher latency. Think of epsilon as an early
-  termination value, where lower epsilon terminates early more aggressively.
-  When tuning this value, we recommend sweeping in increments of `0.1`. Must be
-  between `0.0` and `100.0`.
-</ParamField>
-
 <ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
-  A control for tail latency. This setting enforces a ceiling on how many clusters a query may probe. For instance, at the default value of `0.02`, at most 2% of clusters are probed. Must be between `0.000001` and `1.0`, where `1.0` effectively means "no ceiling."
-
-Note that setting this value to `1.0` does not equal exhaustive search, since the epsilon value still drives early termination.
-
+  The probe budget, and the single tuning knob: a ceiling on how many clusters a
+  query may probe, as a fraction of each segment's cluster count. At the default
+  value of `0.02`, at most 2% of clusters are probed. Raising it improves recall
+  at the cost of latency; when tuning, we recommend sweeping upward from the
+  default (e.g. `0.02`, `0.05`, `0.1`) until recall stops improving. Must be
+  between `0.000001` and `1.0`, where `1.0` means "no ceiling."
 </ParamField>
+
+A query can also finish under its budget in two ways, neither of which needs
+configuration:
+
+- The index may prove, from per-cluster radii stored at index time, that no
+  remaining cluster can contain a closer neighbor than those already found —
+  early termination without a recall cost.
+- The candidate clusters may simply run out (common on small indexes or highly
+  selective filters).
+
+Indexes built before per-cluster radii existed always probe to the full budget;
+radii arrive automatically as segments merge, or immediately with a `REINDEX`.
 
 <Note>
   Recall also depends on the index's `centroid_ratio`, set at build time. See

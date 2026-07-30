@@ -284,11 +284,6 @@ fn launch_mpp(
         return None;
     }
     let cap = producer_worker_cap();
-    if cap < MIN_TOTAL_WORKER_COUNT - 1 {
-        // Unreachable when callers gate on `mpp_is_active()`, but `clamp` panics when
-        // min > max; a forgotten gate should mean a serial run, not a panic.
-        return None;
-    }
     let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
 
     let t_prepare = std::time::Instant::now();

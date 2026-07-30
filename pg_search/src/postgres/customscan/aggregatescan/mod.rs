@@ -1506,15 +1506,11 @@ impl AggregateScan {
 
         // Taken up front (not inside the df_state borrow below) because the launch needs
         // `state` for the source manifests.
-        let mpp_plan_bytes = if first_call && mpp_is_active() {
-            state
-                .custom_state_mut()
-                .datafusion_state
-                .as_mut()
-                .and_then(|d| d.mpp.take_plan_bytes())
-        } else {
-            None
-        };
+        let mpp_plan_bytes = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .and_then(|d| d.mpp.take_plan_bytes());
 
         // First call: build and execute the DataFusion plan
         if first_call {

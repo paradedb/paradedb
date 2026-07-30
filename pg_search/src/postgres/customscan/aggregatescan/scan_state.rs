@@ -22,6 +22,8 @@ use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, Filter
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
+use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
@@ -84,10 +86,10 @@ pub struct DataFusionAggState {
     /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
     /// Applies only when parallel execution is enabled and the query qualifies (binary join +
     /// supported aggregate).
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    pub mpp: MppLifecycle,
     /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
     /// query launched distributed.
-    pub launch_timing: Option<crate::postgres::customscan::mpp::glue::MppLaunchTiming>,
+    pub launch_timing: Option<MppLaunchTiming>,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

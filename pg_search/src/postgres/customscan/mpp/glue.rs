@@ -197,7 +197,9 @@ unsafe fn self_receiver_token() -> u64 {
 ///
 /// # Safety
 /// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
-/// - `n_procs` must equal the proc count passed to [`estimate_dsm_size`] for this region.
+/// - `n_procs` is the total mesh participant count including the leader: 1 (leader, proc 0)
+///   plus the launched producer workers. It must equal the count passed to
+///   [`estimate_dsm_size`] for this region, or the ring mesh won't fit.
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(

@@ -1346,13 +1346,7 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_plan_bytes = if mpp_is_active()
-                    && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
-                {
-                    state.custom_state_mut().mpp.take_plan_bytes()
-                } else {
-                    None
-                };
+                let mpp_plan_bytes = state.custom_state_mut().mpp.take_plan_bytes();
                 // Leader session context: on an MPP attempt, layer the DF-D fork's
                 // distributed-planner knobs over the Join profile so the resulting physical
                 // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the

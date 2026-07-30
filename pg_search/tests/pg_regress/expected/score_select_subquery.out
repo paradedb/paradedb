@@ -34,11 +34,10 @@ LIMIT 1;
                Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
-               Exec Method: TopKScanExecState
+               Exec Method: NormalScanExecState
                Scores: true
-                  TopK Limit: 1
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(13 rows)
+(12 rows)
 
 SELECT id, pdb.score(id) AS score
 FROM animals
@@ -67,11 +66,10 @@ LIMIT 1;
                Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
-               Exec Method: TopKScanExecState
+               Exec Method: NormalScanExecState
                Scores: false
-                  TopK Limit: 1
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(13 rows)
+(12 rows)
 
 SELECT id, pdb.snippet(description) AS snippet
 FROM animals
@@ -111,11 +109,10 @@ LIMIT 1;
                Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
-               Exec Method: TopKScanExecState
+               Exec Method: NormalScanExecState
                Scores: true
-                  TopK Limit: 1
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(13 rows)
+(12 rows)
 
 SELECT id, pdb.score(id) AS score
 FROM animals
@@ -149,11 +146,10 @@ LIMIT 1;
                Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
-               Exec Method: TopKScanExecState
+               Exec Method: NormalScanExecState
                Scores: true
-                  TopK Limit: 1
                Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"dog","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(15 rows)
+(14 rows)
 
 SELECT id, pdb.score(id) AS score
 FROM animals

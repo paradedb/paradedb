@@ -256,11 +256,8 @@ INSERT INTO vsp_tie VALUES
     (6, 'y', '[0,0.9,0.1]');
 
 CREATE INDEX vsp_tie_idx ON vsp_tie
-    USING bm25 (id, cat, vec vector_l2_ops)
-    WITH (
-        key_field = id,
-        text_fields = '{"cat": {"tokenizer": {"type": "keyword"}, "fast": true}}'
-    );
+    USING bm25 (id, (cat::pdb.literal), vec vector_l2_ops)
+    WITH (key_field = id);
 
 -- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

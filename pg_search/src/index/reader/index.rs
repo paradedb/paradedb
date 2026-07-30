@@ -1038,10 +1038,6 @@ impl SearchIndexReader {
                         ..Default::default()
                     });
 
-                // Any erased score feature here is the holder appended by
-                // `prepare_features` for `need_scores` (explicit score
-                // tie-breaks were rejected above); similarity fills the score
-                // slot downstream, so it does not participate in the ordering.
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
                 let mut tie_breaks = Vec::with_capacity(erased_features.len());

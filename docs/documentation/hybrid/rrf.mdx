@@ -44,10 +44,10 @@ WITH text AS (
     LIMIT 20
 ),
 vector AS (
-    SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]') AS rank
+    SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]', id) AS rank
     FROM mock_items
     WHERE id @@@ pdb.all()
-    ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]'
+    ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]', id
     LIMIT 20
 ),
 fused AS (
@@ -71,8 +71,6 @@ LIMIT 5;
 The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.
 
 The two `WHERE` clauses differ because each branch retrieves by its own method. `description ||| 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. To narrow either branch, add [filters](/documentation/filtering) to both, so that each is drawing from the same set of eligible rows.
-
-Note that the `RANK()` window function sits at the **same query level** as the `ORDER BY ... LIMIT`, rather than wrapping a nested subquery. This is the shape ParadeDB accelerates, and it is the shape you should write.
 
 ## Verifying Pushdown
 
@@ -119,16 +117,13 @@ Fetch considerably more per branch than you intend to return — 100 to 200 cand
 
 ## Deterministic Results
 
-Add a tiebreaker after the sort key so that rows with identical scores come back in a stable order:
+Add a tiebreaker after the sort key in both branches so that rows with equal scores or equal distances come back in a stable order:
 
 ```sql
 ORDER BY pdb.score(id) DESC, id
+ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]', id
 ```
 
-All tiebreaker columns must be in the ParadeDB index to keep the Top K optimization. See [Deterministic Sorting](/documentation/sorting/score#deterministic-sorting).
+This matters most when a branch's `LIMIT` cuts through a group of tied rows. Without a tiebreaker, which of the tied rows survive is arbitrary, so the same query can return different candidates from one run to the next — and the fused result changes with them. Duplicate vectors make this common in the vector branch.
 
-<Note>
-  Vector distance orderings do not support a secondary sort key. Write `ORDER BY
-  embedding <=> $1` on its own, without a trailing tiebreaker column. Ties in
-  the vector branch are broken arbitrarily.
-</Note>
+All tiebreaker columns must be in the ParadeDB index to keep the Top K optimization. See [Deterministic Sorting](/documentation/sorting/score#deterministic-sorting).

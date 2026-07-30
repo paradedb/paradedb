@@ -18,7 +18,7 @@
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use paradedb::{
-    Window, confidence_interval_half_width, mean, percentile, percentile_confidence_interval,
+    Window, confidence_interval_half_width, fnv1a, mean, percentile, percentile_confidence_interval,
 };
 use sqlx::{Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
@@ -208,6 +208,10 @@ pub struct QueryRunResults {
     /// True when each sample is a distinct query vector rather than a repeat of one. Only then is
     /// the sample set a latency distribution, so only then are percentiles meaningful.
     pub per_vector: bool,
+    /// Hash of the held-out query vectors, in sample order. Published alongside the samples so a
+    /// later run can pair its samples with a baseline's index-by-index, and detect when the vector
+    /// set changed and pairing would be meaningless.
+    pub vector_hash: Option<u64>,
 }
 
 enum IndexCreationResult {
@@ -321,10 +325,28 @@ impl JSONBenchmarkResult {
             res.results.samples.len()
         );
 
+        // The raw per-vector samples ride along on the p50 entry (once per operating point, not
+        // per percentile), so a later run can pair its samples with this one's by index and test
+        // per-query latency ratios instead of comparing independent percentile estimates.
+        let samples_prefix = res.results.vector_hash.map(|hash| {
+            let samples = res
+                .results
+                .samples
+                .iter()
+                .map(|v| format!("{v:.3}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("samples_fnv={hash:016x}; samples=[{samples}]; ")
+        });
+
         TRACKED_PERCENTILES
             .iter()
             .map(|(label, p)| {
                 let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
+                let extra = match (*label, &samples_prefix) {
+                    ("p50", Some(prefix)) => format!("{prefix}{extra}"),
+                    _ => extra.clone(),
+                };
                 Self {
                     // " - " is the dashboard's chart-grouping separator, so an operating point's
                     // three percentiles share one chart instead of getting one each.
@@ -332,7 +354,7 @@ impl JSONBenchmarkResult {
                     unit: "ms",
                     value: percentile(&res.results.samples, *p),
                     range: format!("95% CI [{lo:.3}, {hi:.3}]"),
-                    extra: extra.clone(),
+                    extra,
                 }
             })
             .collect()
@@ -1932,6 +1954,7 @@ async fn execute_query_multiple_times(
             }
         }
         results.per_vector = true;
+        results.vector_hash = Some(fnv1a(query_vectors));
         for vector in query_vectors {
             set_query_vector(&mut conn, vector).await?;
             match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
@@ -2117,6 +2140,7 @@ mod tests {
                 samples,
                 num_results: 10,
                 per_vector,
+                vector_hash: per_vector.then_some(0xdead_beef),
             },
         }
     }
@@ -2140,8 +2164,20 @@ mod tests {
             out.iter()
                 .all(|r| r.unit == "ms" && r.range.starts_with("95% CI ["))
         );
+        // The raw samples ride on the p50 entry only, prefixed so the pairing metadata cannot
+        // collide with the free-form query text at the end.
+        assert!(
+            out[0]
+                .extra
+                .starts_with("samples_fnv=00000000deadbeef; samples=[1.000,2.000,"),
+            "{}",
+            out[0].extra
+        );
+        assert!(out[0].extra.ends_with(
+            "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
+        ));
         assert_eq!(
-            out[0].extra,
+            out[1].extra,
             "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
         );
     }

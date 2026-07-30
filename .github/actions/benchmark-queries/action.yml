@@ -37,16 +37,17 @@ inputs:
   alert_threshold:
     description: >-
       Ratio of current to baseline value above which github-action-benchmark alerts,
-      e.g. "115%". Callers using the ci-overlap strategy should loosen this into a
-      catastrophic-regression backstop, since the overlap check owns real alerting.
+      e.g. "115%". Callers using the paired-bootstrap strategy should loosen this into a
+      catastrophic-regression backstop, since the comparison script owns real alerting.
     required: false
     default: "115%"
   alert_strategy:
     description: >-
       How regressions are detected. "point-ratio": only the alert_threshold point comparison.
-      "ci-overlap": additionally alert when a series' 95% confidence interval sits entirely above
-      the baseline's and the value regressed >5%, so single-run percentile noise (wide tail CIs)
-      cannot fire; series without CIs on both sides fall back to a 15% point comparison.
+      "paired-bootstrap": percentile series whose runs published per-query samples alert when the
+      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.05x -- pairing cancels
+      cross-query latency variance, so this is both less noisy and more sensitive than a point
+      comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
     required: false
     default: "point-ratio"
 
@@ -101,9 +102,9 @@ runs:
 
     # The publish step above appends the current run to its local gh-pages clone, so the script
     # takes the newest entry from a different commit as the baseline.
-    - name: Compare Against Baseline (CI Overlap)
-      if: inputs.alert_strategy == 'ci-overlap'
-      id: ci_overlap
+    - name: Compare Against Baseline (Paired Bootstrap)
+      if: inputs.alert_strategy == 'paired-bootstrap'
+      id: paired_bootstrap
       shell: bash
       run: |
         python3 "${{ github.action_path }}/compare_baseline.py" \
@@ -113,8 +114,8 @@ runs:
           --sha "${{ github.sha }}" \
           --out benchmark-alert.md
 
-    - name: Comment on Alert (CI Overlap)
-      if: inputs.alert_strategy == 'ci-overlap' && steps.ci_overlap.outputs.alert == 'true'
+    - name: Comment on Alert (Paired Bootstrap)
+      if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}

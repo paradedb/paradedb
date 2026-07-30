@@ -391,9 +391,9 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 1m
-          # ci-overlap owns real alerting; the point threshold stays only as a
+          # paired-bootstrap owns real alerting; the point threshold stays only as a
           # catastrophic-regression backstop in case the overlap step is skipped.
-          alert_strategy: ci-overlap
+          alert_strategy: paired-bootstrap
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -438,9 +438,9 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 10m
-          # ci-overlap owns real alerting; the point threshold stays only as a
+          # paired-bootstrap owns real alerting; the point threshold stays only as a
           # catastrophic-regression backstop in case the overlap step is skipped.
-          alert_strategy: ci-overlap
+          alert_strategy: paired-bootstrap
           alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

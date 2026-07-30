@@ -207,7 +207,6 @@ jobs:
           shared-key: pg${{ env.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          cache-directories: .lindera-cache
           cache-on-failure: true
 
       - name: Extract pgrx Version

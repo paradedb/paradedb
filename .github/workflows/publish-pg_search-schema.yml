@@ -67,7 +67,6 @@ jobs:
           shared-key: pg${{ env.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          cache-directories: .lindera-cache
 
       - name: Install & Configure PostgreSQL ${{ env.pg_version }}
         run: |

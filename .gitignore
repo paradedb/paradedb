@@ -9,7 +9,6 @@
 
 # Cargo
 target/
-.lindera-cache/
 
 # SSH
 *.pem

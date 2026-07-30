@@ -51,7 +51,7 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ivf::AdaptiveProbeParams;
+use tantivy::vector::ivf::ProbeBudget;
 use tantivy::vector::ProbeStats;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
@@ -1032,9 +1032,33 @@ impl SearchIndexReader {
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_adaptive_params(AdaptiveProbeParams {
-                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                    .with_probe_budget(ProbeBudget {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        // Query init is the one place the whole index is in
+                        // hand: prime the global work model (n_bar = native
+                        // docs / clusters across IVF segments) so the
+                        // budget allocates f of the INDEX's work per
+                        // segment. Unprimed, tantivy falls back to
+                        // per-segment normalization.
+                        work_model: match tantivy::vector::ivf::WorkModel::for_searcher(
+                            &self.searcher,
+                            tantivy_field,
+                        ) {
+                            Ok(model) => model,
+                            // Opening a segment's vector index is where an
+                            // index built by an older release is refused
+                            // (its `.centroids` predates required per-cluster
+                            // radii). Surface the reader's own message plus
+                            // the pg-side completion of the remedy: REINDEX
+                            // rebuilds the format, and the follow-up VACUUM
+                            // schedules the merge that restores clustering
+                            // (verified end to end; see tuning.mdx).
+                            Err(err) => pgrx::error!(
+                                "{err} After REINDEX, run VACUUM on the table to restore \
+                                 clustering (the index answers exactly, but slower, until \
+                                 the background merge completes)."
+                            ),
+                        },
                         ..Default::default()
                     });
 

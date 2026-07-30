@@ -82,7 +82,7 @@ jobs:
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run Rustfmt
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run Rustdoc
         env:

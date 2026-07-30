@@ -165,6 +165,9 @@ const SEGMENT_ID_SIZE: usize = 16;
 
 const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 
+/// Max JSON bytes stored per primary segment for EXPLAIN info in DSM.
+const SEGMENT_INFO_MAX_PER_SEG: usize = 1024;
+
 #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C)]
 struct AggregatesPayloadHeader {
@@ -194,6 +197,10 @@ struct ParallelScanPayloadLayout {
     /// have no slot here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
     /// Workers" section of `EXPLAIN ANALYZE`.
     claims: Range<usize>,
+    /// One `u32` length per primary segment for EXPLAIN JSON info (0 = none).
+    segment_info_lens: Range<usize>,
+    /// Fixed slots of [`SEGMENT_INFO_MAX_PER_SEG`] bytes per primary segment.
+    segment_info_data: Range<usize>,
     aggregates_header: Option<Range<usize>>,
     aggregates_data: Option<Range<usize>>,
     /// The padded size of the layout.
@@ -245,8 +252,20 @@ impl ParallelScanPayloadLayout {
 
         // Claims for the partitioning source only: [i32; primary_nsegments].
         let claims_layout = Layout::array::<i32>(primary_nsegments)?;
-        let (mut layout, claims_offset) = layout.extend(claims_layout)?;
+        let (layout, claims_offset) = layout.extend(claims_layout)?;
         let claims_range = claims_offset..(claims_offset + claims_layout.size());
+
+        // Per-segment EXPLAIN JSON info (always allocated; unused when empty).
+        let info_lens_layout = Layout::array::<u32>(primary_nsegments)?;
+        let (layout, info_lens_offset) = layout.extend(info_lens_layout)?;
+        let segment_info_lens = info_lens_offset..(info_lens_offset + info_lens_layout.size());
+
+        let info_data_size = primary_nsegments
+            .checked_mul(SEGMENT_INFO_MAX_PER_SEG)
+            .expect("segment info data size overflow");
+        let info_data_layout = Layout::from_size_align(info_data_size, 1)?;
+        let (mut layout, info_data_offset) = layout.extend(info_data_layout)?;
+        let segment_info_data = info_data_offset..(info_data_offset + info_data_layout.size());
 
         let (aggregates_header, aggregates_data) = if with_aggregates {
             let (l, offset) = layout.extend(Layout::new::<AggregatesPayloadHeader>())?;
@@ -272,6 +291,8 @@ impl ParallelScanPayloadLayout {
             primary_deleted_docs: primary_deleted_docs_range,
             primary_max_docs: primary_max_docs_range,
             claims: claims_range,
+            segment_info_lens,
+            segment_info_data,
             aggregates_header,
             aggregates_data,
             // Finalize the layout by padding it to its overall alignment.
@@ -349,6 +370,11 @@ impl ParallelScanPayload {
             *claim = SEGMENT_CLAIM_UNCLAIMED;
         }
 
+        // Clear per-segment EXPLAIN info slots.
+        for len in self.segment_info_lens_mut().iter_mut() {
+            *len = 0;
+        }
+
         let remaining_range = self.layout.remaining_by_source.clone();
         let remaining_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
@@ -423,6 +449,42 @@ impl ParallelScanPayload {
     fn claims_mut(&mut self) -> &mut [i32] {
         let claims_range = self.layout.claims.clone();
         bytemuck::try_cast_slice_mut(&mut self.data_mut()[claims_range]).unwrap()
+    }
+
+    fn segment_info_lens(&self) -> &[u32] {
+        bytemuck::try_cast_slice(&self.data()[self.layout.segment_info_lens.clone()]).unwrap()
+    }
+
+    fn segment_info_lens_mut(&mut self) -> &mut [u32] {
+        let range = self.layout.segment_info_lens.clone();
+        bytemuck::try_cast_slice_mut(&mut self.data_mut()[range]).unwrap()
+    }
+
+    fn segment_info_slot_mut(&mut self, segment_idx: usize) -> &mut [u8] {
+        let base = self.layout.segment_info_data.start + segment_idx * SEGMENT_INFO_MAX_PER_SEG;
+        let end = base + SEGMENT_INFO_MAX_PER_SEG;
+        &mut self.data_mut()[base..end]
+    }
+
+    fn segment_info_slot(&self, segment_idx: usize) -> &[u8] {
+        let base = self.layout.segment_info_data.start + segment_idx * SEGMENT_INFO_MAX_PER_SEG;
+        let end = base + SEGMENT_INFO_MAX_PER_SEG;
+        &self.data()[base..end]
+    }
+
+    /// Write JSON bytes for a primary-segment index (last-write-wins). Skips
+    /// silently if the payload exceeds [`SEGMENT_INFO_MAX_PER_SEG`].
+    fn set_segment_info(&mut self, segment_idx: usize, bytes: &[u8]) {
+        if bytes.len() > SEGMENT_INFO_MAX_PER_SEG {
+            pgrx::warning!(
+                "segment explain info for segment {segment_idx} exceed {} bytes; skipping",
+                SEGMENT_INFO_MAX_PER_SEG
+            );
+            return;
+        }
+        let slot = self.segment_info_slot_mut(segment_idx);
+        slot[..bytes.len()].copy_from_slice(bytes);
+        self.segment_info_lens_mut()[segment_idx] = bytes.len() as u32;
     }
 
     fn aggregates_header(&self) -> Option<&AggregatesPayloadHeader> {
@@ -628,6 +690,16 @@ impl ParallelScanState {
         let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         if let Some(query_count) = self.query_count(parallel_worker_number) {
             *query_count = query_count.saturating_add(1);
+        }
+    }
+
+    /// Set this worker's query count in DSM (used when flushing local scan
+    /// telemetry at teardown). Acquires the parallel mutex.
+    pub fn set_query_count(&mut self, count: usize) {
+        let _mutex = self.acquire_mutex();
+        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        if let Some(query_count) = self.query_count(parallel_worker_number) {
+            *query_count = count.min(u16::MAX as usize) as u16;
         }
     }
 
@@ -902,6 +974,51 @@ impl ParallelScanState {
         }
     }
 
+    /// Publish per-segment JSON info into DSM (keyed by primary segment index).
+    /// Last-write-wins per segment. Called by parallel workers in
+    /// `EndCustomScan` — not by the leader, which keeps its local map and
+    /// merges worker entries at Shutdown. Not for the TopK collect hot path.
+    /// Acquires the parallel mutex.
+    pub fn publish_segment_info(&mut self, info: &BTreeMap<SegmentId, serde_json::Value>) {
+        if info.is_empty() {
+            return;
+        }
+        let _mutex = self.acquire_mutex();
+        let primary_ids = self.payload.source_ids(0).to_vec();
+        for (segment_id, value) in info {
+            let Some(segment_idx) = primary_ids
+                .iter()
+                .position(|bytes| SegmentId::from_bytes(*bytes) == *segment_id)
+            else {
+                continue;
+            };
+            let Ok(bytes) = serde_json::to_vec(value) else {
+                continue;
+            };
+            self.payload.set_segment_info(segment_idx, &bytes);
+        }
+    }
+
+    /// Snapshot all DSM segment info into a map keyed by [`SegmentId`].
+    /// Last-write-wins is already applied in the slots.
+    pub fn take_segment_info(&mut self) -> BTreeMap<SegmentId, serde_json::Value> {
+        let _mutex = self.acquire_mutex();
+        let mut out = BTreeMap::new();
+        let nsegments = self.payload.source_ids(0).len();
+        for i in 0..nsegments {
+            let len = self.payload.segment_info_lens()[i] as usize;
+            if len == 0 {
+                continue;
+            }
+            let bytes = &self.payload.segment_info_slot(i)[..len];
+            let Ok(value) = serde_json::from_slice(bytes) else {
+                continue;
+            };
+            out.insert(self.segment_id(i), value);
+        }
+        out
+    }
+
     fn segment_id(&self, i: usize) -> SegmentId {
         SegmentId::from_bytes(self.payload.source_ids(0)[i])
     }
@@ -969,19 +1086,19 @@ extern "C" {
 /// The ParallelScanState is torn down after `shutdown_custom_scan`, but before
 /// `explain_custom_scan` runs. This struct contains any per-worker state that should be captured
 /// from the ParallelScanState for the purposes of EXPLAIN.
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ParallelExplainData {
     total_query_count: usize,
-    workers: BTreeMap<i32, ParallelExplainWorkerData>,
+    pub workers: BTreeMap<i32, ParallelExplainWorkerData>,
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ParallelExplainWorkerData {
     query_count: Option<u16>,
     claimed_segments: Vec<ClaimedSegmentData>,
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ClaimedSegmentData {
     id: String,
     deleted_docs: u32,

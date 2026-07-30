@@ -56,3 +56,6 @@ CLAUDE.local.md
 
 .github/scripts/verify
 __pycache__
+
+# Lindera dictionary build cache (LINDERA_CACHE); regenerated locally.
+.lindera-cache/

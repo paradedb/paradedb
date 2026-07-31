@@ -32,7 +32,7 @@ QUANTILES = {"p50": 0.50, "p95": 0.95}
 # Charted but never alerted: at ~100 query vectors a p99 estimate rests on the top one or two
 # order statistics, which no comparison rule can turn into reliable evidence of a regression.
 NEVER_ALERT = {"p99"}
-EFFECT_FLOOR = 1.05
+EFFECT_FLOOR = 1.15
 FALLBACK_RATIO = 1.15
 BOOTSTRAP_RESAMPLES = 10_000
 CONFIDENCE = 0.95

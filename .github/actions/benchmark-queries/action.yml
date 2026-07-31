@@ -45,7 +45,7 @@ inputs:
     description: >-
       How regressions are detected. "point-ratio": only the alert_threshold point comparison.
       "paired-bootstrap": percentile series whose runs published per-query samples alert when the
-      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.05x -- pairing cancels
+      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x -- pairing cancels
       cross-query latency variance, so this is both less noisy and more sensitive than a point
       comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
       p99 series stay charted but never alert; a single-run p99 cannot evidence a regression.

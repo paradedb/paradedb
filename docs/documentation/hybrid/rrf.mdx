@@ -1,0 +1,129 @@
+---
+title: Reciprocal Rank Fusion
+description: Combine full text and vector search results into a single ranking
+canonical: https://docs.paradedb.com/documentation/hybrid/rrf
+---
+
+<Note>
+  This section uses [vector search](/documentation/vector/querying), a beta
+  feature available in versions `0.25.0` and above. See [How Hybrid Search
+  Works](/documentation/hybrid/overview) for background on why results are
+  merged by rank rather than by score.
+</Note>
+
+Reciprocal Rank Fusion merges two ranked result lists by using each row's position in its own list, rather than its score.
+
+Each list is called a branch. On this page the two branches are a full text search ordered by BM25 score (`text`) and a vector search ordered by distance (`vector`).
+
+Each branch contributes `weight / (k + rank)`, and the contributions are added.
+
+- **`rank`** is the row's position in that branch's list, starting at 1.
+- **`weight`** scales how much that branch contributes, letting you value one search over the other. See [Choosing Weights](#choosing-weights).
+- **`k`** is the rank constant. It softens the difference between adjacent positions, so the top few results of a branch do not dominate everything below them. `60` is the conventional value and the one used throughout this page. See [Choosing the Rank Constant](#choosing-the-rank-constant).
+
+Suppose a row comes back 5th in the text branch and 10th in the vector branch, with `k = 60` and the text branch weighted `1.0` against the vector branch's `0.7`:
+
+```
+text        1.0 / (60 +  5) = 0.0154
+vector      0.7 / (60 + 10) = 0.0100
+                              ------
+score(row)                    0.0254
+```
+
+## Reciprocal Rank Fusion Query Shape
+
+Each branch is an `ORDER BY ... LIMIT` with a `RANK()` window function over the same ordering. The `WITH` clause fuses them.
+
+<CodeGroup>
+```sql SQL
+WITH text AS (
+    SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
+    FROM mock_items
+    WHERE description ||| 'running shoes'
+    ORDER BY pdb.score(id) DESC, id
+    LIMIT 20
+),
+vector AS (
+    SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]', id) AS rank
+    FROM mock_items
+    WHERE id @@@ pdb.all()
+    ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]', id
+    LIMIT 20
+),
+fused AS (
+    SELECT id, sum(weight) AS score
+    FROM (
+        SELECT id, 1.0 / (60 + rank) AS weight FROM text
+        UNION ALL
+        SELECT id, 0.7 / (60 + rank) AS weight FROM vector
+    ) u
+    GROUP BY id
+)
+SELECT m.id, m.description, f.score
+FROM fused f
+JOIN mock_items m USING (id)
+ORDER BY f.score DESC, m.id
+LIMIT 5;
+```
+
+</CodeGroup>
+
+The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.
+
+The two `WHERE` clauses differ because each branch retrieves by its own method. `description ||| 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. To narrow either branch, add [filters](/documentation/filtering) to both, so that each is drawing from the same set of eligible rows.
+
+## Verifying Pushdown
+
+To verify that the hybrid query is being accelerated by ParadeDB, inspect the query plan by running `EXPLAIN`:
+
+```sql
+EXPLAIN (COSTS OFF)
+WITH text AS (...), vector AS (...), fused AS (...)
+SELECT ...;
+```
+
+If the query is accelerated, there should be a `TopKScanExecState` printed for each branch.
+
+```
+->  WindowAgg
+      Window: w1 AS (ORDER BY pdb.score(id), id ROWS UNBOUNDED PRECEDING)
+      ->  Custom Scan (ParadeDB Base Scan) on mock_items
+            Exec Method: TopKScanExecState
+               TopK Order By: pdb.score() desc, id asc
+               TopK Limit: 20
+```
+
+If you do not see `TopKScanExecState`, the branch is not taking the optimized path.
+
+## Choosing the Rank Constant
+
+`k` controls how sharply rank position is discounted. The difference between rank 1 and rank 2 is `1/61 - 1/62` at `k = 60`, but `1/2 - 1/3` at `k = 1`.
+
+- **`k = 60`** is the widely used default and a good starting point.
+- **Lower `k` (20–40)** sharpens the curve, so the top few results of each branch dominate. Use when one branch is much stronger and you want its top hits to win outright.
+- **Higher `k` (80–100)** flattens the curve, spreading influence deeper into each list. Use when both branches are comparable in quality and you want agreement across them to matter more than either one's top hit.
+
+## Choosing Weights
+
+Weights scale each branch's whole contribution. Equal weights (`1.0` and `1.0`) treat the two searches as equally trustworthy. Lowering the vector weight to `0.7` means a row must rank meaningfully higher in the vector branch to outrank a strong text match.
+
+Tune weights against a labelled query set rather than by intuition. A useful default is to start equal, then reduce whichever branch produces more false positives on your data.
+
+## Choosing the Branch Limit
+
+The fused result can only contain rows that at least one branch returned. A row missing from both candidate lists cannot be recovered later, so the branch `LIMIT` sets a hard ceiling on quality.
+
+Fetch considerably more per branch than you intend to return — 100 to 200 candidates per branch for a top-10 result is a reasonable starting point. Because both branches push the limit into the index, raising it is much cheaper than it would be with a full sort.
+
+## Deterministic Results
+
+Add a tiebreaker after the sort key in both branches so that rows with equal scores or equal distances come back in a stable order:
+
+```sql
+ORDER BY pdb.score(id) DESC, id
+ORDER BY embedding <=> '[1,2,3,4,5,6,7,8]', id
+```
+
+This matters most when a branch's `LIMIT` cuts through a group of tied rows. Without a tiebreaker, which of the tied rows survive is arbitrary, so the same query can return different candidates from one run to the next — and the fused result changes with them. Duplicate vectors make this common in the vector branch.
+
+All tiebreaker columns must be in the ParadeDB index to keep the Top K optimization. See [Deterministic Sorting](/documentation/sorting/score#deterministic-sorting).

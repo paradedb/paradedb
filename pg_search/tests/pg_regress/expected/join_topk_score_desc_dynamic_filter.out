@@ -8,44 +8,49 @@
 --   WHERE p.body ||| '...' AND u.about_me ||| '...'
 --   ORDER BY score DESC LIMIT 5;
 --
--- The benchmark's speedup comes from Top K score-threshold pushdown: the
--- TopK sort publishes its current 5th-best score as a dynamic filter that is
--- pushed down to the probe-side PgSearchScan, which then skips lower-scoring
+-- The benchmark's speedup comes from Top K score-threshold pushdown: the TopK
+-- sort publishes its current 5th-best score as a dynamic filter that is pushed
+-- down to the probe-side PgSearchScan, which then skips lower-scoring
 -- candidates at the scanner. This test makes the *absence* of that pushdown
--- visible in the probe hit rate reported by EXPLAIN ANALYZE.
+-- visible in the HashJoinExec probe hit rate reported by EXPLAIN ANALYZE.
+--
+-- Two batching quanta size the fixture:
+--   - The scanner consults the pushed-down threshold between batches;
+--     paradedb.dynamic_filter_batch_size = 2000 chunks the probe stream.
+--   - HashJoinExec coalesces ~8,192 output rows before emitting anything to
+--     the TopK sort, so the threshold cannot tighten until that many joined
+--     rows exist. The join must produce well over 8,192 rows, or the probe
+--     scan finishes before the threshold ever arrives (with a smaller
+--     fixture the EXPLAIN output is identical with pushdown disabled).
 --
 -- Fixture:
---   - users: 500 rows; only ids 1-25 match the users-side text predicate.
---   - posts: 5,000 rows; ALL of them match the posts-side text predicate
---     (the "high selectivity" candidate pool), owner_user_id cycles 1-500,
---     so exactly 250 posts (5,000 * 25/500) are owned by a matching user
---     and stream into the probe side of the join.
+--   - users: 500 rows; ids 1-250 match the users-side text predicate.
+--   - posts: 40,000 rows; ALL match the posts-side predicate (the "high
+--     selectivity" candidate pool); owner_user_id cycles 1-500, so 20,000
+--     posts are owned by a matching user. Five designated posts (ids
+--     5/10/15/20/25, all survivors) repeat the token 6/5/4/3/2 times, so the
+--     top 5 is seeded — with strictly distinct scores — within the first
+--     scanner batch; every other post ties strictly below them.
 --
--- The score threshold is only consulted *between* scanner batches, and the
--- default deferred-string batch size is 8,192 — left alone, all 250 probe
--- rows arrive in a single batch and the threshold never gets a chance to
--- prune, which would make a broken threshold pushdown invisible here.
--- Setting paradedb.dynamic_filter_batch_size = 50 chunks the probe stream
--- into 50-row batches: batch 1 seeds the top 5, and because every
--- non-designated post ties at the base score, the threshold immediately
--- tightens to that score and excludes every later tie. Only the designated
--- high-scoring posts in batches 2-3 pass, so the probe side of HashJoinExec
--- sees ~53 rows:
+-- With pushdown working, the threshold tightens to the 5th designated score
+-- as soon as the join emits its first coalesced batch (~9,000 probe rows in),
+-- and the scanner skips the rest of the candidate pool:
 --
---   HashJoinExec: ... probe_hit_rate=100% (53/53)
+--   HashJoinExec:  ... probe_hit_rate=100% (9.00 K/9.00 K)
+--   PgSearchScan:  ... rows_scanned=18.00 K   (of 40,000 candidates)
 --
--- If score-threshold pushdown regresses, nothing is skipped and all 250
--- rows reach the join — probe_hit_rate=100% (250/250) — an unmistakable
--- diff in this file's expected output.
+-- If the scanner-level threshold stops being applied, every candidate is
+-- surfaced (rows_scanned=40.0 K); if dynamic-filter delivery to the scan
+-- breaks entirely, the probe counts balloon as well (probe_hit_rate=50%
+-- (20.0 K/40.0 K)). Either way this file's expected output diffs loudly.
 --
 -- Determinism notes:
 --   - Serial execution, single-segment indexes, one INSERT ... SELECT per
 --     table; batch boundaries are fixed by the batch-size cap over a fixed
 --     doc order.
---   - ORDER BY score DESC needs distinct scores in the top 5: five designated
---     surviving posts repeat the search token 6/5/4/3/2 times (BM25 tf grows
---     strictly with repetition), all other posts contain it exactly once and
---     tie strictly below them. The tied mass never reaches the output.
+--   - ORDER BY score DESC needs distinct scores in the top 5: the designated
+--     posts' scores strictly descend (BM25 tf grows strictly with token
+--     repetition) and the tied mass below them never reaches the output.
 -- Disable parallel workers so plans are deterministic, and force hash joins.
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO off;
@@ -53,7 +58,7 @@ SET enable_nestloop = off;
 SET enable_mergejoin = off;
 -- Cap the probe scanner batch size so the TopK score threshold is applied
 -- between batches; see the header comment.
-SET paradedb.dynamic_filter_batch_size = 50;
+SET paradedb.dynamic_filter_batch_size = 2000;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- ===========================================================================
 -- Fixture
@@ -71,27 +76,27 @@ CREATE TABLE hsel_users (
     about_me TEXT
 );
 -- Every post matches ||| 'beer'. The five designated posts are all owned by
--- users 1-25 (id % 500 + 1 <= 25) and carry strictly descending term
--- frequencies, so they are the deterministic top 5 of the joined result.
+-- matching users and carry strictly descending term frequencies, so they are
+-- the deterministic top 5 of the joined result.
 INSERT INTO hsel_posts
 SELECT
     i,
     'Post ' || i,
     CASE i
-        WHEN    5 THEN repeat('beer ', 6)
-        WHEN  510 THEN repeat('beer ', 5)
-        WHEN 1015 THEN repeat('beer ', 4)
-        WHEN 1520 THEN repeat('beer ', 3)
-        WHEN 2020 THEN repeat('beer ', 2)
+        WHEN  5 THEN repeat('beer ', 6)
+        WHEN 10 THEN repeat('beer ', 5)
+        WHEN 15 THEN repeat('beer ', 4)
+        WHEN 20 THEN repeat('beer ', 3)
+        WHEN 25 THEN repeat('beer ', 2)
         ELSE 'beer'
     END,
     (i % 500) + 1
-FROM generate_series(1, 5000) AS i;
--- Only users 1-25 match ||| 'beer' on about_me.
+FROM generate_series(1, 40000) AS i;
+-- Only users 1-250 match ||| 'beer' on about_me.
 INSERT INTO hsel_users
 SELECT
     i,
-    CASE WHEN i <= 25
+    CASE WHEN i <= 250
         THEN 'brews beer at home'
         ELSE 'enjoys hiking and gardening'
     END
@@ -121,19 +126,19 @@ JOIN hsel_users u ON p.owner_user_id = u.id
 WHERE p.body ||| 'beer' AND u.about_me ||| 'beer'
 ORDER BY score DESC
 LIMIT 5;
-  id  |     score      |   title   
-------+----------------+-----------
-    5 | 0.000112989575 | Post 5
-  510 | 0.000112412294 | Post 510
- 1015 | 0.000111557376 | Post 1015
- 1520 | 0.000110161025 | Post 1520
- 2020 | 0.000107470645 | Post 2020
+ id |     score     |  title  
+----+---------------+---------
+  5 | 1.4124073e-05 | Post 5
+ 10 | 1.4051998e-05 | Post 10
+ 15 | 1.3945255e-05 | Post 15
+ 20 |  1.377091e-05 | Post 20
+ 25 | 1.3434979e-05 | Post 25
 (5 rows)
 
 -- ===========================================================================
--- ParadeDB Join Scan: a ~53-row probe input on the HashJoinExec probe_hit_rate
--- proves the TopK score threshold reached the probe scan and tightened
--- between batches; without it, all 250 rows hit the join (250/250)
+-- ParadeDB Join Scan: a ~9K-row probe input on the HashJoinExec
+-- probe_hit_rate (instead of the full 20K survivors) proves the TopK score
+-- threshold reached the probe scan and tightened mid-stream
 -- ===========================================================================
 SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -146,8 +151,8 @@ JOIN hsel_users u ON p.owner_user_id = u.id
 WHERE p.body ||| 'beer' AND u.about_me ||| 'beer'
 ORDER BY score DESC
 LIMIT 5;
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=5.00 loops=1)
    ->  Result (actual rows=5.00 loops=1)
          ->  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
@@ -157,14 +162,14 @@ LIMIT 5;
                Order By: pdb.score() desc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=5, output_bytes=100.0 B, output_batches=1]
-                 :   SortExec: TopK(fetch=5), expr=[score@1 DESC], preserve_partitioning=[false], filter=[score@1 IS NULL OR score@1 > 0.000107470645], metrics=[output_rows=5, output_bytes=100.0 B, output_batches=1, row_replacements=9]
-                 :     VisibilityFilterExec: tables=[u, p], metrics=[output_rows=250, output_bytes=35.9 KB, output_batches=1]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3], metrics=[output_rows=250, output_bytes=160.0 KB, output_batches=1, build_mem_used=500.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=25, input_batches=5, input_rows=250, avg_fanout=100% (250/250), probe_hit_rate=100% (250/250)]
+                 :   SortExec: TopK(fetch=5), expr=[score@1 DESC], preserve_partitioning=[false], filter=[score@1 IS NULL OR score@1 > 0.000013434979], metrics=[output_rows=5, output_bytes=100.0 B, output_batches=1, row_replacements=9]
+                 :     VisibilityFilterExec: tables=[u, p], metrics=[output_rows=9.00 K, output_bytes=204.6 KB, output_batches=2]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3], metrics=[output_rows=9.00 K, output_bytes=320.0 KB, output_batches=2, build_mem_used=4.9 KB, array_map_created_count=1, build_input_batches=1, build_input_rows=250, input_batches=10, input_rows=9.00 K, avg_fanout=100% (9.00 K/9.00 K), probe_hit_rate=100% (9.00 K/9.00 K)]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"match":{"field":"about_me","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=25, output_bytes=400.0 B, output_batches=1]
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id], metrics=[output_rows=250, output_bytes=4.9 KB, output_batches=5]
+                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"match":{"field":"about_me","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=250, output_bytes=3.9 KB, output_batches=1]
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id], metrics=[output_rows=9.00 K, output_bytes=176.1 KB, output_batches=10]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=bitset_from_postings, query={"with_index":{"query":{"match":{"field":"body","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=250, output_bytes=4.9 KB, output_batches=5, rows_pruned=0, rows_scanned=250]
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"body","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=9.00 K, output_bytes=176.1 KB, output_batches=10, rows_pruned=9.00 K, rows_scanned=18.00 K]
 (17 rows)
 
 SELECT
@@ -176,13 +181,13 @@ JOIN hsel_users u ON p.owner_user_id = u.id
 WHERE p.body ||| 'beer' AND u.about_me ||| 'beer'
 ORDER BY score DESC
 LIMIT 5;
-  id  |     score      |   title   
-------+----------------+-----------
-    5 | 0.000112989575 | Post 5
-  510 | 0.000112412294 | Post 510
- 1015 | 0.000111557376 | Post 1015
- 1520 | 0.000110161025 | Post 1520
- 2020 | 0.000107470645 | Post 2020
+ id |     score     |  title  
+----+---------------+---------
+  5 | 1.4124073e-05 | Post 5
+ 10 | 1.4051998e-05 | Post 10
+ 15 | 1.3945255e-05 | Post 15
+ 20 |  1.377091e-05 | Post 20
+ 25 | 1.3434979e-05 | Post 25
 (5 rows)
 
 -- ===========================================================================

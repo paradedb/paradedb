@@ -243,6 +243,7 @@ impl SegmentedTopKExec {
         ffhelper: Arc<FFHelper>,
         k: usize,
         visibility_data: Option<Arc<AbsorbedVisibilityData>>,
+        parent_filter: Option<Arc<DynamicFilterPhysicalExpr>>,
     ) -> Self {
         use datafusion::physical_expr::expressions::lit;
 
@@ -255,12 +256,18 @@ impl SegmentedTopKExec {
             Boundedness::Bounded,
         ));
 
-        // Create a DynamicFilterPhysicalExpr with the sort expression columns
-        // as children. The initial expression is `lit(true)` (no filtering).
-        // At runtime, `update()` replaces this with the global threshold.
-        let children: Vec<Arc<dyn PhysicalExpr>> =
-            sort_exprs.iter().map(|e| Arc::clone(&e.expr)).collect();
-        let dynamic_filter = Arc::new(DynamicFilterPhysicalExpr::new(children, lit(true)));
+        // When the enclosing SortExec has already minted a `DynamicFilterPhysicalExpr`
+        // (via `SortExec::with_filter`), take ownership of it instead of minting a
+        // fresh one. The scans below have already been wired to this filter by the
+        // standard `FilterPushdown` pass, so subsequent `update()`s from this node's
+        // heap propagate to the same recipients the SortExec would have driven. If no
+        // parent filter is provided (e.g. worker decode path), fall back to minting.
+        // See #5635.
+        let dynamic_filter = parent_filter.unwrap_or_else(|| {
+            let children: Vec<Arc<dyn PhysicalExpr>> =
+                sort_exprs.iter().map(|e| Arc::clone(&e.expr)).collect();
+            Arc::new(DynamicFilterPhysicalExpr::new(children, lit(true)))
+        });
 
         Self {
             input,
@@ -491,6 +498,8 @@ impl SegmentedTopKExec {
             ffhelper,
             k,
             visibility_data,
+            // Worker decode: no parent SortExec filter to inherit, mint fresh.
+            None,
         )))
     }
 }
@@ -535,17 +544,17 @@ impl ExecutionPlan for SegmentedTopKExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let mut new = SegmentedTopKExec::new(
+        // Preserve the existing dynamic filter so that filter pushdown wiring
+        // (which already holds a reference) stays connected.
+        let new = SegmentedTopKExec::new(
             children.remove(0),
             self.sort_exprs.clone(),
             self.deferred_columns.clone(),
             Arc::clone(&self.ffhelper),
             self.k,
             self.visibility_data.clone(),
+            Some(Arc::clone(&self.dynamic_filter)),
         );
-        // Preserve the existing dynamic filter so that filter pushdown
-        // wiring (which already holds a reference) stays connected.
-        new.dynamic_filter = Arc::clone(&self.dynamic_filter);
         Ok(Arc::new(new))
     }
 
@@ -2163,6 +2172,7 @@ mod tests {
                 deferred_columns,
                 ffhelper.clone(),
                 10,
+                None,
                 None,
             );
 

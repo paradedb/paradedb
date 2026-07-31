@@ -6,6 +6,7 @@
 -- TopK via a bounded heap. Also tests GROUP BY on joins (scanrelid=0).
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================

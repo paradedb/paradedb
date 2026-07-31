@@ -3,6 +3,7 @@
 -- for unsupported aggregate-on-join query patterns.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
 -- Test Data Setup (3 tables for multi-table join tests)

@@ -1,5 +1,6 @@
 \i common/docs_setup.sql
 
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan TO on;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

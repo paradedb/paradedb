@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 -- This test demonstrates an extremely expensive nested-loop join plan
 -- as described in https://github.com/paradedb/paradedb/issues/2733.
 -- TODO: The test cannot be scaled up to 10k rows per-table as shown

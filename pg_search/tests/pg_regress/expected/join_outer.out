@@ -8,7 +8,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.mpp_worker_count TO 4;
 SET max_parallel_workers_per_gather TO 4;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
@@ -439,25 +438,25 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[id@3 as col_1, file_id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            : │   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=10
-           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   ┌───── Stage 3 ── tasks=2, partitions=4
            :   │ SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[p]
            :   │     HashJoinExec: mode=Partitioned, join_type=Left, on=[(file_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, file_id@1, id@2]
-           :   │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-           :   │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │       [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=2
+           :   │       [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([file_id@1], 6), input_partitions=2
+           :     ┌───── Stage 1 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 8), input_partitions=2
            :     │   DistributedLeafExec:
            :     │     t0: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
            :     │     t1: PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
            :     └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([id@1], 6), input_partitions=3
+           :     ┌───── Stage 2 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=4
            :     │   VisibilityFilterExec: tables=[f]
-           :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+           :     │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=2
            :     │       DistributedLeafExec:
            :     │         t0: PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :     │         t1: PgSearchScan: segments=2, dynamic_filters=1, query="all"
@@ -619,14 +618,14 @@ WHERE p.page_text @@@ 'Page';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(f_1.id) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=6
+     :   ┌───── Stage 2 ── tasks=2, partitions=8
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(f_1.id) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@0)], projection=[id@0]
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=4, input_tasks=2
-     :   │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=2
+     :   │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=2
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
      :   │         t1: PgSearchScan: segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}

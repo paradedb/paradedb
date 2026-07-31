@@ -104,6 +104,20 @@ LIMIT 5;
   benefit of combining vector search with [filtering](/documentation/filtering).
 </Note>
 
+## Deterministic Results
+
+Rows whose embeddings are equidistant from the query vector are returned in an arbitrary order. When the `LIMIT` cuts through such a group, which of the tied rows come back can change between runs. Add a tiebreaker column after the distance to make the order stable:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY embedding <=> '[1, 2, 3, 4, 5, 6, 7, 8]', id
+LIMIT 5;
+```
+
+The tiebreaker is applied only within a group of equal distances, so it never changes which rows are nearest. Multiple tiebreakers and `DESC` are both supported, and every tiebreaker column must be in the ParadeDB index to keep the Top K optimization.
+
 ## Verifying Pushdown
 
 Use `EXPLAIN` to confirm ParadeDB is accelerating the vector search. Look for a `Custom Scan` with an `Exec Method` of `TopKScanExecState` in the query plan:

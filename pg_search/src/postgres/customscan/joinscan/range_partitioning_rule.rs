@@ -474,13 +474,14 @@ fn sample_fast_field(
 /// partition `i` can only ever match probe-side partition `i`, so `Partitioned`
 /// mode joins each pair task-locally and the broadcast disappears.
 ///
-/// A separate rule because `EnforceDistribution` picks `CollectLeft` for a small
-/// build side on size alone and never revisits the mode for range-partitioned
-/// inputs; declaring `Partitioning::Range` on the scans only lets an already
-/// `Partitioned` join skip its repartitions. Must run after `EnforceDistribution`
-/// (which resolves `PartitionMode::Auto` and inserts the build side's
-/// `CoalescePartitionsExec`) and before the post-optimization `FilterPushdown`
-/// pass.
+/// A separate rule because `JoinSelection` picks `CollectLeft` from the build
+/// side's row and byte statistics alone. It never consults `output_partitioning`,
+/// so it can't see that these inputs are already co-partitioned and that the
+/// repartition it's avoiding would cost nothing here. Declaring
+/// `Partitioning::Range` on the scans only helps a join that is already
+/// `Partitioned`, so the mode has to be revisited after the fact. Runs after
+/// `EnsureRequirements` has resolved `PartitionMode::Auto` and inserted the build
+/// side's `CoalescePartitionsExec`.
 #[derive(Debug, Default)]
 pub struct RangeCoPartitionedJoinRule;
 
@@ -527,11 +528,14 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
                 return Ok(Transformed::no(node));
             }
 
+            // Deliberately not `reset_state()`: it would drop the join's handle on the
+            // dynamic filter that `FilterPushdown` already pushed into the probe scan,
+            // leaving the scan holding a filter that nothing ever narrows. Switching the
+            // mode invalidates the cached properties on its own.
             let candidate = join
                 .builder()
                 .with_new_children(vec![left, right])?
                 .with_partition_mode(PartitionMode::Partitioned)
-                .reset_state()
                 .build_exec()?;
 
             // Keep the flip only when DataFusion agrees the inputs are co-partitioned:

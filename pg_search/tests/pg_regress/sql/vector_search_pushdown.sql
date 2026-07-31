@@ -235,4 +235,54 @@ SELECT id FROM vsp WHERE label ### 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 
 DROP INDEX vsp_idx;
 
 
+-- ============================================================
+-- Tiebreaking: secondary ORDER BY keys after vector distance
+-- ============================================================
+-- Rows 1-4 are exact duplicates of the query vector, so their distances tie
+-- and the secondary key decides both the ordering and which rows survive the
+-- top-K heap when LIMIT is smaller than the tie group.
+CREATE TABLE vsp_tie (
+    id  int PRIMARY KEY,
+    cat text,
+    vec vector(3)
+);
+
+INSERT INTO vsp_tie VALUES
+    (1, 'b', '[1,0,0]'),
+    (2, 'a', '[1,0,0]'),
+    (3, 'b', '[1,0,0]'),
+    (4, 'a', '[1,0,0]'),
+    (5, 'x', '[0,1,0]'),
+    (6, 'y', '[0,0.9,0.1]');
+
+CREATE INDEX vsp_tie_idx ON vsp_tie
+    USING bm25 (id, (cat::pdb.literal), vec vector_l2_ops)
+    WITH (key_field = id);
+
+-- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 3;
+
+-- LIMIT 3 < the 4-way tie: the three lowest ids must win the heap
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 3;
+
+-- descending tiebreak
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id DESC LIMIT 3;
+
+-- OFFSET pagination across the tie is deterministic and non-overlapping
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 2 OFFSET 2;
+
+-- LIMIT past the tie group: farther rows are ordered by distance, not tiebreak
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 6;
+
+-- two tiebreak keys: cat ASC then id DESC within equal distance
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, cat FROM vsp_tie WHERE id @@@ pdb.all()
+    ORDER BY vec <-> '[1,0,0]', cat, id DESC LIMIT 4;
+SELECT id, cat FROM vsp_tie WHERE id @@@ pdb.all()
+    ORDER BY vec <-> '[1,0,0]', cat, id DESC LIMIT 4;
+
+DROP TABLE vsp_tie;
+
+
 DROP TABLE vsp;

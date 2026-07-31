@@ -9,6 +9,11 @@ members = [
   "tests",
   "tokenizers",
 ]
+# A bare `cargo build`/`check`/`clippy`/`test` at the root covers only the
+# extension stack. The other members compile a lot the extension does not need
+# (`benchmarks` builds the bundled DuckDB from C++ source); reach them with
+# `-p <crate>` or `--workspace`.
+default-members = ["pg_search", "tokenizers"]
 
 [workspace.package]
 version = "0.25.0"
@@ -17,6 +22,20 @@ license = "AGPL-3.0"
 
 [profile.dev]
 panic = "unwind"
+
+# Backtraces through dependencies keep file:line, but the full DWARF (variable
+# and type info) is dropped; it is most of a debug target dir and is only
+# needed when stepping through a dependency in a debugger. Workspace crates
+# keep full debuginfo. Override locally with a `[profile]` section in
+# `~/.cargo/config.toml` if you need to debug into a dependency.
+[profile.dev.package."*"]
+debug = "line-tables-only"
+
+# `cc` passes `-g` to the bundled DuckDB C++ build based on this. DuckDB is a
+# benchmark comparison engine, not something we debug, and its objects with
+# `-g` cost gigabytes per target dir.
+[profile.dev.package.libduckdb-sys]
+debug = false
 
 [profile.release]
 # Note: We switched from `fat` to `thin` LTO to reduce compile time memory usage, which had been
@@ -33,13 +52,13 @@ inherits = "release"
 debug = true
 debug-assertions = false
 
-# Antithesis build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
+# DST build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
 # without affecting `dev`.
 [profile.dst]
 inherits = "dev"
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "7d3c62369ad074a4cd480b02e75089f885356c96", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c5526969ab6e5d1acf4d2847472129e1cadeb787", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -52,7 +71,7 @@ pgrx-tests = "=0.19.0"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "7d3c62369ad074a4cd480b02e75089f885356c96" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c5526969ab6e5d1acf4d2847472129e1cadeb787" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

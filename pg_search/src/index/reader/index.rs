@@ -954,10 +954,8 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
-                let only_score_feature =
-                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
-                if !(erased_features.is_empty() || only_score_feature) {
-                    panic!("secondary ORDER BY fields are not supported for vector distance");
+                if orderby_info[1..].iter().any(|o| o.is_score()) {
+                    panic!("pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field");
                 }
                 let field = self
                     .schema
@@ -976,10 +974,51 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });
-                // Fruit is `VectorSimilarityFruit { results, stats }`. Drop probe
-                // stats for now; EXPLAIN plumbing lands in a follow-up.
-                let (fruit, aggregation_results) =
-                    self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
+
+                let mut erased_features = erased_features;
+                let score_index = erased_features.score_index();
+                let mut tie_breaks = Vec::with_capacity(erased_features.len());
+                while let Some(feature) = erased_features.pop() {
+                    tie_breaks.push(feature);
+                }
+                tie_breaks.reverse();
+                if let Some(i) = score_index {
+                    tie_breaks.remove(i);
+                }
+
+                // Fruit is `VectorSimilarityFruit { results, stats }` for every
+                // tie-break shape. Drop probe stats for now; EXPLAIN plumbing
+                // lands in a follow-up.
+                let tie_break_count = tie_breaks.len();
+                let mut tie_breaks = tie_breaks.into_iter();
+                let mut next = || tie_breaks.next().expect("tie-break feature should exist");
+                let (fruit, aggregation_results) = match tie_break_count {
+                    0 => self.collect_maybe_auxiliary(segment_ids, collector, aux_collector),
+                    1 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break(next()),
+                        aux_collector,
+                    ),
+                    2 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break((next(), next())),
+                        aux_collector,
+                    ),
+                    3 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break((next(), next(), next())),
+                        aux_collector,
+                    ),
+                    4 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break((next(), next(), next(), next())),
+                        aux_collector,
+                    ),
+                    x => panic!(
+                        "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
+                        x + 1
+                    ),
+                };
                 TopKSearchResults::new_for_score(fruit.results, aggregation_results)
             }
         }

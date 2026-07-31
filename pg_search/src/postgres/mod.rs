@@ -1135,6 +1135,7 @@ mod segment_info_budget_tests {
             exact_rows_read: u32::MAX as usize,
             routing: IvfSearchMetrics {
                 visited_count: u32::MAX as usize,
+                saturated_clusters: u32::MAX as usize,
                 graph: Some(NeighborhoodGraphSearchMetrics {
                     visited_count: u32::MAX as usize,
                     expanded_count: u32::MAX as usize,

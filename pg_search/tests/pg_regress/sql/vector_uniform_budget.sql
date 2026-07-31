@@ -1,7 +1,8 @@
 -- One budget, one gate policy: every IVF segment meters the same work-unit
--- budget, and the radius certificate is the only thing that can skip a
--- cluster. It never ends a scan -- a scan ends on the budget or on running
--- out of clusters, and on nothing else. There is no second budget and no
+-- budget, and the radius certificate is the only thing besides the budget
+-- that can end a scan. The searcher ranks clusters by the best score any
+-- point in them could reach, so the first cluster that cannot reach the
+-- band settles every cluster behind it. There is no second budget and no
 -- un-metered path to fall into, so this asserts the invariant from the SQL
 -- side, over EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON):
 --   * every segment reports work_charged > 0 -- it was metered in units;

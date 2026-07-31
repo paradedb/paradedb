@@ -32,18 +32,18 @@ SET paradedb.vector_cluster_max_probe = 0.02;
 Two things happen automatically underneath that budget, neither of which
 needs configuration:
 
-- **Clusters that cannot possibly help are skipped.** From per-cluster radii
-  stored at index time, the index can prove that every vector a cluster owns
-  is farther from the query than the neighbors already found, and skip it
-  without reading it. A skipped cluster costs only its opening share, so the
-  same budget reaches more of the clusters that can actually contribute. The
-  proof is exact, so this costs no recall.
+- **The search stops once nothing left can help.** Clusters are examined in
+  order of the best score any vector they hold could possibly achieve, which
+  the index computes from per-cluster radii stored at index time. When the
+  best a cluster could offer is worse than the neighbors already found, the
+  same is true of every cluster behind it, so the query stops there. The
+  proof is exact, so this costs no recall - it just avoids reading the rest.
 - **The candidate clusters may simply run out** (common on small indexes or
   highly selective filters), and the query finishes under budget.
 
-A query stops for exactly one of two reasons: it spent its budget, or it ran
-out of clusters. Skipping changes how far the budget goes, never when the
-query stops.
+A query stops for one of three reasons: it proved nothing left can help, it
+spent its budget, or it ran out of clusters. Raising the budget only matters
+for queries that were stopping on it.
 
 ### Upgrading an existing index
 

@@ -102,7 +102,7 @@ runs:
         comment-always: ${{ github.event_name == 'pull_request' }}
 
     # The publish step above appends the current run to its local gh-pages clone, so the script
-    # takes the newest entry from a different commit as the baseline.
+    # takes the second-to-last entry as the baseline.
     - name: Compare Against Baseline (Paired Bootstrap)
       if: inputs.alert_strategy == 'paired-bootstrap'
       id: paired_bootstrap
@@ -112,7 +112,6 @@ runs:
           --results benchmarks/results.json \
           --data-js benchmark-data-repository/benchmarks/data.js \
           --suite "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)" \
-          --sha "${{ github.sha }}" \
           --out benchmark-alert.md
 
     - name: Comment on Alert (Paired Bootstrap)

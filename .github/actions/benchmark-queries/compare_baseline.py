@@ -15,7 +15,7 @@ ratio github-action-benchmark applies (build time/size, pre-CI baselines).
 
 Reads the current run's results.json and the gh-pages data.js that the
 github-action-benchmark step has already cloned (and appended the current run to,
-which is why the baseline is the newest entry from a *different* commit).
+which is why the baseline is the second-to-last entry).
 """
 
 import argparse
@@ -98,16 +98,19 @@ def paired_lower_bounds(base, cand):
     }
 
 
-def load_baseline(data_js_path, suite, current_sha):
-    """Return the suite's newest entry not authored by the current commit."""
+def load_baseline(data_js_path, suite):
+    """Return the newest baseline entry: the one before the just-appended current run.
+
+    The publish step always appends the current run to its local gh-pages clone before
+    this script runs, so the last entry is the current run itself, never the baseline.
+    Commit ids can't disambiguate instead: a labeled PR run and a dispatch baseline of
+    the same branch both record the branch head sha.
+    """
     with open(data_js_path, encoding="utf-8") as f:
         raw = f.read()
     data = json.loads(raw[raw.index("=") + 1 :])
     entries = data.get("entries", {}).get(suite, [])
-    for entry in reversed(entries):
-        if entry["commit"]["id"] != current_sha:
-            return entry
-    return None
+    return entries[-2] if len(entries) >= 2 else None
 
 
 def pairable(cur_groups, base_groups, group):
@@ -197,14 +200,13 @@ def main():
     parser.add_argument("--results", required=True)
     parser.add_argument("--data-js", required=True)
     parser.add_argument("--suite", required=True)
-    parser.add_argument("--sha", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
     with open(args.results, encoding="utf-8") as f:
         current = json.load(f)
 
-    baseline = load_baseline(args.data_js, args.suite, args.sha)
+    baseline = load_baseline(args.data_js, args.suite)
     if baseline is None:
         print(f"No baseline entry for suite '{args.suite}'; nothing to compare.")
         return

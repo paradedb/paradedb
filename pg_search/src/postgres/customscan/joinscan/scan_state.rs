@@ -336,8 +336,7 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
                 // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
                 // that it wires resolvers into the STK node rather than the (now-removed)
                 // VisibilityFilterExec node.
-                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
-                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
         }
         SessionContextProfile::Aggregate => {
             builder = builder

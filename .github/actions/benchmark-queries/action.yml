@@ -68,7 +68,7 @@ runs:
       run: rm -rf ./benchmark-data-repository
 
     - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: paradedb/github-action-benchmark@pdb-v1
       with:
         name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}

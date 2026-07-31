@@ -48,6 +48,7 @@ inputs:
       bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.05x -- pairing cancels
       cross-query latency variance, so this is both less noisy and more sensitive than a point
       comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
+      p99 series stay charted but never alert; a single-run p99 cannot evidence a regression.
     required: false
     default: "point-ratio"
 

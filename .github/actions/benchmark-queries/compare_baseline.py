@@ -28,7 +28,10 @@ import sys
 
 CI_RANGE = re.compile(r"95% CI \[([0-9.]+), ([0-9.]+)\]")
 SAMPLES = re.compile(r"samples_fnv=([0-9a-f]{16}); samples=\[([0-9.,eE+-]*)\]")
-QUANTILES = {"p50": 0.50, "p95": 0.95, "p99": 0.99}
+QUANTILES = {"p50": 0.50, "p95": 0.95}
+# Charted but never alerted: at ~100 query vectors a p99 estimate rests on the top one or two
+# order statistics, which no comparison rule can turn into reliable evidence of a regression.
+NEVER_ALERT = {"p99"}
 EFFECT_FLOOR = 1.05
 FALLBACK_RATIO = 1.15
 BOOTSTRAP_RESAMPLES = 10_000
@@ -122,6 +125,8 @@ def judge(bench, base, cur_groups, base_groups, bounds_cache):
     """Return (regressed, rule) for one series under the strategy ladder."""
     ratio = bench["value"] / base["value"]
     group, sep, label = bench["name"].rpartition(" - ")
+    if sep and label in NEVER_ALERT:
+        return False, f"{label} charted but not alerted"
     if sep and label in QUANTILES and pairable(cur_groups, base_groups, group):
         if group not in bounds_cache:
             bounds_cache[group] = paired_lower_bounds(

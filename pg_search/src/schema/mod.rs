@@ -746,6 +746,14 @@ impl SearchField {
     }
 
     fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
+        // Range fields are stored as a tantivy JSON object, so they'd otherwise fall into the
+        // `JsonObject` arm below. They are sortable via `SortByRange`, which reads the bound
+        // sub-columns and compares them the way Postgres' `range_cmp` does. Only raw sorting:
+        // range bounds are never tokenized, so there is no lowercased variant to sort by.
+        if matches!(self.field_type, SearchFieldType::Range(_)) {
+            return matches!(desired_normalizer, SearchNormalizer::Raw) && self.is_fast();
+        }
+
         // NOTE: This list of supported field types must be synced with the field types which are
         // specialized (in a few spots!) in SearchIndexReader.
         match self.field_entry.field_type() {
@@ -760,7 +768,8 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             FieldType::Bytes(options) => options.is_fast(),
-            // TODO: JSON and range fields are not yet sortable by us
+            // TODO: JSON fields are not yet sortable by us. Range fields are, and are handled
+            // above before this match.
             FieldType::JsonObject(_) => false,
             _ => false,
         }

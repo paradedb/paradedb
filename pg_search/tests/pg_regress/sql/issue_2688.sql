@@ -1,3 +1,9 @@
+-- Issue #2688: `ORDER BY <range column>` is pushed into the index as a Top-N scan, ordered the
+-- way Postgres' `range_cmp` orders ranges. Exhaustive coverage lives in `order_by_range.sql`.
+--
+-- Several queries below have no tiebreaker, so rows that tie on the range sort key have an
+-- unspecified relative order; the expected output just records whatever the current
+-- implementation produces.
 DROP TABLE IF EXISTS data_records;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 

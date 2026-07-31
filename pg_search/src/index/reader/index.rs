@@ -30,6 +30,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
+use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -39,7 +40,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::Result;
 use tantivy::aggregation::DistributedAggregationCollector;
@@ -946,6 +947,20 @@ impl SearchIndexReader {
                         ))
                         .into()
                     }};
+                }
+
+                // Range fields are stored as a tantivy JSON object, so they'd land in the
+                // `JsonObject` arm below and panic. They get their own computer, which compares
+                // the bound sub-columns the way Postgres' `range_cmp` does.
+                if matches!(field.field_type(), SearchFieldType::Range(_)) {
+                    return TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                        segment_ids,
+                        (SortByRange::for_field(sort_field), order),
+                        erased_features,
+                        n,
+                        offset,
+                        aux_collector,
+                    ));
                 }
 
                 match field.field_entry().field_type().value_type() {

@@ -937,7 +937,8 @@ impl SearchIndexReader {
                         n,
                         offset,
                         aux_collector,
-                    ));
+                    ))
+                    .into();
                 }
 
                 match field.field_entry().field_type().value_type() {

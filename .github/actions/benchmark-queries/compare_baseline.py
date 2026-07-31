@@ -74,8 +74,8 @@ def percentile_of(sorted_values, q):
     return sorted_values[lo] + (sorted_values[hi] - sorted_values[lo]) * (rank - lo)
 
 
-def paired_lower_bounds(base, cand):
-    """One-sided lower 95% bounds of the paired percentile ratios, per label.
+def paired_ratio_stats(base, cand):
+    """Per label, the (median, one-sided lower 95% bound) of the paired percentile ratio.
 
     Bootstraps query indices: each resample recomputes both sides' percentile over
     the same indices, so the statistic is the ratio of paired percentile estimates.
@@ -92,7 +92,10 @@ def paired_lower_bounds(base, cand):
             if base_q > 0:
                 stats[label].append(percentile_of(cand_sorted, q) / base_q)
     return {
-        label: sorted(ratios)[int((1 - CONFIDENCE) * len(ratios))]
+        label: (
+            sorted(ratios)[len(ratios) // 2],
+            sorted(ratios)[int((1 - CONFIDENCE) * len(ratios))],
+        )
         for label, ratios in stats.items()
         if ratios
     }
@@ -124,24 +127,38 @@ def pairable(cur_groups, base_groups, group):
     )
 
 
-def judge(bench, base, cur_groups, base_groups, bounds_cache):
-    """Return (regressed, rule) for one series under the strategy ladder."""
+def judge(bench, base, cur_groups, base_groups, stats_cache):
+    """Return (regressed, rule, ratio_display) for one series under the strategy ladder.
+
+    ratio_display is the statistic the decision was made on, so tables and logs stay
+    consistent with the alert: the bootstrapped ratio for paired series, the raw point
+    ratio otherwise.
+    """
     ratio = bench["value"] / base["value"]
     group, sep, label = bench["name"].rpartition(" - ")
     if sep and label in NEVER_ALERT:
-        return False, f"{label} charted but not alerted"
+        return False, f"{label} charted but not alerted", f"{ratio:.2f}x"
     if sep and label in QUANTILES and pairable(cur_groups, base_groups, group):
-        if group not in bounds_cache:
-            bounds_cache[group] = paired_lower_bounds(
+        if group not in stats_cache:
+            stats_cache[group] = paired_ratio_stats(
                 base_groups[group][1], cur_groups[group][1]
             )
-        bound = bounds_cache[group].get(label)
-        if bound is not None:
-            return bound > EFFECT_FLOOR, f"paired bootstrap (lower bound {bound:.2f}x)"
+        stats = stats_cache[group].get(label)
+        if stats is not None:
+            median, bound = stats
+            return (
+                bound > EFFECT_FLOOR,
+                "paired bootstrap",
+                f"{median:.2f}x (>={bound:.2f}x at 95%)",
+            )
     cur_ci, base_ci = parse_ci(bench.get("range")), parse_ci(base.get("range"))
     if cur_ci and base_ci:
-        return cur_ci[0] > base_ci[1] and ratio > EFFECT_FLOOR, "CIs disjoint"
-    return ratio > FALLBACK_RATIO, "point ratio"
+        return (
+            cur_ci[0] > base_ci[1] and ratio > EFFECT_FLOOR,
+            "CIs disjoint",
+            f"{ratio:.2f}x",
+        )
+    return ratio > FALLBACK_RATIO, "point ratio", f"{ratio:.2f}x"
 
 
 def write_alert_report(path, suite, baseline, alerts):
@@ -160,12 +177,12 @@ def write_alert_report(path, suite, baseline, alerts):
         "| Benchmark | Baseline | Current | Ratio | Rule |",
         "|-|-|-|-|-|",
     ]
-    for bench, base, ratio, rule in alerts:
+    for bench, base, ratio_display, rule in alerts:
         lines.append(
             f"| `{bench['name']}` "
             f"| {base['value']:.3f} {base['unit']} {base.get('range', '')} "
             f"| {bench['value']:.3f} {bench['unit']} {bench.get('range', '')} "
-            f"| {ratio:.2f}x | {rule} |"
+            f"| {ratio_display} | {rule} |"
         )
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -176,20 +193,21 @@ def collect_alerts(current, baseline):
     baseline_by_name = {b["name"]: b for b in baseline["benches"]}
     cur_groups = samples_by_group(current)
     base_groups = samples_by_group(baseline["benches"])
-    bounds_cache = {}
+    stats_cache = {}
     alerts = []
     for bench in current:
         base = baseline_by_name.get(bench["name"])
         if base is None or base["value"] <= 0:
             continue
-        regressed, rule = judge(bench, base, cur_groups, base_groups, bounds_cache)
-        ratio = bench["value"] / base["value"]
+        regressed, rule, ratio_display = judge(
+            bench, base, cur_groups, base_groups, stats_cache
+        )
         if regressed:
-            alerts.append((bench, base, ratio, rule))
+            alerts.append((bench, base, ratio_display, rule))
         print(
             f"{'ALERT' if regressed else 'ok':5} {bench['name']}: "
             f"{base['value']:.3f} -> {bench['value']:.3f} {bench['unit']} "
-            f"({ratio:.2f}x, {rule})"
+            f"({ratio_display}, {rule})"
         )
     return alerts
 

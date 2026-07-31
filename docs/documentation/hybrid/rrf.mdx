@@ -30,7 +30,7 @@ vector      0.7 / (60 + 10) = 0.0100
 score(row)                    0.0254
 ```
 
-## Query Shape
+## Reciprocal Rank Fusion Query Shape
 
 Each branch is an `ORDER BY ... LIMIT` with a `RANK()` window function over the same ordering. The `WITH` clause fuses them.
 

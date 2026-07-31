@@ -673,7 +673,7 @@ impl PgSearchTableProvider {
         let target_partitions = state.config().target_partitions();
         // The output partitions of the scan default to min(segments, target_partitions),
         // or exactly `target_partitions` when range partitioning is enabled.
-        // During distributed planning, the `PgSearchScanTaskEstimator` reads this partition
+        // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
         let partition_count = if self.range_sample.is_some() {
             // When using range partitioning, we target the session's target partitions.

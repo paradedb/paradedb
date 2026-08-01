@@ -47,12 +47,17 @@ SELECT
 FROM generate_series(1, 50) AS i;
 
 CREATE INDEX issue5635_documents_bm25_idx ON issue5635_documents
-USING bm25 (id, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+USING bm25 (
+    id,
+    (category::pdb.unicode_words('columnar=true'))
+) WITH (key_field = 'id');
 
 CREATE INDEX issue5635_files_bm25_idx ON issue5635_files
-USING bm25 (id, document_id, title)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}}');
+USING bm25 (
+    id,
+    (document_id::pdb.literal),
+    (title::pdb.unicode_words('columnar=true'))
+) WITH (key_field = 'id');
 
 SET paradedb.enable_join_custom_scan = on;
 

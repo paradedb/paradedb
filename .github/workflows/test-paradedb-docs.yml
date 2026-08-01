@@ -164,7 +164,7 @@ jobs:
 
       - name: Install pgvector (pgrx-managed Postgres)
         run: |
-          git clone --branch v0.8.4 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
           cd pgvector/
           PG_CONFIG=$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config | head -n 1)
           make PG_CONFIG="$PG_CONFIG" -j

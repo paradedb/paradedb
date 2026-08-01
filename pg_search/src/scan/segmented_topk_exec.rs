@@ -337,12 +337,15 @@ impl SegmentedTopKExec {
     }
 
     /// Serialize for leader dispatch. The `ffhelper` is live and doesn't travel; the worker
-    /// pulls it from the scan in its decoded subtree. The `dynamic_filter` is internal and is
-    /// recreated fresh by `new` on decode; the leader-side `FilterPushdown` wiring of that filter
-    /// into the scans' `PreFilter` does not travel, so a dispatched fragment scans without the
-    /// runtime top-k pruning (correct, just slower). Rewiring on decode is an open follow-up.
-    /// `decoders`/`properties` are derived.
-    pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
+    /// pulls it from the scan in its decoded subtree. The `dynamic_filter` ships as an
+    /// identity-stamped proto expression so that decoding through the fragment's
+    /// deduplicating proto converter re-shares one instance with the same filter shipped
+    /// by the scan below (see #5766), keeping the worker's top-k threshold wired to its
+    /// scan's `PreFilter`. `decoders`/`properties` are derived.
+    pub(crate) fn encode_for_dispatch(
+        &self,
+        proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
+    ) -> Result<Vec<u8>> {
         let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
         let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
         let sort_proto = datafusion_proto::physical_plan::to_proto::serialize_physical_sort_exprs(
@@ -354,6 +357,12 @@ impl SegmentedTopKExec {
             .iter()
             .map(prost::Message::encode_to_vec)
             .collect();
+        // Ship the dynamic filter as a proto expression. The deduplicating converter
+        // re-shares it on decode with the scans below via `expr_id` (see #5766).
+        let dynamic_filter_bytes = {
+            let node = proto_converter.physical_expr_to_proto(&self.dynamic_filter, &codec)?;
+            prost::Message::encode_to_vec(&node)
+        };
         // Ship the visibility "recipe" (serializable plan_position/heap-OID pairs + table
         // names) so a dispatched worker can rebuild AbsorbedVisibilityData. The live ctid
         // resolvers (FFHelpers) don't travel; they are re-collected from the decoded
@@ -381,6 +390,7 @@ impl SegmentedTopKExec {
             self.deferred_columns.clone(),
             self.k,
             visibility_recipe,
+            dynamic_filter_bytes,
         );
         serde_json::to_vec(&payload).map_err(|e| {
             DataFusionError::Internal(format!("SegmentedTopKExec dispatch: serialize: {e}"))
@@ -396,12 +406,14 @@ impl SegmentedTopKExec {
         ctx: &TaskContext,
         index_segment_ids: &[crate::api::HashSet<tantivy::index::SegmentId>],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let (sort_bytes, deferred_columns, k, visibility_recipe): (
+        let (sort_bytes, deferred_columns, k, visibility_recipe, dynamic_filter_bytes): (
             Vec<Vec<u8>>,
             Vec<DeferredSortColumn>,
             usize,
             VisibilityRecipe,
+            Vec<u8>,
         ) = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("SegmentedTopKExec dispatch: deserialize: {e}"))
         })?;
@@ -460,6 +472,26 @@ impl SegmentedTopKExec {
         let sort_exprs = LexOrdering::new(exprs).ok_or_else(|| {
             DataFusionError::Internal("SegmentedTopKExec dispatch: empty sort order".into())
         })?;
+        // Decode the shipped dynamic filter through the deduplicating proto converter so
+        // that the returned Arc is the same instance the scans below decoded (see #5766).
+        // This re-wires the worker's top-k threshold to its own scan's `PreFilter` without
+        // needing a trailing `FilterPushdown(Post)` pass on the decoded fragment.
+        let parent_filter: Option<Arc<dyn PhysicalExpr>> = {
+            let node = <datafusion_proto::protobuf::PhysicalExprNode as prost::Message>::decode(
+                dynamic_filter_bytes.as_slice(),
+            )
+            .map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "SegmentedTopKExec dispatch: dynamic filter decode: {e}"
+                ))
+            })?;
+            let expr = proto_converter.proto_to_physical_expr(
+                &node,
+                input.schema().as_ref(),
+                &decode_ctx,
+            )?;
+            Some(expr)
+        };
         // Rebuild absorbed visibility data from the shipped recipe and re-wire the live
         // ctid resolvers pulled from the decoded subtree. Workers do not re-run the
         // optimizer rule, so the VFExec is already absorbed and gone; leaving this `None`
@@ -500,8 +532,8 @@ impl SegmentedTopKExec {
             ffhelper,
             k,
             visibility_data,
-            // Worker decode: no parent SortExec filter to inherit, mint fresh.
-            None,
+            // Reuse the shipped filter so it stays identity-shared with the scans below.
+            parent_filter,
         )))
     }
 }

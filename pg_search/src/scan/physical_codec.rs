@@ -139,6 +139,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     ctx,
                     &self.index_segment_ids,
                     self.parallel_state,
+                    proto_converter,
                 )
             }
             other => Err(DataFusionError::NotImplemented(format!(
@@ -170,7 +171,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         }
         if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
-            buf.extend_from_slice(&topk.encode_for_dispatch()?);
+            buf.extend_from_slice(&topk.encode_for_dispatch(proto_converter)?);
             return Ok(());
         }
         Err(DataFusionError::NotImplemented(format!(
@@ -420,18 +421,13 @@ pub fn deserialize_physical_plan_with_runtime(
     let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
     let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
     // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between an
-    // operator and the scans below it, and the two link mechanisms differ:
-    //
-    // - HashJoinExec/AggregateExec links ride the wire by identity: the scan ships its
-    //   installed filters (`ScanDispatchDescriptor::dynamic_filters`) and the deduplicating
-    //   converter re-shares each with the operator's own decoded copy via `expr_id` (the
-    //   apache/datafusion#20416 machinery; design discussion in
-    //   https://github.com/apache/datafusion/issues/21207). Those operators skip re-pushing
-    //   when they already carry a filter, so this pass cannot relink them.
-    // - SegmentedTopKExec recreates its filter fresh on decode and re-pushes it every Post
-    //   phase, so this pass is what wires the worker's top-k threshold into its scans.
-    //
-    // Both mechanisms are fragment-local; a link that crossed fragments would need the filter
-    // values shipped between processes.
+    // operator and the scans below it. Every such link now rides the wire by identity: the
+    // scans ship their installed filters (`ScanDispatchDescriptor::dynamic_filters`),
+    // HashJoinExec/AggregateExec/SegmentedTopKExec ship their own copies, and the
+    // deduplicating converter re-shares each pair via `expr_id` (apache/datafusion#20416;
+    // design in https://github.com/apache/datafusion/issues/21207). The trailing pushdown
+    // pass stays as a safety net for any dynamic-filter-bearing operator that hasn't been
+    // wired for identity-round-trip yet; a link that crossed fragments would still need the
+    // filter values shipped between processes.
     FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

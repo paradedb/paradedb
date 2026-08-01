@@ -148,19 +148,20 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// at exec time, so users in constrained environments see fewer.
 static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 
-/// Per-edge shm_mq queue size in bytes. Each MPP query allocates
-/// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory: at
-/// N=4 with 3 meshes (group-by aggregate's worst case) the default 64 MiB
-/// produces ~2.3 GiB per query, sized so a ~100 MiB Partial-aggregate burst
-/// on the post-agg mesh fits without backpressure. Operators on memory-
-/// constrained boxes will want to dial this down; that's the explicit
-/// reason it's exposed instead of held as a `pub const`.
+/// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
+/// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
+/// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
+/// DSM path, to avoid a later SIGBUS under overcommit), so the region size is a
+/// fixed per-query launch cost. The default keeps that cost inside Docker's
+/// default 64 MiB `/dev/shm` with room to spare: at N=4 it reserves ~32 MiB per
+/// query. Frames larger than a ring stream through it in chunks, so the size
+/// bounds backpressure granularity and launch cost, not what a query can carry.
+/// The runtime tuning reach is the reason it's a GUC instead of a `pub const`.
 ///
-/// This is a foundation-era knob and may be replaced once mesh
-/// multiplexing lands (one queue carrying tagged messages from N stages
-/// instead of N meshes), at which point the right user knob is more
-/// likely a per-query DSM cap than a raw per-edge byte count.
-static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+/// The inboxes already multiplex tagged frames from every stage; if this knob
+/// changes shape, the right user knob is more likely a per-query DSM cap than
+/// a raw per-inbox byte count.
+static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -649,14 +650,14 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
-        c"Per-edge shm_mq queue size for MPP shuffles",
-        c"Sets the per-edge shm_mq queue size for MPP shuffles. Accepts standard \
-          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Total DSM per query is \
-          `num_meshes × N×(N-1) × mpp_queue_size`; at the default 64MB and N=4 with \
-          3 meshes that is ~2.3GB per query. Lower this on memory-constrained boxes; \
-          raise it only if a single shuffle batch routinely backs up the queue. \
-          Foundation-era knob — likely to be replaced by a per-query DSM cap once \
-          mesh multiplexing lands.",
+        c"Per-inbox ring size for MPP shuffles",
+        c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
+          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Each query lays out \
+          one inbox per proc, so total DSM per query is about `N x mpp_queue_size`; \
+          at the default 8MB and N=4 that is ~32MB per query, within Docker's \
+          default 64MB /dev/shm. Frames larger than a ring stream through it in \
+          chunks. Lower this on memory-constrained boxes; raise it when shuffle \
+          batches routinely back up the ring.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,

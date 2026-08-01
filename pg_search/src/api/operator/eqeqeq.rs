@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::FieldName;
 use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
@@ -21,8 +22,72 @@ use crate::api::operator::{
     RHSValue, ReturnedNodePointer, build_text_funcexpr, request_simplify,
     validate_lhs_type_as_text_compatible,
 };
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
+
+/// Runtime counterpart to the `===` const-folding path in `search_with_term_support`.
+///
+/// Called from a plan built by `search_with_term_support`'s `exec_rewrite` when the RHS is a
+/// `Param` (generic prepared plan) rather than a folded `Const`. Classifies the incoming
+/// `pdb.query` the same way the const path does: an `UnclassifiedString`/`UnclassifiedArray`
+/// becomes a `term`/`term_set`, with any `fuzzy_data` or `slop_data` re-applied. This is
+/// necessary because `to_search_query_input` alone leaves `UnclassifiedString` intact, which
+/// blows up at Tantivy conversion time (`pdb::Query::UnclassifiedString cannot be converted
+/// into a TantivyQuery`).
+#[pg_extern(immutable, parallel_safe)]
+pub fn term_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    let classified = match query {
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut q = term_str(string);
+            q.apply_fuzzy_data(fuzzy_data);
+            q.apply_slop_data(slop_data);
+            q
+        }
+        pdb::Query::UnclassifiedArray {
+            array,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut q = term_set_str(array);
+            q.apply_fuzzy_data(fuzzy_data);
+            q.apply_slop_data(slop_data);
+            q
+        }
+        pdb::Query::ScoreAdjusted { query, score } => {
+            let mut inner = *query;
+            if let pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data,
+                slop_data,
+            } = inner
+            {
+                inner = term_str(string);
+                inner.apply_fuzzy_data(fuzzy_data);
+                inner.apply_slop_data(slop_data);
+            } else if let pdb::Query::UnclassifiedArray {
+                array,
+                fuzzy_data,
+                slop_data,
+            } = inner
+            {
+                inner = term_set_str(array);
+                inner.apply_fuzzy_data(fuzzy_data);
+                inner.apply_slop_data(slop_data);
+            }
+            pdb::Query::ScoreAdjusted {
+                query: Box::new(inner),
+                score,
+            }
+        }
+        other => other,
+    };
+    to_search_query_input(field, classified)
+}
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]

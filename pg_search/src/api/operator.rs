@@ -1017,6 +1017,20 @@ unsafe fn build_text_funcexpr(
     }
 }
 
+/// Return `true` if `oid` names a ParadeDB `pdb.*` type that participates as an operator RHS,
+/// either directly (`pdb.query`) or via an implicit cast to `pdb.query` (`pdb.fuzzy`,
+/// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator `exec_rewrite` paths to decide
+/// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
+/// rather than the text/text[] dispatch.
+#[allow(dead_code)]
+pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
+    oid == pdb_query_typoid()
+        || oid == fuzzy_typoid()
+        || oid == boost_typoid()
+        || oid == slop_typoid()
+        || oid == const_typoid()
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// is referenced by the node.
 ///

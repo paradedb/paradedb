@@ -518,3 +518,43 @@ jobs:
             fi
           done
           echo "Extension payload built successfully and contains the expected library and control file."
+
+      # The payload must also carry the libraries pg_search.so links that the runtime
+      # image does not ship (libopenblas and, through it, libgfortran). Without them
+      # the consumer's Postgres crash-loops on "libopenblas.so.0: cannot open shared
+      # object file" (#5798), which a build-only check cannot catch. Mount the payload
+      # into the Postgres base image the way an operator does — extension_control_path
+      # and dynamic_library_path at the payload, LD_LIBRARY_PATH at its lib/ — and
+      # prove the postmaster can load the module.
+      - name: Verify the Extension Payload Loads in the Postgres Runtime Image
+        if: steps.release_gate.outputs.skip != 'true'
+        run: |
+          cat > /tmp/load-test.sh <<'EOF'
+          set -euo pipefail
+
+          ldd /extensions/pg_search/lib/pg_search.so
+          if ldd /extensions/pg_search/lib/pg_search.so | grep -q "not found"; then
+            echo "Error: pg_search.so has unresolved shared-library dependencies"
+            exit 1
+          fi
+
+          export PGDATA=/tmp/pgdata
+          initdb -D "$PGDATA" -U postgres > /dev/null
+          cat >> "$PGDATA/postgresql.conf" <<'CONF'
+          listen_addresses = ''
+          unix_socket_directories = '/tmp'
+          extension_control_path = '$system:/extensions/pg_search/share'
+          dynamic_library_path = '$libdir:/extensions/pg_search/lib'
+          shared_preload_libraries = 'pg_search'
+          CONF
+          pg_ctl -D "$PGDATA" -w start
+          psql -h /tmp -U postgres -d postgres -c "SELECT 1;"
+          EOF
+
+          docker run --rm --user 26 \
+            --volume /tmp/extension-payload:/extensions/pg_search:ro \
+            --volume /tmp/load-test.sh:/load-test.sh:ro \
+            --env LD_LIBRARY_PATH=/extensions/pg_search/lib \
+            ghcr.io/cloudnative-pg/postgresql:${{ env.PG_VERSION }}-minimal-trixie \
+            bash /load-test.sh
+          echo "Extension payload loads in the Postgres runtime image."

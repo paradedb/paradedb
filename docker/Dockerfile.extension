@@ -2,7 +2,8 @@
 #
 # Unlike Dockerfile.paradedb-N / Dockerfile.official-N, this image is not a
 # runnable Postgres. It is a `FROM scratch` artifact containing only
-# pg_search's shared library, control file, SQL scripts, and license. The
+# pg_search's shared library, the shared libraries it links that the Postgres
+# base image does not ship, control file, SQL scripts, and licenses. The
 # CloudNativePG Postgres base image is used in the builder stage so the .deb's
 # ABI matches the common extension-image runtime used by Postgres operators.
 #
@@ -31,9 +32,36 @@ RUN apt-get update && \
     if [ -z "$checksum" ]; then echo "checksum is required for $arch" >&2; exit 1; fi && \
     curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/postgresql-${PG_VERSION_MAJOR}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-trixie_${arch}.deb" && \
     echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c - && \
+    dpkg-query -f '${Package}\n' -W | sort > /tmp/packages.before && \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
+    dpkg-query -f '${Package}\n' -W | sort > /tmp/packages.after && \
+    comm -13 /tmp/packages.before /tmp/packages.after > /tmp/packages.new && \
     rm /tmp/pg_search.deb && \
     rm -rf /var/lib/apt/lists/*
+
+# Stage the shared libraries pg_search.so links but the Postgres base image does
+# not ship. Since 0.25.0 pg_search links libopenblas (and, through it,
+# libgfortran), so a payload of just pg_search.so fails to load with
+# "libopenblas.so.0: cannot open shared object file" — dynamic_library_path
+# locates the module, not its transitive dependencies (#5798).
+#
+# Only libraries the pg_search .deb itself pulled in are staged: everything else
+# in the closure (libc, libm, libgcc_s, ...) already exists in the runtime image,
+# and shipping a second copy on the consumer's ld_library_path would risk mixing
+# runtimes. Each library is staged under its SONAME, which is the name the
+# dynamic linker searches for, and its copyright file travels with it.
+RUN mkdir -p /payload/lib /payload/licenses && \
+    ldd "/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" | awk '/=> \//{ print $1, $3 }' | \
+    while read -r soname path; do \
+        pkg="$(dpkg -S "$(readlink -f "$path")" | awk -F: 'NR == 1 { p = $1 } END { print p }')" || continue; \
+        if ! grep -qxF "$pkg" /tmp/packages.new; then continue; fi; \
+        echo "staging ${soname} (${pkg})"; \
+        cp -L "$path" "/payload/lib/${soname}"; \
+        if [ -f "/usr/share/doc/${pkg}/copyright" ]; then \
+            mkdir -p "/payload/licenses/${pkg}"; \
+            cp -L "/usr/share/doc/${pkg}/copyright" "/payload/licenses/${pkg}/"; \
+        fi; \
+    done
 
 USER 65532:65532
 
@@ -45,9 +73,13 @@ ARG PG_VERSION_MAJOR=18
 
 # Licenses
 COPY --from=builder /usr/share/doc/postgresql-${PG_VERSION_MAJOR}-pg-search/copyright /licenses/postgresql-${PG_VERSION_MAJOR}-pg-search/
+COPY --from=builder /payload/licenses/ /licenses/
 
-# Library: pg_search.so
+# Library: pg_search.so, plus the libraries it links that the runtime image does
+# not ship. Consumers point ld_library_path at this directory (CloudNativePG
+# sets it per mounted extension) so the dynamic linker can resolve them.
 COPY --from=builder /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search* /lib/
+COPY --from=builder /payload/lib/ /lib/
 
 # Control + SQL scripts
 COPY --from=builder /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/pg_search* /share/extension/

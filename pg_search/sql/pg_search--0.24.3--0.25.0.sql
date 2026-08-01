@@ -79,3 +79,13 @@ CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING para
     STORAGE public.vector;
 CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING paradedb AS
     STORAGE public.vector;
+
+-- pg_search/src/api/operator/eqeqeq.rs:38
+-- pg_search::api::operator::eqeqeq::term_search_query_input
+CREATE  FUNCTION "term_search_query_input"(
+	"field" FieldName, /* FieldName */
+	"query" pdb.Query /* pdb :: Query */
+) RETURNS SearchQueryInput /* SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'term_search_query_input_wrapper';

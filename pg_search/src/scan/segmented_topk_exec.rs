@@ -207,8 +207,10 @@ pub struct SegmentedTopKExec {
     /// Dynamic filter pushed down through DataFusion's standard filter pushdown
     /// mechanism. Updated at runtime with a global threshold (materialized
     /// string literals) that the scanner's `try_rewrite_binary` translates to
-    /// per-segment ordinal bounds.
-    dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
+    /// per-segment ordinal bounds. Stored as `Arc<dyn PhysicalExpr>` so the
+    /// same instance can round-trip through the deduplicating proto converter
+    /// on worker dispatch and stay identity-shared with the scans below.
+    dynamic_filter: Arc<dyn PhysicalExpr>,
     /// Visibility data absorbed from a `VisibilityFilterExec` during plan optimization.
     /// Present when VFExec was the direct child of `TantivyLookupExec` (e.g. for inner
     /// joins or the preserved sides of outer/semi/anti joins). When present, this node
@@ -243,7 +245,7 @@ impl SegmentedTopKExec {
         ffhelper: Arc<FFHelper>,
         k: usize,
         visibility_data: Option<Arc<AbsorbedVisibilityData>>,
-        parent_filter: Option<Arc<DynamicFilterPhysicalExpr>>,
+        parent_filter: Option<Arc<dyn PhysicalExpr>>,
     ) -> Self {
         use datafusion::physical_expr::expressions::lit;
 
@@ -261,9 +263,9 @@ impl SegmentedTopKExec {
         // fresh one. The scans below have already been wired to this filter by the
         // standard `FilterPushdown` pass, so subsequent `update()`s from this node's
         // heap propagate to the same recipients the SortExec would have driven. If no
-        // parent filter is provided (e.g. worker decode path), fall back to minting.
-        // See #5635.
-        let dynamic_filter = parent_filter.unwrap_or_else(|| {
+        // parent filter is provided (e.g. worker decode path with no shipped filter),
+        // fall back to minting. See #5635.
+        let dynamic_filter: Arc<dyn PhysicalExpr> = parent_filter.unwrap_or_else(|| {
             let children: Vec<Arc<dyn PhysicalExpr>> =
                 sort_exprs.iter().map(|e| Arc::clone(&e.expr)).collect();
             Arc::new(DynamicFilterPhysicalExpr::new(children, lit(true)))
@@ -749,7 +751,7 @@ impl ExecutionPlan for SegmentedTopKExec {
         // and add our own dynamic filter as a self-filter.
         Ok(FilterDescription::new().with_child(
             ChildFilterDescription::from_child(&parent_filters, &self.input)?
-                .with_self_filter(Arc::clone(&self.dynamic_filter) as Arc<dyn PhysicalExpr>),
+                .with_self_filter(Arc::clone(&self.dynamic_filter)),
         ))
     }
 
@@ -813,7 +815,9 @@ struct SegmentedTopKState {
     segment_cutoffs: Vec<Option<OwnedRow>>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
-    dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
+    /// Held as `Arc<dyn PhysicalExpr>` so it stays identity-shared with the
+    /// worker-decoded scan filters (see the exec's field for the rationale).
+    dynamic_filter: Arc<dyn PhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
     /// Buffered pass-through rows (NULL ordinals) that bypass
@@ -1328,8 +1332,11 @@ impl SegmentedTopKState {
 
         if changed
             && let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values)
+            && let Some(df) = self
+                .dynamic_filter
+                .downcast_ref::<DynamicFilterPhysicalExpr>()
         {
-            let _ = self.dynamic_filter.update(expr);
+            let _ = df.update(expr);
             self.last_published_global = Some(best_row);
         }
 

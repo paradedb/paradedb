@@ -46,7 +46,7 @@ use std::sync::Arc;
 
 use datafusion::common::Result;
 use datafusion::common::config::ConfigOptions;
-use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
+use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
@@ -129,7 +129,9 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
     // therefore reach the same recipients the SortExec would have driven, and no
     // trailing `FilterPushdown(Post)` pass is required to re-push a fresh filter.
     // See #5635.
-    let parent_filter = sort_exec.dynamic_filter_expr();
+    let parent_filter = sort_exec
+        .dynamic_filter_expr()
+        .map(|f| f as Arc<dyn PhysicalExpr>);
 
     // Walk down from SortExec to find TantivyLookupExec.
     // If injection succeeds, SegmentedTopKExec now handles the final sort + limit,
@@ -211,7 +213,7 @@ fn try_inject_below_lookup(
     plan: &Arc<dyn ExecutionPlan>,
     sort_exprs: LexOrdering,
     k: usize,
-    parent_filter: Option<Arc<DynamicFilterPhysicalExpr>>,
+    parent_filter: Option<Arc<dyn PhysicalExpr>>,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let children = plan.children();
 

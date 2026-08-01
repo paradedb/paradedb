@@ -519,13 +519,10 @@ jobs:
           done
           echo "Extension payload built successfully and contains the expected library and control file."
 
-      # The payload must also carry the libraries pg_search.so links that the runtime
-      # image does not ship (libopenblas and, through it, libgfortran). Without them
-      # the consumer's Postgres crash-loops on "libopenblas.so.0: cannot open shared
-      # object file" (#5798), which a build-only check cannot catch. Mount the payload
-      # into the Postgres base image the way an operator does — extension_control_path
-      # and dynamic_library_path at the payload, LD_LIBRARY_PATH at its lib/ — and
-      # prove the postmaster can load the module.
+      # A build-only check cannot catch a payload that is missing the system libraries
+      # pg_search.so links, which crash-loops the consumer's Postgres on "libopenblas.so.0:
+      # cannot open shared object file" (#5798). Mount the payload into the Postgres base
+      # image the way an operator does and prove the postmaster can load the module.
       - name: Verify the Extension Payload Loads in the Postgres Runtime Image
         if: steps.release_gate.outputs.skip != 'true'
         run: |
@@ -554,7 +551,7 @@ jobs:
           docker run --rm --user 26 \
             --volume /tmp/extension-payload:/extensions/pg_search:ro \
             --volume /tmp/load-test.sh:/load-test.sh:ro \
-            --env LD_LIBRARY_PATH=/extensions/pg_search/lib \
+            --env LD_LIBRARY_PATH=/extensions/pg_search/system \
             ghcr.io/cloudnative-pg/postgresql:${{ env.PG_VERSION }}-minimal-trixie \
             bash /load-test.sh
           echo "Extension payload loads in the Postgres runtime image."

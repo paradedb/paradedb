@@ -132,7 +132,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -143,7 +143,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2858,7 +2858,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3187,7 +3187,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3999,7 +3999,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4365,7 +4365,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5548,7 +5548,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5767,9 +5767,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a83847efc71051a6dc93846e5c6dea5cbdac92b6fcff9a62b4ffcad487c396"
+checksum = "8d7e6f85d841cd9c01092ad3b9d60fc778bf54dc6174bbd24126250659af7d91"
 dependencies = [
  "bitflags 2.13.0",
  "bitvec",
@@ -5788,9 +5788,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-bindgen"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f2f7026019bc1b69b9fd9c272dcc67c4c4873385eee19a2b16de0f5f1fd0cc8"
+checksum = "81cd392ab2e05995ebecf15bd562d7eb666a1ced11b3e39ef910212d6b67f2a9"
 dependencies = [
  "bindgen",
  "cc",
@@ -5807,9 +5807,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c548a0ead422dbcf430e222a5ad58a4d7646cc37dd122ec6ae0f090c90719dac"
+checksum = "aefe3297831869ac1e3fc62045a0181cd9f3ba3e3ad3ed56b9d89ae899170581"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -5819,9 +5819,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cca92965c1dc76b2a2083afb7dadcf2601d1f04d174311914b6faa49e728fea"
+checksum = "41dd7c6196fcd41f76240f721b6373dc9c080489c87194e3ffb8f924a8fef4e0"
 dependencies = [
  "cargo_toml",
  "codepage",
@@ -5839,9 +5839,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e78e46545f1d6d0c9fd8d73099aa0bc9390dddc8fd6d7aabd98ad08e9086db52"
+checksum = "e8f2ee0cc6c14ebd3b91aa7d4576b45dc87945e905a53343ef50e2509e928c94"
 dependencies = [
  "cee-scape",
  "libc",
@@ -5853,9 +5853,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6888b62533c49fda36ab44a82abb96d62e1eba522556244f8a76783097b3b5"
+checksum = "48447cd6f7e60929d14ca24d3507c357d16a531dff896f9be921b59c03022759"
 dependencies = [
  "convert_case",
  "eyre",
@@ -5869,9 +5869,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0bbad9d4a83d86413c97bc0f7f02e201a36d6e96dc0f615030b5e4b503315f"
+checksum = "bf2bd839c188294cff06e8f0e4267f2d6e9fbdce634c05bffb970b55e6682f58"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -7164,7 +7164,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7222,7 +7222,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7651,7 +7651,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8294,7 +8294,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9271,7 +9271,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

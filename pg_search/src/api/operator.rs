@@ -1022,7 +1022,6 @@ unsafe fn build_text_funcexpr(
 /// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator `exec_rewrite` paths to decide
 /// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
 /// rather than the text/text[] dispatch.
-#[allow(dead_code)]
 pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
     oid == pdb_query_typoid()
         || oid == fuzzy_typoid()
@@ -1042,7 +1041,6 @@ pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
 /// function; different operators dispatch to different runtime constructors (for example, the
 /// `===` operator uses `paradedb.term_search_query_input` to match its const path, which
 /// classifies `UnclassifiedString`/`UnclassifiedArray` into `term`/`term_set`).
-#[allow(dead_code)]
 pub(crate) unsafe fn build_pdb_query_funcexpr(
     field: FieldName,
     rhs: *mut pg_sys::Node,

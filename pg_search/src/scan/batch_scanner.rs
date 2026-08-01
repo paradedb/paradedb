@@ -289,8 +289,7 @@ impl Scanner {
         let mut lazy_score_array: Option<ArrayRef> = None;
         for (idx, ff) in self.which_fast_fields.iter().enumerate() {
             if matches!(ff, WhichFastField::Score) {
-                let score_array = lazy_score_array
-                    .get_or_insert_with(|| scores_array.clone());
+                let score_array = lazy_score_array.get_or_insert_with(|| scores_array.clone());
                 memoized_columns[idx] = Some(score_array.clone());
             }
         }

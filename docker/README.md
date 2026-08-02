@@ -32,6 +32,18 @@ postgresql:
 
 pg_search requires `vector`, so [pgvector](https://github.com/cloudnative-pg/postgres-extensions-containers/tree/main/pgvector) must be mounted as an extension image alongside it (or otherwise be available to the Postgres image).
 
+## Manifests
+
+`manifests/cnpg.yaml` is the CloudNativePG operator, rendered from the upstream Helm chart with default values and bundled into the Antithesis config images. To upgrade the operator, re-render it with the chart version whose `appVersion` is the CNPG release you want ([chart index](https://github.com/cloudnative-pg/charts)):
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo update
+helm template cnpg cnpg/cloudnative-pg --namespace cnpg-system --version <chart_version>
+```
+
+Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The current file is chart `0.29.0` / CNPG `1.30.0`.
+
 ## Release Process
 
 Because the Dockerfiles depend on the Debian artifacts, they are published after the latest `.deb`s are published to GitHub. The Dockerfiles themselves can't be updated until the latest `.deb`s exist. Because of this, once a release is triggered and the `.deb`s are published, new versions of the Dockerfiles are generated in CI using the latest version. These new versions are then tested and published, and PRs are automatically opened to commit the updated files back to the repo. The files must be committed so they can be referenced by the Docker Official Images manifest file in [docker-library/official-images](https://github.com/docker-library/official-images).

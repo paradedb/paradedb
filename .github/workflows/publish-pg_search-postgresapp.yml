@@ -32,7 +32,7 @@ permissions:
 jobs:
   publish-pg_search-postgresapp:
     name: Publish pg_search for Postgres.app (PostgreSQL ${{ matrix.pg_version }}, arm64)
-    runs-on: macos-15
+    runs-on: macos-26
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:

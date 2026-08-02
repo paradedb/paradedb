@@ -39,10 +39,7 @@ RUN apt-get update && \
     rm /tmp/pg_search.deb && \
     rm -rf /var/lib/apt/lists/*
 
-# Stage the system libraries pg_search.so links — libopenblas since 0.25.0, and
-# libgfortran through it. A mounted payload gets no package manager, so the .deb
-# dependencies never reach the consumer, and dynamic_library_path finds the
-# module but not the libraries it needs (#5798): they have to ship with it.
+# Stage the system libraries pg_search.so links (libopenblas, libgfortran).
 #
 # Libraries the base image already has (libc, libm, libgcc_s, ...) are skipped —
 # shadowing them with a second copy on the consumer's LD_LIBRARY_PATH risks
@@ -79,8 +76,7 @@ COPY --from=builder /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search* /lib/
 # Control + SQL scripts
 COPY --from=builder /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/pg_search* /share/extension/
 
-# System libraries, which consumers put on LD_LIBRARY_PATH — `ld_library_path:
-# [system]` in CloudNativePG, mirroring its own postgis extension image.
+# System libraries, which consumers put on LD_LIBRARY_PATH — `ld_library_path: [system]` in CloudNativePG
 COPY --from=builder /system/ /system/
 
 USER 65532:65532

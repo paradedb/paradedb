@@ -18,41 +18,16 @@ LOAD 'pg_search';
 
 -- GUCs must be visible after the extension loads.
 SHOW paradedb.mpp_debug;
-SHOW paradedb.mpp_worker_count;
 SHOW paradedb.mpp_queue_size;
 
 -- Defaults: the debug knob stays off.
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
-SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default;
 SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
 
 -- Toggle the boolean GUCs and verify they stick.
 SET paradedb.mpp_debug TO on;
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_after_set_on;
 SET paradedb.mpp_debug TO off;
-
--- Worker count: accepts 1..64 per the GUC definition.
-SET paradedb.mpp_worker_count TO 2;
-SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_two;
-SET paradedb.mpp_worker_count TO 4;
-SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_four;
-
--- Out-of-range worker count must fail (GUC min=1, max=64).
-DO $$
-BEGIN
-    BEGIN
-        PERFORM set_config('paradedb.mpp_worker_count', '0', true);
-        RAISE EXCEPTION 'expected worker_count=0 to be rejected';
-    EXCEPTION WHEN invalid_parameter_value THEN
-        RAISE NOTICE 'worker_count=0 correctly rejected';
-    END;
-    BEGIN
-        PERFORM set_config('paradedb.mpp_worker_count', '65', true);
-        RAISE EXCEPTION 'expected worker_count=65 to be rejected';
-    EXCEPTION WHEN invalid_parameter_value THEN
-        RAISE NOTICE 'worker_count=65 correctly rejected';
-    END;
-END$$;
 
 -- Queue size: accepts standard Postgres byte units (kB, MB, GB).
 SET paradedb.mpp_queue_size TO '32MB';
@@ -87,5 +62,4 @@ SELECT 1 AS trivial_query_still_works;
 SET paradedb.mpp_debug TO off;
 
 RESET paradedb.mpp_debug;
-RESET paradedb.mpp_worker_count;
 RESET paradedb.mpp_queue_size;

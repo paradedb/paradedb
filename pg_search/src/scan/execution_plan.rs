@@ -69,6 +69,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
 use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningSample};
@@ -429,6 +430,23 @@ impl PgSearchScanPlan {
             range_sample: self.range_sample.clone(),
             assigned_partition: self.assigned_partition,
         })
+    }
+
+    /// Late-bind the shared `ParallelScanState` into this scan's execution state (#5667).
+    ///
+    /// Under the plan-first MPP launch the leader builds its plan before the DSM exists, so
+    /// `Shared` scans start with `parallel_state: None`. Once the DSM is created and populated,
+    /// the launch stamps the leader's pointer in here — before the first `execute()`, which is
+    /// the only reader of the field. `RangePartitioned` and `Uninitialized` scans never consult
+    /// the pointer, so they are left untouched.
+    pub(crate) fn set_parallel_state(&self, ps: *mut ParallelScanState) {
+        let mut state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let ExecutionState::Shared { parallel_state, .. } = &mut *state_guard {
+            *parallel_state = Some(UnsafeSendSync(ps));
+        }
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -1257,6 +1275,57 @@ pub(crate) fn pg_search_scan_scale_up_leaf_node(
     Some(scale())
 }
 
+/// Stamp the leader's `ParallelScanState` pointer into every `PgSearchScanPlan` reachable from
+/// `plan` (#5667).
+///
+/// The plan-first MPP launch builds the leader's plan before the DSM exists; this walk binds the
+/// pointer afterwards, mirroring core PG's `ExecParallelInitializeDSM` (plans are address-free,
+/// execution state binds late). Network boundaries expose their stage plan through `children()`,
+/// so the walk reaches nested stages too — stamping worker-bound stage plans is inert: dispatch
+/// encodes are context-free recipes and workers inject their own pointer at decode.
+///
+/// `DistributedLeafExec` needs explicit descent: its `children()` is empty, and when
+/// `scale_up_leaf_node` repartitioned the scan, the wrapper's `original`/`variants` are a *new*
+/// `PgSearchScanPlan` instance — the wrapper is the only live path to it. The leader executes
+/// `original` (its `DistributedTaskContext` is `task_count = 1`), but stamp the variants too:
+/// they are usually clones of the same instance, and a future divergence must not silently
+/// un-stamp them.
+pub(crate) fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut ParallelScanState) {
+    visit_scan_nodes(plan, &mut |scan| scan.set_parallel_state(ps));
+}
+
+/// Visit every [`PgSearchScanPlan`] reachable from `plan`, including scans wrapped in
+/// [`DistributedLeafExec`] — whose `children()` is empty, and whose `original`/`variants` may be
+/// a repartitioned instance not present anywhere else in the tree. Split from
+/// [`stamp_parallel_state`] so the traversal is unit-testable without a live
+/// `ParallelScanState`.
+///
+/// [`DistributedLeafExec`]: datafusion_distributed::DistributedLeafExec
+fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSearchScanPlan)) {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+        visit(scan);
+    }
+    if let Some(leaf) = plan.downcast_ref::<datafusion_distributed::DistributedLeafExec>() {
+        visit_scan_nodes(leaf.original(), visit);
+        for variant in leaf.variants() {
+            visit_scan_nodes(variant, visit);
+        }
+        return;
+    }
+    // `FilterPassthroughExec::children()` forwards to its inner node's children, skipping the
+    // inner node itself. Today it only ever wraps `SortPreservingMergeExec` (never a scan), so
+    // the plain walk would still reach every scan — but that invariant lives in
+    // `segmented_topk_rule`, not here. Descend through `inner()` explicitly so a future
+    // wrapping of a scan cannot silently escape the stamp.
+    if let Some(fp) = plan.downcast_ref::<FilterPassthroughExec>() {
+        visit_scan_nodes(fp.inner(), visit);
+        return;
+    }
+    for child in plan.children() {
+        visit_scan_nodes(child, visit);
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
@@ -1271,6 +1340,47 @@ mod tests {
 
     fn empty_schema() -> SchemaRef {
         Arc::new(Schema::empty())
+    }
+
+    /// #5667: `DistributedLeafExec::children()` is empty, and after `repartition()` its
+    /// `original`/`variants` can be a scan instance not present anywhere else in the tree — so
+    /// a `children()`-only walk silently misses it and the leader would execute an unstamped
+    /// scan. This pins the explicit descent.
+    #[pg_test]
+    fn visit_scan_nodes_descends_through_distributed_leaf_exec() {
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion_distributed::DistributedLeafExec;
+
+        fn make_scan() -> Arc<dyn ExecutionPlan> {
+            Arc::new(PgSearchScanPlan::new(
+                None,
+                empty_schema(),
+                SearchQueryInput::All,
+                None,
+                Vec::new(),
+                None,
+                0,
+                None,
+                1,
+                None,
+                None,
+            ))
+        }
+
+        // Distinct instances on purpose: `repartition()` gives the wrapper a scan that exists
+        // nowhere else in the tree, so the visitor must reach `original` and each variant
+        // independently — not merely alias the same node twice.
+        let leaf: Arc<dyn ExecutionPlan> = Arc::new(
+            DistributedLeafExec::try_new(make_scan(), [make_scan()]).expect("leaf construction"),
+        );
+
+        let mut visited = 0usize;
+        super::visit_scan_nodes(&leaf, &mut |_| visited += 1);
+        assert_eq!(
+            visited, 2,
+            "visit_scan_nodes must descend through DistributedLeafExec \
+             (original + 1 distinct variant); its children() is empty"
+        );
     }
 
     #[pg_test]

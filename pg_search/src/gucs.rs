@@ -142,12 +142,6 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Total number of MPP participants (leader + workers). Default 4 splits
-/// scan + shuffle + partial-aggregate work across 4 processes. PG's
-/// `max_parallel_workers_per_gather` still caps the actual worker count
-/// at exec time, so users in constrained environments see fewer.
-static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
-
 /// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
 /// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
 /// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
@@ -637,18 +631,6 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.mpp_worker_count",
-        c"Total MPP participants (leader + parallel workers)",
-        c"Sets the number of MPP participants per query when parallel execution is enabled. \
-          The queue mesh and drain thread are general over N. Setting this below 3 disables MPP.",
-        &MPP_WORKER_COUNT,
-        1,
-        64,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-inbox ring size for MPP shuffles",
         c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
@@ -863,10 +845,6 @@ pub fn mpp_debug() -> bool {
 
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
-}
-
-pub fn mpp_worker_count() -> i32 {
-    MPP_WORKER_COUNT.get()
 }
 
 pub fn mpp_queue_size() -> usize {

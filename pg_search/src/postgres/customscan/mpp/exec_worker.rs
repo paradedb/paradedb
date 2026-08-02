@@ -53,7 +53,7 @@ use datafusion_distributed::PartitionSink;
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
-use crate::postgres::customscan::mpp::glue::producer_worker_count;
+use crate::postgres::customscan::mpp::glue::producer_worker_cap;
 use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
@@ -96,16 +96,19 @@ pub(crate) fn build_mpp_session_context(
     mesh: Option<Arc<MppMesh>>,
 ) -> SessionContext {
     // Workers are procs 1..n_procs; leader is proc 0. Producer count = n_procs - 1.
-    // `mpp_is_active()` already guarantees n_procs >= 3 (callers gate first).
+    // n_procs >= 3 always holds: for mesh = Some, the launch clamps the spawned width to
+    // `MIN_TOTAL_WORKER_COUNT - 1` (2) producers; for mesh = None, callers gate on `mpp_is_active()`
+    // which requires a cap of >= 2 producers.
     //
-    // `mesh = None` is the EXPLAIN-time path: the planner only needs `n_workers` for stage
-    // sizing and target_partitions. EXPLAIN never opens a `WorkerConnection`, so we skip
-    // the transport install and the fork's default sits unused. Both branches resolve to
-    // `mpp_worker_count() - 1` at call time, so EXPLAIN reflects the GUC at the time it
-    // ran; a later `SET paradedb.mpp_worker_count` shifts the next execute path.
+    // `mesh = None` is the EXPLAIN-time / plan-time path: the planner only needs `n_workers`
+    // for stage sizing and target_partitions, so it plans against the cap
+    // (`producer_worker_cap()`, from PG's parallelism GUCs). EXPLAIN never opens a
+    // `WorkerConnection`, so we skip the transport install and the fork's default sits
+    // unused. mesh = Some reads the launched width from the mesh header, which the plan-first
+    // launch sized from the plan's task counts (#5667).
     let n_workers = match mesh.as_ref() {
         Some(m) => m.n_workers() as usize,
-        None => producer_worker_count() as usize,
+        None => producer_worker_cap() as usize,
     };
     // Three knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
     //   1. target_partitions(N): without it, EnforceDistribution skips every
@@ -220,8 +223,8 @@ pub(crate) fn run_mpp_worker(
 
     // Build this worker's fragment assignments by decoding the leader's dispatched per-stage
     // subplans from the DSM payload (no re-planning), then run them on the dispatcher loop below.
-    // `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before reaching
-    // this), so `n_workers() = n_procs - 1` is safe.
+    // `worker_mesh.n_procs >= MIN_TOTAL_WORKER_COUNT` is guaranteed by the launch's clamp
+    // (it spawns at least 2 producers), so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();
     let (fragments, session) = match fragments_for_worker(
         &plan_bytes,
@@ -234,12 +237,9 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
     };
     if fragments.is_empty() {
-        // TODO(#5667): Wait to request parallel workers from Postgres until after the plan
-        // is generated so we only launch as many workers as we have fragments for.
-        pgrx::debug1!(
-            "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
-        );
-        return;
+        // The launch spawns `producer_count <= max_tasks` producers, so the widest stage's
+        // round-robin assigns every proc at least one fragment.
+        pgrx::error!("mpp worker: no fragments assigned (proc={this_proc})");
     }
 
     // Each fragment's plan arrives as a `SetPlan` frame on this proc's inbox, the same

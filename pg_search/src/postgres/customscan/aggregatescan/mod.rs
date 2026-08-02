@@ -521,11 +521,10 @@ impl CustomScan for AggregateScan {
                 // construction, not actual execute calls. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
-                if explainer.is_verbose() {
-                    if let Some(t) = df_state.launch_timing {
+                if explainer.is_verbose()
+                    && let Some(t) = df_state.launch_timing {
                         explainer.add_text("MPP Launch", t.explain_text());
                     }
-                }
             }
             return;
         }
@@ -658,22 +657,20 @@ impl CustomScan for AggregateScan {
             // Draining here is what frees them, so the `recv` below returns immediately instead
             // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
             // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.leader() {
-                if let Some(plan) = df_state.physical_plan.as_ref() {
+            if let Some(leader) = df_state.mpp.leader()
+                && let Some(plan) = df_state.physical_plan.as_ref() {
                     crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                         plan,
                         &leader.mesh,
                     );
                 }
-            }
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
             // before end_custom_scan, where the context is finally destroyed). A worker error is
             // re-raised from inside `recv`.
-            if let Some(leader) = df_state.mpp.leader_mut() {
-                if let Some(finish) = leader.finish.as_mut() {
+            if let Some(leader) = df_state.mpp.leader_mut()
+                && let Some(finish) = leader.finish.as_mut() {
                     let _ = finish.recv();
                 }
-            }
         }
     }
 
@@ -1408,11 +1405,10 @@ impl AggregateScan {
                 // No Const node for this entry, skip the aggregate iterator if
                 // it's an aggregate that occupies a slot in `row.aggregates`
                 // (doc-count aggregates do not — see `uses_doc_count_path`).
-                if let TargetListEntry::Aggregate(agg_type) = entry {
-                    if !uses_doc_count_path(agg_type, aggregate_clause) {
+                if let TargetListEntry::Aggregate(agg_type) = entry
+                    && !uses_doc_count_path(agg_type, aggregate_clause) {
                         agg_iter.next();
                     }
-                }
                 continue;
             };
 

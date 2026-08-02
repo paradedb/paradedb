@@ -70,7 +70,10 @@ impl LayeredMergePolicy {
         merger: &SearchIndexMerger,
     ) {
         let mut non_mergeable_segments = metadata.vacuum_list().read_list();
-        non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
+        // `list_segment_ids` borrows the `MergeList`, so it needs a binding that outlives the
+        // `extend` call rather than a temporary.
+        let merge_list = merge_lock.merge_list();
+        non_mergeable_segments.extend(unsafe { merge_list.list_segment_ids() });
 
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
@@ -233,12 +236,10 @@ impl LayeredMergePolicy {
                 // If it is not mutable, but is still empty for some reason, then we should include it in any other candidate level
                 // that is planned (in order to get rid of it), but there is no point in doing a single-entry merge.
                 if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
-                {
-                    if let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
+                    && let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
                         mc.0.push(segment_meta.id());
                         merged_segments.insert(segment_meta.id());
                     }
-                }
             }
         }
 
@@ -309,12 +310,11 @@ impl LayeredMergePolicy {
                 if candidate_segments.len() == 1 {
                     // this is a single-segment candidate, which we allow for mutable segments
                     let segment_id = &candidate_segments[0];
-                    if let Some(entry) = self.mergeable_segments.get(segment_id) {
-                        if entry.is_mutable() {
+                    if let Some(entry) = self.mergeable_segments.get(segment_id)
+                        && entry.is_mutable() {
                             // it's a mutable segment conversion, keep it
                             continue;
                         }
-                    }
                 }
 
                 if candidate_segments.len() < self.min_merge_count {

@@ -184,8 +184,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to deserialize SearchPredicateUDF: {e}"))
             })?;
-            if let Some(plan_position) = udf.plan_position() {
-                if !self.index_segment_ids.is_empty() {
+            if let Some(plan_position) = udf.plan_position()
+                && !self.index_segment_ids.is_empty() {
                     let ids = self
                         .index_segment_ids
                         .get(plan_position)
@@ -197,7 +197,6 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                         })?;
                     udf.set_canonical_segment_ids(ids);
                 }
-            }
             return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
         }
 

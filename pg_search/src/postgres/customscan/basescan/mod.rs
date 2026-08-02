@@ -363,7 +363,7 @@ impl BaseScan {
         }
 
         // Apply HeapExpr optimization to the base relation quals
-        if let Some(ref mut q) = quals {
+        if let Some(q) = quals {
             optimize_quals_with_heap_expr(q);
         }
 
@@ -1117,8 +1117,8 @@ impl CustomScan for BaseScan {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
                 // Note: root was not available in the planner hook, so we needed to delay this until now.
                 let private_data = builder.custom_private();
-                if let Some(heaprelid) = private_data.heaprelid() {
-                    if let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
+                if let Some(heaprelid) = private_data.heaprelid()
+                    && let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
                         let root = builder.args().root;
                         let rti = private_data
                             .range_table_index()
@@ -1143,7 +1143,6 @@ impl CustomScan for BaseScan {
                             }
                         }
                     }
-                }
 
                 builder
                     .custom_private_mut()
@@ -1411,11 +1410,10 @@ impl CustomScan for BaseScan {
             );
         }
 
-        if explainer.is_verbose() {
-            if let Some(reason) = state.custom_state().worker_selection_reason {
+        if explainer.is_verbose()
+            && let Some(reason) = state.custom_state().worker_selection_reason {
                 explainer.add_text("Worker Selection", reason.label());
             }
-        }
 
         if explainer.is_analyze() {
             explainer.add_unsigned_integer(
@@ -1746,11 +1744,10 @@ impl CustomScan for BaseScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Leader-only: last chance to read DSM before Postgres destroys it.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel {
-            if parallel.is_leader() {
+        if let Some(parallel) = scan_state.parallel
+            && parallel.is_leader() {
                 parallel.finalize_explain(&mut scan_state.telemetry);
-            }
-        };
+            };
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
@@ -1758,11 +1755,10 @@ impl CustomScan for BaseScan {
         // Leader: do not touch DSM — Shutdown already ran (or serial path).
         {
             let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel {
-                if !parallel.is_leader() {
+            if let Some(parallel) = scan_state.parallel
+                && !parallel.is_leader() {
                     parallel.publish_telemetry(&scan_state.telemetry);
                 }
-            }
         }
 
         // get some things dropped now
@@ -1902,15 +1898,14 @@ unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
         }
         let ctx = context.cast::<Context>();
 
-        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            if !matches!(
+        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node)
+            && !matches!(
                 (*wfunc).winfnoid.to_u32(),
                 pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
             ) {
                 (*ctx).position_only = false;
                 return true;
             }
-        }
 
         pg_sys::expression_tree_walker(node, Some(walker), context)
     }
@@ -2595,11 +2590,10 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     // Check reltarget exprs.
     let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);
     for rte in reltarget_exprs.iter_ptr() {
-        if let Some(var) = nodecast!(Var, T_Var, rte) {
-            if (*var).varno as u32 == rte_index {
+        if let Some(var) = nodecast!(Var, T_Var, rte)
+            && (*var).varno as u32 == rte_index {
                 referenced_columns.insert((*var).varattno);
             }
-        }
         // NOTE: Unless we encounter the fallback in `compute_exec_which_fast_fields`, then we
         // can be reasonably confident that directly inspecting Vars is sufficient. We haven't
         // seen it yet in the wild.

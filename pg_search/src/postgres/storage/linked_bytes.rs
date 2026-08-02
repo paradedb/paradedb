@@ -381,11 +381,10 @@ impl LinkedBytesList {
         let cache = self.cache.get();
         // Redundant with rposition below, but ~0.2ms faster under saturation
         // because it avoids the closure + iterator overhead on the hot path.
-        if let Some(last) = cache.back() {
-            if last.block_ord == block_ord {
+        if let Some(last) = cache.back()
+            && last.block_ord == block_ord {
                 return last.block_bytes[local_offset];
             }
-        }
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
             return cache[pos].block_bytes[local_offset];
         }

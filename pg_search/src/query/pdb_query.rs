@@ -2162,13 +2162,11 @@ pub(super) fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &Search
 fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
     match leaf {
         UserInputLeaf::Literal(lit) => {
-            if let Some(field_name) = &lit.field_name {
-                if let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name) {
-                    if let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid) {
+            if let Some(field_name) = &lit.field_name
+                && let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name)
+                    && let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid) {
                         lit.phrase = replacement;
                     }
-                }
-            }
         }
         UserInputLeaf::Range {
             field: Some(name),

@@ -729,8 +729,8 @@ unsafe fn walk_path_restrictinfo(
         }
 
         // 1. Equi-join key?
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-            if let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources) {
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr
+            && let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources) {
                 let dup = info.equi_keys.iter().any(|k| {
                     (k.outer_rti == key.outer_rti
                         && k.outer_attno == key.outer_attno
@@ -746,7 +746,6 @@ unsafe fn walk_path_restrictinfo(
                 }
                 continue;
             }
-        }
 
         // 2. Cross-table predicate?
         // Covers both @@@ predicates and non-@@@ cross-table predicates
@@ -894,8 +893,8 @@ impl FilterExpr {
                         // identity; targetlist refs don't carry rti.
                         if !agg.field_refs.is_empty() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-                            if let Some(first_arg) = args.get_ptr(0) {
-                                if let Some(var) = crate::postgres::var::find_one_var(
+                            if let Some(first_arg) = args.get_ptr(0)
+                                && let Some(var) = crate::postgres::var::find_one_var(
                                     (*first_arg).expr as *mut pg_sys::Node,
                                 ) {
                                     let rti = (*var).varno as pg_sys::Index;
@@ -907,7 +906,6 @@ impl FilterExpr {
                                         }
                                     }
                                 }
-                            }
                         }
                     }
                 }
@@ -1155,12 +1153,11 @@ pub unsafe fn populate_required_fields(
             // For dotted names (JSON sub-fields), try resolving by name first.
             // This is more specific than attno-based resolution which might
             // find the parent JSON column if it's also indexed as text.
-            if gc.field_name.contains('.') {
-                if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+            if gc.field_name.contains('.')
+                && let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
                     source.scan_info.add_field_by_name(gc.attno, field.clone());
                     resolved_field = Some(field);
                 }
-            }
 
             if resolved_field.is_none() {
                 if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {

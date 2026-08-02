@@ -282,12 +282,11 @@ where
         // Handle type coercion via single-arg function call (e.g., float4 -> float8)
         if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
             let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-            if args.len() == 1 {
-                if let Some(arg) = args.get_ptr(0) {
+            if args.len() == 1
+                && let Some(arg) = args.get_ptr(0) {
                     expr = arg.cast();
                     continue;
                 }
-            }
         }
 
         // Can't unwrap further
@@ -644,17 +643,15 @@ pub unsafe fn expr_matches_node(
 
         // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
         // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-            if type_is_alias((*func).funcresulttype) {
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression)
+            && type_is_alias((*func).funcresulttype) {
                 let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                if args.len() == 1 {
-                    if let Some(arg) = args.get_ptr(0) {
+                if args.len() == 1
+                    && let Some(arg) = args.get_ptr(0) {
                         reduced_expression = arg.cast();
                         continue;
                     }
-                }
             }
-        }
 
         return false;
     }

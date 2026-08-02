@@ -477,15 +477,14 @@ pub unsafe fn field_name_from_node(
     node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
     // just directly reach in and pluck out the alias if the type is cast to it
-    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-        if type_is_alias((*relabel).resulttype) {
+    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node)
+        && type_is_alias((*relabel).resulttype) {
             let typmod =
                 AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
             if let Some(alias) = typmod.alias() {
                 return Some(FieldName::from(alias));
             }
         }
-    }
 
     let index_info = unsafe { *indexrel.index_info() };
     if let Some(var) = nodecast!(Var, T_Var, node) {
@@ -1051,15 +1050,15 @@ unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) ->
         return None;
     }
     let tupdesc = heaprel.tuple_desc();
-    let attname = if (*var).varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber
+    
+    if (*var).varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber
     {
         Some("ctid".into())
     } else {
         tupdesc
             .get((*var).varattno as usize - 1)
             .map(|attribute| attribute.name().into())
-    };
-    attname
+    }
 }
 
 #[track_caller]

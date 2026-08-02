@@ -246,8 +246,8 @@ impl FFType {
             }
             FFType::I64(ff) => {
                 // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
-                if let Some(sft) = search_field_type {
-                    if is_pgoid_datetime_type(sft.typeoid()) {
+                if let Some(sft) = search_field_type
+                    && is_pgoid_datetime_type(sft.typeoid()) {
                         let value = ff.first(doc).map(|first| {
                             let pgdt = PostgresDateTime::try_from_raw(first)
                                 .expect("This should always be a valid datetime value");
@@ -255,7 +255,6 @@ impl FFType {
                         });
                         return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
                     }
-                }
                 let value = ff.first(doc).map(|first| first.into());
                 TantivyValue(value.unwrap_or(PdbOwnedValue::Null))
             }

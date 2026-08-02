@@ -380,8 +380,8 @@ impl SerialIndexWriter {
             return self.finalize_segment(on_finalize);
         }
 
-        if let Some(max_docs_per_segment) = self.config.max_docs_per_segment {
-            if max_doc >= max_docs_per_segment as usize {
+        if let Some(max_docs_per_segment) = self.config.max_docs_per_segment
+            && max_doc >= max_docs_per_segment as usize {
                 if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
                     pgrx::debug1!(
                         "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
@@ -393,7 +393,6 @@ impl SerialIndexWriter {
                 }
                 return self.finalize_segment(on_finalize);
             }
-        }
 
         Ok(None)
     }

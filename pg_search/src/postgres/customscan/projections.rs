@@ -303,11 +303,10 @@ unsafe extern "C-unwind" fn find_join_expr_walker(
     // `JoinExpr`. Without this, placeholder functions (score/snippet) used in a
     // comma-join query are not wrapped in a PlaceHolderVar and get re-evaluated
     // above the Gather Merge, panicking with "Unsupported query shape" (#5108).
-    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node) {
-        if PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1 {
+    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node)
+        && PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1 {
             return true;
         }
-    }
     expression_tree_walker(node, Some(find_join_expr_walker), _context)
 }
 
@@ -356,7 +355,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         let phv = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
             #[allow(improper_ctypes)]
             #[rustfmt::skip]
-            extern "C-unwind" {
+            unsafe extern "C-unwind" {
                 fn make_placeholder_expr(root: *mut pg_sys::PlannerInfo, expr: *mut pg_sys::Expr, phrels: pg_sys::Relids) -> *mut pg_sys::PlaceHolderVar;
             }
 

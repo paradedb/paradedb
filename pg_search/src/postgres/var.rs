@@ -292,13 +292,11 @@ impl VarContext {
                     if !subquery.is_null() {
                         let targetlist =
                             PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
-                        if varattno > 0 && (varattno as usize) <= targetlist.len() {
-                            if let Some(te) = targetlist.get_ptr(varattno as usize - 1) {
-                                if (*te).resorigtbl != pg_sys::InvalidOid {
+                        if varattno > 0 && (varattno as usize) <= targetlist.len()
+                            && let Some(te) = targetlist.get_ptr(varattno as usize - 1)
+                                && (*te).resorigtbl != pg_sys::InvalidOid {
                                     return ((*te).resorigtbl, (*te).resorigcol);
                                 }
-                            }
-                        }
                     }
                 }
 

@@ -281,15 +281,14 @@ fn try_inject_below_lookup(
                 // TODO: Add support for SegmentedTopK executing the TopK, but without pushing down
                 // thresholds: see https://github.com/paradedb/paradedb/issues/4347
                 let first_indexrelid = deferred_columns.first().map(|d| d.canonical.indexrelid);
-                if let Some(id) = first_indexrelid {
-                    if deferred_columns
+                if let Some(id) = first_indexrelid
+                    && deferred_columns
                         .iter()
                         .any(|d| d.canonical.indexrelid != id)
                     {
                         pgrx::warning!("SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.");
                         return Ok(None);
                     }
-                }
 
                 let target_indexrelid = first_indexrelid.unwrap_or(0);
                 let ffhelper = match lookup.ffhelper(target_indexrelid) {

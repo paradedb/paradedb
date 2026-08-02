@@ -414,13 +414,12 @@ pub unsafe fn load_metas(
                 if alive_entries.len() != only_these.len() =>
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
-                if !exhausted_metas_lists {
-                    if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
+                if !exhausted_metas_lists
+                    && let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
                         segment_metas = garbage;
                         exhausted_metas_lists = true;
                         continue;
                     }
-                }
 
                 // TODO:  I believe this situation, where if the alive_entries.len() != only_these.len() is now dead code
                 //        @Stu asked to keep this around for awhile.  If there's ever a situation where `alive_entries` has

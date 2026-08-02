@@ -22,7 +22,7 @@ use thiserror::Error;
 
 // we redefine these functions because we don't want pgrx' per-function FFI wrappers -- we intend
 // to use them, together, in a single FFI wrapper closure
-extern "C-unwind" {
+unsafe extern "C-unwind" {
     pub fn JsonbIteratorInit(container: *mut pg_sys::JsonbContainer) -> *mut pg_sys::JsonbIterator;
     pub fn JsonbIteratorNext(
         it: *mut *mut pg_sys::JsonbIterator,

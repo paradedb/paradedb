@@ -249,15 +249,14 @@ pub fn aggregate_result_to_datum(
                 });
                 // For v2 indexes, attach `key_as_string` for single-value metrics on datetime
                 // fields so consumers don't have to interpret raw i64 micros.
-                if index_info.created_by_version.stores_datetimes_in_i64() {
-                    if let Some(agg_json) = agg_type.custom_agg_json() {
+                if index_info.created_by_version.stores_datetimes_in_i64()
+                    && let Some(agg_json) = agg_type.custom_agg_json() {
                         rewrite_aggregate_result_json_timestamps(
                             &mut json_value,
                             agg_json,
                             &index_info.schema,
                         );
                     }
-                }
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
                 if index_info.created_by_version.stores_datetimes_in_i64() {
@@ -359,11 +358,10 @@ impl AggregationResults {
                 _ => None,
             });
 
-        if let Some(_doc_count) = _doc_count {
-            if _doc_count == 0.0 {
+        if let Some(_doc_count) = _doc_count
+            && _doc_count == 0.0 {
                 return true;
             }
-        }
 
         false
     }

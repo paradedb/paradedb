@@ -182,11 +182,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some(many) = many {
-                    if found >= many {
+                if let Some(many) = many
+                    && found >= many {
                         break 'outer;
                     }
-                }
 
                 if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     items.push(deserialized);
@@ -528,11 +527,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
-                    if cmp(&deserialized) {
+                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno)
+                    && cmp(&deserialized) {
                         return Ok((deserialized, blockno, offsetno));
                     }
-                }
                 offsetno += 1;
             }
 

@@ -627,11 +627,10 @@ fn verify_heap_references(
     // Iterate through all segments and all documents
     for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
         // Skip segments not in the filter (if filter is specified)
-        if let Some(ref filter) = segment_filter {
-            if !filter.contains(&seg_idx) {
+        if let Some(filter) = segment_filter
+            && !filter.contains(&seg_idx) {
                 continue;
             }
-        }
 
         let segment_id = segment_reader.segment_id().short_uuid_string();
         let fast_fields = segment_reader.fast_fields();
@@ -652,11 +651,10 @@ fn verify_heap_references(
         // Iterate through all document IDs in this segment
         for doc_id in 0..segment_reader.max_doc() {
             // Skip deleted documents
-            if let Some(bitset) = &alive_bitset {
-                if !bitset.is_alive(doc_id) {
+            if let Some(bitset) = &alive_bitset
+                && !bitset.is_alive(doc_id) {
                     continue;
                 }
-            }
 
             // Apply sampling: use a hash of the doc_id for deterministic sampling
             // None means check all (no sampling)
@@ -1308,11 +1306,10 @@ pub mod pdb {
 
             for (idx, segment_reader) in segment_readers.iter().enumerate() {
                 // Skip segments not in the filter (if filter is specified)
-                if let Some(ref filter) = segment_filter {
-                    if !filter.contains(&idx) {
+                if let Some(ref filter) = segment_filter
+                    && !filter.contains(&idx) {
                         continue;
                     }
-                }
 
                 segments_checked += 1;
                 let segment_id = segment_reader.segment_id().short_uuid_string();

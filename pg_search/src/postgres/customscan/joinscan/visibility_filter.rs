@@ -223,22 +223,17 @@ fn collect_visibility_source_metadata(
     let mut metadata = BTreeMap::new();
 
     plan.apply(|node| {
-        if let LogicalPlan::TableScan(scan) = node {
-            if let Some(provider) = pg_search_provider_from_scan(scan) {
-                if let Some(source_metadata) = provider.visibility_source_metadata() {
-                    if let Some(prev_metadata) = metadata
+        if let LogicalPlan::TableScan(scan) = node
+            && let Some(provider) = pg_search_provider_from_scan(scan)
+                && let Some(source_metadata) = provider.visibility_source_metadata()
+                    && let Some(prev_metadata) = metadata
                         .insert(source_metadata.plan_position, source_metadata.clone())
-                    {
-                        if prev_metadata != source_metadata {
+                        && prev_metadata != source_metadata {
                             return Err(DataFusionError::Internal(format!(
                                 "VisibilityFilterInjection: conflicting metadata for plan_position {}",
                                 source_metadata.plan_position,
                             )));
                         }
-                    }
-                }
-            }
-        }
 
         Ok(TreeNodeRecursion::Continue)
     })?;
@@ -448,13 +443,12 @@ fn analyze_and_inject(
 
     // Treat existing visibility nodes as already verified so repeated optimizer
     // passes do not keep re-wrapping.
-    if let LogicalPlan::Extension(ext) = &plan {
-        if let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>() {
+    if let LogicalPlan::Extension(ext) = &plan
+        && let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>() {
             for &(plan_pos, _) in &vf.plan_pos_oids {
                 merged.insert(plan_pos, VisibilityStatus::Verified);
             }
         }
-    }
 
     let parent_lineage: BTreeSet<usize> = extract_ctid_lineage(plan.schema())
         .into_iter()

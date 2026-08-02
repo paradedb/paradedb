@@ -109,11 +109,10 @@ fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
     plan_position: usize,
 ) -> Option<(u32, Arc<FFHelper>)> {
-    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
-        if scan.deferred_ctid_plan_position() == Some(plan_position) {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
+        && scan.deferred_ctid_plan_position() == Some(plan_position) {
             return scan.ffhelper().map(|ff| (scan.indexrelid, ff));
         }
-    }
 
     for child in plan.children() {
         if let Some(helper) = find_ffhelper_for_plan_position(child.as_ref(), plan_position) {

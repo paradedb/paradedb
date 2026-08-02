@@ -44,22 +44,20 @@ impl ValueConstraint {
         match self {
             ValueConstraint::Integer { min, max } => {
                 if let Some(i) = prop.as_usize().map(|v| v as i64) {
-                    if let Some(min_val) = min {
-                        if i < *min_val {
+                    if let Some(min_val) = min
+                        && i < *min_val {
                             return Err(ValidationError::InvalidValue {
                                 key: key.unwrap_or(&prop.to_string()).to_string(),
                                 message: format!("must be >= {min_val}, got {i}"),
                             });
                         }
-                    }
-                    if let Some(max_val) = max {
-                        if i > *max_val {
+                    if let Some(max_val) = max
+                        && i > *max_val {
                             return Err(ValidationError::InvalidValue {
                                 key: key.unwrap_or(&prop.to_string()).to_string(),
                                 message: format!("must be <= {max_val}, got {i}"),
                             });
                         }
-                    }
                     Ok(())
                 } else {
                     Err(ValidationError::TypeMismatch {
@@ -70,11 +68,10 @@ impl ValueConstraint {
             ValueConstraint::Boolean => {
                 if prop.as_bool().is_some() {
                     return Ok(());
-                } else if let (Some(expected_key), Property::String(None, value)) = (key, prop) {
-                    if value == expected_key {
+                } else if let (Some(expected_key), Property::String(None, value)) = (key, prop)
+                    && value == expected_key {
                         return Ok(());
                     }
-                }
 
                 Err(ValidationError::TypeMismatch {
                     actual_type: prop.to_string(),
@@ -150,22 +147,20 @@ impl ValueConstraint {
             }
             ValueConstraint::Float { min, max } => {
                 if let Some(v) = prop.as_f64() {
-                    if let Some(min_val) = min {
-                        if v < *min_val {
+                    if let Some(min_val) = min
+                        && v < *min_val {
                             return Err(ValidationError::InvalidValue {
                                 key: key.unwrap_or(&prop.to_string()).to_string(),
                                 message: format!("must be >= {min_val}, got {v}"),
                             });
                         }
-                    }
-                    if let Some(max_val) = max {
-                        if v > *max_val {
+                    if let Some(max_val) = max
+                        && v > *max_val {
                             return Err(ValidationError::InvalidValue {
                                 key: key.unwrap_or(&prop.to_string()).to_string(),
                                 message: format!("must be <= {max_val}, got {v}"),
                             });
                         }
-                    }
                     Ok(())
                 } else {
                     Err(ValidationError::TypeMismatch {
@@ -329,11 +324,10 @@ impl TypmodSchema {
         // check that all required properties were provided
         for rule in &self.rules {
             if rule.required && !seen_keys.contains(rule.key) {
-                if let Some(pos_idx) = rule.positional_index {
-                    if pos_idx >= parsed.properties.len() {
+                if let Some(pos_idx) = rule.positional_index
+                    && pos_idx >= parsed.properties.len() {
                         return Err(ValidationError::MissingRequiredKey(rule.key.to_string()));
                     }
-                }
                 return Err(ValidationError::MissingRequiredKey(rule.key.to_string()));
             }
         }

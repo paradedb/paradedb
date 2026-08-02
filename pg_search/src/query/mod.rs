@@ -704,25 +704,20 @@ pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Val
     match json_value {
         serde_json::Value::Object(obj) => {
             // Check if this is a "with_index" object and remove its "oid" if present
-            if obj.contains_key("with_index") {
-                if let Some(with_index) = obj.get_mut("with_index") {
-                    if let Some(with_index_obj) = with_index.as_object_mut() {
+            if obj.contains_key("with_index")
+                && let Some(with_index) = obj.get_mut("with_index")
+                    && let Some(with_index_obj) = with_index.as_object_mut() {
                         with_index_obj.remove("oid");
                     }
-                }
-            }
 
             // Handle PostgresExpression: remove raw node (internal representation)
             // Keep the expr_desc field which contains the human-readable SQL expression
-            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression") {
-                if let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut() {
-                    if let Some(pg_expr) = wrapper_obj.get_mut("expr") {
-                        if let Some(expr_obj) = pg_expr.as_object_mut() {
+            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression")
+                && let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut()
+                    && let Some(pg_expr) = wrapper_obj.get_mut("expr")
+                        && let Some(expr_obj) = pg_expr.as_object_mut() {
                             expr_obj.remove("node");
                         }
-                    }
-                }
-            }
 
             // Recursively process all values in the object
             for (_, value) in obj.iter_mut() {
@@ -764,15 +759,14 @@ impl SearchQueryInput {
             && (*array).ndim <= pg_sys::MAXDIM as i32
             && (*array).elemtype == searchqueryinput_typoid();
 
-        if is_sqi_array {
-            if let Some(elements) = FromDatum::from_polymorphic_datum(
+        if is_sqi_array
+            && let Some(elements) = FromDatum::from_polymorphic_datum(
                 pg_sys::Datum::from(detoasted),
                 false,
                 searchqueryinput_typoid(),
             ) {
                 return Some(Self::boolean_disjunction(elements));
             }
-        }
 
         let bytes = varlena_to_byte_slice(detoasted);
 
@@ -1638,7 +1632,7 @@ pub fn value_to_term(
     index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let json_options = match field_type {
-        FieldType::JsonObject(ref options) => Some(options),
+        FieldType::JsonObject(options) => Some(options),
         _ => None,
     };
 
@@ -1653,11 +1647,10 @@ pub fn value_to_term(
     }
 
     // For facet fields, convert string values to facet terms
-    if matches!(field_type, FieldType::Facet(_)) {
-        if let PdbOwnedValue::Str(text) = value {
+    if matches!(field_type, FieldType::Facet(_))
+        && let PdbOwnedValue::Str(text) = value {
             return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
         }
-    }
 
     Ok(match value {
         PdbOwnedValue::Str(text) => Term::from_field_text(field, text),

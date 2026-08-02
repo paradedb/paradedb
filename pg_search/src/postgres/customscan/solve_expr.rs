@@ -43,11 +43,10 @@ impl SearchQueryInput {
     pub fn has_parameters(&mut self) -> bool {
         let mut found = false;
         self.visit(&mut |sqi| {
-            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
-                if field_filters.iter().any(|f| f.has_parameters()) {
+            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi
+                && field_filters.iter().any(|f| f.has_parameters()) {
                     found = true;
                 }
-            }
         });
         found
     }

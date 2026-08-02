@@ -705,15 +705,12 @@ fn declared_partitioning(
     partition_count: usize,
     range_boundaries: Option<&RangePartitioning>,
 ) -> Partitioning {
-    if partition_count > 1 {
-        if let Some(boundaries) = range_boundaries {
-            if boundaries.split_points.len() + 1 == partition_count {
-                if let Some(partitioning) = boundaries.to_datafusion(schema) {
+    if partition_count > 1
+        && let Some(boundaries) = range_boundaries
+            && boundaries.split_points.len() + 1 == partition_count
+                && let Some(partitioning) = boundaries.to_datafusion(schema) {
                     return partitioning;
                 }
-            }
-        }
-    }
     Partitioning::UnknownPartitioning(partition_count)
 }
 
@@ -888,14 +885,13 @@ impl ExecutionPlan for PgSearchScanPlan {
         // partition. We should triage whether `run_worker_fragment` should be accessing all
         // partitions, or only assigned partitions for a task. Until then, returning an empty
         // stream for non-assigned partitions satisfies the fragment execution without crashing.
-        if let Some(assigned) = self.assigned_partition {
-            if partition != assigned {
+        if let Some(assigned) = self.assigned_partition
+            && partition != assigned {
                 let schema = self.properties.eq_properties.schema().clone();
                 return Ok(Box::pin(unsafe {
                     UnsafeSendStream::new(futures::stream::empty(), schema)
                 }));
             }
-        }
 
         let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))

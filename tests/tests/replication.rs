@@ -737,12 +737,11 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     let mut tripwire_found = false;
     while std::time::Instant::now() < deadline {
-        if let Ok(log) = std::fs::read_to_string(&log_path) {
-            if log.contains(expected) {
+        if let Ok(log) = std::fs::read_to_string(&log_path)
+            && log.contains(expected) {
                 tripwire_found = true;
                 break;
             }
-        }
         thread::sleep(Duration::from_millis(200));
     }
     assert!(

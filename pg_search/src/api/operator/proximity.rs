@@ -18,8 +18,12 @@
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use pgrx::{opname, pg_operator};
 
+// The `# #` / `# #>` spellings below are the SQL operators `##` and `##>`. Edition 2024 reserves
+// `##` as a token sequence, so the hashes have to be separated in the macro input; pgrx strips the
+// whitespace out of the `opname` token stream, so the operators Postgres sees are unchanged.
+
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##)]
+#[opname(pg_catalog.# #)]
 fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
     ProximityClause::Proximity {
         left: Box::new(left),
@@ -33,7 +37,7 @@ fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##)]
+#[opname(pg_catalog.# #)]
 fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
@@ -52,7 +56,7 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##>)]
+#[opname(pg_catalog.# #>)]
 fn lhs_prox_in_order(left: ProximityClause, distance: i32) -> ProximityClause {
     ProximityClause::Proximity {
         left: Box::new(left),
@@ -66,7 +70,7 @@ fn lhs_prox_in_order(left: ProximityClause, distance: i32) -> ProximityClause {
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##>)]
+#[opname(pg_catalog.# #>)]
 fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {

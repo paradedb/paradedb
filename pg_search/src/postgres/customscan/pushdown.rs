@@ -185,11 +185,10 @@ impl PushdownField {
             var = (*expr).arg.cast();
         }
 
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, var) {
-            if !type_is_alias((*relabel).resulttype) {
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, var)
+            && !type_is_alias((*relabel).resulttype) {
                 var = (*relabel).arg.cast();
             }
-        }
 
         let heaprel = indexrel
             .heap_relation()
@@ -266,11 +265,10 @@ pub unsafe fn try_build_pushdown_qual(
     //
     // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
     // are evaluated in BeginCustomScan.
-    if let Some(root) = context.planner_info() {
-        if contains_correlated_param(root, rhs) {
+    if let Some(root) = context.planner_info()
+        && contains_correlated_param(root, rhs) {
             return None;
         }
-    }
 
     if let Some(qual) = try_build_const_bool_qual(opexpr_node) {
         return Some(qual);

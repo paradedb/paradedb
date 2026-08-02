@@ -150,11 +150,10 @@ fn parse_tokenizer_params(inner: &str) -> typmod::ParsedTypmod {
     let mut parsed = typmod::ParsedTypmod::new();
     for part in inner.split(',') {
         let trimmed = part.trim();
-        if !trimmed.is_empty() {
-            if let Ok(prop) = trimmed.parse::<typmod::Property>() {
+        if !trimmed.is_empty()
+            && let Ok(prop) = trimmed.parse::<typmod::Property>() {
                 parsed.add_property(prop);
             }
-        }
     }
     parsed
 }

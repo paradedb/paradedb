@@ -344,7 +344,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                             pg_sys::heap_form_tuple((*scan).xs_hitupdesc, values, nulls);
                     } else {
                         pg_sys::ffi::pg_guard_ffi_boundary(|| {
-                            extern "C-unwind" {
+                            unsafe extern "C-unwind" {
                                 fn heap_compute_data_size(
                                     tupleDesc: pg_sys::TupleDesc,
                                     values: *mut pg_sys::Datum,

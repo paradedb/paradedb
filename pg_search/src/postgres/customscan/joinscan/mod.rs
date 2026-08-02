@@ -1171,11 +1171,10 @@ impl CustomScan for JoinScan {
             // The MPP launch floor (worker spawn, ring attach, plan dispatch) lives outside the
             // DataFusion plan, so surface its per-phase breakdown separately when the query ran
             // distributed.
-            if explainer.is_verbose() {
-                if let Some(t) = state.custom_state().launch_timing {
+            if explainer.is_verbose()
+                && let Some(t) = state.custom_state().launch_timing {
                     explainer.add_text("MPP Launch", t.explain_text());
                 }
-            }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
             // plan and calling PgSearchTableProvider::scan(), but without executor state
@@ -1241,11 +1240,9 @@ impl CustomScan for JoinScan {
             if mpp_is_active()
                 && !Self::source_queries_have_parameters(&state.custom_state().join_clause)
                 && unsafe { pg_sys::ParallelWorkerNumber } == -1
-            {
-                if let Some(bytes) = state.custom_state().logical_plan.clone() {
+                && let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp = MppLifecycle::PlanBytes(bytes.to_vec());
                 }
-            }
         }
     }
 
@@ -1452,11 +1449,10 @@ impl CustomScan for JoinScan {
                         // First distributed batch out: fold the worker decode, first scan, and
                         // network hop into the launch timing.
                         if let Some(built) = state.custom_state().stream_built_at {
-                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut() {
-                                if t.first_frame_us == 0 {
+                            if let Some(t) = state.custom_state_mut().launch_timing.as_mut()
+                                && t.first_frame_us == 0 {
                                     t.first_frame_us = built.elapsed().as_micros() as u64;
                                 }
-                            }
                             state.custom_state_mut().stream_built_at = None;
                         }
                         state.custom_state_mut().current_batch = Some(batch);
@@ -1487,19 +1483,17 @@ impl CustomScan for JoinScan {
         // bounded metrics send spins on the full ring until the leader frees slots. Draining here
         // is what frees them: the sends land on the next try, the workers detach, and the `recv`
         // below returns immediately instead of waiting out the workers' full spin bound.
-        if let Some(leader) = state.custom_state().mpp.leader() {
-            if let Some(plan) = state.custom_state().physical_plan.as_ref() {
+        if let Some(leader) = state.custom_state().mpp.leader()
+            && let Some(plan) = state.custom_state().physical_plan.as_ref() {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
-        }
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs
         // before end_custom_scan, where the context is finally destroyed). A worker error is
         // re-raised from inside `recv`.
-        if let Some(leader) = state.custom_state_mut().mpp.leader_mut() {
-            if let Some(finish) = leader.finish.as_mut() {
+        if let Some(leader) = state.custom_state_mut().mpp.leader_mut()
+            && let Some(finish) = leader.finish.as_mut() {
                 let _ = finish.recv();
             }
-        }
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {

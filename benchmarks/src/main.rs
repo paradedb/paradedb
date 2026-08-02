@@ -1142,10 +1142,10 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     let mut results = Vec::new();
     for (query_type, query) in parsed_queries {
         let query = substitute_vars(&query, &query_params)?;
-        if args.clear_caches {
-            if let Err(err) = clear_caches(&mut utility_conn).await {
-                panic!("Failed to clear caches before query: {err}");
-            }
+        if args.clear_caches
+            && let Err(err) = clear_caches(&mut utility_conn).await
+        {
+            panic!("Failed to clear caches before query: {err}");
         }
 
         sqlx::raw_sql("CHECKPOINT;")

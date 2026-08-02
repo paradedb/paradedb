@@ -131,8 +131,8 @@ pub(crate) unsafe fn find_matching_fast_field(
 
     let to_fast_field =
         |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
-            if search_field.is_fast() {
-                if let Some(field_type) =
+            if search_field.is_fast()
+                && let Some(field_type) =
                     field_type_for_pullup(search_field.field_type(), data.is_array)
                 {
                     return Some(WhichFastField::Named(
@@ -140,7 +140,6 @@ pub(crate) unsafe fn find_matching_fast_field(
                         field_type,
                     ));
                 }
-            }
             None
         };
 
@@ -168,23 +167,19 @@ pub(crate) unsafe fn find_matching_fast_field(
                             ..
                         } if expression_idx == i && idx == field_idx
                     )
-                }) {
-                    if matches_node(arg as *mut pg_sys::Node) {
-                        if let Some(ff) = to_fast_field(search_field, data) {
+                })
+                    && matches_node(arg as *mut pg_sys::Node)
+                        && let Some(ff) = to_fast_field(search_field, data) {
                             return Some(ff);
                         }
-                    }
-                }
             }
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
             |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
-        ) {
-            if matches_node(expr as *mut pg_sys::Node) {
-                if let Some(ff) = to_fast_field(search_field, data) {
+        )
+            && matches_node(expr as *mut pg_sys::Node)
+                && let Some(ff) = to_fast_field(search_field, data) {
                     return Some(ff);
                 }
-            }
-        }
     }
 
     None
@@ -298,10 +293,11 @@ pub unsafe fn pullup_fast_fields(
             let resname = if (*te).resname.is_null() {
                 create_resname("NONAME", &*te)
             } else {
+                let fallback = create_resname("INVALID_NAME_STRING", &*te);
                 unsafe {
                     std::ffi::CStr::from_ptr((*te).resname)
                         .to_str()
-                        .unwrap_or(create_resname("INVALID_NAME_STRING", &*te).as_str())
+                        .unwrap_or(&fallback)
                 }
                 .to_string()
             };

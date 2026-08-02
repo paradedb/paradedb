@@ -405,7 +405,10 @@ impl PgSearchRelation {
         }
     }
 
-    pub fn indices(&self, lockmode: pg_sys::LOCKMODE) -> impl Iterator<Item = PgSearchRelation> {
+    pub fn indices(
+        &self,
+        lockmode: pg_sys::LOCKMODE,
+    ) -> impl Iterator<Item = PgSearchRelation> + use<> {
         // SAFETY: we know self.as_ptr() is a valid pointer as we created it
         let list =
             unsafe { PgList::<pg_sys::Oid>::from_pg(pg_sys::RelationGetIndexList(self.as_ptr())) };

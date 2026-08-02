@@ -777,12 +777,11 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
         let ctx = context.cast::<WalkerContext>();
 
         // Check if this is an OpExpr
-        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node) {
-            if is_paradedb_search_operator((*opexpr).opno) {
+        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node)
+            && is_paradedb_search_operator((*opexpr).opno) {
                 (*ctx).found = true;
                 return true; // Stop walking
             }
-        }
 
         // Continue walking the tree
         pg_sys::expression_tree_walker(node, Some(walker), context)
@@ -849,14 +848,12 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
 
         // Check for window_agg() placeholder (after planner hook replacement)
         // This allows detection even after WindowFunc → window_agg() replacement
-        if (*ctx).window_agg_proc_oid != pg_sys::InvalidOid {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-                if (*funcexpr).funcid == (*ctx).window_agg_proc_oid {
+        if (*ctx).window_agg_proc_oid != pg_sys::InvalidOid
+            && let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+                && (*funcexpr).funcid == (*ctx).window_agg_proc_oid {
                     (*ctx).found = true;
                     return true; // Stop walking
                 }
-            }
-        }
 
         // Continue walking the tree
         pg_sys::expression_tree_walker(node, Some(walker), context)

@@ -421,7 +421,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             ))
         };
 
-        let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
+        let topk_output: Vec<(String, String)> = if let (true, Some(agg_order)) =
             (self.limit_offset.is_some(), &self.aggregate_orderby)
         {
             let dir = match agg_order.direction {

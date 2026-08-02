@@ -86,10 +86,10 @@ fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let mut log_file = args.log_file.clone();
-            if let Some(path) = log_file.as_ref() {
-                if path.display().to_string() == "-" {
-                    log_file = None
-                }
+            if let Some(path) = log_file.as_ref()
+                && path.display().to_string() == "-"
+            {
+                log_file = None
             }
             headless::run(
                 suite_runner,

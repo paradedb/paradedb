@@ -936,37 +936,32 @@ fn build_source_df<'a>(
         ) {
             required_early.insert(name.to_string());
             let attno = unsafe { get_source_attno_by_name(source, name) };
-            if let Some(attno) = attno {
-                if let Some(registered) = source.column_name(attno) {
-                    if registered != name {
+            if let Some(attno) = attno
+                && let Some(registered) = source.column_name(attno)
+                    && registered != name {
                         required_early.insert(registered);
                     }
-                }
-            }
         }
 
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in join_clause.plan.join_keys() {
-            if source.contains_rti(jk.outer_rti) {
-                if let Some(col) = source.column_name(jk.outer_attno) {
+            if source.contains_rti(jk.outer_rti)
+                && let Some(col) = source.column_name(jk.outer_attno) {
                     required_early.insert(col);
                 }
-            }
-            if source.contains_rti(jk.inner_rti) {
-                if let Some(col) = source.column_name(jk.inner_attno) {
+            if source.contains_rti(jk.inner_rti)
+                && let Some(col) = source.column_name(jk.inner_attno) {
                     required_early.insert(col);
                 }
-            }
         }
         // Columns referenced by `JoinNode.filter` (e.g. a disjunctive Semi/Anti
         // `PgExpression`) must also be materialized eagerly — the filter is
         // evaluated per row pair before the join emits anything.
         for (rti, attno) in join_clause.plan.filter_input_vars() {
-            if source.contains_rti(rti) {
-                if let Some(col) = source.column_name(attno) {
+            if source.contains_rti(rti)
+                && let Some(col) = source.column_name(attno) {
                     required_early.insert(col);
                 }
-            }
         }
 
         // Both MPP and PG-parallel hash join need the canonical-segment-id
@@ -997,11 +992,10 @@ fn build_source_df<'a>(
                     }
                     OrderByFeature::Var { rti, attno, .. } => {
                         // Only insert columns belonging to THIS source
-                        if source.contains_rti(*rti) {
-                            if let Some(col_name) = source.column_name(*attno) {
+                        if source.contains_rti(*rti)
+                            && let Some(col_name) = source.column_name(*attno) {
                                 required_early.insert(col_name);
                             }
-                        }
                     }
                     OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {

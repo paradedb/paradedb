@@ -128,10 +128,10 @@ pub fn run(
             }
         }
         std::thread::sleep(log_interval);
-        if let Some(runtime_ms) = runtime_ms {
-            if duration.as_millis() >= runtime_ms {
-                break;
-            }
+        if let Some(runtime_ms) = runtime_ms
+            && duration.as_millis() >= runtime_ms
+        {
+            break;
         }
     }
     writer.flush()?;

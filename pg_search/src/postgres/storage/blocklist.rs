@@ -215,12 +215,11 @@ pub mod builder {
         pub fn push(&mut self, block_number: pg_sys::BlockNumber) {
             assert!(block_number != 0, "cannot add block 0 to the blocklist");
 
-            if let Some(last) = self.queue.last() {
-                if last == &block_number {
+            if let Some(last) = self.queue.last()
+                && last == &block_number {
                     // we just added this block
                     return;
                 }
-            }
 
             if self.queue.len() == BitPacker4x::BLOCK_LEN {
                 self.chunks

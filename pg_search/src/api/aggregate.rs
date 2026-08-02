@@ -87,11 +87,10 @@ fn aggregate_impl(
     // Validate aggregation fields exist and are supported before executing.
     // This path bypasses the planner, so we validate here directly.
     let schema = SearchIndexSchema::open(&relation).ok();
-    if let Some(schema) = schema.as_ref() {
-        if let Err(e) = validate_agg_json_fields(&agg.0, schema) {
+    if let Some(schema) = schema.as_ref()
+        && let Err(e) = validate_agg_json_fields(&agg.0, schema) {
             pgrx::error!("{}", e);
         }
-    }
 
     let standalone_context = ExprContextGuard::new();
     // need a copy of the original request json for rewriting later
@@ -114,8 +113,8 @@ fn aggregate_impl(
 
     let mut output = serde_json::to_value(aggregate)?;
     // rewrite the aggregate results so we get human readable datetime values
-    if relation.created_by_version().stores_datetimes_in_i64() {
-        if let (Some(schema), Some(request_obj), Some(output_obj)) = (
+    if relation.created_by_version().stores_datetimes_in_i64()
+        && let (Some(schema), Some(request_obj), Some(output_obj)) = (
             schema.as_ref(),
             agg_json.as_object(),
             output.as_object_mut(),
@@ -126,7 +125,6 @@ fn aggregate_impl(
                 }
             }
         }
-    }
 
     Ok(JsonB(output))
 }

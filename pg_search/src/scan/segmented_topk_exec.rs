@@ -1317,12 +1317,11 @@ impl SegmentedTopKState {
             None => true,
         };
 
-        if changed {
-            if let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values) {
+        if changed
+            && let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values) {
                 let _ = self.dynamic_filter.update(expr);
                 self.last_published_global = Some(best_row);
             }
-        }
 
         Ok(())
     }
@@ -1345,11 +1344,9 @@ impl SegmentedTopKState {
             .last_segment_cutoffs
             .get(seg_ord as usize)
             .and_then(|c| c.as_ref())
-        {
-            if cached_local == worst_local {
+            && cached_local == worst_local {
                 return Ok((vals.clone(), row.clone()));
             }
-        }
 
         let arrays = self
             .row_converter

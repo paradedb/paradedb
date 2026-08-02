@@ -407,15 +407,14 @@ impl AggregateType {
     /// <https://github.com/quickwit-oss/tantivy/issues/2767>
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         // Check NUMERIC field support for standard aggregates
-        if let Some(field) = self.field_name() {
-            if !schema.field_supports_aggregate(&field) {
+        if let Some(field) = self.field_name()
+            && !schema.field_supports_aggregate(&field) {
                 return Err(format!(
                     "Aggregate on NUMERIC field '{}' cannot be pushed down. \
                      NUMERIC columns do not support aggregate pushdown.",
                     field
                 ));
             }
-        }
 
         // For Custom aggregates, validate field existence and NUMERIC support
         if let AggregateType::Custom { agg_json, .. } = self {

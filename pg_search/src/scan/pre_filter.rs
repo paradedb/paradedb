@@ -168,13 +168,12 @@ impl PreFilter {
                     {
                         return Ok(Transformed::yes(rewritten));
                     }
-                } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
-                    if let Some(rewritten) =
+                } else if let Some(in_list) = node.downcast_ref::<InListExpr>()
+                    && let Some(rewritten) =
                         try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
                     {
                         return Ok(Transformed::yes(rewritten));
                     }
-                }
                 Ok(Transformed::no(node))
             })
             .data()
@@ -184,8 +183,8 @@ impl PreFilter {
             .transform(|node| {
                 if let Some(col) = node.downcast_ref::<Column>() {
                     let orig_idx = col.index();
-                    if orig_idx < schema.fields().len() {
-                        if let Some(new_idx) = self
+                    if orig_idx < schema.fields().len()
+                        && let Some(new_idx) = self
                             .required_columns
                             .iter()
                             .position(|&idx| idx == orig_idx)
@@ -195,7 +194,6 @@ impl PreFilter {
                                 Transformed::yes(Arc::new(new_col) as Arc<dyn PhysicalExpr>),
                             );
                         }
-                    }
                 }
                 Ok(Transformed::no(node))
             })
@@ -269,8 +267,8 @@ pub fn collect_filters(
     score_threshold: &mut Option<Score>,
 ) {
     // Split top-level ANDs to maximize early pruning
-    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
-        if matches!(binary.op(), Operator::And) {
+    if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
+        && matches!(binary.op(), Operator::And) {
             collect_filters(
                 binary.left(),
                 schema,
@@ -287,7 +285,6 @@ pub fn collect_filters(
             );
             return;
         }
-    }
 
     let threshold = match (
         try_extract_score_threshold(expr, score_col_schema_idx),
@@ -319,11 +316,10 @@ fn expr_always_false(expr: &Arc<dyn PhysicalExpr>, score_col_schema_idx: usize) 
         return matches!(lit.value(), ScalarValue::Boolean(Some(false)));
     }
     // score is never null, so 'score IS NULL' is always false
-    if let Some(is_null_expr) = expr.downcast_ref::<IsNullExpr>() {
-        if let Some(col) = is_null_expr.arg().downcast_ref::<Column>() {
+    if let Some(is_null_expr) = expr.downcast_ref::<IsNullExpr>()
+        && let Some(col) = is_null_expr.arg().downcast_ref::<Column>() {
             return col.index() == score_col_schema_idx;
         }
-    }
     false
 }
 
@@ -533,11 +529,10 @@ fn try_rewrite_binary(
     let left_lit = binary.left().downcast_ref::<Literal>();
     let right_col = binary.right().downcast_ref::<Column>();
 
-    if let (Some(lit), Some(col)) = (left_lit, right_col) {
-        if let Some(flipped_op) = flip_operator(binary.op()) {
+    if let (Some(lit), Some(col)) = (left_lit, right_col)
+        && let Some(flipped_op) = flip_operator(binary.op()) {
             return rewrite_col_op_lit(col, &flipped_op, lit, ffhelper, segment_ord, schema);
         }
-    }
 
     Ok(None)
 }
@@ -783,12 +778,11 @@ fn extract_in_list_exprs<'a>(
 ) {
     if expr.is::<InListExpr>() {
         in_lists.push(expr);
-    } else if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
-        if matches!(binary.op(), Operator::And) {
+    } else if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
+        && matches!(binary.op(), Operator::And) {
             extract_in_list_exprs(binary.left(), in_lists);
             extract_in_list_exprs(binary.right(), in_lists);
         }
-    }
 }
 
 /// Outcome of trying to convert one join-derived `InList` predicate.

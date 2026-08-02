@@ -34,15 +34,15 @@ impl TokenLengthFilter {
 
 impl<T> TokenLengthFilterStream<T> {
     fn predicate(&self, token: &Token) -> bool {
-        if let Some(min) = self.min {
-            if token.text.len() < min {
-                return false;
-            }
+        if let Some(min) = self.min
+            && token.text.len() < min
+        {
+            return false;
         }
-        if let Some(max) = self.max {
-            if token.text.len() > max {
-                return false;
-            }
+        if let Some(max) = self.max
+            && token.text.len() > max
+        {
+            return false;
         }
         true
     }

@@ -674,7 +674,7 @@ impl ParallelScanState {
         self.init_cv.broadcast();
     }
 
-    pub fn acquire_mutex(&mut self) -> impl Drop {
+    pub fn acquire_mutex(&mut self) -> impl Drop + use<> {
         self.mutex.acquire()
     }
 
@@ -1079,7 +1079,7 @@ impl ParallelScanState {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn IsLogicalWorker() -> bool;
 }
 

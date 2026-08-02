@@ -250,13 +250,11 @@ impl Iterator for TopKSearchResults {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
-        if self.iterators.is_empty() {
-            if let Some(ref mut lazy) = self.lazy_iterators {
-                if let Some(next_iter) = lazy.next() {
+        if self.iterators.is_empty()
+            && let Some(ref mut lazy) = self.lazy_iterators
+                && let Some(next_iter) = lazy.next() {
                     self.iterators.push(next_iter);
                 }
-            }
-        }
         self.iterators.last_mut()
     }
 
@@ -1459,12 +1457,10 @@ impl SearchIndexReader {
         // actual leaf queries (e.g., real "All" query has 0 children and should be estimated).
         if matches!(&node.query, SearchQueryInput::Empty | SearchQueryInput::All)
             && node.children().len() == 1
-        {
-            if let Some(child_estimate) = node.children()[0].estimated_docs {
+            && let Some(child_estimate) = node.children()[0].estimated_docs {
                 node.set_estimate(child_estimate);
                 return;
             }
-        }
 
         let tantivy_query = node
             .query

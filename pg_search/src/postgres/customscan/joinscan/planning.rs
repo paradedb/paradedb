@@ -82,15 +82,14 @@ pub(super) unsafe fn expr_uses_scores_from_source(
             let data = context.cast::<Data>();
             if (*data).funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if args.len() == 1 {
-                    if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+                if args.len() == 1
+                    && let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                         let varno = (*var).varno as pg_sys::Index;
                         if (*data).source.contains_rti(varno) {
                             (*data).found = true;
                             return true; // Abort traversal, found it
                         }
                     }
-                }
             }
         }
 
@@ -1201,11 +1200,9 @@ pub(super) unsafe fn collect_required_fields(
                     original_attno,
                     ..
                 }) = output_columns.get(idx)
-                {
-                    if *original_attno > 0 {
+                    && *original_attno > 0 {
                         ensure_column_in_all_sources(&mut plan_sources, *rti, *original_attno);
                     }
-                }
             } else {
                 ensure_column_in_all_sources(&mut plan_sources, var.rti, var.attno);
             }
@@ -1269,11 +1266,10 @@ pub(super) unsafe fn collect_required_fields(
                                         .then_some(())
                                 })
                                 .is_some();
-                            if !added {
-                                if let Err(e) = ensure_expression_field(source, name) {
+                            if !added
+                                && let Err(e) = ensure_expression_field(source, name) {
                                     pgrx::warning!("JoinScan: failed to project expression field '{name}': {e}");
                                 }
-                            }
                             break;
                         }
                     }
@@ -1645,12 +1641,11 @@ unsafe fn column_name_for_var(
         if source.contains_rti(varno) {
             let hr = PgSearchRelation::open(source.scan_info.heaprelid);
             let td = hr.tuple_desc();
-            if varattno > 0 && (varattno as usize) <= td.len() {
-                if let Some(attr) = td.get((varattno - 1) as usize) {
+            if varattno > 0 && (varattno as usize) <= td.len()
+                && let Some(attr) = td.get((varattno - 1) as usize) {
                     let tbl = source_table_name(source);
                     return format!("{}.{}", tbl, attr.name());
                 }
-            }
         }
     }
     format!("rti {}, attno {}", varno, varattno)
@@ -1898,8 +1893,8 @@ pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sy
     let stripped_expr = strip_wrappers(expr.cast());
     if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, stripped_expr) {
         let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-        if !args.is_empty() {
-            if let Some(arg) = args.get_ptr(0) {
+        if !args.is_empty()
+            && let Some(arg) = args.get_ptr(0) {
                 let stripped_arg = strip_wrappers(arg);
                 if let Some(var) = nodecast!(Var, T_Var, stripped_arg) {
                     let varno = (*var).varno as pg_sys::Index;
@@ -1908,7 +1903,6 @@ pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sy
                     }
                 }
             }
-        }
     }
     None
 }
@@ -1928,16 +1922,14 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
     }
     if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
         let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-        if !args.is_empty() {
-            if let Some(arg) = args.get_ptr(0) {
-                if let Some(var) = nodecast!(Var, T_Var, arg) {
+        if !args.is_empty()
+            && let Some(arg) = args.get_ptr(0)
+                && let Some(var) = nodecast!(Var, T_Var, arg) {
                     let varno = (*var).varno as pg_sys::Index;
                     if source.contains_rti(varno) {
                         return is_score_func(expr.cast(), varno);
                     }
                 }
-            }
-        }
     }
     false
 }

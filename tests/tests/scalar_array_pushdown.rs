@@ -83,7 +83,9 @@ pub struct ScalarArrayExpr {
 }
 
 impl ScalarArrayExpr {
-    fn sample_values(&self) -> impl Strategy<Value = String> {
+    // The strategy is built from owned data, so `use<>` keeps it from capturing the `&self`
+    // lifetime that edition 2024 would otherwise pull into the opaque type.
+    fn sample_values(&self) -> impl Strategy<Value = String> + use<> {
         let values = match self.column_type {
             ColumnType::Text => vec![
                 "'apple'".to_string(),

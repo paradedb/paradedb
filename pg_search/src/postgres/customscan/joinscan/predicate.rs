@@ -207,8 +207,8 @@ pub unsafe fn transform_to_search_expr(
         let plan_position = source.plan_position;
 
         // Extract the Tantivy query for this expression
-        if let Some(base_info) = find_base_info_recursive(source, rti) {
-            if let Some(predicate_idx) =
+        if let Some(base_info) = find_base_info_recursive(source, rti)
+            && let Some(predicate_idx) =
                 extract_single_table_predicate(root, rti, &base_info, node, join_clause)
             {
                 return Some(JoinLevelExpr::SingleTablePredicate {
@@ -216,7 +216,6 @@ pub unsafe fn transform_to_search_expr(
                     predicate_idx,
                 });
             }
-        }
         return None;
     }
 
@@ -291,8 +290,8 @@ pub unsafe fn transform_to_search_expr(
                 }
             }
             pg_sys::BoolExprType::NOT_EXPR => {
-                if let Some(arg) = args.iter_ptr().next() {
-                    if let Some(child_expr) = transform_to_search_expr(
+                if let Some(arg) = args.iter_ptr().next()
+                    && let Some(child_expr) = transform_to_search_expr(
                         root,
                         arg,
                         sources,
@@ -301,7 +300,6 @@ pub unsafe fn transform_to_search_expr(
                     ) {
                         return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                     }
-                }
                 None
             }
             _ => None,

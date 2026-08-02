@@ -308,11 +308,10 @@ impl SearchFieldType {
                     // Note: Numeric64 fields support aggregate pushdown (SUM, AVG, MIN, MAX),
                     // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
                     let (precision, scale) = extract_numeric_precision_scale(typmod);
-                    if let Some(scale) = scale {
-                        if precision > 0 && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16 {
+                    if let Some(scale) = scale
+                        && precision > 0 && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16 {
                             return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
                         }
-                    }
                     // Pass the scale to NumericBytes so it can format output with correct decimal places
                     Ok(SearchFieldType::NumericBytes((*builtin).into(), scale))
                 }

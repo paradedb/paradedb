@@ -214,8 +214,8 @@ impl MessageQueueReceiver {
 
             match result {
                 pg_sys::shm_mq_result::SHM_MQ_SUCCESS => {
-                    let result = Ok(std::slice::from_raw_parts(msg as *mut u8, len).to_vec());
-                    result
+                    
+                    Ok(std::slice::from_raw_parts(msg as *mut u8, len).to_vec())
                 }
                 other => Err(MessageQueueRecvError::from(other)),
             }
@@ -230,10 +230,10 @@ impl MessageQueueReceiver {
 
             match result {
                 pg_sys::shm_mq_result::SHM_MQ_SUCCESS => {
-                    let result = Ok(Some(
+                    
+                    Ok(Some(
                         std::slice::from_raw_parts(msg as *mut u8, len).to_vec(),
-                    ));
-                    result
+                    ))
                 }
                 pg_sys::shm_mq_result::SHM_MQ_WOULD_BLOCK => Ok(None),
                 other => Err(MessageQueueRecvError::from(other)),

@@ -346,11 +346,15 @@ ANALYZE {tname};
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
-pub fn arb_joins_and_wheres(
-    join_types: impl Strategy<Value = JoinType> + Clone,
-    tables: Vec<impl AsRef<str>>,
+pub fn arb_joins_and_wheres<J, S>(
+    join_types: J,
+    tables: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = (JoinExpr, Expr)> {
+) -> impl Strategy<Value = (JoinExpr, Expr)> + use<J, S>
+where
+    J: Strategy<Value = JoinType> + Clone,
+    S: AsRef<str>,
+{
     let table_names = tables
         .into_iter()
         .map(|tn| tn.as_ref().to_string())

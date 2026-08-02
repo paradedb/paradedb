@@ -76,11 +76,10 @@ pub unsafe fn uses_scores(
             if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 assert!(args.len() == 1, "score function must have 1 argument");
-                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                    if (*var).varno as i32 == (*data).rti as i32 {
+                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                    && (*var).varno as i32 == (*data).rti as i32 {
                         return true;
                     }
-                }
             }
         }
 
@@ -101,17 +100,15 @@ pub unsafe fn uses_scores(
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if score_funcoids().contains(&(*funcexpr).funcid) {
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+        && score_funcoids().contains(&(*funcexpr).funcid) {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             assert!(args.len() == 1, "score function must have 1 argument");
-            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                if (*var).varno as i32 == rti as i32 {
+            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                && (*var).varno as i32 == rti as i32 {
                     return true;
                 }
-            }
         }
-    }
 
     false
 }

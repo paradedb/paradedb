@@ -154,11 +154,10 @@ impl<W: Write> Write for PanicSafeBufWriter<W> {
 /// we want to skip the `Drop` of the writer entirely on panic
 impl<W: Write> Drop for PanicSafeBufWriter<W> {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Some(buffer) = self.inner.take() {
+        if std::thread::panicking()
+            && let Some(buffer) = self.inner.take() {
                 std::mem::forget(buffer);
             }
-        }
     }
 }
 
@@ -315,11 +314,10 @@ mod tests {
                 // Record observations only -- a failed assert here would be a
                 // panic during unwind, aborting the test harness.  The asserts
                 // happen after catch_unwind returns.
-                if let Ok(n) = self.writer.write(b"should be skipped") {
-                    if n == 17 {
+                if let Ok(n) = self.writer.write(b"should be skipped")
+                    && n == 17 {
                         WRITE_OK.store(true, Ordering::SeqCst);
                     }
-                }
                 if self.writer.flush().is_ok() {
                     FLUSH_OK.store(true, Ordering::SeqCst);
                 }

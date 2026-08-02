@@ -793,7 +793,7 @@ impl BufferManager {
         }
     }
 
-    pub fn fsm(&mut self) -> impl FreeSpaceManager {
+    pub fn fsm(&mut self) -> impl FreeSpaceManager + use<> {
         let fsm_blockno = *self
             .fsm_blockno
             .get_or_insert_with(|| MetaPage::open(self.rbufacc.rel()).fsm());

@@ -369,7 +369,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
 /// Actually do the merge
 /// This function is called by the background worker.
 #[pg_guard]
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);

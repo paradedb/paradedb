@@ -472,7 +472,7 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         ctids: Vec<u64>,
     ) -> Result<(), &str> {
-        let SegmentMetaEntryContent::Mutable(ref mut content) = &mut self.content else {
+        let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
             return Err("Cannot delete items from a non-mutable segment");
         };
 
@@ -492,7 +492,7 @@ impl SegmentMetaEntry {
 
     /// Return a snapshot of the ctids which were valid when this SegmentMetaEntry was opened.
     pub fn mutable_snapshot(&self, indexrel: &PgSearchRelation) -> Result<Vec<u64>, &str> {
-        let SegmentMetaEntryContent::Mutable(ref content) = &self.content else {
+        let SegmentMetaEntryContent::Mutable(content) = &self.content else {
             return Err("Cannot snapshot a non-mutable segment");
         };
 

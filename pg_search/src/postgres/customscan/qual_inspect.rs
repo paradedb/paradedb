@@ -959,14 +959,12 @@ pub unsafe fn extract_quals(
 
                     if let Some(search_field) =
                         indexrel.schema().ok()?.search_field(field.attname())
-                    {
-                        if search_field.is_fast() {
+                        && search_field.is_fast() {
                             // This is an indexed boolean field, create proper pushdown qual
                             // T_Var alone represents "field = true"
                             state.uses_tantivy_to_query = true;
                             return Some(Qual::PushdownVarEqTrue { field });
                         }
-                    }
                 }
 
                 // If we reach here, the field is not indexed or not fast, so create HeapExpr
@@ -1012,11 +1010,9 @@ pub unsafe fn extract_quals(
             // Note: PushdownField::try_new requires PlannerInfo
             if let Some(root) = context.planner_info() {
                 if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), indexrel)
-                {
-                    if let Some(search_field) =
+                    && let Some(search_field) =
                         indexrel.schema().ok()?.search_field(field.attname().root())
-                    {
-                        if search_field.is_fast() {
+                        && search_field.is_fast() {
                             if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
                                 return Some(Qual::PushdownIsNotNull { field });
                             } else {
@@ -1025,8 +1021,6 @@ pub unsafe fn extract_quals(
                                 })));
                             }
                         }
-                    }
-                }
                 // If we reach here, try creating HeapExpr
                 try_create_heap_expr_from_null_test(
                     nulltest,
@@ -1495,8 +1489,8 @@ pub unsafe fn contains_correlated_param(
         context: *mut core::ffi::c_void,
     ) -> bool {
         let root = context as *mut pg_sys::PlannerInfo;
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
                 let param_is_from_init_plan =
                     PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
                         .iter_ptr()
@@ -1510,7 +1504,6 @@ pub unsafe fn contains_correlated_param(
                     return true;
                 }
             }
-        }
         pg_sys::expression_tree_walker(node, Some(walker), context)
     }
 
@@ -1529,11 +1522,10 @@ pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
         node: *mut pg_sys::Node,
         _data: *mut core::ffi::c_void,
     ) -> bool {
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
                 return true;
             }
-        }
         pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
 
@@ -1687,15 +1679,14 @@ pub unsafe fn extract_join_predicates(
                 true,
                 &mut qual_extract_state,
                 attempt_pushdown,
-            ) {
-                if qual_extract_state.uses_our_operator {
+            )
+                && qual_extract_state.uses_our_operator {
                     // Convert qual to SearchQueryInput and return the entire expression
                     let search_input = SearchQueryInput::from(&qual);
                     // Return the entire simplified expression for scoring
                     // This preserves OR structures like (TRUE OR name:"Rowling")
                     return Some(search_input);
                 }
-            }
         }
     }
 
@@ -1876,11 +1867,10 @@ unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sy
     ) -> bool {
         let target_rti = context as pg_sys::Index;
 
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            if (*var).varno as pg_sys::Index == target_rti {
+        if let Some(var) = nodecast!(Var, T_Var, node)
+            && (*var).varno as pg_sys::Index == target_rti {
                 return true;
             }
-        }
 
         pg_sys::expression_tree_walker(node, Some(walker), context)
     }
@@ -1964,8 +1954,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
             if let Qual::HeapExpr {
                 search_query_input, ..
             } = &mut quals[heap_idx]
-            {
-                if matches!(**search_query_input, SearchQueryInput::All)
+                && matches!(**search_query_input, SearchQueryInput::All)
                     && !indexed_queries.is_empty()
                 {
                     **search_query_input = SearchQueryInput::Boolean {
@@ -1975,7 +1964,6 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                         minimum_should_match: None,
                     };
                 }
-            }
         }
 
         // Remove the indexed quals that were merged into HeapExpr

@@ -110,7 +110,7 @@ unsafe fn go_flag(sm: &ParallelStateManager) -> &'static AtomicU32 {
 
 /// AggregateScan worker entry point. PG resolves this symbol by name (passed to
 /// `ParallelProcessBuilder::build`), so the name must match the string in [`launch_mpp_aggregate`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     seg: *mut pg_sys::dsm_segment,
@@ -124,7 +124,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
 
 /// JoinScan worker entry point. PG resolves this symbol by name; it must match the string in
 /// [`launch_mpp_join`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
     seg: *mut pg_sys::dsm_segment,

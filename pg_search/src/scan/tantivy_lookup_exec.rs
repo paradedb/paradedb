@@ -116,11 +116,10 @@ impl TantivyLookupExec {
                     None
                 })
                 .collect();
-            if rewritten.len() == input_ordering.len() {
-                if let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten) {
+            if rewritten.len() == input_ordering.len()
+                && let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten) {
                     eq_props.add_ordering(lex);
                 }
-            }
         }
         let properties = Arc::new(PlanProperties::new(
             eq_props,

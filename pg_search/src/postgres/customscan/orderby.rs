@@ -138,14 +138,13 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
 }
 
 unsafe fn extract_score_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if score_funcoids().contains(&(*funcexpr).funcid) {
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+        && score_funcoids().contains(&(*funcexpr).funcid) {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             if args.len() == 1 {
                 return nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
             }
         }
-    }
     None
 }
 
@@ -179,17 +178,17 @@ unsafe fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_s
         pg_sys::NodeTag::T_Var => Some(node as *mut pg_sys::Var),
         pg_sys::NodeTag::T_FuncExpr => {
             let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::FuncExpr)).args);
-            let result = args
+            
+            args
                 .iter_ptr()
-                .find_map(|arg| extract_any_var_from_expr(arg));
-            result
+                .find_map(|arg| extract_any_var_from_expr(arg))
         }
         pg_sys::NodeTag::T_OpExpr => {
             let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::OpExpr)).args);
-            let result = args
+            
+            args
                 .iter_ptr()
-                .find_map(|arg| extract_any_var_from_expr(arg));
-            result
+                .find_map(|arg| extract_any_var_from_expr(arg))
         }
         pg_sys::NodeTag::T_RelabelType => {
             extract_any_var_from_expr((*(node as *mut pg_sys::RelabelType)).arg.cast())
@@ -240,8 +239,8 @@ pub unsafe fn analyze_sort_expression(
     // expressions like `lower(description)::pdb.literal('alias=literal_description')`
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
-    if let Some(info) = index_info {
-        if let Some(fast_field) = find_matching_fast_field(
+    if let Some(info) = index_info
+        && let Some(fast_field) = find_matching_fast_field(
             node,
             info.index_expressions,
             info.schema.clone(),
@@ -252,15 +251,13 @@ pub unsafe fn analyze_sort_expression(
                 return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
             }
         }
-    }
 
-    if let Some(info) = index_info {
-        if let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema) {
+    if let Some(info) = index_info
+        && let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema) {
             let (relid, attno) = context.var_relation(var);
             let field_name = fieldname_from_var(relid, var, attno);
             return Some((vector_sort, var, field_name));
         }
-    }
 
     if let Some(var) = extract_lower_var(node) {
         let (relid, attno) = context.var_relation(var);
@@ -542,11 +539,10 @@ where
             // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
             // that might be wrapped.
             let mut expr_to_analyze = expr;
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr)
+                && let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
                     expr_to_analyze = funcexpr.cast();
                 }
-            }
 
             let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
                 index_expressions: idx_exprs,
@@ -571,9 +567,9 @@ where
                         break;
                     }
                     SortExpressionType::Lower => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if lower_sortability_check(&search_field) {
+                        if let Some(field_name) = field_name_opt
+                            && let Some(search_field) = schema.search_field(field_name.root())
+                                && lower_sortability_check(&search_field) {
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
@@ -582,13 +578,11 @@ where
                                     found_valid_member = true;
                                     break;
                                 }
-                            }
-                        }
                     }
                     SortExpressionType::Raw => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if regular_sortability_check(&search_field) {
+                        if let Some(field_name) = field_name_opt
+                            && let Some(search_field) = schema.search_field(field_name.root())
+                                && regular_sortability_check(&search_field) {
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
@@ -597,13 +591,11 @@ where
                                     found_valid_member = true;
                                     break;
                                 }
-                            }
-                        }
                     }
                     SortExpressionType::IndexedExpression => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if search_field.is_fast() {
+                        if let Some(field_name) = field_name_opt
+                            && let Some(search_field) = schema.search_field(field_name.root())
+                                && search_field.is_fast() {
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
@@ -612,8 +604,6 @@ where
                                     found_valid_member = true;
                                     break;
                                 }
-                            }
-                        }
                     }
                     SortExpressionType::VectorDistance {
                         ref query_vector,

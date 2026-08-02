@@ -1155,7 +1155,7 @@ impl RelNode {
     /// Returns `true` if the key was successfully placed.
     fn inject_single_equi_key(&mut self, key: JoinKeyPair) -> bool {
         match self {
-            RelNode::Join(ref mut join_node) => {
+            RelNode::Join(join_node) => {
                 let outer_in_left = join_node.left.contains_rti(key.outer_rti);
                 let outer_in_right = join_node.right.contains_rti(key.outer_rti);
                 let inner_in_left = join_node.left.contains_rti(key.inner_rti);
@@ -1191,7 +1191,7 @@ impl RelNode {
 
                 false
             }
-            RelNode::Filter(ref mut filter) => filter.input.inject_single_equi_key(key),
+            RelNode::Filter(filter) => filter.input.inject_single_equi_key(key),
             RelNode::Scan(_) => false,
         }
     }
@@ -1309,13 +1309,12 @@ unsafe fn substitute_pruned_key_side(
             }
         }
 
-        if contains_pruned {
-            if let Some((rti, attno)) = replacement {
+        if contains_pruned
+            && let Some((rti, attno)) = replacement {
                 *out_rti = rti;
                 *out_attno = attno;
                 return true;
             }
-        }
     }
 
     false

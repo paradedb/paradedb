@@ -27,11 +27,10 @@ use tests::fixtures::*;
 fn plan_has_parallel_workers(v: &Value) -> bool {
     match v {
         Value::Object(obj) => {
-            if let Some(workers) = obj.get("Workers Planned").and_then(|w| w.as_i64()) {
-                if workers > 0 {
+            if let Some(workers) = obj.get("Workers Planned").and_then(|w| w.as_i64())
+                && workers > 0 {
                     return true;
                 }
-            }
             obj.values().any(plan_has_parallel_workers)
         }
         Value::Array(arr) => arr.iter().any(plan_has_parallel_workers),

@@ -226,10 +226,12 @@ impl Conn {
             transactions: self
                 .clients
                 .iter_mut()
-                .map(|(client, ref server, pid)| {
+                .map(|(client, server, pid)| {
                     client
                         .transaction()
-                        .map(|xact| (xact, server, *pid))
+                        // `server` binds as `&mut` here under edition 2024 binding modes;
+                        // `MultiTransaction` only needs a shared reference.
+                        .map(|xact| (xact, &*server, *pid))
                         .map_err(Arc::new)
                 })
                 .collect::<PostgresResult<Vec<_>>>()?,
@@ -996,13 +998,13 @@ impl JobRunner {
         }
 
         for (conninfo, stats) in &mut self.runtime_stats.write().iter_mut() {
-            if self.running() {
-                if let Some((cpu_usage, mem_usage)) = sys_info(conninfo.pid(), &self.sys.read()) {
-                    if cpu_usage > 0.0 {
-                        stats.cpu_usage = cpu_usage;
-                    }
-                    stats.mem_usage = mem_usage;
+            if self.running()
+                && let Some((cpu_usage, mem_usage)) = sys_info(conninfo.pid(), &self.sys.read())
+            {
+                if cpu_usage > 0.0 {
+                    stats.cpu_usage = cpu_usage;
                 }
+                stats.mem_usage = mem_usage;
             }
         }
     }

@@ -645,9 +645,9 @@ pub unsafe fn deserialize_window_agg_placeholders(
             if (*funcexpr).funcid == (*context).window_agg_procid {
                 // Found a window_agg(json) call - deserialize it
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if let Some(json_arg) = args.get_ptr(0) {
-                    if let Some(const_node) = nodecast!(Const, T_Const, json_arg) {
-                        if !(*const_node).constisnull {
+                if let Some(json_arg) = args.get_ptr(0)
+                    && let Some(const_node) = nodecast!(Const, T_Const, json_arg)
+                        && !(*const_node).constisnull {
                             let json_datum = (*const_node).constvalue;
                             let json_varlena = json_datum.cast_mut_ptr::<pg_sys::varlena>();
                             let json_varlena_detoasted =
@@ -675,8 +675,6 @@ pub unsafe fn deserialize_window_agg_placeholders(
                                 }
                             }
                         }
-                    }
-                }
             }
         }
 

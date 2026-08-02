@@ -43,11 +43,10 @@ impl ProximityWeight {
 
     fn fieldnorm_reader(&self, reader: &SegmentReader) -> tantivy::Result<FieldNormReader> {
         let field = self.query.field();
-        if self.weight_opt.is_some() {
-            if let Some(fieldnorm_reader) = reader.fieldnorms_readers().get_field(field)? {
+        if self.weight_opt.is_some()
+            && let Some(fieldnorm_reader) = reader.fieldnorms_readers().get_field(field)? {
                 return Ok(fieldnorm_reader);
             }
-        }
         Ok(FieldNormReader::constant(reader.max_doc(), 1))
     }
 

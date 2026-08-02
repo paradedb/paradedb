@@ -676,11 +676,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
         if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0) {
-                if let Some(name) = source.column_name(col_idx) {
+            if let Some(col_idx) = source.map_var(rti, 0)
+                && let Some(name) = source.column_name(col_idx) {
                     return Some(make_col(&alias, &name));
                 }
-            }
             return Some(make_col(&alias, SCORE_COL_NAME));
         }
 

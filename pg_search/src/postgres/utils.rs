@@ -47,7 +47,7 @@ use tokenizers::SearchNormalizer;
 
 use super::datetime::PostgresDateTime;
 
-extern "C-unwind" {
+unsafe extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
     pub fn IsTransactionState() -> bool;
@@ -307,13 +307,11 @@ pub unsafe fn collect_composites_for_unpacking<'a>(
             composite_type_oid,
             ..
         } = cat.source
-        {
-            if seen.insert(index_attno) {
+            && seen.insert(index_attno) {
                 let datum = *values.add(index_attno);
                 let is_null = *isnull.add(index_attno);
                 return Some((index_attno, datum, is_null, composite_type_oid));
             }
-        }
         None
     })
 }
@@ -434,8 +432,8 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
             node = (*phv).phexpr.cast();
             continue;
         }
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            if is_unnest_func((*func).funcid) {
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node)
+            && is_unnest_func((*func).funcid) {
                 found_unnest = true;
                 let args = PgList::<pg_sys::Node>::from_pg((*func).args);
                 if let Some(arg) = args.get_ptr(0) {
@@ -443,7 +441,6 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
                     continue;
                 }
             }
-        }
         break;
     }
     (node, found_unnest)
@@ -502,13 +499,11 @@ pub unsafe fn extract_field_attributes(
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
     #[inline]
     unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
-            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg) {
-                if (*func_expr).funcid == text_lower_funcoid() {
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression)
+            && let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
+                && (*func_expr).funcid == text_lower_funcoid() {
                     return true;
                 }
-            }
-        }
 
         false
     }
@@ -652,12 +647,11 @@ pub unsafe fn extract_field_attributes(
                         } else {
                             // if we have a non text field text to `pdb.alias`, unwrap it to get the inner typoid
                             if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expression)
-                            {
-                                if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
+                                && let Some(func) = nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
                                 {
                                     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                                    if args.len() == 1 {
-                                        if let Some(arg) = args.get_ptr(0) {
+                                    if args.len() == 1
+                                        && let Some(arg) = args.get_ptr(0) {
                                             if let Some(inner_func) =
                                                 nodecast!(FuncExpr, T_FuncExpr, arg)
                                             {
@@ -668,9 +662,7 @@ pub unsafe fn extract_field_attributes(
                                                 inner_typoid = (*op_expr).opresulttype;
                                             }
                                         }
-                                    }
                                 }
-                            }
 
                             // use the alias name as the field name instead of the heap attribute name
                             let alias_typmod =

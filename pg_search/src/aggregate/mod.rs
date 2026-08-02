@@ -591,8 +591,8 @@ fn set_missing_on_terms(
         sub_aggregation,
     } in aggs.values_mut()
     {
-        if let AggregationVariants::Terms(terms) = agg {
-            if terms.missing.is_none() {
+        if let AggregationVariants::Terms(terms) = agg
+            && terms.missing.is_none() {
                 // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
                 let use_min = use_min_sentinel_fields.contains(&terms.field);
                 // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
@@ -656,7 +656,6 @@ fn set_missing_on_terms(
                 };
                 terms.missing = Some(sentinel);
             }
-        }
         set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
     }
 }

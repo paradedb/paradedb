@@ -188,15 +188,14 @@ impl SolvePostgresExpressions for AggregateScanState {
         // Check both the Tantivy-path search queries and DataFusion-path
         // join-level predicates for unresolved PostgresExpression nodes
         // (prepared statement parameters like $1).
-        if let Some(ref mut df) = self.datafusion_state {
-            if df
+        if let Some(ref mut df) = self.datafusion_state
+            && df
                 .join_level_predicates
                 .iter_mut()
                 .any(|p| p.query.has_postgres_expressions())
             {
                 return true;
             }
-        }
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
                 .aggregate_clause
@@ -205,15 +204,14 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn has_parameters(&mut self) -> bool {
-        if let Some(ref mut df) = self.datafusion_state {
-            if df
+        if let Some(ref mut df) = self.datafusion_state
+            && df
                 .join_level_predicates
                 .iter_mut()
                 .any(|p| p.query.has_parameters())
             {
                 return true;
             }
-        }
         self.aggregate_clause.query_mut().has_parameters()
             || self
                 .aggregate_clause
@@ -225,11 +223,10 @@ impl SolvePostgresExpressions for AggregateScanState {
         if let Some(base) = &self.base_aggregate_clause {
             self.aggregate_clause = base.clone();
         }
-        if let Some(ref mut df) = self.datafusion_state {
-            if let Some(base) = &df.base_join_level_predicates {
+        if let Some(ref mut df) = self.datafusion_state
+            && let Some(base) = &df.base_join_level_predicates {
                 df.join_level_predicates = base.clone();
             }
-        }
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {

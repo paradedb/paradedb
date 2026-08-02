@@ -28,11 +28,10 @@ use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchIndexSchema;
 
 fn is_a_datetime_field(key: &str, schema: &SearchIndexSchema) -> bool {
-    if let Some(field) = schema.search_field(key) {
-        if is_pgoid_datetime_type(field.field_type().typeoid()) {
+    if let Some(field) = schema.search_field(key)
+        && is_pgoid_datetime_type(field.field_type().typeoid()) {
             return true;
         }
-    }
     false
 }
 
@@ -106,22 +105,19 @@ pub fn rewrite_aggregate_result_json_timestamps(
     // mirroring the bucket `key_as_string` convention.
     let single_metric_field_paths = ["/min/field", "/max/field", "/sum/field", "/avg/field"];
     for path in single_metric_field_paths {
-        if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str()) {
-            if is_a_datetime_field(field_name, schema) {
-                if let Some(obj) = output_json.as_object_mut() {
-                    if let Some(v) = obj.get("value") {
-                        if let Some(key_as_str) = i64_value_to_timestamp_string(v) {
+        if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str())
+            && is_a_datetime_field(field_name, schema) {
+                if let Some(obj) = output_json.as_object_mut()
+                    && let Some(v) = obj.get("value")
+                        && let Some(key_as_str) = i64_value_to_timestamp_string(v) {
                             obj.insert(
                                 "key_as_string".to_string(),
                                 serde_json::Value::String(key_as_str),
                             );
                         }
-                    }
-                }
                 // a given agg is only ever one of these variants — stop checking
                 break;
             }
-        }
     }
 
     // BUCKETS
@@ -152,21 +148,18 @@ pub fn rewrite_aggregate_result_json_timestamps(
         .and_then(|v| v.as_array_mut())
     {
         for bucket in buckets.iter_mut().filter_map(|v| v.as_object_mut()) {
-            if rewrite_key {
-                if let Some(v) = bucket.get_mut("key") {
+            if rewrite_key
+                && let Some(v) = bucket.get_mut("key") {
                     rewrite_i64_value_to_timestamp_string(v);
                 }
-            }
-            if add_key_as_string {
-                if let Some(v) = bucket.get("key") {
-                    if let Some(key_as_str) = i64_value_to_timestamp_string(v) {
+            if add_key_as_string
+                && let Some(v) = bucket.get("key")
+                    && let Some(key_as_str) = i64_value_to_timestamp_string(v) {
                         bucket.insert(
                             "key_as_string".to_string(),
                             serde_json::Value::String(key_as_str),
                         );
                     }
-                }
-            }
             // sub-aggs
             if let Some(subaggs) = agg_json.get("aggs").and_then(|v| v.as_object()) {
                 for (key, subagg_json) in subaggs.iter() {
@@ -233,8 +226,8 @@ fn json_date_histogram_to_histogram(value: serde_json::Value) -> Option<serde_js
 /// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
 /// pg_micros I64 representation
 pub fn rewrite_json_date_histogram_to_histogram(agg_json: &mut serde_json::Value) {
-    if let Some(agg_obj) = agg_json.as_object_mut() {
-        if let Some(date_histogram_obj) = agg_obj.get("date_histogram") {
+    if let Some(agg_obj) = agg_json.as_object_mut()
+        && let Some(date_histogram_obj) = agg_obj.get("date_histogram") {
             // only modify the object if the rewrite is successful. Otherwise let the object
             // pass-through and allow tantivy to reject the bad structure
             if let Some(histogram_obj) =
@@ -244,7 +237,6 @@ pub fn rewrite_json_date_histogram_to_histogram(agg_json: &mut serde_json::Value
                 agg_obj.insert("histogram".to_string(), histogram_obj);
             }
         }
-    }
     // recurse into subaggs
     if let Some(subaggs) = agg_json.get_mut("aggs").and_then(|v| v.as_object_mut()) {
         for v in subaggs.values_mut() {

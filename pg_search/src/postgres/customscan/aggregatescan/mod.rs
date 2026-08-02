@@ -421,6 +421,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: MppLifecycle::Inactive,
+                    launch_timing: None,
                 });
                 builder.build()
             }
@@ -520,6 +521,11 @@ impl CustomScan for AggregateScan {
                 // construction, not actual execute calls. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
+                if explainer.is_verbose() {
+                    if let Some(t) = df_state.launch_timing {
+                        explainer.add_text("MPP Launch", t.explain_text());
+                    }
+                }
             }
             return;
         }
@@ -566,10 +572,10 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
-            // MPP: serialize the logical plan now, while the source manifests are alive, so
-            // the first-exec prepare can size the DSM payload region before the physical plan
-            // exists. Only the leader runs this branch (`ParallelWorkerNumber == -1` in the
-            // leader backend).
+            // MPP: serialize the logical plan now, while the source manifests are alive; the
+            // first exec call's launch sizes the DSM dispatch-payload region from its length.
+            // Only the leader runs this branch (`ParallelWorkerNumber == -1` in the leader
+            // backend).
             if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 Self::stash_mpp_plan_bytes(state);
             }
@@ -804,9 +810,8 @@ impl AggregateScan {
     }
 
     /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
-    /// to `PlanBytes`. The first-exec prepare uses the byte length to size the DSM payload
-    /// region; the dispatched stage plans themselves are derived later, from the leader's
-    /// physical plan.
+    /// to `PlanBytes`. `launch_mpp` uses the byte length to size the DSM payload region; the
+    /// dispatched stage plans themselves are derived later, from the leader's physical plan.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
         // Capture source manifests BEFORE building the logical plan.
         // We pass `is_mpp: false` below because this plan is only serialized to compute `.len()`
@@ -819,8 +824,8 @@ impl AggregateScan {
             return;
         };
         // Build a logical plan eagerly. The DataFusion exec path normally
-        // builds it lazily on first `exec_custom_scan` call; for MPP we
-        // need it before estimate_dsm fires.
+        // builds it lazily on first `exec_custom_scan` call; MPP serializes
+        // it at begin time so the launch can size the dispatch payload.
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -867,22 +872,15 @@ impl AggregateScan {
         df_state.mpp = MppLifecycle::PlanBytes(bytes.to_vec());
     }
 
-    /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
-    /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
-    /// (or any setup fallback) leaves the lifecycle `Inactive` and the query runs serially.
-    fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
-        if !mpp_is_active() {
-            return;
-        }
-        let Some(plan_bytes) = state
-            .custom_state_mut()
-            .datafusion_state
-            .as_mut()
-            .and_then(|d| d.mpp.take_plan_bytes())
-        else {
-            return;
-        };
-
+    /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
+    /// sizes the producer pool from the plan's widest stage, builds the DSM, and spawns exactly
+    /// the needed workers. `None` means run serially — the plan had nothing to distribute (no
+    /// workers were forked at all) or the launch fell back.
+    fn launch_mpp(
+        state: &mut CustomScanStateWrapper<Self>,
+        physical: &Arc<dyn ExecutionPlan>,
+        plan_bytes_len: usize,
+    ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         // Manifests were captured in `stash_mpp_plan_bytes` (begin); `ensure`
         // is idempotent.
         Self::ensure_source_manifests(state);
@@ -899,13 +897,50 @@ impl AggregateScan {
             with_aggregates: false,
         };
 
-        let Some(prep) =
-            crate::postgres::customscan::mpp::launch::prepare_mpp_aggregate(plan_bytes.len(), args)
-        else {
-            return;
-        };
-        if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
-            df_state.mpp = MppLifecycle::Prepared(prep);
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
+            physical,
+            plan_bytes_len,
+            args,
+        )
+    }
+
+    /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
+    /// execution is being attempted and stamps each provider's per-source dispatch metadata
+    /// (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that metadata, so
+    /// it must be present on the plan the dispatch payload is derived from. The serial fallback
+    /// plans without it. An associated fn (not a closure) so the `df_state` borrow it takes
+    /// ends at each call site, freeing `state` for the MPP launch in between.
+    fn build_agg_physical_plan(
+        df_state: &mut scan_state::DataFusionAggState,
+        runtime: &tokio::runtime::Runtime,
+        ctx: &datafusion::prelude::SessionContext,
+        is_mpp: bool,
+        runtime_expr_context: Option<*mut pg_sys::ExprContext>,
+        runtime_planstate: Option<*mut pg_sys::PlanState>,
+    ) -> Arc<dyn ExecutionPlan> {
+        let custom_exprs = df_state.custom_exprs;
+        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let built = runtime.block_on(async {
+            let (logical, group_df_indices) = build_join_aggregate_plan(
+                &df_state.plan,
+                &df_state.targetlist,
+                df_state.topk.as_ref(),
+                &df_state.join_level_predicates,
+                custom_exprs,
+                custom_scan_tlist,
+                df_state.having_filter.as_ref(),
+                ctx,
+                runtime_expr_context,
+                runtime_planstate,
+                is_mpp,
+            )
+            .await?;
+            df_state.group_df_indices = group_df_indices;
+            build_physical_plan(ctx, logical).await
+        });
+        match built {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
         }
     }
 
@@ -960,7 +995,7 @@ impl AggregateScan {
             let ctx = if mpp_is_active() {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // The shared session-context builder takes `mesh = None` and derives `n_workers`
-                // from `producer_worker_count()`, so the planner still emits a `DistributedExec`
+                // from `producer_worker_cap()`, so the planner still emits a `DistributedExec`
                 // root with the right stage sizing for display.
                 Self::build_mpp_session_context(None)
             } else {
@@ -1463,103 +1498,98 @@ impl AggregateScan {
         let ps = state.planstate();
         let runtime_planstate = (!ps.is_null()).then_some(ps);
 
-        // First exec call: build the MPP DSM before planning. The workers launch only after
-        // the leader's plan is built and its stages serialize (`launch_mpp_commit` below).
-        // Done before the df_state borrow below because it needs `state` for the source
-        // manifests.
         let first_call = state
             .custom_state()
             .datafusion_state
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
-        if first_call {
-            Self::maybe_prepare_mpp(state);
-        }
 
-        let df_state = state
+        // Taken up front (not inside the df_state borrow below) because the launch needs
+        // `state` for the source manifests.
+        let mpp_plan_bytes = state
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .expect("DataFusion state must be initialized");
+            .and_then(|d| d.mpp.take_plan_bytes());
 
         // First call: build and execute the DataFusion plan
-        if df_state.runtime.is_none() {
+        if first_call {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            // When the MPP DSM is prepared, layer the DF-D fork's distributed planner over the
-            // aggregate profile so `create_physical_plan` produces a `DistributedExec`. The
-            // mesh and the dispatch source are execute-time concerns; the exec session below
-            // carries them once the workers are committed.
-            let prep = df_state.mpp.take_prep();
-            let plan_ctx = if prep.is_some() {
+            // On an MPP attempt, layer the DF-D fork's distributed planner over the aggregate
+            // profile so `create_physical_plan` produces a `DistributedExec`, with
+            // `producer_worker_cap()` acting as the planner's ceiling. The mesh and the
+            // dispatch source are execute-time concerns; the exec session below carries them
+            // once the workers are committed.
+            let is_mpp = mpp_plan_bytes.is_some();
+            let plan_ctx = if is_mpp {
                 Self::build_mpp_session_context(None)
             } else {
                 create_aggregate_session_context()
             };
 
-            let custom_exprs = df_state.custom_exprs;
-            let custom_scan_tlist = df_state.custom_scan_tlist;
-            // `is_mpp` marks that parallel execution is active and stamps each provider's
-            // per-source dispatch metadata (`is_parallel`, `mpp_source_idx`). The worker-bound
-            // stage encodes carry that metadata, so it must be present on the plan the
-            // dispatch payload is derived from; the serial fallback plans without it.
-            let mut build_plan = |ctx: &datafusion::prelude::SessionContext, is_mpp: bool| {
-                let built = runtime.block_on(async {
-                    let (logical, group_df_indices) = build_join_aggregate_plan(
-                        &df_state.plan,
-                        &df_state.targetlist,
-                        df_state.topk.as_ref(),
-                        &df_state.join_level_predicates,
-                        custom_exprs,
-                        custom_scan_tlist,
-                        df_state.having_filter.as_ref(),
-                        ctx,
-                        runtime_expr_context,
-                        runtime_planstate,
-                        is_mpp,
-                    )
-                    .await?;
-                    df_state.group_df_indices = group_df_indices;
-                    build_physical_plan(ctx, logical).await
-                });
-                match built {
-                    Ok(p) => p,
-                    Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
-                }
+            let t_plan = std::time::Instant::now();
+            let physical_plan = {
+                let df_state = state
+                    .custom_state_mut()
+                    .datafusion_state
+                    .as_mut()
+                    .expect("DataFusion state must be initialized");
+                Self::build_agg_physical_plan(
+                    df_state,
+                    &runtime,
+                    &plan_ctx,
+                    is_mpp,
+                    runtime_expr_context,
+                    runtime_planstate,
+                )
             };
-            let is_mpp = prep.is_some();
-            let physical_plan = build_plan(&plan_ctx, is_mpp);
+            let plan_us = t_plan.elapsed().as_micros() as u64;
 
-            // Commit the MPP launch against the built plan: serialize its producer stages,
-            // spawn the workers, and hand the coordinator the same stages to dispatch. On a
-            // short launch the workers are gone and the `DistributedExec` shape has no mesh to
-            // read from, so replan serially.
-            let (ctx, physical_plan) = match prep {
-                Some(prep) => {
-                    match crate::postgres::customscan::mpp::launch::launch_mpp_commit(
-                        prep,
-                        &physical_plan,
-                    ) {
-                        Some(leader) => {
-                            let source =
-                                crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx =
-                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
-                                    .with_distributed_dispatch_plan_source(source);
-                            df_state.mpp = MppLifecycle::Launched(leader);
-                            (exec_ctx, physical_plan)
-                        }
-                        None => {
-                            let serial_ctx = create_aggregate_session_context();
-                            let plan = build_plan(&serial_ctx, false);
-                            (serial_ctx, plan)
-                        }
+            // On a launch fallback (nothing to distribute, short launch) no workers remain and
+            // the `DistributedExec` shape has no mesh to read from, so replan serially below.
+            let leader = match &mpp_plan_bytes {
+                Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
+                None => None,
+            };
+
+            let df_state = state
+                .custom_state_mut()
+                .datafusion_state
+                .as_mut()
+                .expect("DataFusion state must be initialized");
+            let (ctx, physical_plan) = if is_mpp {
+                match leader {
+                    Some(leader) => {
+                        let source =
+                            crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
+                        let exec_ctx =
+                            Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                                .with_distributed_dispatch_plan_source(source);
+                        let mut timing = leader.timing;
+                        timing.plan_us = plan_us;
+                        df_state.launch_timing = Some(timing);
+                        df_state.mpp = MppLifecycle::Launched(leader);
+                        (exec_ctx, physical_plan)
+                    }
+                    None => {
+                        let serial_ctx = create_aggregate_session_context();
+                        let plan = Self::build_agg_physical_plan(
+                            df_state,
+                            &runtime,
+                            &serial_ctx,
+                            false,
+                            runtime_expr_context,
+                            runtime_planstate,
+                        );
+                        (serial_ctx, plan)
                     }
                 }
-                None => (plan_ctx, physical_plan),
+            } else {
+                (plan_ctx, physical_plan)
             };
 
             let task_ctx = build_task_context(
@@ -1597,6 +1627,12 @@ impl AggregateScan {
             df_state.physical_plan = Some(physical_plan);
             df_state.stream = Some(stream);
         }
+
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("DataFusion state must be initialized");
 
         // Consume batches row-by-row
         loop {

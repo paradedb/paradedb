@@ -10,8 +10,7 @@ SET paradedb.enable_join_custom_scan TO on;
 -- Use the closed chain's default worker count so PG sees enough workers
 -- to actually parallelize (with parallel_workers = 1, PG falls into the
 -- `Single Copy: true` path and never exercises the MPP shuffle).
-SET paradedb.mpp_worker_count TO 4;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
 -- planner picks the serial AggregateScan and MPP never activates.
@@ -114,7 +113,7 @@ ORDER BY f.title
 LIMIT 5;
 
 -- =====================================================================
--- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same queries, same expected results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same queries, same expected results.
 --
 -- The scalar COUNT(*) case still falls back to serial — PG won't
 -- parallelize scalar aggregates at this scale even with the parallel-
@@ -123,7 +122,7 @@ LIMIT 5;
 -- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
 -- =====================================================================
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)

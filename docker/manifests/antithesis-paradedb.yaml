@@ -1,6 +1,27 @@
 # This manifest is intended exclusively for use on the Antithesis platform.
 # It hardcodes the Antithesis image registry and configures a placeholder
 # secret for the PostgreSQL superuser password.
+#
+# The two ConfigMaps and the Cluster are rendered from the ParadeDB Helm chart
+# (https://github.com/paradedb/charts, currently 0.18.3) with these values:
+#
+#   type: paradedb
+#   mode: standalone
+#   cluster:
+#     instances: 1
+#     imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
+#     storage: { size: 256Mi }
+#     affinity: { topologyKey: topology.kubernetes.io/zone }
+#     env: [RUST_BACKTRACE=1, RUST_LIB_BACKTRACE=1]
+#     enableSuperuserAccess: true
+#     superuserSecret: paradedb-superuser
+#     monitoring:
+#       enabled: false
+#       instrumentation: { pgStatStatements: false, pgStatActivity: false }
+#
+# On top of that render, `enableAlterSystem`, `enablePodMonitor`, the Secret and
+# the vanilla-Postgres publisher are added by hand, and the chart's `helm test`
+# Job is dropped.
 ---
 # Source: paradedb/templates/monitoring-logical-replication.yaml
 apiVersion: v1
@@ -10,11 +31,11 @@ metadata:
   namespace: default
   labels:
     cnpg.io/reload: ""
-    helm.sh/chart: paradedb-0.13.5
+    helm.sh/chart: paradedb-0.18.3
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.22.1"
+    app.kubernetes.io/version: "0.25.0"
     app.kubernetes.io/managed-by: Helm
 data:
   custom-queries: |
@@ -118,11 +139,11 @@ metadata:
   namespace: default
   labels:
     cnpg.io/reload: ""
-    helm.sh/chart: paradedb-0.13.5
+    helm.sh/chart: paradedb-0.18.3
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.22.1"
+    app.kubernetes.io/version: "0.25.0"
     app.kubernetes.io/managed-by: Helm
 data:
   custom-queries: |
@@ -145,7 +166,7 @@ data:
           AND am.amname = 'bm25'
         GROUP BY n.nspname, c.relname, c.oid;
       target_databases: ["*"]
-      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.19.5';"
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.0';"
       metrics:
         - datname:
             description: Name of the database
@@ -192,7 +213,7 @@ data:
         LEFT JOIN index_layer_histogram i ON i.relname = t.relname AND i.high = t.high
         GROUP BY datname, t.relname;
       target_databases: ["*"]
-      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.19.5';"
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.0';"
       metrics:
         - datname:
             description: Name of the database
@@ -221,15 +242,14 @@ metadata:
   name: paradedb
   namespace: default
   labels:
-    helm.sh/chart: paradedb-0.13.5
+    helm.sh/chart: paradedb-0.18.3
     app.kubernetes.io/name: paradedb
     app.kubernetes.io/instance: paradedb
     app.kubernetes.io/part-of: cloudnative-pg
-    app.kubernetes.io/version: "0.22.1"
+    app.kubernetes.io/version: "0.25.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   instances: 1
-
   imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
   imagePullPolicy: IfNotPresent
   postgresUID: 999
@@ -238,23 +258,20 @@ spec:
     size: 256Mi
   affinity:
     topologyKey: topology.kubernetes.io/zone
-
-  primaryUpdateMethod: switchover
-  primaryUpdateStrategy: unsupervised
-  logLevel: info
   # CloudNativePG cluster-wide environment variables belong under spec.env:
-  # https://cloudnative-pg.io/docs/1.28/cloudnative-pg.v1/#clusterspec
+  # https://cloudnative-pg.io/docs/1.30/cloudnative-pg.v1/#clusterspec
   env:
     - name: RUST_BACKTRACE
       value: "1"
     - name: RUST_LIB_BACKTRACE
       value: "1"
 
+  primaryUpdateMethod: switchover
+  primaryUpdateStrategy: unsupervised
+  logLevel: info
   enableSuperuserAccess: true
-
   superuserSecret:
     name: paradedb-superuser
-
   enablePDB: true
   postgresql:
     shared_preload_libraries:
@@ -272,32 +289,31 @@ spec:
         key: custom-queries
       - name: paradedb-monitoring-logical-replication
         key: custom-queries
-
+    tls:
+      enabled: false
   bootstrap:
     initdb:
       database: paradedb
       postInitSQL:
         - CREATE EXTENSION IF NOT EXISTS pg_cron;
       postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_search;
         - CREATE EXTENSION IF NOT EXISTS pg_ivm;
-        - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS postgis_topology;
         - CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
         - CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
         - ALTER DATABASE "paradedb" SET search_path TO public,paradedb;
       postInitTemplateSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_search;
         - CREATE EXTENSION IF NOT EXISTS pg_ivm;
-        - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS postgis_topology;
         - CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
         - CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
         - ALTER DATABASE template1 SET search_path TO public,paradedb;
-
-  externalClusters:
 ---
 # Vanilla Postgres publisher used by the logical-replication Stressgres suites.
 # Lives outside the CNPG cluster because real-world logical-replication

@@ -275,7 +275,11 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
-    builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+    builder
+        .with_physical_optimizer_rule(Arc::new(
+            super::range_partitioning_rule::RangeCoPartitionedJoinRule,
+        ))
+        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
 /// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.

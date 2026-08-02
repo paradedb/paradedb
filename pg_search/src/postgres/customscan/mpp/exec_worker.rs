@@ -58,7 +58,9 @@ use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInte
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::ParallelScanState;
-use crate::scan::execution_plan::PgSearchScanTaskEstimator;
+use crate::scan::execution_plan::{
+    pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
+};
 use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
 use datafusion_distributed::shm::SetPlanFrame;
 
@@ -111,7 +113,7 @@ pub(crate) fn build_mpp_session_context(
     // Three knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
     //   1. target_partitions(N): without it, EnforceDistribution skips every
     //      RepartitionExec so the annotator never sees a Shuffle.
-    //   2. distributed_task_estimator(N): without it, leaves default to Maximum(1) and
+    //   2. desired_task_count(N): without it, leaves default to Maximum(1) and
     //      `_distribute_plan` elides every shuffle.
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
@@ -159,8 +161,9 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
-        .with_distributed_task_estimator(PgSearchScanTaskEstimator)
-        .with_distributed_task_estimator(n_workers)
+        .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
+        .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
+        .with_distributed_desired_task_count_handler(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
         .with_distributed_planner();

@@ -201,6 +201,36 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
+-- Pass 6: outer joins keep the shuffle path
+--
+-- The co-partitioned range flip applies to inner joins only. A LEFT JOIN
+-- must keep the shuffle-based shape and stay correct under MPP.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 4;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SET max_parallel_workers_per_gather TO 0;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

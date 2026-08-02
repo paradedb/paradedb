@@ -871,7 +871,8 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
         plan_bytes_len: usize,
-    ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
+        replan_for_attached_workers: impl FnOnce(u32) -> Arc<dyn ExecutionPlan>,
+    ) -> Option<crate::postgres::customscan::mpp::launch::MppLaunch<()>> {
         Self::ensure_source_manifests(state);
         let all_sources: Vec<&[tantivy::SegmentReader]> = state
             .custom_state()
@@ -884,7 +885,13 @@ impl JoinScan {
             query: vec![],
             with_aggregates: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, plan_bytes_len, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp(
+            physical,
+            plan_bytes_len,
+            args,
+            crate::postgres::customscan::mpp::launch::MppWorkerKind::Join,
+            |worker_count| (replan_for_attached_workers(worker_count), ()),
+        )
     }
 }
 
@@ -1364,8 +1371,16 @@ impl CustomScan for JoinScan {
                 // On a launch fallback (nothing to distribute, short launch) no workers remain
                 // and the `DistributedExec` shape has no mesh to read from, so replan serially.
                 let (ctx, plan) = match mpp_plan_bytes {
-                    Some(bytes) => match Self::launch_mpp(state, &plan, bytes.len()) {
-                        Some(leader) => {
+                    Some(bytes) => match Self::launch_mpp(state, &plan, bytes.len(), |workers| {
+                        let replan_ctx = crate::postgres::customscan::mpp::exec_worker::
+                            build_mpp_session_context_for_worker_count(
+                                create_datafusion_session_context(SessionContextProfile::Join),
+                                workers as usize,
+                            );
+                        build_plan(&replan_ctx)
+                    }) {
+                        Some(launched) => {
+                            let leader = launched.leader;
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                             let exec_ctx =
                                 Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
@@ -1376,7 +1391,7 @@ impl CustomScan for JoinScan {
                             launch_us.leader_setup_us = leader.timing.leader_setup_us;
                             launch_us.workers = leader.timing.workers;
                             state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
-                            (exec_ctx, plan)
+                            (exec_ctx, launched.physical)
                         }
                         None => {
                             let serial_ctx =

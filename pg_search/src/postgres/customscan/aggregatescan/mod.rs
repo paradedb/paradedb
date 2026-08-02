@@ -876,11 +876,15 @@ impl AggregateScan {
     /// sizes the producer pool from the plan's widest stage, builds the DSM, and spawns exactly
     /// the needed workers. `None` means run serially — the plan had nothing to distribute (no
     /// workers were forked at all) or the launch fell back.
-    fn launch_mpp(
+    fn launch_mpp<R, F>(
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
         plan_bytes_len: usize,
-    ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
+        replan_for_attached_workers: F,
+    ) -> Option<crate::postgres::customscan::mpp::launch::MppLaunch<R>>
+    where
+        F: FnOnce(u32) -> (Arc<dyn ExecutionPlan>, R),
+    {
         // Manifests were captured in `stash_mpp_plan_bytes` (begin); `ensure`
         // is idempotent.
         Self::ensure_source_manifests(state);
@@ -897,10 +901,12 @@ impl AggregateScan {
             with_aggregates: false,
         };
 
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
+        crate::postgres::customscan::mpp::launch::launch_mpp(
             physical,
             plan_bytes_len,
             args,
+            crate::postgres::customscan::mpp::launch::MppWorkerKind::Aggregate,
+            replan_for_attached_workers,
         )
     }
 
@@ -1549,10 +1555,73 @@ impl AggregateScan {
             };
             let plan_us = t_plan.elapsed().as_micros() as u64;
 
+            // Keep the logical-plan inputs independent of `state` while launch_mpp borrows the
+            // source manifests. A short PostgreSQL launch rebuilds at the attached width, and
+            // returns the rebuilt GROUP BY projection mapping with that physical plan.
+            let replan_inputs = {
+                let df_state = state
+                    .custom_state()
+                    .datafusion_state
+                    .as_ref()
+                    .expect("DataFusion state must be initialized");
+                (
+                    df_state.plan.clone(),
+                    df_state.targetlist.clone(),
+                    df_state.topk.clone(),
+                    df_state.join_level_predicates.clone(),
+                    df_state.custom_exprs,
+                    df_state.custom_scan_tlist,
+                    df_state.having_filter.clone(),
+                )
+            };
+
             // On a launch fallback (nothing to distribute, short launch) no workers remain and
             // the `DistributedExec` shape has no mesh to read from, so replan serially below.
-            let leader = match &mpp_plan_bytes {
-                Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
+            let launched = match &mpp_plan_bytes {
+                Some(bytes) => {
+                    Self::launch_mpp(state, &physical_plan, bytes.len(), |worker_count| {
+                        let (
+                            plan,
+                            targetlist,
+                            topk,
+                            join_level_predicates,
+                            custom_exprs,
+                            custom_scan_tlist,
+                            having_filter,
+                        ) = replan_inputs;
+                        let replan_ctx = crate::postgres::customscan::mpp::exec_worker::
+                            build_mpp_session_context_for_worker_count(
+                                create_aggregate_session_context(),
+                                worker_count as usize,
+                            );
+                        let rebuilt = runtime.block_on(async {
+                            let (logical, group_df_indices) = build_join_aggregate_plan(
+                                &plan,
+                                &targetlist,
+                                topk.as_ref(),
+                                &join_level_predicates,
+                                custom_exprs,
+                                custom_scan_tlist,
+                                having_filter.as_ref(),
+                                &replan_ctx,
+                                runtime_expr_context,
+                                runtime_planstate,
+                                true,
+                            )
+                            .await?;
+                            Ok::<_, datafusion::common::DataFusionError>((
+                                build_physical_plan(&replan_ctx, logical).await?,
+                                group_df_indices,
+                            ))
+                        });
+                        match rebuilt {
+                            Ok(result) => result,
+                            Err(e) => pgrx::error!(
+                                "Failed to rebuild DataFusion aggregate plan after short MPP launch: {e}"
+                            ),
+                        }
+                    })
+                }
                 None => None,
             };
 
@@ -1562,8 +1631,12 @@ impl AggregateScan {
                 .as_mut()
                 .expect("DataFusion state must be initialized");
             let (ctx, physical_plan) = if is_mpp {
-                match leader {
-                    Some(leader) => {
+                match launched {
+                    Some(launched) => {
+                        let leader = launched.leader;
+                        if let Some(group_df_indices) = launched.replan_result {
+                            df_state.group_df_indices = group_df_indices;
+                        }
                         let source =
                             crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                         let exec_ctx =
@@ -1573,7 +1646,7 @@ impl AggregateScan {
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);
                         df_state.mpp = MppLifecycle::Launched(leader);
-                        (exec_ctx, physical_plan)
+                        (exec_ctx, launched.physical)
                     }
                     None => {
                         let serial_ctx = create_aggregate_session_context();

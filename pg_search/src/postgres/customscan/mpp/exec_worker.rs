@@ -110,6 +110,28 @@ pub(crate) fn build_mpp_session_context(
         Some(m) => m.n_workers() as usize,
         None => producer_worker_cap() as usize,
     };
+    build_mpp_session_context_with_worker_count(seed, mesh, n_workers)
+}
+
+/// Build an MPP session context for a known producer width before the mesh exists. This is used
+/// after PostgreSQL reports a short launch: the physical plan must be rebuilt at the attached
+/// width so it has no more producer tasks than mesh workers.
+pub(crate) fn build_mpp_session_context_for_worker_count(
+    seed: SessionContext,
+    n_workers: usize,
+) -> SessionContext {
+    build_mpp_session_context_with_worker_count(seed, None, n_workers)
+}
+
+fn build_mpp_session_context_with_worker_count(
+    seed: SessionContext,
+    mesh: Option<Arc<MppMesh>>,
+    n_workers: usize,
+) -> SessionContext {
+    assert!(
+        n_workers >= 2,
+        "MPP session contexts require at least two producer workers"
+    );
     // Three knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
     //   1. target_partitions(N): without it, EnforceDistribution skips every
     //      RepartitionExec so the annotator never sees a Shuffle.

@@ -520,9 +520,8 @@ jobs:
           echo "Extension payload built successfully and contains the expected library and control file."
 
       # A build-only check cannot catch a payload that is missing the system libraries
-      # pg_search.so links, which crash-loops the consumer's Postgres on "libopenblas.so.0:
-      # cannot open shared object file" (#5798). Mount the payload into the Postgres base
-      # image the way an operator does and prove the postmaster can load the module.
+      # pg_search.so links. Mount the payload into the Postgres base image the way
+      # an operator does and prove the postmaster can load the module.
       - name: Verify the Extension Payload Loads in the Postgres Runtime Image
         if: steps.release_gate.outputs.skip != 'true'
         run: |

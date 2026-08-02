@@ -10,11 +10,6 @@
 # so they can run compatibility checks against the new version. This is done in
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
 #
-# Both image kinds are built from an already-published .deb, pinned by checksum, so either kind can be
-# rebuilt for a release that has already shipped — to pick up a Dockerfile fix, or a base image with a
-# CVE patched. The `images` input scopes a run to one kind, leaving the other kind's tags, the ORM
-# dispatch, and the Dockerfile PRs untouched.
-#
 # This workflow is dispatched by `publish-pg_search-debian.yml` (once the Debian binaries are published) via
 # `workflow_dispatch` pinned to the release ref so that it runs on the same commit as the other deploy jobs.
 
@@ -32,7 +27,7 @@ on:
         required: false
         default: "[15, 16, 17, 18]"
       images:
-        description: "Which images to publish. Both image kinds are pinned to an already-published .deb, so a single kind can be rebuilt for an existing release without moving the other's tags or re-notifying the ORM repos."
+        description: "Which images to publish."
         required: false
         type: choice
         default: all
@@ -183,8 +178,7 @@ jobs:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
     secrets: inherit
 
-  # Skipping this job also skips `open-dockerfile-prs` and `notify-orm-repos`, which
-  # need it — an extension-only rebuild must not re-announce the release.
+  # Skipping this job also skips `open-dockerfile-prs` and `notify-orm-repos`, which need it.
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest

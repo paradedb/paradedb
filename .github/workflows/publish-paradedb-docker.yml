@@ -10,6 +10,11 @@
 # so they can run compatibility checks against the new version. This is done in
 # `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker image.
 #
+# Both image kinds are built from an already-published .deb, pinned by checksum, so either kind can be
+# rebuilt for a release that has already shipped — to pick up a Dockerfile fix, or a base image with a
+# CVE patched. The `images` input scopes a run to one kind, leaving the other kind's tags, the ORM
+# dispatch, and the Dockerfile PRs untouched.
+#
 # This workflow is dispatched by `publish-pg_search-debian.yml` (once the Debian binaries are published) via
 # `workflow_dispatch` pinned to the release ref so that it runs on the same commit as the other deploy jobs.
 
@@ -26,6 +31,15 @@ on:
         description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18] regardless of this value."
         required: false
         default: "[15, 16, 17, 18]"
+      images:
+        description: "Which images to publish. Both image kinds are pinned to an already-published .deb, so a single kind can be rebuilt for an existing release without moving the other's tags or re-notifying the ORM repos."
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - runnable
+          - extension
 
 concurrency:
   group: publish-paradedb-docker-${{ github.event.inputs.version || github.ref }}
@@ -169,6 +183,8 @@ jobs:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
     secrets: inherit
 
+  # Skipping this job also skips `open-dockerfile-prs` and `notify-orm-repos`, which
+  # need it — an extension-only rebuild must not re-announce the release.
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
@@ -176,6 +192,7 @@ jobs:
       - set-matrix
       - generate-dockerfiles
       - test-generated-dockerfiles
+    if: ${{ (github.event.inputs.images || 'all') != 'extension' }}
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
@@ -293,7 +310,7 @@ jobs:
     needs:
       - generate-dockerfiles
       - test-generated-dockerfiles
-    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
+    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') && (github.event.inputs.images || 'all') != 'runnable' }}
     strategy:
       matrix:
         # Mounted extension images require PostgreSQL 18+ because

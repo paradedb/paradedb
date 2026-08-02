@@ -4,6 +4,7 @@
   cargo-pgrx,
   fetchurl,
   lib,
+  lld,
   nix-update-script,
   pkg-config,
   postgresql,
@@ -89,7 +90,9 @@ buildPgrxExtension (finalAttrs: {
     "pg_search"
   ];
 
+  # .cargo/config.toml links Linux builds with LLD.
   nativeBuildInputs = [
+    lld
     pkg-config
   ];
 

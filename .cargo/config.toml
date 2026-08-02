@@ -1,3 +1,13 @@
 # on macOS, PostgreSQL symbols won't be available until runtime
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
+
+# pg_search links datafusion, arrow and tantivy into a single cdylib. GNU ld is the
+# slowest and most memory-hungry step of that build, and the coverage-instrumented CI
+# builds pass `--no-gc-sections`, so nothing is discarded and the link is at its worst.
+# LLD does the same job in a fraction of the time and memory.
+#
+# This requires `lld` on the PATH for every Linux build -- CI, the release containers,
+# nix, and local development. See CONTRIBUTING.md.
+[target.'cfg(target_os="linux")']
+rustflags = ["-Clink-arg=-fuse-ld=lld"]

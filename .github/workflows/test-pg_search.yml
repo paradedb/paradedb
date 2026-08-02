@@ -114,7 +114,7 @@ jobs:
       - name: Install required system tools
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            lsof build-essential clang flex bison pkg-config ca-certificates git \
+            lsof build-essential clang lld flex bison pkg-config ca-certificates git \
             libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
             libcurl4-openssl-dev libopenblas-dev
 

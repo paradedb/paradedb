@@ -547,6 +547,10 @@ jobs:
           psql -h /tmp -U postgres -d postgres -c "SELECT 1;"
           EOF
 
+          # BuildKit's local exporter creates the destination directory 0700, so the
+          # unprivileged Postgres user in the runtime image cannot traverse the mount.
+          chmod -R a+rX /tmp/extension-payload
+
           docker run --rm --user 26 \
             --volume /tmp/extension-payload:/extensions/pg_search:ro \
             --volume /tmp/load-test.sh:/load-test.sh:ro \

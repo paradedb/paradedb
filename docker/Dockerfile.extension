@@ -39,12 +39,11 @@ RUN apt-get update && \
     rm /tmp/pg_search.deb && \
     rm -rf /var/lib/apt/lists/*
 
-# Stage the system libraries pg_search.so links (libopenblas, libgfortran).
-#
-# Libraries the base image already has (libc, libm, libgcc_s, ...) are skipped —
-# shadowing them with a second copy on the consumer's LD_LIBRARY_PATH risks
-# mixing runtimes. Each library is staged under its SONAME, the name the dynamic
-# linker searches for, and its copyright travels with it.
+# Stage the system libraries pg_search.so links (libopenblas, libgfortran). Libraries
+# the base image already has (libc, libm, libgcc_s, ...) are skipped, since shadowing
+# them with a second copy on the consumer's LD_LIBRARY_PATH risks mixing
+# runtimes. Each library is staged under its SONAME, the name the dynamic linker
+# searches for, and its copyright travels with it.
 RUN mkdir -p /system /licenses && \
     ldd "/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" | awk '/=> \//{ print $1, $3 }' | \
     while read -r soname path; do \

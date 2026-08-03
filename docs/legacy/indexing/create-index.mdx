@@ -87,7 +87,7 @@ A BM25 index can be created over a partitioned table in the same way as a normal
   If the partition key of your partitioned table is only indexed as a fast field
   by the BM25 index (and not additionally indexed via a B-Tree index), note that
   the `@@@` operator [must be
-  used](/documentation/aggregates/limitations#filtering) in order for filtering
+  used](/documentation/aggregates/limitations#paradedb-operator) in order for filtering
   to be optimized by the index.
 </Note>
 

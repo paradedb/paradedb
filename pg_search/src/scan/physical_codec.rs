@@ -30,8 +30,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
@@ -420,14 +418,5 @@ pub fn deserialize_physical_plan_with_runtime(
     })?;
     let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
     let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
-    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between an
-    // operator and the scans below it. Every such link now rides the wire by identity: the
-    // scans ship their installed filters (`ScanDispatchDescriptor::dynamic_filters`),
-    // HashJoinExec/AggregateExec/SegmentedTopKExec ship their own copies, and the
-    // deduplicating converter re-shares each pair via `expr_id` (apache/datafusion#20416;
-    // design in https://github.com/apache/datafusion/issues/21207). The trailing pushdown
-    // pass stays as a safety net for any dynamic-filter-bearing operator that hasn't been
-    // wired for identity-round-trip yet; a link that crossed fragments would still need the
-    // filter values shipped between processes.
-    FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
+    Ok(plan)
 }

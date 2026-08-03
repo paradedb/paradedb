@@ -686,8 +686,7 @@ struct PathRestrictInfo {
     /// path wrapper.
     wrapped_equi_keys: Vec<JoinKeyPair>,
     /// Cross-table residuals (transformed via `build_search_filter` after
-    /// plan_positions are assigned), together with the planner inventory that
-    /// exposed each one.
+    /// plan_positions are assigned), together with their planner identity.
     search_clauses: Vec<PathSearchClause>,
     /// Number of RestrictInfo entries we couldn't classify as equi-keys or
     /// @@@ predicates. Non-zero means unhandled quals that would be silently
@@ -720,7 +719,46 @@ enum RestrictInfoOrigin {
 #[derive(Clone, Copy, Debug)]
 struct PathSearchClause {
     clause: *mut pg_sys::Node,
+    // PG15 has no planner-assigned RestrictInfo identity.
+    #[cfg(feature = "pg15")]
     origin: RestrictInfoOrigin,
+    // PG16+ uses this serial to identify quals enforced within a Path.
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    rinfo_serial: i32,
+}
+
+enum PathSearchClauseOverlap {
+    Duplicate,
+    #[cfg(feature = "pg15")]
+    Ambiguous,
+}
+
+impl PathSearchClause {
+    unsafe fn overlap(&self, other: &Self) -> Option<PathSearchClauseOverlap> {
+        if std::ptr::eq(self.clause, other.clause) {
+            return Some(PathSearchClauseOverlap::Duplicate);
+        }
+
+        #[cfg(feature = "pg15")]
+        {
+            if self.origin == other.origin
+                || !pg_sys::equal(self.clause.cast(), other.clause.cast())
+            {
+                return None;
+            }
+
+            if pg_sys::contain_volatile_functions(other.clause) {
+                Some(PathSearchClauseOverlap::Ambiguous)
+            } else {
+                Some(PathSearchClauseOverlap::Duplicate)
+            }
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            (self.rinfo_serial == other.rinfo_serial).then_some(PathSearchClauseOverlap::Duplicate)
+        }
+    }
 }
 
 impl PathRestrictInfo {
@@ -771,7 +809,8 @@ unsafe fn classify_path_restrictinfo(
     restrictinfo: *mut pg_sys::List,
     allow_unpushed_cross_table: bool,
     equi_key_source: EquiKeySource,
-    origin: RestrictInfoOrigin,
+    #[cfg(feature = "pg15")] origin: RestrictInfoOrigin,
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))] _origin: RestrictInfoOrigin,
     sources: &[JoinAggSource],
     search_op: pg_sys::Oid,
     info: &mut PathRestrictInfo,
@@ -846,28 +885,29 @@ unsafe fn classify_path_restrictinfo(
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                // Deduplicate structural copies only across the overlapping
-                // joinrestrictinfo and ppi_clauses inventories. Equal clauses
-                // within one inventory may be intentional repetitions.
-                let overlap = info.search_clauses.iter().find(|existing| {
-                    std::ptr::eq(existing.clause, clause)
-                        || (existing.origin != origin
-                            && pg_sys::equal(existing.clause.cast(), clause.cast()))
-                });
+                let candidate = PathSearchClause {
+                    clause,
+                    #[cfg(feature = "pg15")]
+                    origin,
+                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                    rinfo_serial: (*ri).rinfo_serial,
+                };
+                let overlap = info
+                    .search_clauses
+                    .iter()
+                    .find_map(|existing| existing.overlap(&candidate));
 
-                if let Some(existing) = overlap {
-                    // Without rinfo_serial on PG15, distinct volatile copies may
-                    // be one planner predicate or two intentional calls.
-                    if !std::ptr::eq(existing.clause, clause)
-                        && pg_sys::contain_volatile_functions(clause)
-                    {
+                match overlap {
+                    Some(PathSearchClauseOverlap::Duplicate) => continue,
+                    #[cfg(feature = "pg15")]
+                    Some(PathSearchClauseOverlap::Ambiguous) => {
                         info.unhandled += 1;
+                        continue;
                     }
-                    continue;
+                    None => {}
                 }
 
-                info.search_clauses
-                    .push(PathSearchClause { clause, origin });
+                info.search_clauses.push(candidate);
                 continue;
             }
         }

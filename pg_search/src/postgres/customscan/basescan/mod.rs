@@ -2243,9 +2243,8 @@ fn compute_exec_which_fast_fields(
         // In some cases, enough columns are pruned between planning and execution that there
         // is no point actually using fast fields, and we can fall back to `Normal`.
         //
-        // TODO: In order to implement https://github.com/paradedb/paradedb/issues/2623, we will
-        // need to differentiate these cases, so that we can always emit the sort order that we
-        // claimed.
+        // TODO: To always emit the sort order that we claimed, we will need to differentiate
+        // these cases.
         return None;
     }
 

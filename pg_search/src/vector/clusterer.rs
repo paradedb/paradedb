@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
-    IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfVectors, Metric, VectorOptions,
+    IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfTrainingVectors, IvfVectors,
+    Metric, VectorOptions,
 };
 use tantivy::{Index, TantivyError};
 
@@ -196,10 +197,10 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
     fn train(
         &self,
         options: &VectorOptions,
-        vectors: IvfVectors<'_>,
+        vectors: IvfTrainingVectors,
         num_centroids: usize,
     ) -> tantivy::Result<IvfCentroids> {
-        let IvfVectors::F32(vectors) = vectors;
+        let IvfTrainingVectors::F32(vectors) = vectors;
         let dim = options.dim();
         if vectors.matrix.dims != dim {
             return Err(TantivyError::InvalidArgument(format!(
@@ -227,7 +228,10 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
             config.base.angular = true;
         }
         let mut clusterer = HierarchicalSuperKMeans::with_config(num_centroids, dim, config);
-        let centroids = clusterer.train(vectors.matrix.values, vectors.matrix.rows);
+        let rows = vectors.matrix.rows;
+        // Hand the buffer to superkmeans so it can rotate in place instead of
+        // keeping a second full-size copy alive through training.
+        let centroids = clusterer.train_owned(vectors.matrix.values, rows);
         if centroids.len() != num_centroids * dim {
             return Err(TantivyError::InternalError(format!(
                 "SuperKMeans returned {} centroid floats, expected {}",

@@ -816,11 +816,9 @@ mod plan {
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
 
-        // More workers than this has not shown build-time wins: vector builds are dominated
-        // by IVF clustering, whose GEMMs already parallelize across the whole machine via
-        // BLAS threads from any one worker, so extra workers only multiply peak clustering
-        // memory (each holds its own training set while merging). Benchmarked on cohere
-        // 10m: 4 workers matched 8 on build time.
+        // Beyond 4 workers there's no improvement to index build time, because parallelizing
+        // the heap scan/segment flushing isn't the bottleneck. Constrain to 4 because fewer
+        // concurrent merges means less memory.
         let maintenance_workers = maintenance_workers.min(MAX_BUILD_WORKERS);
 
         if maintenance_workers < 3 {

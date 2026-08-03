@@ -1512,27 +1512,32 @@ pub unsafe fn contains_correlated_param(
     walker(node, root as *mut core::ffi::c_void)
 }
 
-/// Returns true if the expression contains any `PARAM_EXEC` parameter.
-/// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
-pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
+unsafe fn contains_param_of_kind(root: *mut pg_sys::Node, kind: pg_sys::ParamKind::Type) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
+        data: *mut core::ffi::c_void,
     ) -> bool {
+        let kind = &*data.cast::<pg_sys::ParamKind::Type>();
         if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+            && (*param).paramkind == *kind
         {
             return true;
         }
-        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+        pg_sys::expression_tree_walker(node, Some(walker), data)
     }
 
     if root.is_null() {
         return false;
     }
 
-    walker(root, std::ptr::null_mut())
+    walker(root, std::ptr::from_ref(&kind).cast_mut().cast())
+}
+
+/// Returns true if the expression contains any `PARAM_EXEC` parameter.
+/// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
+pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
+    contains_param_of_kind(root, pg_sys::ParamKind::PARAM_EXEC)
 }
 
 /// Returns true if the expression contains a prepared-statement parameter.
@@ -1541,24 +1546,7 @@ pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
 /// custom scan needs an executor-side contract for resolving them; planner-time
 /// translation alone is not sufficient.
 pub unsafe fn contains_extern_param(root: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN
-        {
-            return true;
-        }
-        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
-    }
-
-    if root.is_null() {
-        return false;
-    }
-
-    walker(root, std::ptr::null_mut())
+    contains_param_of_kind(root, pg_sys::ParamKind::PARAM_EXTERN)
 }
 
 /// Flatten PostgreSQL's two representations of an implicit conjunction into

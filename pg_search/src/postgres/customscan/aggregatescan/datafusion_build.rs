@@ -688,10 +688,9 @@ struct PathRestrictInfo {
     /// Cross-table residuals (transformed via `build_search_filter` after
     /// plan_positions are assigned), together with their planner identity.
     search_clauses: Vec<PathSearchClause>,
-    /// Number of RestrictInfo entries we couldn't classify as equi-keys or
-    /// @@@ predicates. Non-zero means unhandled quals that would be silently
-    /// dropped - the caller should reject the DataFusion path.
-    unhandled: usize,
+    /// First reason the selected path cannot be reconstructed safely. `None`
+    /// means every inspected predicate has been accounted for.
+    decline_reason: Option<PathPredicateDeclineReason>,
     /// Whether every join-level path node was either inspected directly or
     /// traversed through a known transparent wrapper.
     coverage: PathPredicateCoverage,
@@ -762,6 +761,10 @@ impl PathSearchClause {
 }
 
 impl PathRestrictInfo {
+    fn decline(&mut self, reason: PathPredicateDeclineReason) {
+        self.decline_reason.get_or_insert(reason);
+    }
+
     fn mark_incomplete(&mut self, tag: pg_sys::NodeTag) {
         if matches!(self.coverage, PathPredicateCoverage::Complete) {
             self.coverage = PathPredicateCoverage::Incomplete(tag);
@@ -773,19 +776,26 @@ impl PathRestrictInfo {
 #[derive(Clone, Copy, Debug)]
 pub enum JoinPathPredicateCheck {
     Complete,
-    UnhandledQuals,
+    Unsupported(PathPredicateDeclineReason),
     IncompletePath(pg_sys::NodeTag),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathPredicateDeclineReason {
+    ExternParam,
+    #[cfg(feature = "pg15")]
+    AmbiguousVolatileOverlap,
+    OuterJoinOnResidual,
+    UnclassifiedClause,
 }
 
 /// Walk `input_rel.cheapest_total_path` once, traversing transparent wrappers
 /// and classifying every `joinrestrictinfo` and `ppi_clauses` entry as an
-/// equi-join key, a cross-table predicate (@@@ or non-@@@), or unhandled.
+/// equi-join key, a supported cross-table predicate, or a specific decline.
 ///
 /// For LEFT/RIGHT JOINs, ON-clause predicates (`is_pushed_down=false`)
 /// affect matching and NULL-extension semantics - they cannot be
-/// correctly applied as post-join filters. These are counted as
-/// "unhandled", causing [`check_join_path_predicates`] to reject the
-/// DataFusion path for such queries.
+/// correctly applied as post-join filters, so the DataFusion path declines.
 unsafe fn analyze_join_path_restrictinfo(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
@@ -794,7 +804,7 @@ unsafe fn analyze_join_path_restrictinfo(
         equi_keys: Vec::new(),
         wrapped_equi_keys: Vec::new(),
         search_clauses: Vec::new(),
-        unhandled: 0,
+        decline_reason: None,
         coverage: PathPredicateCoverage::Complete,
     };
     let path = input_rel.cheapest_total_path;
@@ -826,7 +836,7 @@ unsafe fn classify_path_restrictinfo(
         // No ParamListInfo binding for DataFusion join predicates; see
         // apply_search_filter_or_decline.
         if contains_extern_param(clause) {
-            info.unhandled += 1;
+            info.decline(PathPredicateDeclineReason::ExternParam);
             continue;
         }
 
@@ -866,13 +876,12 @@ unsafe fn classify_path_restrictinfo(
         //
         // Single-table @@@ predicates (rtis.len() == 1) are already handled
         // via baserestrictinfo in build_scan_node - they don't appear here
-        // under normal planning. If one does, it's counted as unhandled
-        // (conservative: reject the path rather than risk double-applying).
+        // under normal planning. If one does, reject the path rather than risk
+        // double-applying it.
         if !allow_unpushed_cross_table && !(*ri).is_pushed_down {
             // ON-clause predicate for an outer join - can't apply as post-join
-            // filter without changing NULL-extension semantics. Count as unhandled
-            // so check_join_path_predicates rejects the DataFusion path.
-            info.unhandled += 1;
+            // filter without changing NULL-extension semantics.
+            info.decline(PathPredicateDeclineReason::OuterJoinOnResidual);
             continue;
         }
 
@@ -901,7 +910,7 @@ unsafe fn classify_path_restrictinfo(
                     Some(PathSearchClauseOverlap::Duplicate) => continue,
                     #[cfg(feature = "pg15")]
                     Some(PathSearchClauseOverlap::Ambiguous) => {
-                        info.unhandled += 1;
+                        info.decline(PathPredicateDeclineReason::AmbiguousVolatileOverlap);
                         continue;
                     }
                     None => {}
@@ -913,7 +922,7 @@ unsafe fn classify_path_restrictinfo(
         }
 
         // 3. Unhandled
-        info.unhandled += 1;
+        info.decline(PathPredicateDeclineReason::UnclassifiedClause);
     }
 }
 
@@ -1021,8 +1030,8 @@ pub unsafe fn check_join_path_predicates(
     let info = analyze_join_path_restrictinfo(input_rel, sources);
     match info.coverage {
         PathPredicateCoverage::Incomplete(tag) => JoinPathPredicateCheck::IncompletePath(tag),
-        PathPredicateCoverage::Complete if info.unhandled > 0 => {
-            JoinPathPredicateCheck::UnhandledQuals
+        PathPredicateCoverage::Complete if let Some(reason) = info.decline_reason => {
+            JoinPathPredicateCheck::Unsupported(reason)
         }
         PathPredicateCoverage::Complete => JoinPathPredicateCheck::Complete,
     }

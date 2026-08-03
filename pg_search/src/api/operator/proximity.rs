@@ -15,12 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! The proximity operators `##` and `##>`.
+//!
+//! The `#[opname]` attributes below spell them `# #` and `# #>`. Edition 2024 reserves `##` as a
+//! token sequence, so the hashes have to be separated in the macro input; pgrx strips the
+//! whitespace out of the `opname` token stream, so the operators Postgres sees are unchanged.
+
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use pgrx::{opname, pg_operator};
-
-// The `# #` / `# #>` spellings below are the SQL operators `##` and `##>`. Edition 2024 reserves
-// `##` as a token sequence, so the hashes have to be separated in the macro input; pgrx strips the
-// whitespace out of the `opname` token stream, so the operators Postgres sees are unchanged.
 
 #[pg_operator(immutable, parallel_safe)]
 #[opname(pg_catalog.# #)]

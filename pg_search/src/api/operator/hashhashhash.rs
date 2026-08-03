@@ -14,6 +14,13 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+//! The phrase operator `###`.
+//!
+//! The `#[opname]` attributes below spell it `# # #`. Edition 2024 reserves `##` as a token
+//! sequence, so the hashes have to be separated in the macro input; pgrx strips the whitespace out
+//! of the `opname` token stream, so the operator Postgres sees is still `###`.
+
 use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;

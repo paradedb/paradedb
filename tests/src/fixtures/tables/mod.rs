@@ -22,7 +22,6 @@ mod icu_czech_posts;
 mod icu_greek_posts;
 mod partitioned;
 mod simple_products;
-mod user_session_logs;
 
 pub use deliveries::*;
 pub use icu_amharic_posts::*;
@@ -31,4 +30,3 @@ pub use icu_czech_posts::*;
 pub use icu_greek_posts::*;
 pub use partitioned::*;
 pub use simple_products::*;
-pub use user_session_logs::*;

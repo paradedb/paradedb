@@ -281,11 +281,11 @@ impl MetaPage {
 
     ///
     /// A `LinkedItemList<SegmentMetaEntry>` containing segments which are no longer visible from the
-    /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
+    /// live `segment_metas()` list, and which will be recyclable when no transactions might still
     /// be reading them on physical replicas.
     ///
     /// Deferring recycling avoids readers needing to hold a lock all the way from when
-    /// `SEGMENT_METAS_START` is first opened for reading until when they finish consuming the files
+    /// `segment_metas()` is first opened for reading until when they finish consuming the files
     /// for the segments it references.
     ///
     pub fn segment_metas_garbage(&self) -> Option<LinkedItemList<SegmentMetaEntry>> {

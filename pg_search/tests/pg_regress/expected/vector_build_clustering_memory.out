@@ -21,7 +21,7 @@ SET maintenance_work_mem = '16MB';
 CREATE INDEX clustering_mem_idx ON clustering_mem
     USING bm25 (id, embedding vector_l2_ops)
     WITH (key_field = 'id', centroid_ratio = 1.0);
-ERROR:  `maintenance_work_mem` is not high enough for vector clustering during index build
+ERROR:  vector clustering during index build requires `maintenance_work_mem` of at least 20MB
 -- at the default centroid_ratio the training set fits and the build succeeds
 CREATE INDEX clustering_mem_idx ON clustering_mem
     USING bm25 (id, embedding vector_l2_ops)

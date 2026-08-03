@@ -897,13 +897,12 @@ mod plan {
         if total > mwm_bytes {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
-                "`maintenance_work_mem` is not high enough for vector clustering during index build",
+                format!(
+                    "vector clustering during index build requires `maintenance_work_mem` of at least {}MB",
+                    total.div_ceil(1024 * 1024)
+                ),
                 function_name!(),
             )
-            .set_hint(format!(
-                "`SET maintenance_work_mem = '{}MB'`",
-                total.div_ceil(1024 * 1024)
-            ))
             .report(PgLogLevel::ERROR);
         }
     }

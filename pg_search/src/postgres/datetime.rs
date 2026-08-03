@@ -48,20 +48,6 @@ pub fn unix_millis_to_pg_micros(unix_millis: i64) -> i64 {
     unix_micros_to_pg_micros(unix_micros)
 }
 
-/// The minimum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
-/// converted between Postgres types and Tantivy without underflowing i64 when floored to the
-/// day.
-#[allow(dead_code)]
-pub const MIN_SAFE_TANTIVY_NANOS: i64 =
-    (i64::MIN / 1_000_000_000 / 86_400) * 86_400 * 1_000_000_000;
-
-/// The maximum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
-/// converted between Postgres types and Tantivy without overflowing i64 when floored to the
-/// day.
-#[allow(dead_code)]
-pub const MAX_SAFE_TANTIVY_NANOS: i64 =
-    (i64::MAX / 1_000_000_000 / 86_400) * 86_400 * 1_000_000_000;
-
 /// The minimum microseconds from 1970-01-01 00:00:00 UTC that can be safely
 /// converted between Postgres types and Tantivy without underflowing i64 when floored to the
 /// day.

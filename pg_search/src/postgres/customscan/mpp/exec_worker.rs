@@ -395,7 +395,6 @@ pub(crate) fn run_mpp_worker(
         }
     }
 
-    let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
 
@@ -407,15 +406,18 @@ pub(crate) fn run_mpp_worker(
                 + Send,
         >,
     >;
+
     // Hold cancel/die off for the duration so neither our drain/send loops nor a subroutine
     // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
     // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
     let held = HeldInterrupts::hold();
     let mesh_for_block = Arc::clone(worker_mesh);
-    let result = runtime.block_on(async move {
-        let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
-        let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
-            Vec::with_capacity(fragments.len());
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.block_on(async move {
+            let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+            let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
+            let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
+                Vec::with_capacity(fragments.len());
         for (fragment, frag_plan) in fragments.iter().zip(&plans) {
             let n_out = frag_plan
                 .properties()
@@ -511,7 +513,6 @@ pub(crate) fn run_mpp_worker(
                 fragment.task_count,
                 Arc::clone(&plan),
             ));
-
             futures.push(Box::pin(dispatch_fragment_requests(
                 Arc::clone(&mesh_for_block),
                 fragment.stage_id,
@@ -579,14 +580,36 @@ pub(crate) fn run_mpp_worker(
             }
         }
         outcome
-    });
+    })
+    }));
     // `block_on` has returned, so the runtime is idle and every fragment future (with its
     // DSM senders) has dropped. Resume interrupts, then service any cancel/die the loops
     // deferred, now on a stack with no live runtime; for a die this `proc_exit`s here instead
     // of mid-`block_on`.
     drop(held);
     check_for_interrupts();
-    if let Err(e) = result {
-        pgrx::error!("mpp worker: fragment dispatch failed: {e}");
+
+    match result {
+        Ok(Ok(())) => {
+            // Success
+        }
+        Ok(Err(e)) => {
+            pgrx::warning!("mpp worker: catch_unwind observed DataFusion error: {}", e);
+            pgrx::error!("mpp worker: fragment dispatch failed: {e}");
+        }
+        Err(payload) => {
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Box<dyn Any>".to_string()
+            };
+            pgrx::warning!(
+                "mpp worker: catch_unwind successfully caught a panic: {}",
+                msg
+            );
+            std::panic::resume_unwind(payload);
+        }
     }
 }

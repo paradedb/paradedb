@@ -775,7 +775,6 @@ pub(super) fn build_index(
 mod plan {
     use super::*;
 
-    /// Cap on parallel workers for index builds.
     pub(super) const MAX_BUILD_WORKERS: usize = 4;
 
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.

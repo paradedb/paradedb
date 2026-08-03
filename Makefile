@@ -41,7 +41,8 @@ install:
 package:
 	@cargo pgrx package --package pg_search --pg-config "$(PG_CONFIG)"
 
-META.json: META.json.in pg_search/Cargo.toml
+# DISTDESC comes from pg_search/Cargo.toml, DISTVERSION from the workspace Cargo.toml.
+META.json: META.json.in pg_search/Cargo.toml Cargo.toml
 	@sed -e "s/@CRATE_DESC@/$(DISTDESC)/g" -e "s/@CRATE_VERSION@/$(DISTVERSION)/g" $< > $@
 
 $(DISTNAME)-$(DISTVERSION).zip: META.json

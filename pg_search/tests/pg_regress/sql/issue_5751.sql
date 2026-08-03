@@ -181,7 +181,6 @@ FROM issue_5751_entries e
 JOIN issue_5751_series s ON s.id = e.series_id
 WHERE s.id + $1 > e.series_id;
 
-SET client_min_messages = error;
 SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_cross_param(0)$$,
   'ParadeDB Aggregate Scan') AS cross_param_uses_aggregate_scan;
@@ -253,8 +252,6 @@ SELECT issue_5751_result(
 
 DEALLOCATE issue_5751_having;
 DEALLOCATE issue_5751_filter;
-
-RESET client_min_messages;
 
 RESET plan_cache_mode;
 

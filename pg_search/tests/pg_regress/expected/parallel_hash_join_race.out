@@ -104,7 +104,6 @@ CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined));
 -- the parallel Index Only Scan whose race this regression covers.
 SET paradedb.enable_custom_scan = false;
 SET paradedb.enable_aggregate_custom_scan = false;
-SET client_min_messages = error;
 -- Enable parallel workers
 SET max_parallel_workers_per_gather = 2;
 -- Force parallel plans
@@ -131,6 +130,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -145,6 +145,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -159,6 +160,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -173,6 +175,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -187,6 +190,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -201,6 +205,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -215,6 +220,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -231,6 +237,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -245,6 +252,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -259,6 +267,7 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -277,30 +286,35 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) <= $6;
 -- Execute multiple times to trigger generic plan after 5 executions
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -308,6 +322,7 @@ EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt'
 
 -- 6th execution uses generic plan
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -339,6 +354,7 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     20
@@ -358,7 +374,6 @@ EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewter
 
 DEALLOCATE parallel_hash_join_query_generic;
 -- Reset settings
-RESET client_min_messages;
 RESET plan_cache_mode;
 RESET max_parallel_workers_per_gather;
 RESET parallel_tuple_cost;

@@ -223,10 +223,10 @@ SELECT count(*)
 FROM issue_5751_entries e
 JOIN issue_5751_series s ON s.id = e.series_id
 WHERE s.id + $1 > e.series_id;
-SET client_min_messages = error;
 SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_cross_param(0)$$,
   'ParadeDB Aggregate Scan') AS cross_param_uses_aggregate_scan;
+WARNING:  Aggregate Scan (DataFusion) not used: generic prepared-plan parameters in join predicates are not supported (table: join)
  cross_param_uses_aggregate_scan 
 ---------------------------------
  f
@@ -267,6 +267,7 @@ ORDER BY s.state;
 SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_having(1)$$,
   'ParadeDB Aggregate Scan') AS having_uses_aggregate_scan;
+WARNING:  Aggregate Scan (DataFusion) not used: HAVING clause cannot be translated for aggregate-on-join (table: join)
  having_uses_aggregate_scan 
 ----------------------------
  f
@@ -285,6 +286,7 @@ JOIN issue_5751_series s ON s.id = e.series_id;
 SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_filter('u1')$$,
   'ParadeDB Aggregate Scan') AS filter_uses_aggregate_scan;
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate FILTER cannot be translated for aggregate-on-join (table: join)
  filter_uses_aggregate_scan 
 ----------------------------
  f
@@ -331,7 +333,6 @@ SELECT issue_5751_result(
 
 DEALLOCATE issue_5751_having;
 DEALLOCATE issue_5751_filter;
-RESET client_min_messages;
 RESET plan_cache_mode;
 -- PostgreSQL may enforce an inner-join predicate on a parameterized inner
 -- index path and remove it from the parent NestPath.joinrestrictinfo. The

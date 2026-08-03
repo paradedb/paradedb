@@ -50,7 +50,6 @@ SET max_parallel_workers_per_gather = 2;
 -- can otherwise absorb these aggregate-on-join queries, so the test would stop
 -- exercising prepared parallel scans even though its row counts still pass.
 SET paradedb.enable_aggregate_custom_scan = false;
-SET client_min_messages = error;
 
 -- Test 1: Prepared statement with join and date filter
 -- This mimics the customer's scenario
@@ -100,7 +99,6 @@ EXECUTE test_parallel_join_generic('ea', '2024-06-01', '2025-01-01');
 
 DEALLOCATE test_parallel_join_generic;
 
-RESET client_min_messages;
 RESET paradedb.enable_aggregate_custom_scan;
 
 -- Test 2: Simple parallel index scan with parameters

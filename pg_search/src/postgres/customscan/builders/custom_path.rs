@@ -17,10 +17,10 @@
 
 use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]

@@ -51,16 +51,16 @@
 
 use std::error::Error;
 
-use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
+use pgrx::{Json, JsonB, PgRelation, default, pg_extern};
 use serde::{Deserialize, Serialize};
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::aggregate::{AggregateRequest, execute_aggregate};
 use crate::api::version::VersionInfo;
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
+use crate::postgres::utils::{ExprContextGuard, lookup_pdb_function};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -88,9 +88,10 @@ fn aggregate_impl(
     // This path bypasses the planner, so we validate here directly.
     let schema = SearchIndexSchema::open(&relation).ok();
     if let Some(schema) = schema.as_ref()
-        && let Err(e) = validate_agg_json_fields(&agg.0, schema) {
-            pgrx::error!("{}", e);
-        }
+        && let Err(e) = validate_agg_json_fields(&agg.0, schema)
+    {
+        pgrx::error!("{}", e);
+    }
 
     let standalone_context = ExprContextGuard::new();
     // need a copy of the original request json for rewriting later
@@ -118,13 +119,14 @@ fn aggregate_impl(
             schema.as_ref(),
             agg_json.as_object(),
             output.as_object_mut(),
-        ) {
-            for (name, request) in request_obj.iter() {
-                if let Some(response) = output_obj.get_mut(name) {
-                    rewrite_aggregate_result_json_timestamps(response, request, schema);
-                }
+        )
+    {
+        for (name, request) in request_obj.iter() {
+            if let Some(response) = output_obj.get_mut(name) {
+                rewrite_aggregate_result_json_timestamps(response, request, schema);
             }
         }
+    }
 
     Ok(JsonB(output))
 }
@@ -150,7 +152,7 @@ pub fn aggregate(
 #[pgrx::pg_schema]
 mod pdb {
     use pgrx::aggregate::Aggregate;
-    use pgrx::{pg_extern, Internal, JsonB};
+    use pgrx::{Internal, JsonB, pg_extern};
 
     /// Placeholder aggregate for `pdb.agg(jsonb)`.
     ///
@@ -181,11 +183,11 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::State {
             pgrx::error!(
-            "pdb.agg() must be handled by ParadeDB's custom scan. \
+                "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
              Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, \
              or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
-        )
+            )
         }
 
         fn finalize(
@@ -194,11 +196,11 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
             pgrx::error!(
-            "pdb.agg() must be handled by ParadeDB's custom scan. \
+                "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
              Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
              or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
-        )
+            )
         }
     }
 
@@ -223,11 +225,11 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::State {
             pgrx::error!(
-            "pdb.agg() must be handled by ParadeDB's custom scan. \
+                "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
              Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, \
              or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
-        )
+            )
         }
 
         fn finalize(
@@ -236,11 +238,11 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
             pgrx::error!(
-            "pdb.agg() must be handled by ParadeDB's custom scan. \
+                "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
              Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
              or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
-        )
+            )
         }
     }
 

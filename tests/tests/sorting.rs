@@ -293,9 +293,10 @@ async fn compound_sort_partitioned(mut conn: PgConnection) {
 fn collect_custom_scan_nodes(plan: &Value, nodes: &mut Vec<Value>) {
     // Check if this is a Custom Scan node
     if let Some(node_type) = plan.get("Node Type").and_then(|v| v.as_str())
-        && node_type == "Custom Scan" {
-            nodes.push(plan.clone());
-        }
+        && node_type == "Custom Scan"
+    {
+        nodes.push(plan.clone());
+    }
 
     // Recursively check child plans
     if let Some(plans) = plan.get("Plans").and_then(|p| p.as_array()) {

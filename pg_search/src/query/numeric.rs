@@ -93,7 +93,7 @@ pub fn scale_owned_value(value: PdbOwnedValue, scale: i16) -> Result<PdbOwnedVal
             return Err(anyhow::anyhow!(
                 "Cannot scale non-numeric value: {:?}",
                 value
-            ))
+            ));
         }
     };
 
@@ -240,9 +240,10 @@ pub fn string_to_u64(value: PdbOwnedValue) -> PdbOwnedValue {
     }
     // Fall back to f64 parsing for decimal values, then truncate
     if let Ok(f) = trimmed.parse::<f64>()
-        && f >= 0.0 {
-            return PdbOwnedValue::U64(f as u64);
-        }
+        && f >= 0.0
+    {
+        return PdbOwnedValue::U64(f as u64);
+    }
 
     value
 }
@@ -250,9 +251,10 @@ pub fn string_to_u64(value: PdbOwnedValue) -> PdbOwnedValue {
 /// Convert a string-encoded numeric value to F64.
 pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
     if let PdbOwnedValue::Str(s) = &value
-        && let Ok(f) = s.parse::<f64>() {
-            return PdbOwnedValue::F64(f);
-        }
+        && let Ok(f) = s.parse::<f64>()
+    {
+        return PdbOwnedValue::F64(f);
+    }
     value
 }
 

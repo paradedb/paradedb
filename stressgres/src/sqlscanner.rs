@@ -93,11 +93,7 @@ impl<'a> SqlStatementScannerIterator<'a> {
             pb: &mut Option<(usize, char)>,
             it: &mut Peekable<CharIndices>,
         ) -> Option<(usize, char)> {
-            if pb.is_some() {
-                pb.take()
-            } else {
-                it.next()
-            }
+            if pb.is_some() { pb.take() } else { it.next() }
         }
 
         while let Some((mut idx, c)) = get_next(&mut putback, &mut iter) {

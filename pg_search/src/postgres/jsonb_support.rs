@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys, AnyNumeric, FromDatum};
+use pgrx::{AnyNumeric, FromDatum, pg_sys};
 use serde_json::Error as SerdeError;
 use std::str::{FromStr, Utf8Error};
 use thiserror::Error;
@@ -267,7 +267,7 @@ unsafe fn jsonb_value_to_serde_value(
 #[pgrx::pg_schema]
 mod tests {
     use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
-    use pgrx::{pg_test, IntoDatum, JsonB};
+    use pgrx::{IntoDatum, JsonB, pg_test};
     use proptest::collection::{hash_map, vec as pvec};
     use proptest::prelude::*;
     use serde_json::{Number, Value};

@@ -22,9 +22,9 @@ use std::thread::LocalKey;
 use pgrx::pg_sys;
 
 use crate::api::HashMap;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::AggregateScan;
 use crate::postgres::customscan::joinscan::JoinScan;
-use crate::postgres::customscan::CustomScan;
 
 #[derive(Default)]
 pub struct WarningData {

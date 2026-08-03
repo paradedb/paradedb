@@ -24,8 +24,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use datafusion::common::config::ConfigOptions;
 use datafusion::common::Result;
+use datafusion::common::config::ConfigOptions;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::filter_pushdown::{

@@ -30,9 +30,9 @@ use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
+use tantivy::SegmentReader;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
-use tantivy::SegmentReader;
 
 mod build;
 pub mod build_logging;

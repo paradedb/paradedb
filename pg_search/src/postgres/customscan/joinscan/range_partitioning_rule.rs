@@ -22,7 +22,7 @@ use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, DataFusionError, JoinType, Result};
 use datafusion::logical_expr::{Expr, LogicalPlan, TableScan};
-use datafusion::optimizer::{optimizer::ApplyOrder, OptimizerConfig, OptimizerRule};
+use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrder};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
@@ -233,16 +233,16 @@ where
         _ => {
             let inputs = plan.inputs();
             if inputs.len() == 1
-                && let Ok(idx) = plan.schema().index_of_column(col) {
-                    let input_schema = inputs[0].schema();
-                    if idx < input_schema.fields().len() {
-                        let (q, field) = input_schema.qualified_field(idx);
-                        let inner_col = Column::new(q.cloned(), field.name());
+                && let Ok(idx) = plan.schema().index_of_column(col)
+            {
+                let input_schema = inputs[0].schema();
+                if idx < input_schema.fields().len() {
+                    let (q, field) = input_schema.qualified_field(idx);
+                    let inner_col = Column::new(q.cloned(), field.name());
 
-                        return plan
-                            .map_children(|child| map_scan_for_column(child, &inner_col, f));
-                    }
+                    return plan.map_children(|child| map_scan_for_column(child, &inner_col, f));
                 }
+            }
             Ok(Transformed::no(plan))
         }
     }
@@ -435,9 +435,10 @@ fn sample_fast_field(
 
     let search_field_type = provider.fields.iter().find_map(|f| {
         if let WhichFastField::Named(name, sft) = f
-            && name == partition_by.as_ref() {
-                return Some(*sft);
-            }
+            && name == partition_by.as_ref()
+        {
+            return Some(*sft);
+        }
         None
     });
 

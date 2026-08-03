@@ -33,8 +33,8 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use sqlx::{Connection, PgConnection};
 
-use crate::fixtures::db::Query;
 use crate::fixtures::ConnExt;
+use crate::fixtures::db::Query;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;

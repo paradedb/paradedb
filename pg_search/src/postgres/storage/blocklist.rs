@@ -216,10 +216,11 @@ pub mod builder {
             assert!(block_number != 0, "cannot add block 0 to the blocklist");
 
             if let Some(last) = self.queue.last()
-                && last == &block_number {
-                    // we just added this block
-                    return;
-                }
+                && last == &block_number
+            {
+                // we just added this block
+                return;
+            }
 
             if self.queue.len() == BitPacker4x::BLOCK_LEN {
                 self.chunks

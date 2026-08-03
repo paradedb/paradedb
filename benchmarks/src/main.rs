@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use paradedb::{
-    confidence_interval_half_width, mean, percentile, percentile_confidence_interval, Window,
+    Window, confidence_interval_half_width, mean, percentile, percentile_confidence_interval,
 };
 use sqlx::{Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
@@ -34,7 +34,7 @@ mod convert;
 mod sample;
 mod utils;
 
-use config::{load_dataset_config, DatasetConfig, LoadFormat, SweepConfig};
+use config::{DatasetConfig, LoadFormat, SweepConfig, load_dataset_config};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -1705,11 +1705,7 @@ fn queries(file: &Path) -> Vec<String> {
                 .join("$$")
                 .trim()
                 .to_owned();
-            if query.is_empty() {
-                None
-            } else {
-                Some(query)
-            }
+            if query.is_empty() { None } else { Some(query) }
         })
         .collect()
 }
@@ -1887,7 +1883,9 @@ async fn execute_query_multiple_times(
     }
 
     let query_id = get_query_id(measured_query, &mut conn).await?;
-    let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
+    let stats_query = format!(
+        "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};"
+    );
 
     // Log the plan the timings will measure, so a benchmark run's logs show which execution
     // path (serial, PG-parallel Gather, MPP DistributedExec) each query took. ANALYZE makes
@@ -2138,9 +2136,10 @@ mod tests {
                 "knn_top10_1pct@r95 - p99"
             ]
         );
-        assert!(out
-            .iter()
-            .all(|r| r.unit == "ms" && r.range.starts_with("95% CI [")));
+        assert!(
+            out.iter()
+                .all(|r| r.unit == "ms" && r.range.starts_with("95% CI ["))
+        );
         assert_eq!(
             out[0].extra,
             "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"

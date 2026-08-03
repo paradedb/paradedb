@@ -62,18 +62,18 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use crate::scan::Scanner;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
+use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
 use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningSample};
-use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -377,7 +377,7 @@ impl PgSearchScanPlan {
             _ => {
                 return Err(DataFusionError::Internal(
                     "Cannot repartition uninitialized or consumed plan".into(),
-                ))
+                ));
             }
         };
 
@@ -707,10 +707,11 @@ fn declared_partitioning(
 ) -> Partitioning {
     if partition_count > 1
         && let Some(boundaries) = range_boundaries
-            && boundaries.split_points.len() + 1 == partition_count
-                && let Some(partitioning) = boundaries.to_datafusion(schema) {
-                    return partitioning;
-                }
+        && boundaries.split_points.len() + 1 == partition_count
+        && let Some(partitioning) = boundaries.to_datafusion(schema)
+    {
+        return partitioning;
+    }
     Partitioning::UnknownPartitioning(partition_count)
 }
 
@@ -844,7 +845,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 return Err(DataFusionError::Internal(format!(
                     "Partition {} out of range (have {} partitions)",
                     p, partition_count
-                )))
+                )));
             }
         };
 
@@ -886,12 +887,13 @@ impl ExecutionPlan for PgSearchScanPlan {
         // partitions, or only assigned partitions for a task. Until then, returning an empty
         // stream for non-assigned partitions satisfies the fragment execution without crashing.
         if let Some(assigned) = self.assigned_partition
-            && partition != assigned {
-                let schema = self.properties.eq_properties.schema().clone();
-                return Ok(Box::pin(unsafe {
-                    UnsafeSendStream::new(futures::stream::empty(), schema)
-                }));
-            }
+            && partition != assigned
+        {
+            let schema = self.properties.eq_properties.schema().clone();
+            return Ok(Box::pin(unsafe {
+                UnsafeSendStream::new(futures::stream::empty(), schema)
+            }));
+        }
 
         let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))

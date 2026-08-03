@@ -21,7 +21,7 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
-use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
+use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};

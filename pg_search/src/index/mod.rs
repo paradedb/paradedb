@@ -27,8 +27,8 @@ pub use search::*;
 
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
-use tantivy::columnar::CodecType;
 use tantivy::IndexSettings;
+use tantivy::columnar::CodecType;
 
 /// The [`IndexSettings`] used for every tantivy index pg_search creates.
 ///

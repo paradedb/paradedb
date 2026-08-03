@@ -22,13 +22,13 @@ use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
-    SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable,
+    SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::schema::FieldSource;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -669,11 +669,11 @@ pub fn index_memory_segment(
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
     use pgrx::{
-        pg_sys::{
-            heap_deform_tuple, GetOldestNonRemovableTransactionId, HTSV_Result,
-            HeapTupleSatisfiesVacuum,
-        },
         PgTupleDesc,
+        pg_sys::{
+            GetOldestNonRemovableTransactionId, HTSV_Result, HeapTupleSatisfiesVacuum,
+            heap_deform_tuple,
+        },
     };
 
     /// RAII guard that guarantees an active snapshot for the duration of the heap reads and

@@ -94,9 +94,9 @@ pub unsafe fn resolve_fast_field(
                         && search_field.is_fast()
                         && let Some(field_type) =
                             field_type_for_pullup(search_field.field_type(), data.is_array)
-                        {
-                            return Some(WhichFastField::Named(att.name().to_string(), field_type));
-                        }
+                    {
+                        return Some(WhichFastField::Named(att.name().to_string(), field_type));
+                    }
                 }
             }
 

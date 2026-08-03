@@ -18,11 +18,11 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    build_text_funcexpr, request_simplify, validate_lhs_type_as_text_compatible, RHSValue,
-    ReturnedNodePointer,
+    RHSValue, ReturnedNodePointer, build_text_funcexpr, request_simplify,
+    validate_lhs_type_as_text_compatible,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
-use pgrx::{extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement, Internal};
+use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]

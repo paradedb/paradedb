@@ -24,12 +24,12 @@ use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
-use pgrx::{pg_sys, set_varsize_4b, FromDatum, IntoDatum};
+use pgrx::{FromDatum, IntoDatum, pg_sys, set_varsize_4b};
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
+use tokenizers::SearchTokenizer;
 use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
-use tokenizers::SearchTokenizer;
 
 pub(crate) mod definitions;
 mod typmod;
@@ -151,9 +151,10 @@ fn parse_tokenizer_params(inner: &str) -> typmod::ParsedTypmod {
     for part in inner.split(',') {
         let trimmed = part.trim();
         if !trimmed.is_empty()
-            && let Ok(prop) = trimmed.parse::<typmod::Property>() {
-                parsed.add_property(prop);
-            }
+            && let Ok(prop) = trimmed.parse::<typmod::Property>()
+        {
+            parsed.add_property(prop);
+        }
     }
     parsed
 }
@@ -843,7 +844,9 @@ unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -
             if bytes.is_ascii() {
                 core::str::from_utf8_unchecked(bytes)
             } else {
-                panic!("datums converted to &str should be valid UTF-8, database encoding is only UTF-8 compatible for ASCII")
+                panic!(
+                    "datums converted to &str should be valid UTF-8, database encoding is only UTF-8 compatible for ASCII"
+                )
             }
         }
     }

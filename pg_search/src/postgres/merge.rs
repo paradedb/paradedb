@@ -18,20 +18,20 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+use crate::postgres::PgSearchRelation;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
-use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
+use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedItemList;
-use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
-use pgrx::{check_for_interrupts, pg_guard, pg_sys, FromDatum, IntoDatum, PgTryBuilder};
+use pgrx::{FromDatum, IntoDatum, PgTryBuilder, check_for_interrupts, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;

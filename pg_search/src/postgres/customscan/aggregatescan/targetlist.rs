@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
+use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
@@ -23,12 +25,10 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::strip_unnest_and_relabel;
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
-use crate::postgres::PgSearchRelation;
-use pgrx::pg_sys;
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use pgrx::PgList;
+use pgrx::pg_sys;
 use std::ptr::addr_of_mut;
 
 /// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
@@ -137,7 +137,9 @@ impl TargetList {
     pub fn singleton_result_type_oid(&self) -> pg_sys::Oid {
         let agg_count = self.aggregates().count();
         if agg_count > 1 {
-            panic!("first_result_type_oid should only be called on a TargetList with a single aggregate");
+            panic!(
+                "first_result_type_oid should only be called on a TargetList with a single aggregate"
+            );
         }
         self.aggregates()
             .next()

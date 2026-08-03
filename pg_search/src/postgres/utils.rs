@@ -18,14 +18,14 @@
 use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::tokenizers::definitions::pdb::DatumWithType;
 use crate::api::tokenizers::{
-    type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
+    AliasTypmod, UncheckedTypmod, type_can_be_tokenized, type_is_alias, type_is_tokenizer,
 };
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::composite::{
-    get_composite_fields_for_index, is_composite_type, CompositeSlotValues,
+    CompositeSlotValues, get_composite_fields_for_index, is_composite_type,
 };
 use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
@@ -33,8 +33,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
-use crate::vector::metric::VectorMetric;
 use crate::vector::PgVector;
+use crate::vector::metric::VectorMetric;
 use anyhow::Result;
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
@@ -307,11 +307,12 @@ pub unsafe fn collect_composites_for_unpacking<'a>(
             composite_type_oid,
             ..
         } = cat.source
-            && seen.insert(index_attno) {
-                let datum = *values.add(index_attno);
-                let is_null = *isnull.add(index_attno);
-                return Some((index_attno, datum, is_null, composite_type_oid));
-            }
+            && seen.insert(index_attno)
+        {
+            let datum = *values.add(index_attno);
+            let is_null = *isnull.add(index_attno);
+            return Some((index_attno, datum, is_null, composite_type_oid));
+        }
         None
     })
 }
@@ -433,14 +434,15 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
             continue;
         }
         if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node)
-            && is_unnest_func((*func).funcid) {
-                found_unnest = true;
-                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                if let Some(arg) = args.get_ptr(0) {
-                    node = arg;
-                    continue;
-                }
+            && is_unnest_func((*func).funcid)
+        {
+            found_unnest = true;
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if let Some(arg) = args.get_ptr(0) {
+                node = arg;
+                continue;
             }
+        }
         break;
     }
     (node, found_unnest)
@@ -501,9 +503,10 @@ pub unsafe fn extract_field_attributes(
     unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
         if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression)
             && let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
-                && (*func_expr).funcid == text_lower_funcoid() {
-                    return true;
-                }
+            && (*func_expr).funcid == text_lower_funcoid()
+        {
+            return true;
+        }
 
         false
     }
@@ -643,26 +646,25 @@ pub unsafe fn extract_field_attributes(
 
                     if type_is_alias(typoid) {
                         if type_can_be_tokenized(inner_typoid) {
-                            panic!("To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`");
+                            panic!(
+                                "To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`"
+                            );
                         } else {
                             // if we have a non text field text to `pdb.alias`, unwrap it to get the inner typoid
                             if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expression)
                                 && let Some(func) = nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
+                            {
+                                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                                if args.len() == 1
+                                    && let Some(arg) = args.get_ptr(0)
                                 {
-                                    let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                                    if args.len() == 1
-                                        && let Some(arg) = args.get_ptr(0) {
-                                            if let Some(inner_func) =
-                                                nodecast!(FuncExpr, T_FuncExpr, arg)
-                                            {
-                                                inner_typoid = (*inner_func).funcresulttype;
-                                            } else if let Some(op_expr) =
-                                                nodecast!(OpExpr, T_OpExpr, arg)
-                                            {
-                                                inner_typoid = (*op_expr).opresulttype;
-                                            }
-                                        }
+                                    if let Some(inner_func) = nodecast!(FuncExpr, T_FuncExpr, arg) {
+                                        inner_typoid = (*inner_func).funcresulttype;
+                                    } else if let Some(op_expr) = nodecast!(OpExpr, T_OpExpr, arg) {
+                                        inner_typoid = (*op_expr).opresulttype;
+                                    }
                                 }
+                            }
 
                             // use the alias name as the field name instead of the heap attribute name
                             let alias_typmod =

@@ -19,16 +19,16 @@ mod anyenum;
 mod config;
 pub mod range;
 
-use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
+use crate::api::version::{Version, VersionInfo};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
-pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
-use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, resolve_base_type};
+pub use crate::postgres::utils::{FieldSource, convert_pg_date_string};
 use crate::vector::metric::VectorMetric;
 pub use anyenum::AnyEnum;
 use anyhow::bail;
@@ -38,7 +38,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use tantivy::index::{IndexSortByField, Order};
 
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
+use crate::api::tokenizers::{Typmod, type_is_alias, type_is_tokenizer};
 use crate::index::utils::load_index_schema;
 use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::rel::PgSearchRelation;
@@ -46,7 +46,7 @@ use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::QueryError;
 use anyhow::Result;
 use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
-use pgrx::{pg_sys, PgBuiltInOids, PgOid};
+use pgrx::{PgBuiltInOids, PgOid, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::{Field, FieldEntry, FieldType, Schema};
 use thiserror::Error;
@@ -309,9 +309,11 @@ impl SearchFieldType {
                     // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
                     let (precision, scale) = extract_numeric_precision_scale(typmod);
                     if let Some(scale) = scale
-                        && precision > 0 && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16 {
-                            return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
-                        }
+                        && precision > 0
+                        && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16
+                    {
+                        return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
+                    }
                     // Pass the scale to NumericBytes so it can format output with correct decimal places
                     Ok(SearchFieldType::NumericBytes((*builtin).into(), scale))
                 }
@@ -886,7 +888,7 @@ pub enum SearchIndexSchemaError {
 
 #[cfg(test)]
 mod tests {
-    use pgrx::{pg_sys, PgOid};
+    use pgrx::{PgOid, pg_sys};
     use rstest::rstest;
     use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
 

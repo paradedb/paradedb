@@ -51,7 +51,9 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
                 right: Box::new(right),
             }
         }
-        _ => panic!("left hand side of `##` must be a `<token-expression> ## <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"),
+        _ => panic!(
+            "left hand side of `##` must be a `<token-expression> ## <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"
+        ),
     }
 }
 
@@ -84,6 +86,8 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
                 right: Box::new(right),
             }
         }
-        _ => panic!("left hand side of `##>` must be a `<token-expression> ##> <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"),
+        _ => panic!(
+            "left hand side of `##>` must be a `<token-expression> ##> <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"
+        ),
     }
 }

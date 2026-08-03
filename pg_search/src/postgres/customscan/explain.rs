@@ -46,9 +46,10 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
             // Check if this is a "with_index" object and remove its "oid" if present
             if obj.contains_key("with_index")
                 && let Some(with_index) = obj.get_mut("with_index")
-                    && let Some(with_index_obj) = with_index.as_object_mut() {
-                        with_index_obj.remove("oid");
-                    }
+                && let Some(with_index_obj) = with_index.as_object_mut()
+            {
+                with_index_obj.remove("oid");
+            }
 
             // Clean up HeapFieldFilter objects: remove raw expr_node (internal node representation)
             // Keep the heap_filter field which contains the human-readable SQL expression
@@ -60,10 +61,11 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
             // Keep the expr_desc field which contains the human-readable SQL expression
             if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression")
                 && let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut()
-                    && let Some(pg_expr) = wrapper_obj.get_mut("expr")
-                        && let Some(expr_obj) = pg_expr.as_object_mut() {
-                            expr_obj.remove("node");
-                        }
+                && let Some(pg_expr) = wrapper_obj.get_mut("expr")
+                && let Some(expr_obj) = pg_expr.as_object_mut()
+            {
+                expr_obj.remove("node");
+            }
 
             obj.remove("indexrelid");
 

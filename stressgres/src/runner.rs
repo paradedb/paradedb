@@ -15,20 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::fault_tolerance::{tolerate_transient, GraceWindow};
+use crate::fault_tolerance::{GraceWindow, tolerate_transient};
 use crate::sqlscanner::StatementDestination;
 use crate::suite::{Job, Server, ServerStyle, Suite};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use cursive_core::style::{BaseColor, Color};
 use parking_lot::{Mutex, RwLock};
+use postgres::Row;
 use postgres::error::SqlState;
 use postgres::types::ToSql;
-use postgres::Row;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -522,9 +522,9 @@ impl SuiteRunner {
                     server.name,
                     server.connstr()
                 );
-                setup_job.destinations = vec![StatementDestination::SpecificServers(vec![server
-                    .name
-                    .clone()])];
+                setup_job.destinations = vec![StatementDestination::SpecificServers(vec![
+                    server.name.clone(),
+                ])];
 
                 let setup_runner = JobRunner::new(
                     self.suite.clone(),
@@ -558,9 +558,9 @@ impl SuiteRunner {
         // setup and start the monitors
         for server in self.suite.all_servers() {
             let mut monitor_job = server.monitor.clone();
-            monitor_job.destinations = vec![StatementDestination::SpecificServers(vec![server
-                .name
-                .clone()])];
+            monitor_job.destinations = vec![StatementDestination::SpecificServers(vec![
+                server.name.clone(),
+            ])];
 
             let monitor_runner = JobRunner::new(
                 self.suite.clone(),
@@ -811,10 +811,9 @@ impl SuiteRunner {
         if self.setup_mode == SetupMode::Full {
             for server in &mut self.suite.all_servers() {
                 let mut teardown_job = server.teardown.clone();
-                teardown_job.destinations =
-                    vec![StatementDestination::SpecificServers(vec![server
-                        .name
-                        .clone()])];
+                teardown_job.destinations = vec![StatementDestination::SpecificServers(vec![
+                    server.name.clone(),
+                ])];
 
                 let teardown_runner = JobRunner::new(
                     self.suite.clone(),
@@ -889,11 +888,7 @@ impl Default for RuntimeStats {
 impl RuntimeStats {
     pub fn tps(&self) -> f64 {
         let tps = self.count as f64 / self.cumulative_duration.as_secs_f64();
-        if !tps.is_normal() {
-            0.0
-        } else {
-            tps
-        }
+        if !tps.is_normal() { 0.0 } else { tps }
     }
 
     pub fn update(

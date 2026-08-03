@@ -19,7 +19,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::node_to_string;
 use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 pub struct Args {
     pub root: *mut pg_sys::PlannerInfo,

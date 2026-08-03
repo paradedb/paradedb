@@ -22,10 +22,10 @@ use std::io::{Cursor, Read, Write};
 use std::ops::Range;
 use std::sync::OnceLock;
 
-use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
+use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, bm25_max_free_space};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
-use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
+use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods, init_new_buffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 
 use std::cell::UnsafeCell;
@@ -382,9 +382,10 @@ impl LinkedBytesList {
         // Redundant with rposition below, but ~0.2ms faster under saturation
         // because it avoids the closure + iterator overhead on the hot path.
         if let Some(last) = cache.back()
-            && last.block_ord == block_ord {
-                return last.block_bytes[local_offset];
-            }
+            && last.block_ord == block_ord
+        {
+            return last.block_bytes[local_offset];
+        }
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
             return cache[pos].block_bytes[local_offset];
         }

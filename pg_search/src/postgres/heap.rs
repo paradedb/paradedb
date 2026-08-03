@@ -18,8 +18,8 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
-use pgrx::pg_sys;
 use pgrx::PgList;
+use pgrx::pg_sys;
 use std::ops::Deref;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.

@@ -70,9 +70,9 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::{for_each_segment, FFHelper};
-use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
+use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
 use crate::postgres::customscan::joinscan::CtidColumn;
+use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -225,15 +225,16 @@ fn collect_visibility_source_metadata(
     plan.apply(|node| {
         if let LogicalPlan::TableScan(scan) = node
             && let Some(provider) = pg_search_provider_from_scan(scan)
-                && let Some(source_metadata) = provider.visibility_source_metadata()
-                    && let Some(prev_metadata) = metadata
-                        .insert(source_metadata.plan_position, source_metadata.clone())
-                        && prev_metadata != source_metadata {
-                            return Err(DataFusionError::Internal(format!(
-                                "VisibilityFilterInjection: conflicting metadata for plan_position {}",
-                                source_metadata.plan_position,
-                            )));
-                        }
+            && let Some(source_metadata) = provider.visibility_source_metadata()
+            && let Some(prev_metadata) =
+                metadata.insert(source_metadata.plan_position, source_metadata.clone())
+            && prev_metadata != source_metadata
+        {
+            return Err(DataFusionError::Internal(format!(
+                "VisibilityFilterInjection: conflicting metadata for plan_position {}",
+                source_metadata.plan_position,
+            )));
+        }
 
         Ok(TreeNodeRecursion::Continue)
     })?;
@@ -444,11 +445,12 @@ fn analyze_and_inject(
     // Treat existing visibility nodes as already verified so repeated optimizer
     // passes do not keep re-wrapping.
     if let LogicalPlan::Extension(ext) = &plan
-        && let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>() {
-            for &(plan_pos, _) in &vf.plan_pos_oids {
-                merged.insert(plan_pos, VisibilityStatus::Verified);
-            }
+        && let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>()
+    {
+        for &(plan_pos, _) in &vf.plan_pos_oids {
+            merged.insert(plan_pos, VisibilityStatus::Verified);
         }
+    }
 
     let parent_lineage: BTreeSet<usize> = extract_ctid_lineage(plan.schema())
         .into_iter()
@@ -1178,17 +1180,17 @@ mod tests {
 
     use datafusion::catalog::default_table_source::DefaultTableSource;
     use datafusion::common::Result;
-    use datafusion::logical_expr::{col, LogicalPlan, LogicalPlanBuilder};
-    use datafusion::optimizer::optimizer::OptimizerContext;
+    use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, col};
     use datafusion::optimizer::OptimizerRule;
+    use datafusion::optimizer::optimizer::OptimizerContext;
     use pgrx::pg_sys;
     use pgrx::prelude::*;
 
     use crate::index::fast_fields_helper::WhichFastField;
+    use crate::postgres::customscan::joinscan::CtidColumn;
     use crate::postgres::customscan::joinscan::visibility_filter::{
         VisibilityFilterNode, VisibilityFilterOptimizerRule,
     };
-    use crate::postgres::customscan::joinscan::CtidColumn;
     use crate::scan::{PgSearchTableProvider, ScanInfo, VisibilityMode};
 
     const TEST_PLAN_POS: usize = 0;
@@ -1382,7 +1384,7 @@ mod tests {
             Some("test_table"),
         )?)
         .sort(vec![
-            col(CtidColumn::new(TEST_PLAN_POS).to_string()).sort(true, false)
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).sort(true, false),
         ])?
         .build()?;
 
@@ -1465,8 +1467,10 @@ mod tests {
             .join_on(
                 right,
                 join_type,
-                vec![col(CtidColumn::new(POS_A).to_string())
-                    .eq(col(CtidColumn::new(POS_B).to_string()))],
+                vec![
+                    col(CtidColumn::new(POS_A).to_string())
+                        .eq(col(CtidColumn::new(POS_B).to_string())),
+                ],
             )?
             .build()?;
 

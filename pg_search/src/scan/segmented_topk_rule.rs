@@ -44,14 +44,14 @@
 
 use std::sync::Arc;
 
-use datafusion::common::config::ConfigOptions;
 use datafusion::common::Result;
+use datafusion::common::config::ConfigOptions;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
@@ -285,10 +285,12 @@ fn try_inject_below_lookup(
                     && deferred_columns
                         .iter()
                         .any(|d| d.canonical.indexrelid != id)
-                    {
-                        pgrx::warning!("SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.");
-                        return Ok(None);
-                    }
+                {
+                    pgrx::warning!(
+                        "SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution."
+                    );
+                    return Ok(None);
+                }
 
                 let target_indexrelid = first_indexrelid.unwrap_or(0);
                 let ffhelper = match lookup.ffhelper(target_indexrelid) {

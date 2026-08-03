@@ -22,8 +22,8 @@
 use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
+use crate::query::pdb_query::pdb;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::schema::SearchFieldType;
 use datafusion::common::ScalarValue;
@@ -279,9 +279,10 @@ impl<'a> FilterAnalyzer<'a> {
     fn find_field(&self, name: &str) -> Option<&SearchFieldType> {
         self.fields.iter().find_map(|field| {
             if let WhichFastField::Named(field_name, field_type) = field
-                && field_name == name {
-                    return Some(field_type);
-                }
+                && field_name == name
+            {
+                return Some(field_type);
+            }
             None
         })
     }

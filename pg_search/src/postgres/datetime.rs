@@ -20,8 +20,8 @@ use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
-use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::datum::ToIsoString;
+use pgrx::datum::datetime_support::DateTimeConversionError;
 use serde::{Deserialize, Serialize};
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
@@ -132,7 +132,11 @@ impl PostgresDateTime {
     }
 
     pub fn try_from_unix_nanos(unix_nanos: i64) -> Result<Self, DateTimeConversionError> {
-        assert_eq!(unix_nanos % 1_000, 0, "We should never see a timestamp with greater than microsecond precision because postgres only supports microsecond precision");
+        assert_eq!(
+            unix_nanos % 1_000,
+            0,
+            "We should never see a timestamp with greater than microsecond precision because postgres only supports microsecond precision"
+        );
         let unix_micros = unix_nanos / 1_000;
         Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
     }
@@ -215,9 +219,10 @@ impl TryFrom<&str> for PostgresDateTime {
 /// Cheap way to skip full parsing of things that can't be valid rfc3339 dates
 fn can_be_rfc3339_date_time(text: &str) -> bool {
     if let Some(&first_byte) = text.as_bytes().first()
-        && first_byte.is_ascii_digit() {
-            return true;
-        }
+        && first_byte.is_ascii_digit()
+    {
+        return true;
+    }
 
     false
 }

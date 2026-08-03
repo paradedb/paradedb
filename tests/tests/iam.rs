@@ -56,12 +56,12 @@ fn direct_or_queries(mut conn: PgConnection) {
         assert_eq!(
             columns.description.iter().cloned().collect::<HashSet<_>>(),
             concat!(
-            "Plastic Keyboard,Ergonomic metal keyboard,Innovative wireless earbuds,",
-            "Fast charging power bank,Bluetooth-enabled speaker"
+                "Plastic Keyboard,Ergonomic metal keyboard,Innovative wireless earbuds,",
+                "Fast charging power bank,Bluetooth-enabled speaker"
             )
-                .split(',')
-                .map(|s| s.to_string())
-                .collect::<HashSet<_>>()
+            .split(',')
+            .map(|s| s.to_string())
+            .collect::<HashSet<_>>()
         );
 
         assert_eq!(
@@ -88,13 +88,16 @@ fn direct_and_queries(mut conn: PgConnection) {
 
         assert_eq!(
             columns.description.iter().cloned().collect::<HashSet<_>>(),
-            ["Plastic Keyboard","Ergonomic metal keyboard"].iter().map(|s| s.to_string())
+            ["Plastic Keyboard", "Ergonomic metal keyboard"]
+                .iter()
+                .map(|s| s.to_string())
                 .collect::<HashSet<_>>()
         );
 
         assert_eq!(
             columns.category.iter().cloned().collect::<HashSet<_>>(),
-            ["Electronics"].iter()
+            ["Electronics"]
+                .iter()
                 .map(|s| s.to_string())
                 .collect::<HashSet<_>>()
         );

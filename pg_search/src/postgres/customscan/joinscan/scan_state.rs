@@ -32,7 +32,7 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{col, Expr};
+use datafusion::logical_expr::{Expr, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -50,15 +50,15 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
-    PredicateTranslator,
+    ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
+    build_join_df_with_filter, make_col, make_source_col, make_source_score_col,
+    translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
-use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
@@ -938,30 +938,34 @@ fn build_source_df<'a>(
             let attno = unsafe { get_source_attno_by_name(source, name) };
             if let Some(attno) = attno
                 && let Some(registered) = source.column_name(attno)
-                    && registered != name {
-                        required_early.insert(registered);
-                    }
+                && registered != name
+            {
+                required_early.insert(registered);
+            }
         }
 
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in join_clause.plan.join_keys() {
             if source.contains_rti(jk.outer_rti)
-                && let Some(col) = source.column_name(jk.outer_attno) {
-                    required_early.insert(col);
-                }
+                && let Some(col) = source.column_name(jk.outer_attno)
+            {
+                required_early.insert(col);
+            }
             if source.contains_rti(jk.inner_rti)
-                && let Some(col) = source.column_name(jk.inner_attno) {
-                    required_early.insert(col);
-                }
+                && let Some(col) = source.column_name(jk.inner_attno)
+            {
+                required_early.insert(col);
+            }
         }
         // Columns referenced by `JoinNode.filter` (e.g. a disjunctive Semi/Anti
         // `PgExpression`) must also be materialized eagerly — the filter is
         // evaluated per row pair before the join emits anything.
         for (rti, attno) in join_clause.plan.filter_input_vars() {
             if source.contains_rti(rti)
-                && let Some(col) = source.column_name(attno) {
-                    required_early.insert(col);
-                }
+                && let Some(col) = source.column_name(attno)
+            {
+                required_early.insert(col);
+            }
         }
 
         // Both MPP and PG-parallel hash join need the canonical-segment-id
@@ -993,9 +997,10 @@ fn build_source_df<'a>(
                     OrderByFeature::Var { rti, attno, .. } => {
                         // Only insert columns belonging to THIS source
                         if source.contains_rti(*rti)
-                            && let Some(col_name) = source.column_name(*attno) {
-                                required_early.insert(col_name);
-                            }
+                            && let Some(col_name) = source.column_name(*attno)
+                        {
+                            required_early.insert(col_name);
+                        }
                     }
                     OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {

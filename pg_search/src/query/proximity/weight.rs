@@ -22,11 +22,11 @@ use std::sync::Arc;
 use tantivy::fieldnorm::FieldNormReader;
 use tantivy::postings::{LoadedPostings, Postings};
 use tantivy::query::{
-    does_not_match, AutomatonWeight, Bm25Weight, EmptyScorer, Explanation, RegexPhraseWeight,
-    Scorer, Weight,
+    AutomatonWeight, Bm25Weight, EmptyScorer, Explanation, RegexPhraseWeight, Scorer, Weight,
+    does_not_match,
 };
 use tantivy::schema::IndexRecordOption;
-use tantivy::{DocId, DocSet, Score, SegmentReader, Term, TERMINATED};
+use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
 pub struct ProximityWeight {
     query: ProximityQuery,
@@ -44,9 +44,10 @@ impl ProximityWeight {
     fn fieldnorm_reader(&self, reader: &SegmentReader) -> tantivy::Result<FieldNormReader> {
         let field = self.query.field();
         if self.weight_opt.is_some()
-            && let Some(fieldnorm_reader) = reader.fieldnorms_readers().get_field(field)? {
-                return Ok(fieldnorm_reader);
-            }
+            && let Some(fieldnorm_reader) = reader.fieldnorms_readers().get_field(field)?
+        {
+            return Ok(fieldnorm_reader);
+        }
         Ok(FieldNormReader::constant(reader.max_doc(), 1))
     }
 

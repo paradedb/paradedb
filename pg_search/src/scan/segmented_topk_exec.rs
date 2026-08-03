@@ -74,13 +74,13 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
-    materialize_deferred_ctid, DeferredCtidMaterializationState,
+    DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::tantivy_lookup_exec::{open_rebuilt_ffhelper, rebuild_mvcc, LookupRebuildContext};
+use crate::scan::tantivy_lookup_exec::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
 };
@@ -1163,10 +1163,10 @@ impl SegmentedTopKState {
                 }
                 _ => {
                     panic!(
-                            "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
+                        "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
                              — the optimizer should never plan this node for non-dictionary columns",
-                            deferred_col.canonical.ff_index
-                        );
+                        deferred_col.canonical.ff_index
+                    );
                 }
             }
 
@@ -1194,7 +1194,7 @@ impl SegmentedTopKState {
         values: &[datafusion::common::ScalarValue],
     ) -> Option<Arc<dyn PhysicalExpr>> {
         use datafusion::logical_expr::Operator;
-        use datafusion::physical_expr::expressions::{is_not_null, is_null, lit, BinaryExpr};
+        use datafusion::physical_expr::expressions::{BinaryExpr, is_not_null, is_null, lit};
 
         let mut filters = Vec::with_capacity(values.len());
         let mut prev_eq: Option<Arc<dyn PhysicalExpr>> = None;
@@ -1318,10 +1318,11 @@ impl SegmentedTopKState {
         };
 
         if changed
-            && let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values) {
-                let _ = self.dynamic_filter.update(expr);
-                self.last_published_global = Some(best_row);
-            }
+            && let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values)
+        {
+            let _ = self.dynamic_filter.update(expr);
+            self.last_published_global = Some(best_row);
+        }
 
         Ok(())
     }
@@ -1344,9 +1345,10 @@ impl SegmentedTopKState {
             .last_segment_cutoffs
             .get(seg_ord as usize)
             .and_then(|c| c.as_ref())
-            && cached_local == worst_local {
-                return Ok((vals.clone(), row.clone()));
-            }
+            && cached_local == worst_local
+        {
+            return Ok((vals.clone(), row.clone()));
+        }
 
         let arrays = self
             .row_converter
@@ -1990,8 +1992,8 @@ mod tests {
     use datafusion::execution::TaskContext;
     use datafusion::physical_expr::expressions::Column;
     use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
-    use datafusion::physical_plan::test::TestMemoryExec;
     use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::physical_plan::test::TestMemoryExec;
     use futures::StreamExt;
     use pgrx::prelude::*;
     use proptest::prelude::*;

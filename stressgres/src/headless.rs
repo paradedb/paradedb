@@ -15,16 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::runner::{SuiteRunner, HARDCODED_IGNORE_ERRORS};
 use crate::MetricsLine;
+use crate::runner::{HARDCODED_IGNORE_ERRORS, SuiteRunner};
 use postgres::Row;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 fn get_value(row: &Row, col: &str) -> serde_json::Value {
     let col = col.split(':').next().unwrap();

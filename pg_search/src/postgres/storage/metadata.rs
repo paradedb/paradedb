@@ -15,19 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::version::{parse_version_component, Version};
+use crate::api::version::{Version, parse_version_component};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
+use crate::postgres::storage::block::{SegmentMetaEntry, block_number_is_valid};
 use crate::postgres::storage::buffer::{
-    init_new_buffer, Buffer, BufferManager, BufferMut, PinnedBuffer,
+    Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer,
 };
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    function_name, iter::TableIterator, name, pg_extern, pg_sys, PgLogLevel, PgRelation,
-    PgSqlErrorCode,
+    PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_extern,
+    pg_sys,
 };
 
 /// The metadata stored on the `Metadata` page

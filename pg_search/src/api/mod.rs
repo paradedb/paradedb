@@ -29,13 +29,13 @@ pub mod version;
 pub mod window_aggregate;
 
 use pgrx::{
-    direct_function_call, extension_sql, pg_cast, pg_sys, FromDatum, InOutFuncs, IntoDatum,
-    PostgresType, StringInfo,
+    FromDatum, InOutFuncs, IntoDatum, PostgresType, StringInfo, direct_function_call,
+    extension_sql, pg_cast, pg_sys,
 };
 
 pub use aggregate::{
-    agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
-    MvccVisibility,
+    MvccVisibility, agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid,
+    extract_solve_mvcc_from_const,
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
@@ -45,8 +45,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
 
-use crate::vector::metric::VectorMetric;
 use crate::vector::PgVector;
+use crate::vector::metric::VectorMetric;
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]

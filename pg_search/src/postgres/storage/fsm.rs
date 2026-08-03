@@ -21,7 +21,7 @@ use crate::postgres::storage::fsm::v1::V1FSM;
 use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::iter::TableIterator;
-use pgrx::{name, pg_extern, pg_sys, PgRelation};
+use pgrx::{PgRelation, name, pg_extern, pg_sys};
 
 /// Denotes what the data on an FSM block looks like
 #[allow(non_camel_case_types)]
@@ -140,8 +140,8 @@ pub trait FreeSpaceManager {
 ///
 pub mod v1 {
     use crate::postgres::rel::PgSearchRelation;
-    use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData};
-    use crate::postgres::storage::buffer::{init_new_buffer, Buffer, BufferManager};
+    use crate::postgres::storage::block::{BM25PageSpecialData, bm25_max_free_space};
+    use crate::postgres::storage::buffer::{Buffer, BufferManager, init_new_buffer};
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
     use pgrx::pg_sys;
 
@@ -637,9 +637,9 @@ pub mod v2 {
     use crate::postgres::storage::avl::{
         AvlTreeMap, AvlTreeMapHeader, AvlTreeMapView, Error, Slot,
     };
-    use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData};
+    use crate::postgres::storage::block::{BM25PageSpecialData, bm25_max_free_space};
     use crate::postgres::storage::buffer::{
-        init_new_buffer, BufferManager, BufferMut, Page, PageMut,
+        BufferManager, BufferMut, Page, PageMut, init_new_buffer,
     };
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
     use pgrx::pg_sys;
@@ -1198,7 +1198,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_basics() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1250,7 +1252,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_large_extend_drain() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1284,7 +1288,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_no_future_drain() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1316,7 +1322,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_many_xids() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1351,7 +1359,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_full() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1405,7 +1415,9 @@ pub mod v2 {
             // - Winner unlinks, loser must handle gracefully
 
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_race_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_race_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_race_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1479,7 +1491,9 @@ pub mod v2 {
             // entries from a block, then later drain the rest
 
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_partial_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_partial_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_partial_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1541,7 +1555,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_extend_with_splice() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_sparse_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_sparse_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_sparse_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1588,7 +1604,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_with_holes() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1654,7 +1672,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_create_index_slot_distribution() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
@@ -1698,7 +1718,9 @@ pub mod v2 {
         #[pg_test]
         unsafe fn test_fsmv2_tolerates_corrupt_metadata() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+            Spi::run(
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+            )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);

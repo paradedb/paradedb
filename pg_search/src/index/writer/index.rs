@@ -23,8 +23,8 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    directory::RamDirectory, Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment,
-    SegmentMeta, TantivyDocument,
+    Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
+    directory::RamDirectory,
 };
 use thiserror::Error;
 
@@ -35,7 +35,7 @@ use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::vector::clusterer::set_ivf_clusterer;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{direct_function_call, function_name, IntoDatum, PgLogLevel, PgSqlErrorCode};
+use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 
 struct PendingSegment {
     segment: Segment,
@@ -381,18 +381,19 @@ impl SerialIndexWriter {
         }
 
         if let Some(max_docs_per_segment) = self.config.max_docs_per_segment
-            && max_doc >= max_docs_per_segment as usize {
-                if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
-                    pgrx::debug1!(
-                        "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
-                        self.id,
-                        pending_segment.segment.id(),
-                        max_doc,
-                        self.new_metas.len()
-                    );
-                }
-                return self.finalize_segment(on_finalize);
+            && max_doc >= max_docs_per_segment as usize
+        {
+            if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+                pgrx::debug1!(
+                    "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
+                    self.id,
+                    pending_segment.segment.id(),
+                    max_doc,
+                    self.new_metas.len()
+                );
             }
+            return self.finalize_segment(on_finalize);
+        }
 
         Ok(None)
     }

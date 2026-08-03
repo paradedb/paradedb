@@ -17,19 +17,19 @@
 
 use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::tokenizers::type_is_alias;
-use crate::api::{fieldname_typoid, FieldName};
+use crate::api::{FieldName, fieldname_typoid};
 use crate::nodecast;
 use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
-use crate::postgres::customscan::opexpr::{lookup_operator, OpExpr, TantivyOperatorExt};
-use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
+use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual, contains_correlated_param};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{find_json_path, find_vars, VarContext};
+use crate::postgres::var::{VarContext, find_json_path, find_vars};
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgOid};
+use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -186,9 +186,10 @@ impl PushdownField {
         }
 
         if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, var)
-            && !type_is_alias((*relabel).resulttype) {
-                var = (*relabel).arg.cast();
-            }
+            && !type_is_alias((*relabel).resulttype)
+        {
+            var = (*relabel).arg.cast();
+        }
 
         let heaprel = indexrel
             .heap_relation()

@@ -246,11 +246,12 @@ fn get_union_info(
                 datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
             let mut is_bytes = false;
             if let Some(base_col) = trace_column(plan, &col)
-                && let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name) {
-                    let d = all_deferred.remove(pos);
-                    is_bytes = d.is_bytes;
-                    active_deferred.push(d);
-                }
+                && let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name)
+            {
+                let d = all_deferred.remove(pos);
+                is_bytes = d.is_bytes;
+                active_deferred.push(d);
+            }
 
             let materialized_type = if is_bytes {
                 arrow_schema::DataType::BinaryView
@@ -300,8 +301,6 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             false
         }
     });
-
-    
 
     match node {
         LogicalPlan::Filter(_) => references_deferred,
@@ -602,11 +601,12 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
                 let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
                 let mut is_bytes = false;
                 if let Some(base_col) = trace_column(&input, &target_col)
-                    && let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name) {
-                        let d = deferred_pool.remove(pos);
-                        is_bytes = d.is_bytes;
-                        new_deferred_fields.push(d);
-                    }
+                    && let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name)
+                {
+                    let d = deferred_pool.remove(pos);
+                    is_bytes = d.is_bytes;
+                    new_deferred_fields.push(d);
+                }
 
                 // When DataFusion's `OptimizeProjections` rule rebuilds nodes, it trims the schema.
                 // We must manually map the incoming `Union` types back to their materialized `T` types
@@ -658,9 +658,10 @@ fn extract_ff_helper(
 ) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
         && scan.has_deferred_fields()
-            && let Some(ff) = scan.ffhelper() {
-                helpers.insert(scan.indexrelid, ff);
-            }
+        && let Some(ff) = scan.ffhelper()
+    {
+        helpers.insert(scan.indexrelid, ff);
+    }
 
     for child in plan.children() {
         extract_ff_helper(child, helpers);
@@ -714,10 +715,11 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     let col =
                         datafusion::common::Column::from((q.cloned().as_ref(), field.as_ref()));
                     if let Some(base_col) = trace_column(&mat_node.input, &col)
-                        && base_col.name == deferred.name {
-                            found_col_idx = Some(i);
-                            break;
-                        }
+                        && base_col.name == deferred.name
+                    {
+                        found_col_idx = Some(i);
+                        break;
+                    }
                 }
 
                 let col_idx = found_col_idx.ok_or_else(|| {

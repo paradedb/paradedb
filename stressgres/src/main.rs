@@ -30,7 +30,7 @@ mod suite;
 mod table_helper;
 mod tui;
 
-use crate::auto::{setup_server, ServerHandler};
+use crate::auto::{ServerHandler, setup_server};
 use crate::cli::{AutoArgs, Cli, Command};
 use crate::fault_tolerance::GraceWindow;
 use crate::runner::{SetupMode, SuiteRunner};

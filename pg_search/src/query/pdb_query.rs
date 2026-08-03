@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
+use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
@@ -29,12 +29,12 @@ use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::{
-    check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
+    QueryError, SearchQueryInput, check_range_bounds, coerce_bound_to_field_type, value_to_term,
 };
 use crate::schema::{IndexRecordOption, SearchField, SearchFieldType, SearchIndexSchema};
-use pgrx::pg_sys::BuiltinOid;
 use pgrx::PgOid;
-use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
+use pgrx::pg_sys::BuiltinOid;
+use pgrx::{InOutFuncs, StringInfo, pg_extern, pg_schema};
 use serde_json::Value;
 use std::collections::Bound;
 use std::ffi::CStr;
@@ -1769,7 +1769,9 @@ fn phrase(
     // For example, NgramTokenizer can produce many tokens per word and all of them will
     // have position=0 which won't be correctly interpreted when processing slop
     if should_warn {
-        pgrx::warning!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
+        pgrx::warning!(
+            "Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match"
+        );
     }
 
     let mut query = PhraseQuery::new(terms);
@@ -2164,9 +2166,10 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name
                 && let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name)
-                    && let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid) {
-                        lit.phrase = replacement;
-                    }
+                && let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid)
+            {
+                lit.phrase = replacement;
+            }
         }
         UserInputLeaf::Range {
             field: Some(name),

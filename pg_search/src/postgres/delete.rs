@@ -25,14 +25,14 @@ use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
 use pgrx::pg_sys;
-use pgrx::{direct_function_call, pg_sys::ItemPointerData, IntoDatum, PgTryBuilder, *};
+use pgrx::{IntoDatum, PgTryBuilder, direct_function_call, pg_sys::ItemPointerData, *};
 use std::cell::RefCell;
 use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
+use tantivy::SegmentMeta;
 use tantivy::index::SegmentId;
 use tantivy::indexer::delete_queue::DeleteQueue;
-use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
-use tantivy::SegmentMeta;
+use tantivy::indexer::{DeleteOperation, SegmentEntry, advance_deletes};
 use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
 
 // random key, ensures that this advisory lock key doesn't conflict

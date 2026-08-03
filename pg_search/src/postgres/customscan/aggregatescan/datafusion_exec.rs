@@ -31,14 +31,14 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df, make_col, make_source_col, ColumnMapper,
-    PredicateTranslator,
+    ColumnMapper, PredicateTranslator, apply_join_level_filter, build_join_df, make_col,
+    make_source_col,
 };
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, register_source_table, SessionContextProfile,
+    SessionContextProfile, create_datafusion_session_context, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, Result};
@@ -50,7 +50,7 @@ use datafusion::functions_aggregate::expr_fn::{
 };
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
-use datafusion::logical_expr::{lit, Expr};
+use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;

@@ -23,8 +23,8 @@ use sqlx::{Connection, PgConnection};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -92,7 +92,9 @@ impl EphemeralPostgres {
             "PG_CONFIG variable must be set to enable creating ephemeral Postgres instances",
         );
         if !PathBuf::from(&pg_config_path).exists() {
-            panic!("PG_CONFIG variable must be a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}");
+            panic!(
+                "PG_CONFIG variable must be a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}"
+            );
         }
         match run_fun!($pg_config_path --bindir) {
             Ok(path) => PathBuf::from(path.trim().to_string()),
@@ -738,10 +740,11 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let mut tripwire_found = false;
     while std::time::Instant::now() < deadline {
         if let Ok(log) = std::fs::read_to_string(&log_path)
-            && log.contains(expected) {
-                tripwire_found = true;
-                break;
-            }
+            && log.contains(expected)
+        {
+            tripwire_found = true;
+            break;
+        }
         thread::sleep(Duration::from_millis(200));
     }
     assert!(

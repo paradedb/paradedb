@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
-use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan};
+use crate::postgres::customscan::{CustomScan, wrap_custom_scan_state};
 use pgrx::{pg_guard, pg_sys};
 
 pub trait ParallelQueryCapable

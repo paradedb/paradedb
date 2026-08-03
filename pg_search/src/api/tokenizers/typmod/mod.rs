@@ -23,8 +23,8 @@ use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::spi::{OwnedPreparedStatement, Query};
 use pgrx::{
-    extension_sql, pg_extern, pg_sys, register_xact_callback, Array, PgOid, PgXactCallbackEvent,
-    Spi,
+    Array, PgOid, PgXactCallbackEvent, Spi, extension_sql, pg_extern, pg_sys,
+    register_xact_callback,
 };
 use std::collections::hash_map::Entry;
 use std::ffi::{CStr, CString};

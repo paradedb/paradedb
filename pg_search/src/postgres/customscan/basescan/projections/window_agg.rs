@@ -67,22 +67,22 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
+use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+    MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
 };
 use crate::nodecast;
+use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
+    AggregateType, create_aggregate_from_oid, parse_coalesce_expression,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::var::{fieldname_from_var, VarContext};
-use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::var::{VarContext, fieldname_from_var};
 use crate::query::{PostgresExpression, SearchQueryInput};
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
@@ -647,34 +647,33 @@ pub unsafe fn deserialize_window_agg_placeholders(
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 if let Some(json_arg) = args.get_ptr(0)
                     && let Some(const_node) = nodecast!(Const, T_Const, json_arg)
-                        && !(*const_node).constisnull {
-                            let json_datum = (*const_node).constvalue;
-                            let json_varlena = json_datum.cast_mut_ptr::<pg_sys::varlena>();
-                            let json_varlena_detoasted =
-                                pg_sys::pg_detoast_datum(json_varlena.cast());
-                            let json_text = pg_sys::text_to_cstring(json_varlena_detoasted.cast());
-                            let json_str =
-                                CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
+                    && !(*const_node).constisnull
+                {
+                    let json_datum = (*const_node).constvalue;
+                    let json_varlena = json_datum.cast_mut_ptr::<pg_sys::varlena>();
+                    let json_varlena_detoasted = pg_sys::pg_detoast_datum(json_varlena.cast());
+                    let json_text = pg_sys::text_to_cstring(json_varlena_detoasted.cast());
+                    let json_str = CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
 
-                            // Deserialize TargetList and create WindowAggregateInfo
-                            // with the correct target_entry_index from the current position
-                            match serde_json::from_str::<TargetList>(json_str) {
-                                Ok(targetlist) => {
-                                    let info = WindowAggregateInfo {
-                                        target_entry_index: (*context).current_te_index,
-                                        targetlist,
-                                    };
-                                    (*context).window_aggs.push(info);
-                                }
-                                Err(e) => {
-                                    pgrx::error!(
-                                        "Failed to deserialize window aggregate specification: {}. \
-                                         This is an internal error - the window function replacement may have failed.",
-                                        e
-                                    );
-                                }
-                            }
+                    // Deserialize TargetList and create WindowAggregateInfo
+                    // with the correct target_entry_index from the current position
+                    match serde_json::from_str::<TargetList>(json_str) {
+                        Ok(targetlist) => {
+                            let info = WindowAggregateInfo {
+                                target_entry_index: (*context).current_te_index,
+                                targetlist,
+                            };
+                            (*context).window_aggs.push(info);
                         }
+                        Err(e) => {
+                            pgrx::error!(
+                                "Failed to deserialize window aggregate specification: {}. \
+                                         This is an internal error - the window function replacement may have failed.",
+                                e
+                            );
+                        }
+                    }
+                }
             }
         }
 

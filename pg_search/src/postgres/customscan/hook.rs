@@ -26,7 +26,7 @@ use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
 };
@@ -34,8 +34,8 @@ use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_war
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
-use std::collections::{hash_map::Entry, HashMap};
+use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
+use std::collections::{HashMap, hash_map::Entry};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -778,10 +778,11 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
 
         // Check if this is an OpExpr
         if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node)
-            && is_paradedb_search_operator((*opexpr).opno) {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
+            && is_paradedb_search_operator((*opexpr).opno)
+        {
+            (*ctx).found = true;
+            return true; // Stop walking
+        }
 
         // Continue walking the tree
         pg_sys::expression_tree_walker(node, Some(walker), context)
@@ -850,10 +851,11 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
         // This allows detection even after WindowFunc → window_agg() replacement
         if (*ctx).window_agg_proc_oid != pg_sys::InvalidOid
             && let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && (*funcexpr).funcid == (*ctx).window_agg_proc_oid {
-                    (*ctx).found = true;
-                    return true; // Stop walking
-                }
+            && (*funcexpr).funcid == (*ctx).window_agg_proc_oid
+        {
+            (*ctx).found = true;
+            return true; // Stop walking
+        }
 
         // Continue walking the tree
         pg_sys::expression_tree_walker(node, Some(walker), context)

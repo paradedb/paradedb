@@ -15,14 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{resolve_ctid, FFHelper, FFType};
+use crate::api::operator::searchqueryinput_typoid;
+use crate::index::fast_fields_helper::{FFHelper, FFType, resolve_ctid};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
+use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::IndexScanDesc;

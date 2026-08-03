@@ -20,18 +20,18 @@ use std::hash::Hash;
 use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::api::HashSet;
+use crate::postgres::PgSearchRelation;
 use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::postgres::PgSearchRelation;
 
 use pgrx::*;
 use serde::{Deserialize, Serialize};
-use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
+use tantivy::index::{SegmentComponent, SegmentId};
 
 /// Extensions of tantivy's per-segment vector files. These mirror tantivy's
 /// (`pub(crate)`) `vector::VEC_EXT` and `vector::ivf::CENTROIDS_EXT`: `.vec`

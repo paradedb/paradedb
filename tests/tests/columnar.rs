@@ -36,23 +36,26 @@ fn get_all_exec_methods(plan: &Value) -> Vec<String> {
 // Recursive function to walk the plan tree
 fn extract_methods(node: &Value, methods: &mut Vec<String>) {
     if let Some(exec_method) = node.get("Exec Method")
-        && let Some(method) = exec_method.as_str() {
-            methods.push(method.to_string());
-        }
+        && let Some(method) = exec_method.as_str()
+    {
+        methods.push(method.to_string());
+    }
 
     // Check child plans
     if let Some(plans) = node.get("Plans")
-        && let Some(plans_array) = plans.as_array() {
-            for plan in plans_array {
-                extract_methods(plan, methods);
-            }
+        && let Some(plans_array) = plans.as_array()
+    {
+        for plan in plans_array {
+            extract_methods(plan, methods);
         }
+    }
 
     // Start from the root if given the root plan
     if let Some(root) = node.get(0)
-        && let Some(plan_node) = root.get("Plan") {
-            extract_methods(plan_node, methods);
-        }
+        && let Some(plan_node) = root.get("Plan")
+    {
+        extract_methods(plan_node, methods);
+    }
 }
 
 // Setup for complex aggregation with columnar storage

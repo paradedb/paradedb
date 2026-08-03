@@ -22,14 +22,14 @@ use datafusion::common::{ScalarValue, SplitPoint};
 use datafusion::physical_expr::{
     LexOrdering, PhysicalSortExpr, RangePartitioning as DataFusionRangePartitioning,
 };
-use datafusion::physical_plan::expressions::Column;
 use datafusion::physical_plan::Partitioning;
+use datafusion::physical_plan::expressions::Column;
 use serde::{Deserialize, Serialize};
 
 use crate::api::FieldName;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::query::pdb_query::pdb::Query;
 use crate::query::SearchQueryInput;
+use crate::query::pdb_query::pdb::Query;
 
 /// Defines the logical boundary split points for scanning the index. When provided,
 /// the DataFusion execution plan uses these points to statically partition the scan

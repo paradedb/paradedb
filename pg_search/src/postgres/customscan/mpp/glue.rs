@@ -36,12 +36,12 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_distributed::TaskKey;
+use datafusion_distributed::shm::{self, Interrupt, MppMesh, MppSender, Wakeup};
 use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
 use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
-use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
+use crate::postgres::customscan::mpp::pg_seams::{PgInterrupt, PgWakeup, pack_receiver};
 
 /// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
 /// Below that, `build_mpp_session_context` still clamps `target_partitions` to 2 and the mesh

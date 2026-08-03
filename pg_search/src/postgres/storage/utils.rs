@@ -18,7 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::PgItem;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{PgMemoryContexts, pg_sys};
 use std::fmt::Debug;
 use std::sync::LazyLock;
 

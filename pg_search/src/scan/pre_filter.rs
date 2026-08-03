@@ -92,13 +92,13 @@ use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
 use datafusion::common::ScalarValue;
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
 use datafusion::logical_expr::Operator;
+use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{
     BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
 };
-use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::{Score, SegmentOrdinal};
@@ -107,10 +107,10 @@ use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::query::value_to_term;
 use crate::scan::filter_pushdown::scalar_to_owned_value;
+use tantivy::Term;
 use tantivy::query::{
     BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
 };
-use tantivy::Term;
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -171,9 +171,9 @@ impl PreFilter {
                 } else if let Some(in_list) = node.downcast_ref::<InListExpr>()
                     && let Some(rewritten) =
                         try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
-                    {
-                        return Ok(Transformed::yes(rewritten));
-                    }
+                {
+                    return Ok(Transformed::yes(rewritten));
+                }
                 Ok(Transformed::no(node))
             })
             .data()
@@ -188,12 +188,10 @@ impl PreFilter {
                             .required_columns
                             .iter()
                             .position(|&idx| idx == orig_idx)
-                        {
-                            let new_col = Column::new(col.name(), new_idx);
-                            return Ok(
-                                Transformed::yes(Arc::new(new_col) as Arc<dyn PhysicalExpr>),
-                            );
-                        }
+                    {
+                        let new_col = Column::new(col.name(), new_idx);
+                        return Ok(Transformed::yes(Arc::new(new_col) as Arc<dyn PhysicalExpr>));
+                    }
                 }
                 Ok(Transformed::no(node))
             })
@@ -268,23 +266,24 @@ pub fn collect_filters(
 ) {
     // Split top-level ANDs to maximize early pruning
     if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
-        && matches!(binary.op(), Operator::And) {
-            collect_filters(
-                binary.left(),
-                schema,
-                out,
-                score_col_schema_idx,
-                score_threshold,
-            );
-            collect_filters(
-                binary.right(),
-                schema,
-                out,
-                score_col_schema_idx,
-                score_threshold,
-            );
-            return;
-        }
+        && matches!(binary.op(), Operator::And)
+    {
+        collect_filters(
+            binary.left(),
+            schema,
+            out,
+            score_col_schema_idx,
+            score_threshold,
+        );
+        collect_filters(
+            binary.right(),
+            schema,
+            out,
+            score_col_schema_idx,
+            score_threshold,
+        );
+        return;
+    }
 
     let threshold = match (
         try_extract_score_threshold(expr, score_col_schema_idx),
@@ -317,9 +316,10 @@ fn expr_always_false(expr: &Arc<dyn PhysicalExpr>, score_col_schema_idx: usize) 
     }
     // score is never null, so 'score IS NULL' is always false
     if let Some(is_null_expr) = expr.downcast_ref::<IsNullExpr>()
-        && let Some(col) = is_null_expr.arg().downcast_ref::<Column>() {
-            return col.index() == score_col_schema_idx;
-        }
+        && let Some(col) = is_null_expr.arg().downcast_ref::<Column>()
+    {
+        return col.index() == score_col_schema_idx;
+    }
     false
 }
 
@@ -530,9 +530,10 @@ fn try_rewrite_binary(
     let right_col = binary.right().downcast_ref::<Column>();
 
     if let (Some(lit), Some(col)) = (left_lit, right_col)
-        && let Some(flipped_op) = flip_operator(binary.op()) {
-            return rewrite_col_op_lit(col, &flipped_op, lit, ffhelper, segment_ord, schema);
-        }
+        && let Some(flipped_op) = flip_operator(binary.op())
+    {
+        return rewrite_col_op_lit(col, &flipped_op, lit, ffhelper, segment_ord, schema);
+    }
 
     Ok(None)
 }
@@ -779,10 +780,11 @@ fn extract_in_list_exprs<'a>(
     if expr.is::<InListExpr>() {
         in_lists.push(expr);
     } else if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
-        && matches!(binary.op(), Operator::And) {
-            extract_in_list_exprs(binary.left(), in_lists);
-            extract_in_list_exprs(binary.right(), in_lists);
-        }
+        && matches!(binary.op(), Operator::And)
+    {
+        extract_in_list_exprs(binary.left(), in_lists);
+        extract_in_list_exprs(binary.right(), in_lists);
+    }
 }
 
 /// Outcome of trying to convert one join-derived `InList` predicate.
@@ -1021,8 +1023,8 @@ pub fn try_dynamic_filter_pushdown(
 mod tests {
     use super::try_extract_score_threshold;
     use datafusion::logical_expr::Operator;
-    use datafusion::physical_expr::expressions::{is_not_null, is_null, lit, BinaryExpr, Column};
     use datafusion::physical_expr::PhysicalExpr;
+    use datafusion::physical_expr::expressions::{BinaryExpr, Column, is_not_null, is_null, lit};
     use datafusion::scalar::ScalarValue;
     use std::sync::Arc;
 

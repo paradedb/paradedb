@@ -30,7 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
@@ -1309,12 +1309,11 @@ unsafe fn substitute_pruned_key_side(
             }
         }
 
-        if contains_pruned
-            && let Some((rti, attno)) = replacement {
-                *out_rti = rti;
-                *out_attno = attno;
-                return true;
-            }
+        if contains_pruned && let Some((rti, attno)) = replacement {
+            *out_rti = rti;
+            *out_attno = attno;
+            return true;
+        }
     }
 
     false

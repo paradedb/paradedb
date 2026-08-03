@@ -18,9 +18,9 @@
 use crate::gucs;
 use crate::gucs::WorkMem;
 
-use crate::aggregate::{execute_aggregate, scrub_missing_sentinel_value, AggregateRequest};
-use crate::api::version::VersionInfo;
+use crate::aggregate::{AggregateRequest, execute_aggregate, scrub_missing_sentinel_value};
 use crate::api::HashMap;
+use crate::api::version::VersionInfo;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
@@ -30,15 +30,15 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::{is_datetime_type, TantivyValue};
-use pgrx::{check_for_interrupts, pg_sys, IntoDatum, JsonB};
+use crate::postgres::types::{TantivyValue, is_datetime_type};
+use pgrx::{IntoDatum, JsonB, check_for_interrupts, pg_sys};
 
+use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_result::{
     AggregationResult as TantivyAggregationResult, AggregationResults as TantivyAggregationResults,
     BucketResult, MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
-use tantivy::aggregation::Key;
 
 /// Unified result type for aggregates
 /// Can hold either a standard metric (f64) or a custom aggregate (JSON)
@@ -250,13 +250,14 @@ pub fn aggregate_result_to_datum(
                 // For v2 indexes, attach `key_as_string` for single-value metrics on datetime
                 // fields so consumers don't have to interpret raw i64 micros.
                 if index_info.created_by_version.stores_datetimes_in_i64()
-                    && let Some(agg_json) = agg_type.custom_agg_json() {
-                        rewrite_aggregate_result_json_timestamps(
-                            &mut json_value,
-                            agg_json,
-                            &index_info.schema,
-                        );
-                    }
+                    && let Some(agg_json) = agg_type.custom_agg_json()
+                {
+                    rewrite_aggregate_result_json_timestamps(
+                        &mut json_value,
+                        agg_json,
+                        &index_info.schema,
+                    );
+                }
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
                 if index_info.created_by_version.stores_datetimes_in_i64() {
@@ -359,9 +360,10 @@ impl AggregationResults {
             });
 
         if let Some(_doc_count) = _doc_count
-            && _doc_count == 0.0 {
-                return true;
-            }
+            && _doc_count == 0.0
+        {
+            return true;
+        }
 
         false
     }

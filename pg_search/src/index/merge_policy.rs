@@ -236,10 +236,11 @@ impl LayeredMergePolicy {
                 // If it is not mutable, but is still empty for some reason, then we should include it in any other candidate level
                 // that is planned (in order to get rid of it), but there is no point in doing a single-entry merge.
                 if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
-                    && let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
-                        mc.0.push(segment_meta.id());
-                        merged_segments.insert(segment_meta.id());
-                    }
+                    && let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0)
+                {
+                    mc.0.push(segment_meta.id());
+                    merged_segments.insert(segment_meta.id());
+                }
             }
         }
 
@@ -276,7 +277,7 @@ impl LayeredMergePolicy {
                 let segment_byte_size =
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 candidate_byte_size += segment_byte_size;
-                candidates.last_mut().unwrap().1 .0.push(segment.id());
+                candidates.last_mut().unwrap().1.0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
                     // the candidate now exceeds the layer size so we start a new candidate
@@ -292,7 +293,7 @@ impl LayeredMergePolicy {
 
             // remember the segments we have merged so we don't merge them again
             for candidate in &candidates {
-                merged_segments.extend(candidate.1 .0.clone());
+                merged_segments.extend(candidate.1.0.clone());
             }
         }
 
@@ -306,15 +307,16 @@ impl LayeredMergePolicy {
         // remove short candidate lists
         'outer: while !candidates.is_empty() {
             for i in 0..candidates.len() {
-                let candidate_segments = &candidates[i].1 .0;
+                let candidate_segments = &candidates[i].1.0;
                 if candidate_segments.len() == 1 {
                     // this is a single-segment candidate, which we allow for mutable segments
                     let segment_id = &candidate_segments[0];
                     if let Some(entry) = self.mergeable_segments.get(segment_id)
-                        && entry.is_mutable() {
-                            // it's a mutable segment conversion, keep it
-                            continue;
-                        }
+                        && entry.is_mutable()
+                    {
+                        // it's a mutable segment conversion, keep it
+                        continue;
+                    }
                 }
 
                 if candidate_segments.len() < self.min_merge_count {

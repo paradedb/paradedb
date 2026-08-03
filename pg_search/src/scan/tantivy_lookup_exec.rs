@@ -7,11 +7,11 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
 use crate::index::fast_fields_helper::{
-    for_each_segment, ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
+    CanonicalColumn, FFHelper, FFType, for_each_segment, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
-use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, UnionArray, new_null_array};
 use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
@@ -117,9 +117,10 @@ impl TantivyLookupExec {
                 })
                 .collect();
             if rewritten.len() == input_ordering.len()
-                && let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten) {
-                    eq_props.add_ordering(lex);
-                }
+                && let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten)
+            {
+                eq_props.add_ordering(lex);
+            }
         }
         let properties = Arc::new(PlanProperties::new(
             eq_props,

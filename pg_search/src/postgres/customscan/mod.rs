@@ -20,7 +20,7 @@
 #![allow(clippy::tabs_in_doc_comments)]
 
 use parking_lot::Mutex;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{IntoDatum, PgList, PgMemoryContexts, direct_function_call, pg_sys};
 
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;

@@ -17,14 +17,14 @@
 
 use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
-    get_expr_result_type, is_text_like, pdb_query_typoid, request_simplify,
-    searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
+    RHSValue, ReturnedNodePointer, get_expr_result_type, is_text_like, pdb_query_typoid,
+    request_simplify, searchqueryinput_typoid,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
 use pgrx::{
-    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
-    Internal, IntoDatum, PgList,
+    AnyElement, Internal, IntoDatum, PgList, direct_function_call, extension_sql, opname,
+    pg_extern, pg_operator, pg_sys,
 };
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
@@ -47,7 +47,9 @@ pub fn search_with_field_query_input(_element: AnyElement, query: pdb::Query) ->
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.@@@)]
 pub fn search_with_proximity_clause(_element: AnyElement, query: ProximityClause) -> bool {
-    panic!("query is incompatible with pg_search's `@@@(field, pdb.ProximityClause)` operator: `{query:?}`")
+    panic!(
+        "query is incompatible with pg_search's `@@@(field, pdb.ProximityClause)` operator: `{query:?}`"
+    )
 }
 
 #[pg_extern(immutable, parallel_safe)]

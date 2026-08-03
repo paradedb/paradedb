@@ -384,17 +384,6 @@ jobs:
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
 
-      # The restore above overwrote postgresql.auto.conf with the snapshot's config
-      # (8 maintenance workers), so re-apply after every restore. Lowered to 4 for the
-      # pg_search index build only.
-      - name: Lower maintenance workers after restore (cohere/pg_search, 1M)
-        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
-        run: |
-          set -euo pipefail
-          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER SYSTEM SET max_parallel_maintenance_workers = 4;" \
-            -c "SELECT pg_reload_conf();"
-
       - name: Benchmark "cohere" Dataset (1M)
         if: ${{ env.RUN_COHERE == 'true' }}
         uses: ./.github/actions/benchmark-queries
@@ -441,14 +430,6 @@ jobs:
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
           psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
             -c "CREATE EXTENSION IF NOT EXISTS vchord CASCADE;"
-
-      - name: Lower maintenance workers after restore (cohere/pg_search, 10M)
-        if: ${{ env.RUN_COHERE == 'true' && env.COHERE_INDEX == 'pg_search' }}
-        run: |
-          set -euo pipefail
-          psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
-            -c "ALTER SYSTEM SET max_parallel_maintenance_workers = 4;" \
-            -c "SELECT pg_reload_conf();"
 
       - name: Benchmark "cohere" Dataset (10M)
         if: ${{ env.RUN_COHERE == 'true' }}

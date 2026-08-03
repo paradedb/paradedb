@@ -37,6 +37,19 @@ pub fn database() -> Db {
     block_on(async { Db::new().await })
 }
 
+/// Render a database error the way `sqlx::Error`'s `Display` did before 0.9.
+///
+/// sqlx 0.9 appends the Postgres source line that raised the error, so
+/// `err.to_string()` now reads `...does not exist at line 248`. That line number is a
+/// position in *our* source and moves whenever the extension's code moves, which would
+/// make every assertion on an error message a tripwire. Assert on this instead.
+pub fn db_error_message(err: &sqlx::Error) -> String {
+    match err.as_database_error() {
+        Some(db_err) => format!("error returned from database: {}", db_err.message()),
+        None => err.to_string(),
+    }
+}
+
 pub fn pg_major_version(conn: &mut PgConnection) -> usize {
     r#"select (regexp_match(version(), 'PostgreSQL (\d+)'))[1]::int;"#
         .fetch_one::<(i32,)>(conn)

@@ -22,7 +22,8 @@ use async_std::task::block_on;
 use bytes::Bytes;
 use rand::Rng;
 use sqlx::{
-    ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection, Postgres, Type,
+    AssertSqlSafe, ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection,
+    Postgres, Type,
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
 };
@@ -105,13 +106,13 @@ where
     #[allow(async_fn_in_trait)]
     async fn execute_async(self, connection: &mut PgConnection) {
         connection
-            .execute(self.as_ref())
+            .execute(AssertSqlSafe(self.as_ref()))
             .await
             .expect("query execution should succeed");
     }
 
     fn execute_result(self, connection: &mut PgConnection) -> Result<(), sqlx::Error> {
-        block_on(async { connection.execute(self.as_ref()).await })?;
+        block_on(async { connection.execute(AssertSqlSafe(self.as_ref())).await })?;
         Ok(())
     }
 
@@ -120,7 +121,7 @@ where
         T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_as::<_, T>(self.as_ref())
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
@@ -139,7 +140,7 @@ where
     {
         for attempt in 0..retries {
             match block_on(async {
-                sqlx::query_as::<_, T>(self.as_ref())
+                sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                     .fetch_all(&mut *connection)
                     .await
                     .map_err(anyhow::Error::from)
@@ -162,7 +163,7 @@ where
 
     fn fetch_dynamic(self, connection: &mut PgConnection) -> Vec<PgRow> {
         block_on(async {
-            sqlx::query(self.as_ref())
+            sqlx::query(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
@@ -174,7 +175,7 @@ where
         T: Type<Postgres> + for<'a> Decode<'a, sqlx::Postgres> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_scalar(self.as_ref())
+            sqlx::query_scalar(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
@@ -186,7 +187,7 @@ where
         T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_as::<_, T>(self.as_ref())
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                 .fetch_one(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
@@ -198,7 +199,7 @@ where
         T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
     {
         block_on(async {
-            sqlx::query_as::<_, T>(self.as_ref())
+            sqlx::query_as::<_, T>(AssertSqlSafe(self.as_ref()))
                 .fetch_all(connection)
                 .await
         })

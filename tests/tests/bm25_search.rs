@@ -1402,7 +1402,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
 
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().to_string(),
+        db_error_message(&result.unwrap_err()),
         "error returned from database: cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key"
     );
 
@@ -1632,7 +1632,7 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
 
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().to_string(),
+        db_error_message(&result.unwrap_err()),
         "error returned from database: the name `ctid` is reserved by pg_search"
     );
 }
@@ -1685,7 +1685,7 @@ fn missing_source_column(mut conn: PgConnection) {
 
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().to_string(),
+        db_error_message(&result.unwrap_err()),
         "error returned from database: the column `nonexistent_column` referenced by the field configuration for 'alias' does not exist"
     );
 }

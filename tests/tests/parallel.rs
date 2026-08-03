@@ -23,7 +23,7 @@ use futures::future::join_all;
 use pretty_assertions::assert_eq;
 use rand::Rng;
 use rstest::*;
-use sqlx::Row;
+use sqlx::{AssertSqlSafe, Row};
 use tests::fixtures::*;
 use tokio::join;
 use tokio::sync::Barrier;
@@ -424,7 +424,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
                 "INSERT INTO test (column_a, column_b) VALUES ('{}', true)",
                 i
             );
-            let _ = sqlx::query(&q).execute(&mut writer).await;
+            let _ = sqlx::query(AssertSqlSafe(q)).execute(&mut writer).await;
             i += 1;
         }
     });

@@ -18,6 +18,7 @@ database and a TCP proxy on port 5432.
 ## Prerequisites
 
 1. A Dokku host with the [`dokku` CLI installed](https://dokku.com/docs/getting-started/installation/) (this guide assumes Dokku 0.34 or newer)
+
 2. SSH access to the host as a user that can invoke `dokku` (typically `root` via `sudo`, or a user in the `dokku` group)
 
 Run all `dokku ...` commands from the host, either directly on the host over SSH or via `ssh dokku@<HOST> <command>` from your local machine.
@@ -30,8 +31,7 @@ dokku apps:create paradedb
 
 ## Attach Persistent Storage
 
-ParadeDB stores its data under `/var/lib/postgresql`. Create a host directory and mount it into the app so
-the database survives container rebuilds:
+ParadeDB stores its data under `/var/lib/postgresql`. Create a host directory and mount it into the app so the database survives container rebuilds:
 
 ```bash
 dokku storage:ensure-directory paradedb
@@ -66,7 +66,7 @@ dokku git:from-image paradedb paradedb/paradedb:latest
 ```
 
 See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags. Pin a tag
-(for example `paradedb/paradedb:0.24.3-pg18`) instead of `latest` for reproducible deploys.
+(for example `paradedb/paradedb:0.25.0-pg18`) instead of `latest` for reproducible deploys.
 
 ## Connect to ParadeDB
 

@@ -87,5 +87,5 @@ rm -rf /tmp/ephemeral_postgres_logs/*
 # Export the PG_CONFIG variable for use by sourcing scripts
 export PG_CONFIG="${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
 
-# Setup is done — stop echoing so the sourcing script's commands run quietly
+# Setup is done, stop echoing so the sourcing script's commands run quietly
 set +x

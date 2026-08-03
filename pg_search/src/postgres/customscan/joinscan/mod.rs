@@ -1672,7 +1672,7 @@ unsafe fn build_output_projection(
     // Normal path: build output_projection, enriching expression entries with
     // metadata when DISTINCT is active.
     //
-    // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
+    // TODO: This is the second call to distinct_columns_are_fast_fields
     // in the same planning phase (first in validate_and_build_clause). Both
     // calls walk the same parse tree. Consider caching the result in a
     // planning-phase-scoped structure to avoid redundant work.

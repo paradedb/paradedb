@@ -299,6 +299,16 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
+        // List is an implicit conjunction container, not an expression node.
+        // Reaching this point means a caller violated the normalization
+        // contract. Do not silently decline the optimized path: AggregateScan
+        // eligibility is part of the product contract for supported queries.
+        if (*node).type_ == pg_sys::NodeTag::T_List {
+            pgrx::error!(
+                "internal ParadeDB planner error: PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"
+            );
+        }
+
         let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),

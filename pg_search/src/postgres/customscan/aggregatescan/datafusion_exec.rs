@@ -532,6 +532,32 @@ async fn build_source_df(
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
 
+    // Each source that solves runtime PostgreSQL expressions needs its own
+    // per-tuple memory context. SearchQueryInput::solve_postgres_expressions()
+    // resets that context before replacing Param/PostgresExpression nodes. If
+    // two providers share one context, solving the second source invalidates
+    // the Const/expression nodes retained by the first source. Generic plans
+    // that parameterize predicates on both join inputs then dereference stale
+    // nodes during reader construction and abort the backend.
+    let mut source_query = scan_info.query.clone();
+    let needs_runtime_context =
+        source_query.has_postgres_expressions() || source_query.has_parameters();
+    let source_expr_context = if needs_runtime_context {
+        unsafe {
+            planstate
+                .and_then(|planstate| {
+                    if planstate.is_null() || (*planstate).state.is_null() {
+                        None
+                    } else {
+                        Some(pg_sys::CreateExprContext((*planstate).state))
+                    }
+                })
+                .or(expr_context)
+        }
+    } else {
+        expr_context
+    };
+
     let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
 
     // Use all fast fields from the source (the provider exposes them to DataFusion).
@@ -568,7 +594,7 @@ async fn build_source_df(
     // `init_postgres_expressions` / `solve_postgres_expressions` only
     // when needed, so threading them through here is what makes the
     // agg-on-join path match JoinScan and Base Scan.
-    provider.set_expr_context(expr_context);
+    provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 

@@ -1196,12 +1196,19 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). Check both the cheapest path's
-        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
-        // references that our DataFusion backend can't apply.
-        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
+        // Prove predicate coverage for the selected lower path. Transparent
+        // execution wrappers are traversed; opaque join-level paths decline
+        // rather than relying on the retained parse tree as a coverage proxy.
+        match unsafe { datafusion_build::check_join_path_predicates(input_rel, &sources) } {
+            datafusion_build::JoinPathPredicateCheck::Complete => {}
+            datafusion_build::JoinPathPredicateCheck::UnhandledQuals => {
+                return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
+            }
+            datafusion_build::JoinPathPredicateCheck::IncompletePath(tag) => {
+                return Err(warn(AggregateDeclineReason::Other(format!(
+                    "selected lower path contains an opaque join-level node: {tag:?}"
+                ))));
+            }
         }
 
         // Extract the join tree from the parse tree
@@ -1251,13 +1258,20 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::FilterExpr::from_pg_node(
-                    (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext::Having {
-                        targetlist: &targetlist,
-                        plan: &plan,
-                        outer_root_id,
-                    },
+                Some(
+                    privdat::FilterExpr::from_pg_node(
+                        (*parse).havingQual,
+                        &datafusion_build::FilterExprBuildContext::Having {
+                            targetlist: &targetlist,
+                            plan: &plan,
+                            outer_root_id,
+                        },
+                    )
+                    .ok_or_else(|| {
+                        warn(AggregateDeclineReason::Other(
+                            "HAVING clause cannot be translated for aggregate-on-join".into(),
+                        ))
+                    })?,
                 )
             } else {
                 None

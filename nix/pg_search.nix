@@ -65,7 +65,7 @@ buildPgrxExtension (finalAttrs: {
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
 <<<<<<< HEAD
-  cargoHash = "sha256-rlcWo2G/wPCOq9Cxa8Bg5EDClFpJFKcQ272KzmoOsyI=";
+  cargoHash = "sha256-eA+mOnLVwVuTepagz+90AjgqRnGZ9r4fbcNtU6YF1Nk=";
 =======
   cargoHash = "sha256-eA+mOnLVwVuTepagz+90AjgqRnGZ9r4fbcNtU6YF1Nk=";
 >>>>>>> 231488230 (feat: hand training vectors to superkmeans by value to halve training memory (#5776))

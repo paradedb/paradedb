@@ -1178,19 +1178,16 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
         println!("Query Type: {query_type}\nQuery: {query}");
         // Alternatives are fixed reference plans -- the exact pre-filter, say -- never a swept
         // operating point, so nothing builds a percentile series from them. Sampling one once per
-        // held-out vector costs hours at 10m rows to produce a distribution no series reads.
-        let query_vectors = if is_alternative(&query_type) {
-            &[][..]
-        } else {
-            &query_vectors[..]
-        };
+        // held-out vector costs hours at 10m rows to produce a distribution no series reads. They
+        // still read the vector GUC, so they get the vectors and just do not iterate them.
         let result = execute_query_multiple_times(
             &args.url,
             &query_type,
             &query,
             args.runs,
             args.fail_on_error,
-            query_vectors,
+            &query_vectors,
+            !is_alternative(&query_type),
         )
         .await?;
         match result {
@@ -1747,6 +1744,14 @@ fn extract_index_name(statement: &str) -> &str {
         .expect("Failed to parse index name")
 }
 
+/// Whether `query` reads its vector from the GUC, and so needs one bound before it can be planned.
+///
+/// This is about whether any vector is *available*, never about how many samples a query takes:
+/// a reference plan reads the GUC just like a swept one, it simply does not iterate every vector.
+fn reads_query_vector(query: &str) -> bool {
+    query.contains(&format!("current_setting('{QVEC_GUC}')"))
+}
+
 /// Suffix given to a query file's second and later statements. Doubles as the dashboard's
 /// chart-grouping separator, so alternatives plot alongside the statement they vary.
 const ALTERNATIVE_MARKER: &str = " - alternative ";
@@ -1882,6 +1887,7 @@ async fn execute_query_multiple_times(
     sample_count: usize,
     fail_on_error: bool,
     query_vectors: &[String],
+    sample_per_vector: bool,
 ) -> anyhow::Result<Option<QueryRunResults>> {
     let mut conn = PgConnection::connect(url)
         .await
@@ -1914,7 +1920,7 @@ async fn execute_query_multiple_times(
         Some(first) => set_query_vector(&mut conn, first).await?,
         // Nothing would bind it, so fail with the cause rather than an "unrecognized configuration
         // parameter" from deep inside the first EXPLAIN.
-        None if query.contains(&format!("current_setting('{QVEC_GUC}')")) => bail!(
+        None if reads_query_vector(query) => bail!(
             "`{query_type}` reads {QVEC_GUC} but no query vectors were loaded; the dataset's \
              recall fixtures must be present for a vector benchmark"
         ),
@@ -1958,7 +1964,7 @@ async fn execute_query_multiple_times(
     // single vector: latency depends on which cells a vector routes to, so one vector reports the
     // cost of that vector, not of the workload. A first pass over every vector warms the cache for
     // all of them, then the measured pass records one sample each -- enough for percentiles.
-    if !query_vectors.is_empty() {
+    if sample_per_vector && !query_vectors.is_empty() {
         for (i, vector) in query_vectors.iter().enumerate() {
             set_query_vector(&mut conn, vector).await?;
             let warm = match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
@@ -2285,5 +2291,22 @@ mod tests {
         assert!(named[1..].iter().all(|n| is_alternative(n)));
         // A swept operating point is still the file's first statement.
         assert!(!is_alternative(&format!("{file_stem}@r95")));
+    }
+
+    /// Passing an alternative an empty vector slice to stop it sampling per vector tripped this
+    /// precondition and failed the whole run: the query still reads the GUC. Availability and
+    /// sampling mode are separate concerns, and only the former belongs here.
+    #[test]
+    fn binding_precondition_tracks_availability_not_sampling_mode() {
+        let knn = format!(
+            "SELECT _id FROM t ORDER BY emb <=> current_setting('{QVEC_GUC}')::vector(1024) LIMIT 10"
+        );
+        assert!(reads_query_vector(&knn));
+        assert!(!reads_query_vector("SELECT count(*) FROM t"));
+
+        // Whether this is a swept point or a reference plan changes nothing about the precondition.
+        for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct - alternative 1"] {
+            assert!(reads_query_vector(&knn), "{query_type}");
+        }
     }
 }

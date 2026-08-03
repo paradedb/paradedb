@@ -59,9 +59,8 @@ WHERE id @@@
         {
           "range": {
             "field": "rating",
-            "from": null,
-            "to": 2,
-            "bounds": "()"
+            "lower_bound": null,
+            "upper_bound": {"excluded": 2}
           }
         }
       ]

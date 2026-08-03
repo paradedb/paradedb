@@ -21,6 +21,9 @@ IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
     # not SQL vs ORMs
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
+    # Queries a custom enum column ("assume we have indexed an enum called
+    # color"), which the shared snippet fixture does not define.
+    "legacy__advanced__term__term__group-003",
 }
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
@@ -99,9 +102,10 @@ def main() -> int:
     """Extract all supported verification snippets from the docs tree."""
     output_dirs = build_output_dirs()
 
-    docs = sorted(
-        path for path in DOCS_ROOT.rglob("*.mdx") if "legacy" not in path.parts
-    )
+    # Every published page is verified, including `legacy`. The legacy pages
+    # document the pre-0.20 syntax, which is still supported and still shipped
+    # in the nav, so their snippets have to keep working too.
+    docs = sorted(DOCS_ROOT.rglob("*.mdx"))
     if not docs:
         print(f"No .mdx files found under {DOCS_ROOT}", file=sys.stderr)
         return 1

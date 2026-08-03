@@ -148,7 +148,7 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
 /// (`elapsed_compute`, named `Time` values) are stripped so that regression
 /// test output remains stable.  Pass `true` (e.g. for EXPLAIN ANALYZE VERBOSE)
 /// to include everything.
-// TODO(#4152): PG parallel workers each run their own `exec_custom_scan` with their
+// NOTE: PG parallel workers each run their own `exec_custom_scan` with their
 // own plan instance, so these metrics only cover the leader's share.
 fn render_plan_with_metrics(
     plan: &dyn ExecutionPlan,

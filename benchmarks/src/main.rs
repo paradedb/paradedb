@@ -1176,13 +1176,21 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             .with_context(|| "Failed to execute checkpoint.")?;
 
         println!("Query Type: {query_type}\nQuery: {query}");
+        // Alternatives are fixed reference plans -- the exact pre-filter, say -- never a swept
+        // operating point, so nothing builds a percentile series from them. Sampling one once per
+        // held-out vector costs hours at 10m rows to produce a distribution no series reads.
+        let query_vectors = if is_alternative(&query_type) {
+            &[][..]
+        } else {
+            &query_vectors[..]
+        };
         let result = execute_query_multiple_times(
             &args.url,
             &query_type,
             &query,
             args.runs,
             args.fail_on_error,
-            &query_vectors,
+            query_vectors,
         )
         .await?;
         match result {
@@ -1739,6 +1747,15 @@ fn extract_index_name(statement: &str) -> &str {
         .expect("Failed to parse index name")
 }
 
+/// Suffix given to a query file's second and later statements. Doubles as the dashboard's
+/// chart-grouping separator, so alternatives plot alongside the statement they vary.
+const ALTERNATIVE_MARKER: &str = " - alternative ";
+
+/// Whether `query_type` names a non-first statement of its file.
+fn is_alternative(query_type: &str) -> bool {
+    query_type.contains(ALTERNATIVE_MARKER)
+}
+
 fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
     let query_type = file
         .file_stem()
@@ -1753,7 +1770,7 @@ fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
             let query_type = if idx == 0 {
                 query_type.clone()
             } else {
-                format!("{query_type} - alternative {idx}")
+                format!("{query_type}{ALTERNATIVE_MARKER}{idx}")
             };
             (query_type, query)
         })
@@ -2247,5 +2264,26 @@ mod tests {
             json,
             r#"{"name":"i build time","unit":"min","value":1.0,"range":"","extra":""}"#
         );
+    }
+
+    /// The marker is produced in one place and matched in another; a rename that touched only one
+    /// would silently restore the 100x sampling cost on reference plans.
+    #[test]
+    fn only_non_first_statements_count_as_alternatives() {
+        let file_stem = "knn_top10_10pct";
+        let named: Vec<String> = (0..3)
+            .map(|idx| {
+                if idx == 0 {
+                    file_stem.to_owned()
+                } else {
+                    format!("{file_stem}{ALTERNATIVE_MARKER}{idx}")
+                }
+            })
+            .collect();
+
+        assert!(!is_alternative(&named[0]));
+        assert!(named[1..].iter().all(|n| is_alternative(n)));
+        // A swept operating point is still the file's first statement.
+        assert!(!is_alternative(&format!("{file_stem}@r95")));
     }
 }

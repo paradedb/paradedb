@@ -21,6 +21,7 @@ use crate::index::fast_fields_helper::{resolve_ctid, FFHelper, FFType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
 use crate::query::SearchQueryInput;
 
@@ -34,6 +35,8 @@ pub struct Bm25ScanState {
     results: Option<MultiSegmentSearchResults>,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
     key_field_oid: PgOid,
+    #[allow(dead_code)]
+    ambulkdelete_epoch: u32,
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
     ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
@@ -156,6 +159,8 @@ pub extern "C-unwind" fn amrescan(
         };
     }
 
+    let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
+
     // Parallel scan coordination:
     // - The leader opens with Snapshot visibility to see all currently-visible segments
     // - The leader then populates shared state with its segment list
@@ -237,6 +242,7 @@ pub extern "C-unwind" fn amrescan(
                         (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
                     }
                 }),
+                ambulkdelete_epoch,
                 ctid_cache: None,
             }
         } else {
@@ -246,6 +252,7 @@ pub extern "C-unwind" fn amrescan(
                 results,
                 itup: (vec![], vec![]),
                 key_field_oid: PgOid::Invalid,
+                ambulkdelete_epoch,
                 ctid_cache: None,
             }
         };

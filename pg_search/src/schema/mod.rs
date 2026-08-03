@@ -136,6 +136,13 @@ impl SearchFieldType {
         .into()
     }
 
+    pub fn vector_dims(&self) -> Option<usize> {
+        match self {
+            SearchFieldType::Vector(_, dims, _) => Some(*dims),
+            _ => None,
+        }
+    }
+
     pub fn typmod(&self) -> Typmod {
         match self {
             SearchFieldType::Tokenized(_, typmod, ..) => *typmod,
@@ -522,19 +529,6 @@ impl SearchIndexSchema {
                 Some(SearchFieldType::Vector(..))
             )
         })
-    }
-
-    /// Dimensionality of each vector field in the schema.
-    pub fn vector_field_dims(&self) -> Vec<usize> {
-        self.fields()
-            .filter_map(|(_, field_entry)| {
-                let field_name: FieldName = field_entry.name().into();
-                match self.bm25_options.get_field_type(&field_name) {
-                    Some(SearchFieldType::Vector(_, dims, _)) => Some(dims),
-                    _ => None,
-                }
-            })
-            .collect()
     }
 
     /// A lookup from a Postgres column name to search fields that have

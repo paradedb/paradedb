@@ -865,7 +865,14 @@ mod plan {
         let Ok(schema) = indexrel.schema() else {
             return;
         };
-        let dims = schema.vector_field_dims();
+        let dims = schema
+            .fields()
+            .filter_map(|(_, field_entry)| {
+                schema
+                    .get_field_type(field_entry.name())
+                    .and_then(|field_type| field_type.vector_dims())
+            })
+            .collect::<Vec<_>>();
         if dims.is_empty() {
             return;
         }

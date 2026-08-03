@@ -46,138 +46,26 @@ jobs:
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
+        # 2 RHEL majors x 4 Postgres majors x 2 arches = 16 jobs. `include` attaches the keys that are
+        # functionally determined by a dimension -- the display name for an image, the runner sizing
+        # for an arch -- instead of re-listing all 16 combinations by hand.
+        image: [redhat/ubi9:latest, redhat/ubi10:latest]
+        pg_version: [15, 16, 17, 18]
+        arch: [x86_64, aarch64]
         include:
-          # Red Hat Enterprise Linux 9
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
+          # No dimension keys, so these apply to every combination.
+          - cpu: 8
             ram: 16
+          - image: redhat/ubi9:latest
+            name: Red Hat Enterprise Linux 9
+          - image: redhat/ubi10:latest
+            name: Red Hat Enterprise Linux 10
+          - arch: x86_64
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
-            image: redhat/ubi9:latest
-            pg_version: 15
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
+          - arch: aarch64
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
-            image: redhat/ubi9:latest
-            pg_version: 15
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi9:latest
-            pg_version: 16
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi9:latest
-            pg_version: 16
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi9:latest
-            pg_version: 17
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi9:latest
-            pg_version: 17
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi9:latest
-            pg_version: 18
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 9
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi9:latest
-            pg_version: 18
-            arch: aarch64
-          # Red Hat Enterprise Linux 10
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi10:latest
-            pg_version: 15
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi10:latest
-            pg_version: 15
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi10:latest
-            pg_version: 16
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi10:latest
-            pg_version: 16
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi10:latest
-            pg_version: 17
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi10:latest
-            pg_version: 17
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: redhat/ubi10:latest
-            pg_version: 18
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 10
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: redhat/ubi10:latest
-            pg_version: 18
-            arch: aarch64
-
     steps:
       - name: Install Dependencies
         run: |

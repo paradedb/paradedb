@@ -47,138 +47,26 @@ jobs:
         shell: bash
     strategy:
       matrix:
+        # 2 distros x 4 Postgres majors x 2 arches = 16 jobs. `include` attaches the keys that are
+        # functionally determined by a dimension -- the display name for an image, the runner sizing
+        # for an arch -- instead of re-listing all 16 combinations by hand.
+        image: [debian:12-slim, debian:13-slim]
+        pg_version: [15, 16, 17, 18]
+        arch: [amd64, arm64]
         include:
-          # Debian 12 (Bookworm)
-          - name: Debian 12 (Bookworm)
-            cpu: 8
+          # No dimension keys, so these apply to every combination.
+          - cpu: 8
             ram: 16
+          - image: debian:12-slim
+            name: Debian 12 (Bookworm)
+          - image: debian:13-slim
+            name: Debian 13 (Trixie)
+          - arch: amd64
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
-            image: debian:12-slim
-            pg_version: 15
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
+          - arch: arm64
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
-            image: debian:12-slim
-            pg_version: 15
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:12-slim
-            pg_version: 16
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:12-slim
-            pg_version: 16
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:12-slim
-            pg_version: 17
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:12-slim
-            pg_version: 17
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:12-slim
-            pg_version: 18
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:12-slim
-            pg_version: 18
-            arch: arm64
-          # Debian 13 (Trixie)
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:13-slim
-            pg_version: 15
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:13-slim
-            pg_version: 15
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:13-slim
-            pg_version: 16
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:13-slim
-            pg_version: 16
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:13-slim
-            pg_version: 17
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:13-slim
-            pg_version: 17
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7a+c7i
-            runner_image: ubuntu24-full-x64
-            image: debian:13-slim
-            pg_version: 18
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            cpu: 8
-            ram: 16
-            runner_family: c7g+c8g
-            runner_image: ubuntu24-full-arm64
-            image: debian:13-slim
-            pg_version: 18
-            arch: arm64
-
     steps:
       # A job-level `if` cannot read the `matrix` context, so beta filtering happens here, per step:
       # stable releases build every row; beta (`-rc.`) releases build only the Debian 13 (Trixie)

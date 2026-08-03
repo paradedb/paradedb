@@ -11,9 +11,7 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/dokku
   [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
 </Note>
 
-[Dokku](https://dokku.com) is a self-hosted PaaS built on Docker. This guide walks through deploying ParadeDB
-on a Dokku host using the official `paradedb/paradedb` Docker image, with a persistent storage mount for the
-database and a TCP proxy on port 5432.
+[Dokku](https://dokku.com) is a self-hosted PaaS built on Docker. This guide walks through deploying ParadeDB on a Dokku host using the official `paradedb/paradedb` Docker image, with a persistent storage mount for the database and a TCP proxy on port 5432.
 
 ## Prerequisites
 
@@ -65,8 +63,7 @@ Point Dokku at the official ParadeDB image and rebuild the app:
 dokku git:from-image paradedb paradedb/paradedb:latest
 ```
 
-See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags. Pin a tag
-(for example `paradedb/paradedb:0.25.0-pg18`) instead of `latest` for reproducible deploys.
+See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags. Pin a tag (for example `paradedb/paradedb:0.25.0-pg18`) instead of `latest` for reproducible deploys.
 
 ## Connect to ParadeDB
 

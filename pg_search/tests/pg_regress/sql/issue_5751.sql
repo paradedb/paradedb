@@ -48,6 +48,26 @@ BEGIN
   RETURN false;
 END $$ LANGUAGE plpgsql;
 
+-- Compare the extension path against PostgreSQL's answer instead of blessing a
+-- newly generated literal result. Each dynamic statement is planned after its
+-- AggregateScan setting is applied.
+CREATE FUNCTION issue_5751_result(q text, use_aggregate_scan boolean)
+RETURNS jsonb AS $$
+DECLARE
+  r record;
+  result jsonb := '[]'::jsonb;
+BEGIN
+  PERFORM set_config(
+    'paradedb.enable_aggregate_custom_scan',
+    use_aggregate_scan::text,
+    true
+  );
+  FOR r IN EXECUTE q LOOP
+    result := result || jsonb_build_array(to_jsonb(r));
+  END LOOP;
+  RETURN result;
+END $$ LANGUAGE plpgsql;
+
 -- PostgreSQL retains the two WHERE conjuncts in an implicit-AND List.  Each
 -- item is a base predicate even though the container references both tables.
 SELECT issue_5751_plan_uses(
@@ -62,6 +82,20 @@ SELECT count(*) AS filtered_count
 FROM issue_5751_entries e
 JOIN issue_5751_series s ON s.id = e.series_id
 WHERE s.state = 'active' AND e.user_id = 'u1';
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.state = 'active' AND e.user_id = 'u1'$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.state = 'active' AND e.user_id = 'u1'$$,
+  false
+) AS matches_postgres;
 
 -- The same semantic query can place the equality in the implicit-join WHERE
 -- list.  The equality is a join key; the other two conjuncts remain owned by
@@ -146,8 +180,8 @@ SELECT issue_5751_plan_uses(
 EXECUTE issue_5751_main_compatible('active');
 DEALLOCATE issue_5751_main_compatible;
 
--- Cross-table DataFusion predicates do not yet receive the executing query's
--- ParamListInfo. Decline this shape rather than raising "no value found for
+-- Cross-table DataFusion predicates have no executor-side ParamListInfo
+-- binding. Decline this shape rather than raising "no value found for
 -- parameter" or evaluating an incomplete predicate.
 PREPARE issue_5751_cross_param(bigint) AS
 SELECT count(*)
@@ -160,7 +194,18 @@ SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_cross_param(0)$$,
   'ParadeDB Aggregate Scan') AS cross_param_uses_aggregate_scan;
 EXECUTE issue_5751_cross_param(0);
-RESET client_min_messages;
+
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_cross_param(0)$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    WHERE s.id + 0 > e.series_id$$,
+  false
+) AS cross_param_matches_postgres;
+
 DEALLOCATE issue_5751_cross_param;
 
 -- A present HAVING or aggregate FILTER must not be represented as None merely
@@ -178,7 +223,6 @@ SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_having(1)$$,
   'ParadeDB Aggregate Scan') AS having_uses_aggregate_scan;
 EXECUTE issue_5751_having(1);
-DEALLOCATE issue_5751_having;
 
 PREPARE issue_5751_filter(text) AS
 SELECT count(*) FILTER (WHERE e.user_id = $1) AS filtered_aggregate_count
@@ -189,7 +233,37 @@ SELECT issue_5751_plan_uses(
   $$EXECUTE issue_5751_filter('u1')$$,
   'ParadeDB Aggregate Scan') AS filter_uses_aggregate_scan;
 EXECUTE issue_5751_filter('u1');
+
+-- The generic prepared executions above must match independently planned
+-- PostgreSQL queries with the same parameter values. This catches a present
+-- HAVING or FILTER being mistaken for an absent one.
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_having(1)$$,
+  true
+) = issue_5751_result(
+  $$SELECT s.state, count(*)
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id
+    GROUP BY s.state
+    HAVING count(*) > 1
+    ORDER BY s.state$$,
+  false
+) AS having_matches_postgres;
+
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_filter('u1')$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*) FILTER (WHERE e.user_id = 'u1') AS filtered_aggregate_count
+    FROM issue_5751_entries e
+    JOIN issue_5751_series s ON s.id = e.series_id$$,
+  false
+) AS filter_matches_postgres;
+
+DEALLOCATE issue_5751_having;
 DEALLOCATE issue_5751_filter;
+
+RESET client_min_messages;
 
 RESET plan_cache_mode;
 
@@ -228,8 +302,6 @@ ON issue_5751_ppi_series (id, threshold);
 SET enable_hashjoin = off;
 SET enable_mergejoin = off;
 SET enable_seqscan = off;
-SET enable_material = off;
-SET enable_memoize = off;
 
 SET paradedb.enable_aggregate_custom_scan = off;
 SELECT issue_5751_plan_uses(
@@ -252,12 +324,54 @@ FROM issue_5751_ppi_entries e
 JOIN issue_5751_ppi_series s
   ON s.id = e.series_id AND s.threshold < e.amount;
 
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount$$,
+  false
+) AS ppi_matches_postgres;
+
+-- Exercise generic-plan parameters and ParamPathInfo.ppi_clauses together.
+-- The parameter remains a supported base filter while the cross-table
+-- inequality is recovered from the parameterized lower path.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_5751_ppi_generic(bigint) AS
+SELECT count(*)
+FROM issue_5751_ppi_entries e
+JOIN issue_5751_ppi_series s
+  ON s.id = e.series_id AND s.threshold < e.amount
+WHERE e.amount > $1;
+
+SELECT issue_5751_plan_uses(
+  $$EXECUTE issue_5751_ppi_generic(20)$$,
+  'ParadeDB Aggregate Scan') AS generic_ppi_uses_aggregate_scan;
+
+SELECT issue_5751_result(
+  $$EXECUTE issue_5751_ppi_generic(20)$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount
+    WHERE e.amount > 20$$,
+  false
+) AS generic_ppi_matches_postgres;
+
+DEALLOCATE issue_5751_ppi_generic;
+RESET plan_cache_mode;
+
 RESET enable_hashjoin;
 RESET enable_mergejoin;
 RESET enable_seqscan;
-RESET enable_material;
-RESET enable_memoize;
 
-DROP FUNCTION issue_5751_plan_uses(text, text);
+DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
 DROP TABLE issue_5751_entries, issue_5751_series,
            issue_5751_ppi_entries, issue_5751_ppi_series;

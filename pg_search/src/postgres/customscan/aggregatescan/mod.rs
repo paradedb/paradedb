@@ -1205,9 +1205,12 @@ impl AggregateScan {
                 return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
             }
             datafusion_build::JoinPathPredicateCheck::IncompletePath(tag) => {
-                return Err(warn(AggregateDeclineReason::Other(format!(
-                    "selected lower path contains an opaque join-level node: {tag:?}"
-                ))));
+                pgrx::debug1!(
+                    "AggregateScan declined because the selected lower join path contains an opaque node: {tag:?}"
+                );
+                return Err(warn(AggregateDeclineReason::Other(
+                    "the selected lower join path cannot be inspected completely".into(),
+                )));
             }
         }
 

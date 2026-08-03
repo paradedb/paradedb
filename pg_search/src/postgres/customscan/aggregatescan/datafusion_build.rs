@@ -205,10 +205,11 @@ pub unsafe fn extract_join_tree_from_parse(
     let path_info = analyze_join_path_restrictinfo(input_rel, sources);
 
     // Preserve the pre-existing behavior for directly visible JoinPaths.
-    // Equality keys discovered only after traversing a newly supported wrapper
-    // are supplemental: the retained query tree remains canonical unless it
-    // left a join without a key.  This avoids injecting redundant EC-derived
-    // equalities merely because a Gather/Projection/etc. became inspectable.
+    // The retained query tree already supplies every syntactic equality. Keys
+    // discovered only after traversing a newly supported wrapper are therefore
+    // supplemental EC-derived equalities: they are needed only when the
+    // reconstructed tree has a keyless join level. Injecting them otherwise
+    // would make plan shape, rather than SQL semantics, determine the key set.
     if !path_info.equi_keys.is_empty() {
         plan.inject_equi_keys(path_info.equi_keys);
     }
@@ -688,6 +689,13 @@ struct PathRestrictInfo {
     /// Cross-table @@@ clause pointers (will be transformed via
     /// `build_search_filter` after plan_positions are assigned).
     search_clauses: Vec<*mut pg_sys::Node>,
+    /// Planner identity of every residual stored in `search_clauses`.
+    ///
+    /// The same RestrictInfo can be reachable from both joinrestrictinfo and a
+    /// parameterized base path's ppi_clauses, sometimes as different node
+    /// copies. `rinfo_serial` identifies that shared planner provenance without
+    /// collapsing two intentionally repeated, structurally equal SQL clauses.
+    search_clause_serials: crate::api::HashSet<i32>,
     /// Number of RestrictInfo entries we couldn't classify as equi-keys or
     /// @@@ predicates. Non-zero means unhandled quals that would be silently
     /// dropped - the caller should reject the DataFusion path.
@@ -743,6 +751,7 @@ unsafe fn analyze_join_path_restrictinfo(
         equi_keys: Vec::new(),
         wrapped_equi_keys: Vec::new(),
         search_clauses: Vec::new(),
+        search_clause_serials: Default::default(),
         unhandled: 0,
         coverage: PathPredicateCoverage::Complete,
     };
@@ -770,9 +779,10 @@ unsafe fn classify_path_restrictinfo(
             continue;
         }
 
-        // Generic plans retain PARAM_EXTERN nodes. AggregateScan does not yet
-        // bind those values in its DataFusion join executor, so this candidate
-        // must decline instead of serializing a partially executable filter.
+        // Generic plans retain PARAM_EXTERN nodes. Executor-side translation
+        // of DataFusion join predicates has no ParamListInfo binding, so this
+        // candidate must decline instead of serializing a partially executable
+        // filter.
         if contains_extern_param(clause) {
             info.unhandled += 1;
             continue;
@@ -833,11 +843,12 @@ unsafe fn classify_path_restrictinfo(
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                if !info
-                    .search_clauses
-                    .iter()
-                    .any(|&c| pg_sys::equal(c.cast(), clause.cast()))
-                {
+                // Deduplicate overlapping planner representations by
+                // RestrictInfo identity, not expression structure. Structural
+                // equality is not sufficient for volatile expressions, where
+                // two syntactically repeated conjuncts may require two
+                // evaluations even though they look identical.
+                if info.search_clause_serials.insert((*ri).rinfo_serial) {
                     info.search_clauses.push(clause);
                 }
                 continue;
@@ -865,6 +876,12 @@ unsafe fn walk_path_restrictinfo(
     // ppi_clauses at every path node before following wrappers or children.
     let param_info = (*path).param_info;
     if !param_info.is_null() {
+        // ppi_clauses belong to parameterized base paths. PostgreSQL marks
+        // WHERE and INNER JOIN clauses is_pushed_down=true, so the conservative
+        // false below still accepts inner-join residuals. It rejects only
+        // non-degenerate outer-join ON clauses, which cannot be applied as a
+        // post-join filter without changing NULL-extension semantics.
+        //
         // AggregateScan reconstructs explicit and implicit equality keys from
         // the retained query tree, so ppi equality clauses are coverage-only.
         // Recording EC-derived ppi equalities here can add transitively
@@ -1487,8 +1504,8 @@ unsafe fn build_search_filter(
 
     for &clause in clauses {
         // If any clause can't be fully transformed, bail out.
-        // Returning None leaves the clause as "unhandled", which causes
-        // has_non_equi_join_quals to reject the DataFusion path.
+        // Returning None causes the caller to decline the DataFusion path;
+        // silently omitting any one clause would compute incorrect rows.
         let expr = transform_to_search_expr(
             root,
             clause,

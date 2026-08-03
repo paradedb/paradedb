@@ -301,12 +301,15 @@ impl<'a> PredicateTranslator<'a> {
 
         // List is an implicit conjunction container, not an expression node.
         // Reaching this point means a caller violated the normalization
-        // contract. Do not silently decline the optimized path: AggregateScan
-        // eligibility is part of the product contract for supported queries.
+        // contract. Translation is also used as a capability probe, so an
+        // unsupported representation must return None rather than aborting a
+        // valid query during speculative path construction. The owning planner
+        // layer decides whether the failed probe warrants a user-facing warning.
         if (*node).type_ == pg_sys::NodeTag::T_List {
-            pgrx::error!(
-                "internal ParadeDB planner error: PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"
+            pgrx::debug1!(
+                "PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"
             );
+            return None;
         }
 
         let native = match (*node).type_ {
@@ -701,7 +704,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::build_null_aware_anti_join;
     use datafusion::arrow::array::Int64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -771,5 +774,26 @@ mod tests {
             JoinType::LeftAnti,
             "join type must remain LeftAnti after physical planning"
         );
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::PredicateTranslator;
+    use pgrx::prelude::*;
+    use pgrx::PgList;
+
+    #[pg_test]
+    fn unnormalized_list_is_a_non_throwing_capability_miss() {
+        unsafe {
+            let mut list = PgList::<pg_sys::Node>::new();
+            list.push(pg_sys::makeBoolConst(true, false).cast());
+
+            assert!(!PredicateTranslator::can_translate(
+                &[],
+                list.into_pg().cast()
+            ));
+        }
     }
 }

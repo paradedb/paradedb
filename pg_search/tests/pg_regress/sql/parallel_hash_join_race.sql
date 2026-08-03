@@ -110,9 +110,12 @@ FROM generate_series(16, 20) i;
 -- Create regular index on date (not in BM25 index - key part of customer scenario)
 CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined));
 
--- CRITICAL: Disable Custom Scan to force the use of Index Only Scan (Index AM path)
--- This is key to reproducing the customer's issue which occurs with Parallel Index Only Scan
+-- CRITICAL: Disable both custom-scan layers to force the Index AM path.
+-- AggregateScan can otherwise absorb the aggregate-on-join query and bypass
+-- the parallel Index Only Scan whose race this regression covers.
 SET paradedb.enable_custom_scan = false;
+SET paradedb.enable_aggregate_custom_scan = false;
+SET client_min_messages = error;
 
 -- Enable parallel workers
 SET max_parallel_workers_per_gather = 2;
@@ -281,12 +284,14 @@ EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewter
 DEALLOCATE parallel_hash_join_query_generic;
 
 -- Reset settings
+RESET client_min_messages;
 RESET plan_cache_mode;
 RESET max_parallel_workers_per_gather;
 RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
 RESET min_parallel_table_scan_size;
 RESET min_parallel_index_scan_size;
+RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_custom_scan;
 
 -- Clean up

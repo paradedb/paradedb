@@ -278,8 +278,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_join_custom_scan",
-        c"Enable ParadeDB's experimental join custom scan",
-        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        c"Enable ParadeDB's join custom scan",
+        c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),

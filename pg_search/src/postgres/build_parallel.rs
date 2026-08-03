@@ -775,8 +775,8 @@ pub(super) fn build_index(
 mod plan {
     use super::*;
 
-    /// Cap on parallel workers for builds of indexes with vector fields.
-    pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
+    /// Cap on parallel workers for index builds.
+    pub(super) const MAX_BUILD_WORKERS: usize = 4;
 
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
@@ -816,19 +816,12 @@ mod plan {
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
 
-        // Vector builds are dominated by IVF clustering, whose GEMMs already parallelize
-        // across the whole machine via BLAS threads from any one worker. Extra workers do
-        // not speed up the build; they only multiply peak clustering memory (each worker
-        // holds its own training set while merging). Benchmarked on cohere 10m: 4 workers
-        // matched 8 on build time.
-        let maintenance_workers = if indexrel
-            .schema()
-            .is_ok_and(|schema| schema.has_vector_field())
-        {
-            maintenance_workers.min(MAX_VECTOR_BUILD_WORKERS)
-        } else {
-            maintenance_workers
-        };
+        // More workers than this has not shown build-time wins: vector builds are dominated
+        // by IVF clustering, whose GEMMs already parallelize across the whole machine via
+        // BLAS threads from any one worker, so extra workers only multiply peak clustering
+        // memory (each holds its own training set while merging). Benchmarked on cohere
+        // 10m: 4 workers matched 8 on build time.
+        let maintenance_workers = maintenance_workers.min(MAX_BUILD_WORKERS);
 
         if maintenance_workers < 3 {
             ErrorReport::new(

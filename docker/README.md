@@ -14,7 +14,35 @@ There are three flavors of files generated:
 
 ## Extension Image
 
-`Dockerfile.extension` is **not** generated from the template — it is a standalone, hand-maintained Dockerfile. Unlike the runnable images above, it builds a non-runnable `FROM scratch` artifact (`paradedb/paradedb-extension`) containing only pg_search's shared library, control file, SQL scripts, and license. It is meant to be **mounted** into a Postgres container by operators that support extension images — e.g. CloudNativePG, following the [cloudnative-pg/postgres-extensions-containers](https://github.com/cloudnative-pg/postgres-extensions-containers) `<version>-<pg-major>-<distro>` tag convention. It requires PostgreSQL 18+ (which introduced `extension_control_path`) and is built and published at release time alongside the runnable images by `publish-paradedb-docker.yml`.
+`Dockerfile.extension` is **not** generated from the template — it is a standalone, hand-maintained Dockerfile. Unlike the runnable images above, it builds a non-runnable `FROM scratch` artifact (`paradedb/paradedb-extension`) that is meant to be **mounted** into a Postgres container by operators that support extension images — e.g. CloudNativePG, following the [cloudnative-pg/postgres-extensions-containers](https://github.com/cloudnative-pg/postgres-extensions-containers) `<version>-<pg-major>-<distro>` tag convention. It requires PostgreSQL 18+ (which introduced `extension_control_path`) and is built and published at release time alongside the runnable images by `publish-paradedb-docker.yml`.
+
+The payload is laid out as `lib/` (pg_search.so), `share/extension/` (control file and SQL scripts), `licenses/`, and `system/` — the system libraries pg_search links that the Postgres base image lacks (`libopenblas`, `libgfortran`). Consumers must put `system/` on `LD_LIBRARY_PATH`, since `dynamic_library_path` finds the module but not the libraries it needs. Under CloudNativePG that is `ld_library_path: [system]` on the extension:
+
+```yaml
+postgresql:
+  shared_preload_libraries:
+    - pg_search
+  extensions:
+    - name: pg_search
+      image:
+        reference: paradedb/paradedb-extension:0.25.0-18-trixie
+      ld_library_path:
+        - system
+```
+
+pg_search requires `vector`, so [pgvector](https://github.com/cloudnative-pg/postgres-extensions-containers/tree/main/pgvector) must be mounted as an extension image alongside it (or otherwise be available to the Postgres image).
+
+## Manifests
+
+`manifests/cnpg.yaml` is the CloudNativePG operator, rendered from the upstream Helm chart with default values and bundled into the Antithesis config images. To upgrade the operator, re-render it with the chart version whose `appVersion` is the CNPG release you want ([chart index](https://github.com/cloudnative-pg/charts)):
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo update
+helm template cnpg cnpg/cloudnative-pg --namespace cnpg-system --version <chart_version>
+```
+
+Prepend the `cnpg-system` `Namespace` (the chart does not create it) and keep the trailing comment-only documents at the end of the file. The current file is chart `0.29.0` / CNPG `1.30.0`.
 
 ## Release Process
 

@@ -18,12 +18,12 @@
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
 use crate::postgres::datetime::PostgresDateTime;
 
-use arrow_array::cast::AsArray;
 use arrow_array::Array;
+use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
-use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
+use pgrx::{IntoDatum, PgBuiltInOids, PgOid, datum};
 
 /// Convert an Arrow array slice into a Postgres `Datum`.
 ///
@@ -163,7 +163,7 @@ pub fn arrow_array_to_datum(
                 _ => {
                     return Err(format!(
                         "Unsupported OID for BinaryView Arrow type: {oid:?}"
-                    ))
+                    ));
                 }
             }
         }
@@ -198,7 +198,7 @@ pub fn arrow_array_to_datum(
                 _ => {
                     return Err(format!(
                         "Unsupported OID for FixedSizeBinary(16) Arrow type: {oid:?}"
-                    ))
+                    ));
                 }
             }
         }
@@ -369,7 +369,7 @@ pub fn arrow_array_to_datum(
                 _ => {
                     return Err(format!(
                         "Unsupported OID for Decimal128 Arrow type: {oid:?}"
-                    ))
+                    ));
                 }
             }
         }
@@ -412,7 +412,11 @@ pub fn arrow_array_to_datum(
                         .as_primitive::<arrow_array::types::TimestampNanosecondType>()
                         .value(index);
                     // Postgres timestamps have microsecond precision, so this should never happen
-                    assert_eq!(nanos % 1_000, 0, "TimestampNanosecond had sub-microsecond component when converting to microseconds");
+                    assert_eq!(
+                        nanos % 1_000,
+                        0,
+                        "TimestampNanosecond had sub-microsecond component when converting to microseconds"
+                    );
                     nanos / 1_000
                 }
                 arrow_schema::TimeUnit::Microsecond => array
@@ -436,7 +440,7 @@ pub fn arrow_array_to_datum(
             }
         }
         DataType::List(_) | DataType::LargeList(_) => {
-            return arrow_array_to_datum_list(array, index)
+            return arrow_array_to_datum_list(array, index);
         }
         dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
     };
@@ -620,8 +624,8 @@ mod tests {
     use super::*;
 
     use crate::postgres::datetime::{
-        unix_micros_to_pg_micros, MAX_PG_MICROS, MAX_SAFE_TANTIVY_UNIX_MICROS, MIN_PG_MICROS,
-        MIN_SAFE_TANTIVY_UNIX_MICROS,
+        MAX_PG_MICROS, MAX_SAFE_TANTIVY_UNIX_MICROS, MIN_PG_MICROS, MIN_SAFE_TANTIVY_UNIX_MICROS,
+        unix_micros_to_pg_micros,
     };
 
     use std::sync::Arc;
@@ -633,9 +637,9 @@ mod tests {
         TimestampMicrosecondBuilder, TimestampNanosecondBuilder, UInt64Builder,
     };
     use arrow_array::*;
+    use pgrx::Spi;
     use pgrx::datum::{Date, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
-    use pgrx::Spi;
     use proptest::prelude::*;
 
     fn create_string_view_array(s: &str) -> Arc<dyn Array> {

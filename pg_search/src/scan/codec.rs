@@ -29,12 +29,11 @@ use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
-use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
-use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
+use crate::scan::udf_codec::{try_decode_pg_search_udf, try_encode_pg_search_udf};
 
 /// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
 /// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
@@ -266,68 +265,19 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        if name == "pdb_search_predicate" {
-            let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to deserialize SearchPredicateUDF: {e}"))
-            })?;
-            if let Some(plan_position) = udf.plan_position() {
-                if !self.index_segment_ids.is_empty() {
-                    let ids = self
-                        .index_segment_ids
-                        .get(plan_position)
-                        .cloned()
-                        .expect("missing canonical segment IDs for plan_position");
-                    udf.set_canonical_segment_ids(ids);
-                }
-            }
-            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
-        }
-
-        if name.starts_with(PG_EXPR_UDF_PREFIX) {
-            let mut udf: PgExprUdf = serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to deserialize PgExprUdf: {e}"))
-            })?;
-            udf.fixup_after_deserialize();
-            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
-        }
-
-        Err(DataFusionError::NotImplemented(format!(
-            "UDF '{}' deserialization not implemented",
-            name
-        )))
+        try_decode_pg_search_udf(name, buf, &self.index_segment_ids)?.ok_or_else(|| {
+            DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
+        })
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
-        let name = node.name();
-        if name == "pdb_search_predicate" {
-            let udf = node
-                .inner()
-                .downcast_ref::<SearchPredicateUDF>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
-                })?;
-            let bytes = serde_json::to_vec(udf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize SearchPredicateUDF: {e}"))
-            })?;
-            buf.extend_from_slice(&bytes);
-            return Ok(());
-        }
-
-        if name.starts_with(PG_EXPR_UDF_PREFIX) {
-            let udf = node
-                .inner()
-                .downcast_ref::<PgExprUdf>()
-                .ok_or_else(|| DataFusionError::Internal("UDF is not a PgExprUdf".into()))?;
-            let bytes = serde_json::to_vec(udf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize PgExprUdf: {e}"))
-            })?;
-            buf.extend_from_slice(&bytes);
+        if try_encode_pg_search_udf(node, buf)? {
             return Ok(());
         }
 
         Err(DataFusionError::NotImplemented(format!(
             "UDF '{}' serialization not implemented",
-            name
+            node.name()
         )))
     }
 }

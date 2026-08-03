@@ -21,13 +21,13 @@
 use std::os::raw::c_void;
 use std::ptr::NonNull;
 
-use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::basescan::BaseScan;
+use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
-use crate::postgres::ParallelScanState;
 
-use pgrx::pg_sys::{shm_toc, Size};
+use pgrx::pg_sys::{Size, shm_toc};
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

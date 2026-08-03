@@ -21,7 +21,7 @@ use std::sync::{Arc, OnceLock};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::{is_pgoid_datetime_type, TantivyValue};
+use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
@@ -35,10 +35,10 @@ use arrow_buffer::Buffer;
 use datafusion::common::Result;
 use datafusion::error::DataFusionError;
 use serde::{Deserialize, Serialize};
+use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::SegmentOrdinal;
 use tantivy::{DocAddress, DocId};
 
 /// A fast-field index position value.
@@ -246,15 +246,15 @@ impl FFType {
             }
             FFType::I64(ff) => {
                 // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
-                if let Some(sft) = search_field_type {
-                    if is_pgoid_datetime_type(sft.typeoid()) {
-                        let value = ff.first(doc).map(|first| {
-                            let pgdt = PostgresDateTime::try_from_raw(first)
-                                .expect("This should always be a valid datetime value");
-                            PdbOwnedValue::Date(pgdt)
-                        });
-                        return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
-                    }
+                if let Some(sft) = search_field_type
+                    && is_pgoid_datetime_type(sft.typeoid())
+                {
+                    let value = ff.first(doc).map(|first| {
+                        let pgdt = PostgresDateTime::try_from_raw(first)
+                            .expect("This should always be a valid datetime value");
+                        PdbOwnedValue::Date(pgdt)
+                    });
+                    return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
                 }
                 let value = ff.first(doc).map(|first| first.into());
                 TantivyValue(value.unwrap_or(PdbOwnedValue::Null))

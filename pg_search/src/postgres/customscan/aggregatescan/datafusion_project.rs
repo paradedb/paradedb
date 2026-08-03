@@ -25,7 +25,7 @@
 
 use super::join_targetlist::{AggKind, JoinAggregateTargetList};
 use arrow_array::{Array, RecordBatch};
-use pgrx::{pg_sys, IntoDatum};
+use pgrx::{IntoDatum, pg_sys};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///

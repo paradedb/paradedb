@@ -33,11 +33,11 @@
 
 use crate::cli::GraphArgs;
 use crate::metrics::group_by_job;
-use crate::{metrics, MetricsLine};
+use crate::{MetricsLine, metrics};
 use anyhow::Result;
 use full_palette::{BROWN, ORANGE};
-use image::imageops::FilterType;
 use image::ImageReader;
+use image::imageops::FilterType;
 use plotters::coord::Shift;
 use plotters::prelude::full_palette::INDIGO_800;
 use plotters::prelude::*;

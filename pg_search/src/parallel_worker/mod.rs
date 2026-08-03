@@ -503,7 +503,7 @@ macro_rules! launch_parallel_process {
             };
 
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             #[pgrx::pg_guard]
             pub unsafe extern "C-unwind" fn $parallel_process_type(
                 seg: *mut pgrx::pg_sys::dsm_segment,

@@ -35,21 +35,8 @@ jobs:
     strategy:
       matrix:
         include:
-          # macOS 14 and 15 are arm-only (M1)
+          # The macos-15 and macos-26 runners are arm-only (M1)
           # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
-          # macOS 14 (Sonoma)
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 15
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 16
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 17
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 18
           # macOS 15 (Sequoia)
           - name: macOS 15 (Sequoia)
             runner: macos-15
@@ -62,6 +49,19 @@ jobs:
             pg_version: 17
           - name: macOS 15 (Sequoia)
             runner: macos-15
+            pg_version: 18
+          # macOS 26 (Tahoe)
+          - name: macOS 26 (Tahoe)
+            runner: macos-26
+            pg_version: 15
+          - name: macOS 26 (Tahoe)
+            runner: macos-26
+            pg_version: 16
+          - name: macOS 26 (Tahoe)
+            runner: macos-26
+            pg_version: 17
+          - name: macOS 26 (Tahoe)
+            runner: macos-26
             pg_version: 18
 
     steps:
@@ -105,8 +105,8 @@ jobs:
 
           OS_VERSION=$(sw_vers -productVersion)
           case $OS_VERSION in
+              26.*) OS_NAME="tahoe" ;;
               15.*) OS_NAME="sequoia" ;;
-              14.*) OS_NAME="sonoma" ;;
               *) exit 1 ;;
           esac
           echo "OS Version: $OS_NAME"

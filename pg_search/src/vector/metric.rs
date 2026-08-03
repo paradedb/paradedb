@@ -30,7 +30,7 @@
 //! tantivy schema's `VectorOptions::metric`.
 
 use crate::postgres::catalog::lookup_opfamily_name;
-use pgrx::{direct_function_call, pg_sys, IntoDatum};
+use pgrx::{IntoDatum, direct_function_call, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::vector::Metric as TantivyMetric;
 

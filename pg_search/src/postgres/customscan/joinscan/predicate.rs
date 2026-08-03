@@ -35,13 +35,13 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 /// Extract join-level conditions from the restrict list and transform them into
 /// a `JoinLevelExpr` tree.
@@ -207,15 +207,14 @@ pub unsafe fn transform_to_search_expr(
         let plan_position = source.plan_position;
 
         // Extract the Tantivy query for this expression
-        if let Some(base_info) = find_base_info_recursive(source, rti) {
-            if let Some(predicate_idx) =
+        if let Some(base_info) = find_base_info_recursive(source, rti)
+            && let Some(predicate_idx) =
                 extract_single_table_predicate(root, rti, &base_info, node, join_clause)
-            {
-                return Some(JoinLevelExpr::SingleTablePredicate {
-                    plan_position,
-                    predicate_idx,
-                });
-            }
+        {
+            return Some(JoinLevelExpr::SingleTablePredicate {
+                plan_position,
+                predicate_idx,
+            });
         }
         return None;
     }
@@ -291,16 +290,16 @@ pub unsafe fn transform_to_search_expr(
                 }
             }
             pg_sys::BoolExprType::NOT_EXPR => {
-                if let Some(arg) = args.iter_ptr().next() {
-                    if let Some(child_expr) = transform_to_search_expr(
+                if let Some(arg) = args.iter_ptr().next()
+                    && let Some(child_expr) = transform_to_search_expr(
                         root,
                         arg,
                         sources,
                         join_clause,
                         multi_table_predicate_clauses,
-                    ) {
-                        return Some(JoinLevelExpr::Not(Box::new(child_expr)));
-                    }
+                    )
+                {
+                    return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                 }
                 None
             }

@@ -29,17 +29,17 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair, JoinLevelExpr,
-    JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    MultiTablePredicateInfo, PlannerRootId, RelNode,
+    FilterNode, JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
+    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
+    lookup_base_rel_info, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
-    classify_base_restrictinfo, wrap_with_semi_anti, ClassifiedBaseRestrictInfo,
+    ClassifiedBaseRestrictInfo, classify_base_restrictinfo, wrap_with_semi_anti,
 };
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
@@ -49,7 +49,7 @@ use crate::postgres::utils::{
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree, search
 /// predicates, multi-table predicate info, and raw PG Expr clause pointers.
@@ -729,23 +729,23 @@ unsafe fn walk_path_restrictinfo(
         }
 
         // 1. Equi-join key?
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-            if let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources) {
-                let dup = info.equi_keys.iter().any(|k| {
-                    (k.outer_rti == key.outer_rti
-                        && k.outer_attno == key.outer_attno
-                        && k.inner_rti == key.inner_rti
-                        && k.inner_attno == key.inner_attno)
-                        || (k.outer_rti == key.inner_rti
-                            && k.outer_attno == key.inner_attno
-                            && k.inner_rti == key.outer_rti
-                            && k.inner_attno == key.outer_attno)
-                });
-                if !dup {
-                    info.equi_keys.push(key);
-                }
-                continue;
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr
+            && let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources)
+        {
+            let dup = info.equi_keys.iter().any(|k| {
+                (k.outer_rti == key.outer_rti
+                    && k.outer_attno == key.outer_attno
+                    && k.inner_rti == key.inner_rti
+                    && k.inner_attno == key.inner_attno)
+                    || (k.outer_rti == key.inner_rti
+                        && k.outer_attno == key.inner_attno
+                        && k.inner_rti == key.outer_rti
+                        && k.inner_attno == key.outer_attno)
+            });
+            if !dup {
+                info.equi_keys.push(key);
             }
+            continue;
         }
 
         // 2. Cross-table predicate?
@@ -894,17 +894,17 @@ impl FilterExpr {
                         // identity; targetlist refs don't carry rti.
                         if !agg.field_refs.is_empty() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-                            if let Some(first_arg) = args.get_ptr(0) {
-                                if let Some(var) = crate::postgres::var::find_one_var(
+                            if let Some(first_arg) = args.get_ptr(0)
+                                && let Some(var) = crate::postgres::var::find_one_var(
                                     (*first_arg).expr as *mut pg_sys::Node,
-                                ) {
-                                    let rti = (*var).varno as pg_sys::Index;
-                                    let attno = (*var).varattno;
-                                    if let Some(r) = agg.field_refs.first() {
-                                        let var_pp = ctx.resolve_var(rti, attno);
-                                        if var_pp == Some(r.plan_position) && attno == r.attno {
-                                            return Some(Self::AggRef(idx));
-                                        }
+                                )
+                            {
+                                let rti = (*var).varno as pg_sys::Index;
+                                let attno = (*var).varattno;
+                                if let Some(r) = agg.field_refs.first() {
+                                    let var_pp = ctx.resolve_var(rti, attno);
+                                    if var_pp == Some(r.plan_position) && attno == r.attno {
+                                        return Some(Self::AggRef(idx));
                                     }
                                 }
                             }
@@ -1155,11 +1155,11 @@ pub unsafe fn populate_required_fields(
             // For dotted names (JSON sub-fields), try resolving by name first.
             // This is more specific than attno-based resolution which might
             // find the parent JSON column if it's also indexed as text.
-            if gc.field_name.contains('.') {
-                if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    source.scan_info.add_field_by_name(gc.attno, field.clone());
-                    resolved_field = Some(field);
-                }
+            if gc.field_name.contains('.')
+                && let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel)
+            {
+                source.scan_info.add_field_by_name(gc.attno, field.clone());
+                resolved_field = Some(field);
             }
 
             if resolved_field.is_none() {

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use duckdb::{AccessMode, Config, Connection};
 
 pub fn open_duckdb_conn() -> Result<Connection> {

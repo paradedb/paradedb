@@ -1,3 +1,3 @@
-SET vchordrq.probes={{ vchord_probes_unfiltered }}; SET vchordrq.epsilon=1.9; SELECT _id, title FROM cohere_wiki
+SET enable_seqscan=off; SET enable_bitmapscan=off; SET enable_sort=off; SET vchordrq.probes={{ vchord_probes_unfiltered }}; SET vchordrq.epsilon=1.9; SELECT _id, title FROM cohere_wiki
 ORDER BY emb <=> current_setting('cohere.qvec')::vector(1024)
 LIMIT 10;

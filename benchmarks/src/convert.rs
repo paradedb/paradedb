@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 use crate::utils::{open_duckdb_conn, validate_input, validate_output};
@@ -107,7 +107,9 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
 
         println!("  {parquet_count} -> {csv_count}");
         if parquet_count != csv_count {
-            bail!("{parquet_count} rows for {table} exist in the source, but only {csv_count} were found in the output");
+            bail!(
+                "{parquet_count} rows for {table} exist in the source, but only {csv_count} were found in the output"
+            );
         }
     }
 

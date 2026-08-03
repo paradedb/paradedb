@@ -48,7 +48,7 @@ LIMIT 5;
            : │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            : │           CoalescePartitionsExec
            : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=2, stage_partitions=2, input_tasks=2
-           : │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           : │           RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
            : │             DistributedLeafExec:
            : │               t0: PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
            : └──────────────────────────────────────────────────

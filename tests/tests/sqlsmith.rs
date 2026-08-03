@@ -76,6 +76,8 @@ fn crash_in_subquery(mut conn: PgConnection) {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(format!("{err}")
-        .contains("unable to determine Var relation as it belongs to a NULL subquery"))
+    assert!(
+        format!("{err}")
+            .contains("unable to determine Var relation as it belongs to a NULL subquery")
+    )
 }

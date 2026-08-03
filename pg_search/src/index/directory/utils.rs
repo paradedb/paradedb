@@ -28,9 +28,9 @@ use pgrx::pg_sys;
 use std::path::PathBuf;
 use tantivy::index::SegmentComponent;
 use tantivy::{
+    IndexMeta,
     index::{IndexSettings, SegmentId, SegmentMetaInventory},
     schema::Schema,
-    IndexMeta,
 };
 
 pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
@@ -168,7 +168,8 @@ pub unsafe fn save_new_metas(
     // process the modified segments
     //
     // lookup existing version, update the `delete` entry
-    // if it already has one also locate its LinkedBytesList and .mark_deleted()
+    // if it already has one, remember the old entry in `orphaned_deletes_files` so it can be
+    // re-added below as an immediately-recyclable entry
     // xmin/xmax do not change
     //
     let mut orphaned_deletes_files = Vec::new();
@@ -207,8 +208,8 @@ pub unsafe fn save_new_metas(
     //
     // process the deleted segments
     //
-    // find the deleted segment entries and set their `xmax` to the `deleting_xid` calculated above
-    // and for each file in each deleted segment, locate its LinkedBytesList and .mark_deleted()
+    // find the deleted segment entries and set their `xmax` to `FrozenTransactionId`, which is
+    // safe because a deleted segment always belongs to a transaction known to not be in progress
     //
     let deleted_entries = deleted_ids
         .into_iter()
@@ -413,12 +414,12 @@ pub unsafe fn load_metas(
                 if alive_entries.len() != only_these.len() =>
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
-                if !exhausted_metas_lists {
-                    if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
-                        segment_metas = garbage;
-                        exhausted_metas_lists = true;
-                        continue;
-                    }
+                if !exhausted_metas_lists
+                    && let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage()
+                {
+                    segment_metas = garbage;
+                    exhausted_metas_lists = true;
+                    continue;
                 }
 
                 // TODO:  I believe this situation, where if the alive_entries.len() != only_these.len() is now dead code

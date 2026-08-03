@@ -26,7 +26,7 @@ pub mod pdb {
     use crate::query::pdb_query::pdb;
     use crate::query::proximity::{ProximityClause, ProximityDistance};
     use macros::builder_fn;
-    use pgrx::{default, pg_extern, VariadicArray};
+    use pgrx::{VariadicArray, default, pg_extern};
 
     #[pg_extern(immutable, parallel_safe)]
     pub fn prox_term(term: String) -> ProximityClause {

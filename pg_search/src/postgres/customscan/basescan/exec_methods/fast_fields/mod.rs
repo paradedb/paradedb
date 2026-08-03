@@ -21,15 +21,15 @@
 
 pub mod columnar;
 
-use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::HashSet;
+use crate::api::operator::row_expr_from_indexed_expr;
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
+use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
-use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
@@ -37,10 +37,10 @@ use crate::postgres::customscan::score_funcoids;
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
-use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
+use crate::postgres::var::{VarContext, find_one_var, find_one_var_and_fieldname, find_vars};
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
 
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 /// Returns true if all variables in the expression belong to the current relation.
 ///
@@ -131,15 +131,14 @@ pub(crate) unsafe fn find_matching_fast_field(
 
     let to_fast_field =
         |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
-            if search_field.is_fast() {
-                if let Some(field_type) =
+            if search_field.is_fast()
+                && let Some(field_type) =
                     field_type_for_pullup(search_field.field_type(), data.is_array)
-                {
-                    return Some(WhichFastField::Named(
-                        search_field.field_name().to_string(),
-                        field_type,
-                    ));
-                }
+            {
+                return Some(WhichFastField::Named(
+                    search_field.field_name().to_string(),
+                    field_type,
+                ));
             }
             None
         };
@@ -168,22 +167,18 @@ pub(crate) unsafe fn find_matching_fast_field(
                             ..
                         } if expression_idx == i && idx == field_idx
                     )
-                }) {
-                    if matches_node(arg as *mut pg_sys::Node) {
-                        if let Some(ff) = to_fast_field(search_field, data) {
-                            return Some(ff);
-                        }
-                    }
+                }) && matches_node(arg as *mut pg_sys::Node)
+                    && let Some(ff) = to_fast_field(search_field, data)
+                {
+                    return Some(ff);
                 }
             }
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
             |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
-        ) {
-            if matches_node(expr as *mut pg_sys::Node) {
-                if let Some(ff) = to_fast_field(search_field, data) {
-                    return Some(ff);
-                }
-            }
+        ) && matches_node(expr as *mut pg_sys::Node)
+            && let Some(ff) = to_fast_field(search_field, data)
+        {
+            return Some(ff);
         }
     }
 
@@ -298,10 +293,11 @@ pub unsafe fn pullup_fast_fields(
             let resname = if (*te).resname.is_null() {
                 create_resname("NONAME", &*te)
             } else {
+                let fallback = create_resname("INVALID_NAME_STRING", &*te);
                 unsafe {
                     std::ffi::CStr::from_ptr((*te).resname)
                         .to_str()
-                        .unwrap_or(create_resname("INVALID_NAME_STRING", &*te).as_str())
+                        .unwrap_or(&fallback)
                 }
                 .to_string()
             };

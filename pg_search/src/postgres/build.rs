@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::version::VersionInfo;
 use crate::api::FieldName;
+use crate::api::version::VersionInfo;
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
@@ -24,14 +24,14 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
 use std::ffi::CStr;
+use tantivy::Index;
 use tantivy::schema::Schema;
 use tantivy::vector::VectorOptions;
-use tantivy::Index;
 use tokenizers::SearchTokenizer;
 
 #[pg_guard]
@@ -95,8 +95,9 @@ pub extern "C-unwind" fn ambuild(
                 pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
 
             pgrx::debug1!(
-                    "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes", nblocks as usize * pg_sys::BLCKSZ as usize
-                );
+                "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes",
+                nblocks as usize * pg_sys::BLCKSZ as usize
+            );
 
             pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true);
         }
@@ -240,12 +241,17 @@ fn validate_field_config(
     if field_name.root() == key_field_name.root() {
         match config {
             // we allow the user to change a TEXT key_field tokenizer to "keyword"
-            SearchFieldConfig::Text { tokenizer: SearchTokenizer::Keyword, .. } => {
+            SearchFieldConfig::Text {
+                tokenizer: SearchTokenizer::Keyword,
+                ..
+            } => {
                 // noop
             }
 
             // but not to anything else
-            _ => panic!("cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key")
+            _ => panic!(
+                "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
+            ),
         }
     }
 
@@ -386,9 +392,9 @@ mod tests {
     use crate::postgres::options::{SortByDirection, SortByField};
     use crate::schema::SearchIndexSchema;
     use pgrx::pg_test;
-    use tantivy::index::Order;
-    use tantivy::schema::{NumericOptions, Schema, FAST};
     use tantivy::IndexSettings;
+    use tantivy::index::Order;
+    use tantivy::schema::{FAST, NumericOptions, Schema};
 
     #[pg_test]
     fn test_build_sort_by_field_empty() {

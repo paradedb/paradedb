@@ -30,7 +30,7 @@ mod suite;
 mod table_helper;
 mod tui;
 
-use crate::auto::{setup_server, ServerHandler};
+use crate::auto::{ServerHandler, setup_server};
 use crate::cli::{AutoArgs, Cli, Command};
 use crate::fault_tolerance::GraceWindow;
 use crate::runner::{SetupMode, SuiteRunner};
@@ -86,10 +86,10 @@ fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let mut log_file = args.log_file.clone();
-            if let Some(path) = log_file.as_ref() {
-                if path.display().to_string() == "-" {
-                    log_file = None
-                }
+            if let Some(path) = log_file.as_ref()
+                && path.display().to_string() == "-"
+            {
+                log_file = None
             }
             headless::run(
                 suite_runner,

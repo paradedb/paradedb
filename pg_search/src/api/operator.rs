@@ -28,12 +28,12 @@ mod proximity;
 mod searchqueryinput;
 pub(crate) mod slop;
 
-use crate::api::operator::boost::{boost_to_boost, BoostType};
-use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
-use crate::api::operator::slop::{slop_to_slop, SlopType};
-use crate::api::tokenizers::type_can_be_tokenized;
-use crate::api::tokenizers::{try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod};
 use crate::api::FieldName;
+use crate::api::operator::boost::{BoostType, boost_to_boost};
+use crate::api::operator::fuzzy::{FuzzyType, fuzzy_to_fuzzy};
+use crate::api::operator::slop::{SlopType, slop_to_slop};
+use crate::api::tokenizers::type_can_be_tokenized;
+use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_tokenizer};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
 use crate::nodecast;
@@ -41,7 +41,7 @@ use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::opexpr::{
-    expr_matches_node, vars_equal_ignoring_varno, UnwrapFromExpr,
+    UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
@@ -50,11 +50,11 @@ use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::{
-    find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
+    VarContext, find_json_path, find_one_var, find_var_relation, find_vars,
 };
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
-use crate::query::SearchQueryInput;
 use crate::scan::info::RowEstimate;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
@@ -477,13 +477,13 @@ pub unsafe fn field_name_from_node(
     node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
     // just directly reach in and pluck out the alias if the type is cast to it
-    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-        if type_is_alias((*relabel).resulttype) {
-            let typmod =
-                AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
-            if let Some(alias) = typmod.alias() {
-                return Some(FieldName::from(alias));
-            }
+    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node)
+        && type_is_alias((*relabel).resulttype)
+    {
+        let typmod =
+            AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
+        if let Some(alias) = typmod.alias() {
+            return Some(FieldName::from(alias));
         }
     }
 
@@ -1051,15 +1051,14 @@ unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) ->
         return None;
     }
     let tupdesc = heaprel.tuple_desc();
-    let attname = if (*var).varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber
-    {
+
+    if (*var).varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
         Some("ctid".into())
     } else {
         tupdesc
             .get((*var).varattno as usize - 1)
             .map(|attribute| attribute.name().into())
-    };
-    attname
+    }
 }
 
 #[track_caller]

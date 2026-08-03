@@ -1,5 +1,5 @@
-use crate::postgres::locks::Spinlock;
 use crate::postgres::ParallelScanState;
+use crate::postgres::locks::Spinlock;
 use std::marker::PhantomData;
 use tantivy::collector::SharedThreshold;
 

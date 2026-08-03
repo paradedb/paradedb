@@ -245,12 +245,12 @@ fn get_union_info(
             let col =
                 datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
             let mut is_bytes = false;
-            if let Some(base_col) = trace_column(plan, &col) {
-                if let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name) {
-                    let d = all_deferred.remove(pos);
-                    is_bytes = d.is_bytes;
-                    active_deferred.push(d);
-                }
+            if let Some(base_col) = trace_column(plan, &col)
+                && let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name)
+            {
+                let d = all_deferred.remove(pos);
+                is_bytes = d.is_bytes;
+                active_deferred.push(d);
             }
 
             let materialized_type = if is_bytes {
@@ -302,7 +302,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         }
     });
 
-    let anchor = match node {
+    match node {
         LogicalPlan::Filter(_) => references_deferred,
         LogicalPlan::Projection(proj) => {
             // Only anchor if the projection does something other than pass through or alias the deferred column.
@@ -371,9 +371,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         | LogicalPlan::Limit(_)
         | LogicalPlan::SubqueryAlias(_) => false,
         _ => true,
-    };
-
-    anchor
+    }
 }
 
 impl OptimizerRule for LateMaterializationRule {
@@ -602,12 +600,12 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
                 // column in the child schema claims its own distinct slot.
                 let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
                 let mut is_bytes = false;
-                if let Some(base_col) = trace_column(&input, &target_col) {
-                    if let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name) {
-                        let d = deferred_pool.remove(pos);
-                        is_bytes = d.is_bytes;
-                        new_deferred_fields.push(d);
-                    }
+                if let Some(base_col) = trace_column(&input, &target_col)
+                    && let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name)
+                {
+                    let d = deferred_pool.remove(pos);
+                    is_bytes = d.is_bytes;
+                    new_deferred_fields.push(d);
                 }
 
                 // When DataFusion's `OptimizeProjections` rule rebuilds nodes, it trims the schema.
@@ -658,12 +656,11 @@ fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
     helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
 ) {
-    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
-        if scan.has_deferred_fields() {
-            if let Some(ff) = scan.ffhelper() {
-                helpers.insert(scan.indexrelid, ff);
-            }
-        }
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
+        && scan.has_deferred_fields()
+        && let Some(ff) = scan.ffhelper()
+    {
+        helpers.insert(scan.indexrelid, ff);
     }
 
     for child in plan.children() {
@@ -717,11 +714,11 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     let (q, _) = child_logical_schema.qualified_field(i);
                     let col =
                         datafusion::common::Column::from((q.cloned().as_ref(), field.as_ref()));
-                    if let Some(base_col) = trace_column(&mat_node.input, &col) {
-                        if base_col.name == deferred.name {
-                            found_col_idx = Some(i);
-                            break;
-                        }
+                    if let Some(base_col) = trace_column(&mat_node.input, &col)
+                        && base_col.name == deferred.name
+                    {
+                        found_col_idx = Some(i);
+                        break;
                     }
                 }
 

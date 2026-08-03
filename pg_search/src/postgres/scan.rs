@@ -15,14 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{resolve_ctid, FFHelper, FFType};
+use crate::api::operator::searchqueryinput_typoid;
+use crate::index::fast_fields_helper::{FFHelper, FFType, resolve_ctid};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
+use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::IndexScanDesc;
@@ -282,7 +282,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
     let state = {
-        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `Bm25ScanState` above in
         // amrescan, which is always called prior to this function
         (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
             .as_mut()
@@ -344,7 +344,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                             pg_sys::heap_form_tuple((*scan).xs_hitupdesc, values, nulls);
                     } else {
                         pg_sys::ffi::pg_guard_ffi_boundary(|| {
-                            extern "C-unwind" {
+                            unsafe extern "C-unwind" {
                                 fn heap_compute_data_size(
                                     tupleDesc: pg_sys::TupleDesc,
                                     values: *mut pg_sys::Datum,
@@ -393,7 +393,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     assert!(!scan.is_null());
 
     let state = {
-        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `Bm25ScanState` above in
         // amrescan, which is always called prior to this function
         (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
             .as_mut()

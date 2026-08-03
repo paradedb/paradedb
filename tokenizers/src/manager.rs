@@ -197,11 +197,7 @@ impl SearchTokenizerFilters {
         let mut is_empty = true;
 
         fn sep(is_empty: bool) -> &'static str {
-            if is_empty {
-                ""
-            } else {
-                ","
-            }
+            if is_empty { "" } else { "," }
         }
 
         if let Some(value) = self.remove_short {
@@ -1365,7 +1361,7 @@ mod tests {
         use tantivy::collector::TopDocs;
         use tantivy::directory::RamDirectory;
         use tantivy::query::TermQuery;
-        use tantivy::schema::{Schema, TextFieldIndexing, TextOptions, STORED};
+        use tantivy::schema::{STORED, Schema, TextFieldIndexing, TextOptions};
         use tantivy::{Index, Term};
 
         // create all tokenizer variants
@@ -1441,6 +1437,9 @@ mod tests {
             .unwrap();
 
         let found_space = !top_docs.is_empty();
-        assert_eq!(found_space, should_find_space, "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected");
+        assert_eq!(
+            found_space, should_find_space,
+            "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected"
+        );
     }
 }

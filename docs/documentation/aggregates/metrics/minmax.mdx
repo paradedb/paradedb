@@ -6,10 +6,10 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/minmax
 
 `min` and `max` return the smallest and largest values of a column, respectively.
 
-SQL's `MIN`/`MAX` syntax is supported in beta. To enable it, first run:
+SQL's `MIN`/`MAX` syntax is supported in beta and is enabled by default. To disable it, run:
 
 ```sql SQL
-SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_aggregate_custom_scan TO off;
 ```
 
 ## Min

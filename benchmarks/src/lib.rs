@@ -132,6 +132,19 @@ pub fn percentile_confidence_interval(data: &[f64], p: f64, confidence_level: f6
     (sorted[lo], sorted[hi])
 }
 
+/// FNV-1a over the strings in order. Stable across platforms and Rust versions, unlike
+/// `DefaultHasher`, so hashes published in one benchmark run stay comparable in later ones.
+pub fn fnv1a(strings: &[String]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for s in strings {
+        for byte in s.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    hash
+}
+
 /// Returns the variance of the slice contents
 fn variance(data: &[f64]) -> f64 {
     assert!(!data.is_empty());

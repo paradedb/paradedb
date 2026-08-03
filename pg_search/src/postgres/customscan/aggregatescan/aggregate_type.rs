@@ -16,20 +16,21 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
-    MvccVisibility,
+    FieldName, HashSet, MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid,
+    extract_solve_mvcc_from_const,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
+use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
-use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+use pgrx::PgList;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -39,7 +40,6 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::prelude::*;
-use pgrx::PgList;
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
@@ -407,14 +407,14 @@ impl AggregateType {
     /// <https://github.com/quickwit-oss/tantivy/issues/2767>
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         // Check NUMERIC field support for standard aggregates
-        if let Some(field) = self.field_name() {
-            if !schema.field_supports_aggregate(&field) {
-                return Err(format!(
-                    "Aggregate on NUMERIC field '{}' cannot be pushed down. \
+        if let Some(field) = self.field_name()
+            && !schema.field_supports_aggregate(&field)
+        {
+            return Err(format!(
+                "Aggregate on NUMERIC field '{}' cannot be pushed down. \
                      NUMERIC columns do not support aggregate pushdown.",
-                    field
-                ));
-            }
+                field
+            ));
         }
 
         // For Custom aggregates, validate field existence and NUMERIC support
@@ -554,22 +554,14 @@ trait F64Lossless {
 impl F64Lossless for u64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-        if f as u64 == self {
-            Some(f)
-        } else {
-            None
-        }
+        if f as u64 == self { Some(f) } else { None }
     }
 }
 
 impl F64Lossless for i64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-        if f as i64 == self {
-            Some(f)
-        } else {
-            None
-        }
+        if f as i64 == self { Some(f) } else { None }
     }
 }
 

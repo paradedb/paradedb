@@ -19,7 +19,7 @@
 //! into human-readable SQL strings for EXPLAIN output.
 
 use crate::nodecast;
-use crate::postgres::customscan::qual_inspect::{contains_exec_param, PlannerContext};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, contains_exec_param};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::find_vars;
 use pgrx::{pg_guard, pg_sys};

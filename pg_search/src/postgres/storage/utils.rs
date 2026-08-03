@@ -18,7 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::PgItem;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{PgMemoryContexts, pg_sys};
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
@@ -100,7 +100,7 @@ impl RelationBufferAccess {
     /// These buffers are guaranteed to be "new" in that they were created by extending the relation.
     ///
     /// The [`pg_sys::Page`] representation of each buffer has not been initialized.  The caller must do this.
-    pub fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> {
+    pub fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> + use<> {
         unsafe {
             // a simple wrapper so we can make sure the buffer is released if the iterator
             // is dropped before exhaustion.

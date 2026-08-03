@@ -18,17 +18,19 @@
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
+use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_guard, pg_sys};
 use std::ptr::addr_of_mut;
 
 #[pgrx::pg_schema]
 mod pdb {
-    use pgrx::{extension_sql, pg_extern, AnyElement};
+    use pgrx::{AnyElement, extension_sql, pg_extern};
 
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
     fn score_from_relation(relation_reference: AnyElement) -> f32 {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!(
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+        );
     }
 
     extension_sql!(
@@ -46,7 +48,9 @@ mod pdb {
 #[allow(unused_variables)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(relation_reference: AnyElement) -> Option<f32> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!(
+        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+    );
 }
 
 extension_sql!(
@@ -76,10 +80,10 @@ pub unsafe fn uses_scores(
             if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 assert!(args.len() == 1, "score function must have 1 argument");
-                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                    if (*var).varno as i32 == (*data).rti as i32 {
-                        return true;
-                    }
+                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                    && (*var).varno as i32 == (*data).rti as i32
+                {
+                    return true;
                 }
             }
         }
@@ -101,15 +105,15 @@ pub unsafe fn uses_scores(
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if score_funcoids().contains(&(*funcexpr).funcid) {
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            assert!(args.len() == 1, "score function must have 1 argument");
-            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                if (*var).varno as i32 == rti as i32 {
-                    return true;
-                }
-            }
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+        && score_funcoids().contains(&(*funcexpr).funcid)
+    {
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        assert!(args.len() == 1, "score function must have 1 argument");
+        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+            && (*var).varno as i32 == rti as i32
+        {
+            return true;
         }
     }
 

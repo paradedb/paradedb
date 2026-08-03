@@ -48,20 +48,20 @@ use datafusion_distributed::shm::region_total;
 
 use crate::parallel_worker::builder::ParallelProcessBuilder;
 use crate::parallel_worker::{
-    generic_parallel_worker_entry_point, ParallelProcess, ParallelState, ParallelStateManager,
-    WorkerStyle,
+    ParallelProcess, ParallelState, ParallelStateManager, WorkerStyle,
+    generic_parallel_worker_entry_point,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregate_session_context;
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, SessionContextProfile,
+    SessionContextProfile, create_datafusion_session_context,
 };
 use crate::postgres::customscan::mpp::dispatch::{
     dispatch_payload_from_stages, dispatch_plan_capacity,
 };
-use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
+use crate::postgres::customscan::mpp::exec_worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, producer_worker_cap, worker_setup, MppLeaderState,
-    MIN_TOTAL_WORKER_COUNT,
+    MIN_TOTAL_WORKER_COUNT, MppLeaderState, estimate_dsm_size, leader_setup, producer_worker_cap,
+    worker_setup,
 };
 use crate::postgres::customscan::mpp::worker_fragments::{collect_stages, max_producer_task_count};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
@@ -110,7 +110,7 @@ unsafe fn go_flag(sm: &ParallelStateManager) -> &'static AtomicU32 {
 
 /// AggregateScan worker entry point. PG resolves this symbol by name (passed to
 /// `ParallelProcessBuilder::build`), so the name must match the string in [`launch_mpp_aggregate`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     seg: *mut pg_sys::dsm_segment,
@@ -124,7 +124,7 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
 
 /// JoinScan worker entry point. PG resolves this symbol by name; it must match the string in
 /// [`launch_mpp_join`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
     seg: *mut pg_sys::dsm_segment,

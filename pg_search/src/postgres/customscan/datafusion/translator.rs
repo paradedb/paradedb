@@ -17,7 +17,7 @@
 
 use datafusion::common::{Column, JoinType, NullEquality, Result, TableReference};
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, LogicalPlanBuilder, Operator};
+use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlanBuilder, Operator, col, lit};
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
@@ -676,10 +676,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
         if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0) {
-                if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_col(&alias, &name));
-                }
+            if let Some(col_idx) = source.map_var(rti, 0)
+                && let Some(name) = source.column_name(col_idx)
+            {
+                return Some(make_col(&alias, &name));
             }
             return Some(make_col(&alias, SCORE_COL_NAME));
         }
@@ -699,8 +699,8 @@ mod tests {
     use datafusion::common::{JoinType, NullEquality};
     use datafusion::datasource::MemTable;
     use datafusion::logical_expr::col;
-    use datafusion::physical_plan::joins::HashJoinExec;
     use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::physical_plan::joins::HashJoinExec;
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 

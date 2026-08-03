@@ -28,9 +28,9 @@ use pgrx::pg_sys;
 use std::path::PathBuf;
 use tantivy::index::SegmentComponent;
 use tantivy::{
+    IndexMeta,
     index::{IndexSettings, SegmentId, SegmentMetaInventory},
     schema::Schema,
-    IndexMeta,
 };
 
 pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
@@ -414,12 +414,12 @@ pub unsafe fn load_metas(
                 if alive_entries.len() != only_these.len() =>
             {
                 // If we haven't tried the `segment_metas_garbage` list, try that next.
-                if !exhausted_metas_lists {
-                    if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
-                        segment_metas = garbage;
-                        exhausted_metas_lists = true;
-                        continue;
-                    }
+                if !exhausted_metas_lists
+                    && let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage()
+                {
+                    segment_metas = garbage;
+                    exhausted_metas_lists = true;
+                    continue;
                 }
 
                 // TODO:  I believe this situation, where if the alive_entries.len() != only_these.len() is now dead code

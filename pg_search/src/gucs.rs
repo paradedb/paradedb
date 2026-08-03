@@ -17,8 +17,8 @@
 
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    function_name, pg_sys, GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel,
-    PgSqlErrorCode,
+    GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
+    pg_sys,
 };
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
@@ -967,14 +967,16 @@ mod tests {
         assert_eq!(global_mutable_segment_rows(), None);
 
         // invalid options
-        assert!(std::panic::catch_unwind(|| Spi::run(
-            "SET paradedb.global_mutable_segment_rows = 10001;"
-        ))
-        .is_err());
-        assert!(std::panic::catch_unwind(|| Spi::run(
-            "SET paradedb.global_mutable_segment_rows = -2;"
-        ))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| Spi::run(
+                "SET paradedb.global_mutable_segment_rows = 10001;"
+            ))
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| Spi::run("SET paradedb.global_mutable_segment_rows = -2;"))
+                .is_err()
+        );
 
         // global override
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();

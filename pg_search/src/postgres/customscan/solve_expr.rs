@@ -17,7 +17,7 @@
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::query::{PostgresExpression, SearchQueryInput};
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{PgMemoryContexts, pg_sys};
 
 impl SearchQueryInput {
     pub fn has_heap_filters(&mut self) -> bool {
@@ -43,10 +43,10 @@ impl SearchQueryInput {
     pub fn has_parameters(&mut self) -> bool {
         let mut found = false;
         self.visit(&mut |sqi| {
-            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
-                if field_filters.iter().any(|f| f.has_parameters()) {
-                    found = true;
-                }
+            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi
+                && field_filters.iter().any(|f| f.has_parameters())
+            {
+                found = true;
             }
         });
         found

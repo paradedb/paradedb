@@ -25,8 +25,8 @@
  *
  */
 
-use icu_segmenter::options::WordBreakInvariantOptions;
 use icu_segmenter::WordSegmenter;
+use icu_segmenter::options::WordBreakInvariantOptions;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -151,7 +151,9 @@ mod tests {
 
     #[rstest]
     fn test_czech() {
-        let tokenizer = &mut ICUTokenizerTokenStream::new("tvář je zkažená prachem, potem a krví; kdo se statečně snaží; kdo se mýlí, kdo znovu a znovu přichází zkrátka");
+        let tokenizer = &mut ICUTokenizerTokenStream::new(
+            "tvář je zkažená prachem, potem a krví; kdo se statečně snaží; kdo se mýlí, kdo znovu a znovu přichází zkrátka",
+        );
         let result: Vec<Token> = tokenizer.collect();
         let expected = vec![
             Token {
@@ -301,7 +303,9 @@ mod tests {
 
     #[rstest]
     fn test_armenian() {
-        let tokenizer = &mut ICUTokenizerTokenStream::new("Վիքիպեդիայի 13 միլիոն հոդվածները (4,600` հայերեն վիքիպեդիայում) գրվել են կամավորների կողմից ու համարյա բոլոր հոդվածները կարող է խմբագրել ցանկաց մարդ ով կարող է բացել Վիքիպեդիայի կայքը։");
+        let tokenizer = &mut ICUTokenizerTokenStream::new(
+            "Վիքիպեդիայի 13 միլիոն հոդվածները (4,600` հայերեն վիքիպեդիայում) գրվել են կամավորների կողմից ու համարյա բոլոր հոդվածները կարող է խմբագրել ցանկաց մարդ ով կարող է բացել Վիքիպեդիայի կայքը։",
+        );
         let result: Vec<Token> = tokenizer.collect();
         let expected = vec![
             Token {
@@ -587,7 +591,9 @@ mod tests {
 
     #[rstest]
     fn test_arabic() {
-        let tokenizer = &mut ICUTokenizerTokenStream::new("الفيلم الوثائقي الأول عن ويكيبيديا يسمى \"الحقيقة بالأرقام: قصة ويكيبيديا\" (بالإنجليزية: Truth in Numbers: The Wikipedia Story)، سيتم إطلاقه في 2008.");
+        let tokenizer = &mut ICUTokenizerTokenStream::new(
+            "الفيلم الوثائقي الأول عن ويكيبيديا يسمى \"الحقيقة بالأرقام: قصة ويكيبيديا\" (بالإنجليزية: Truth in Numbers: The Wikipedia Story)، سيتم إطلاقه في 2008.",
+        );
         let result: Vec<Token> = tokenizer.collect();
         let expected = vec![
             Token {
@@ -743,7 +749,9 @@ mod tests {
 
     #[rstest]
     fn test_aramaic() {
-        let tokenizer = &mut ICUTokenizerTokenStream::new("ܘܝܩܝܦܕܝܐ (ܐܢܓܠܝܐ: Wikipedia) ܗܘ ܐܝܢܣܩܠܘܦܕܝܐ ܚܐܪܬܐ ܕܐܢܛܪܢܛ ܒܠܫܢ̈ܐ ܣܓܝܐ̈ܐ܂ ܫܡܗ ܐܬܐ ܡܢ ܡ̈ܠܬܐ ܕ\"ܘܝܩܝ\" ܘ\"ܐܝܢܣܩܠܘܦܕܝܐ\"܀");
+        let tokenizer = &mut ICUTokenizerTokenStream::new(
+            "ܘܝܩܝܦܕܝܐ (ܐܢܓܠܝܐ: Wikipedia) ܗܘ ܐܝܢܣܩܠܘܦܕܝܐ ܚܐܪܬܐ ܕܐܢܛܪܢܛ ܒܠܫܢ̈ܐ ܣܓܝܐ̈ܐ܂ ܫܡܗ ܐܬܐ ܡܢ ܡ̈ܠܬܐ ܕ\"ܘܝܩܝ\" ܘ\"ܐܝܢܣܩܠܘܦܕܝܐ\"܀",
+        );
         let result: Vec<Token> = tokenizer.collect();
         let expected = vec![
             Token {
@@ -1190,7 +1198,9 @@ mod tests {
 
     #[rstest]
     fn test_complex_email() {
-        let tokenizer = &mut ICUTokenizerTokenStream::new("'From: tas@pegasus.com (Len Howard) Subject: Re: Pregnancy without sex? In article <10030@blue.cis.pitt.edu> kxgst1+@pitt.edu (Kenneth Gilbert) writes: >In article <stephen.735806195@mont> stephen@mont.cs.missouri.edu (Stephen Montgom Smith) writes: >:When I was a school boy, my biology teacher told us of an incident >:in which a couple were very passionate without actually having >:sexual intercourse. Somehow the girl became pregnant as sperm >:cells made their way to her through the clothes via perspiration. >:Was my biology teacher misinforming us, or do such incidents actually >:occur? > >Sounds to me like someone was pulling your leg. There is only one way for >pregnancy to occur: intercourse. These days however there is also >artificial insemination and implantation techniques, but we''re speaking of >''natural'' acts here. It is possible for pregnancy to occur if semen is >deposited just outside of the vagina (i.e. coitus interruptus), but that''s >about as far as you can get. Through clothes -- no way. Better go talk >to your biology teacher. >= Kenneth Gilbert __|__ University of Pittsburgh = Well, now, Doc, I sure would not want to bet my life on those little critters not being able to get thru one layer of sweat-soaked cotton on their way to do their programmed task. Infrequent, yes, unlikely, yes, but impossible? I learned a long time ago never to say never in medicine <g> Len Howard MD, FACOG'");
+        let tokenizer = &mut ICUTokenizerTokenStream::new(
+            "'From: tas@pegasus.com (Len Howard) Subject: Re: Pregnancy without sex? In article <10030@blue.cis.pitt.edu> kxgst1+@pitt.edu (Kenneth Gilbert) writes: >In article <stephen.735806195@mont> stephen@mont.cs.missouri.edu (Stephen Montgom Smith) writes: >:When I was a school boy, my biology teacher told us of an incident >:in which a couple were very passionate without actually having >:sexual intercourse. Somehow the girl became pregnant as sperm >:cells made their way to her through the clothes via perspiration. >:Was my biology teacher misinforming us, or do such incidents actually >:occur? > >Sounds to me like someone was pulling your leg. There is only one way for >pregnancy to occur: intercourse. These days however there is also >artificial insemination and implantation techniques, but we''re speaking of >''natural'' acts here. It is possible for pregnancy to occur if semen is >deposited just outside of the vagina (i.e. coitus interruptus), but that''s >about as far as you can get. Through clothes -- no way. Better go talk >to your biology teacher. >= Kenneth Gilbert __|__ University of Pittsburgh = Well, now, Doc, I sure would not want to bet my life on those little critters not being able to get thru one layer of sweat-soaked cotton on their way to do their programmed task. Infrequent, yes, unlikely, yes, but impossible? I learned a long time ago never to say never in medicine <g> Len Howard MD, FACOG'",
+        );
         let result: Vec<Token> = tokenizer.collect();
         let expected = vec![
             Token {

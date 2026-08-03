@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use crate::api::{FieldName, HashMap};
 use crate::gucs;
-use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -703,10 +703,10 @@ impl BM25IndexOptions {
             .into_iter()
             .chain(self.aliased_json_configs())
         {
-            if &aliased_field_name == field_name {
-                if let Some(alias) = config.alias() {
-                    return self.get_field_type(&FieldName::from(alias.to_string()));
-                }
+            if &aliased_field_name == field_name
+                && let Some(alias) = config.alias()
+            {
+                return self.get_field_type(&FieldName::from(alias.to_string()));
             }
         }
 
@@ -746,12 +746,12 @@ impl BM25IndexOptions {
                 .into_iter()
                 .chain(self.aliased_json_configs())
             {
-                if aliased_name == current_name {
-                    if let Some(alias) = config.alias() {
-                        current_name = FieldName::from(alias.to_string());
-                        found_alias = true;
-                        break;
-                    }
+                if aliased_name == current_name
+                    && let Some(alias) = config.alias()
+                {
+                    current_name = FieldName::from(alias.to_string());
+                    found_alias = true;
+                    break;
                 }
             }
 

@@ -15,17 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
+use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
 use crate::postgres::customscan::qual_inspect::{
-    contains_exec_param, extract_quals, PlannerContext, QualExtractState,
+    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
 };
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
-use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 

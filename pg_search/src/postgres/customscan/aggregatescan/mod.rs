@@ -56,14 +56,16 @@ use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 
-use crate::api::agg_funcoid;
 use crate::api::SortDirection;
+use crate::api::agg_funcoid;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::ParallelScanArgs;
+use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
@@ -72,7 +74,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::{
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::{
-    aggregation_results_iter, AggregateResult, AggregationResultsRow,
+    AggregateResult, AggregationResultsRow, aggregation_results_iter,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
@@ -95,18 +97,16 @@ use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, bui
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
+use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::{is_datetime_type, TantivyValue};
+use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
-    add_vars_to_tlist, is_unnest_func, make_text_const, ExprContextGuard,
+    ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
-use crate::postgres::ParallelScanArgs;
-use crate::postgres::PgSearchRelation;
 use crate::scan::codec::serialize_logical_plan;
-use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
+use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -521,10 +521,10 @@ impl CustomScan for AggregateScan {
                 // construction, not actual execute calls. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
-                if explainer.is_verbose() {
-                    if let Some(t) = df_state.launch_timing {
-                        explainer.add_text("MPP Launch", t.explain_text());
-                    }
+                if explainer.is_verbose()
+                    && let Some(t) = df_state.launch_timing
+                {
+                    explainer.add_text("MPP Launch", t.explain_text());
                 }
             }
             return;
@@ -658,21 +658,18 @@ impl CustomScan for AggregateScan {
             // Draining here is what frees them, so the `recv` below returns immediately instead
             // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
             // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.leader() {
-                if let Some(plan) = df_state.physical_plan.as_ref() {
-                    crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                        plan,
-                        &leader.mesh,
-                    );
-                }
+            if let Some(leader) = df_state.mpp.leader()
+                && let Some(plan) = df_state.physical_plan.as_ref()
+            {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
             // before end_custom_scan, where the context is finally destroyed). A worker error is
             // re-raised from inside `recv`.
-            if let Some(leader) = df_state.mpp.leader_mut() {
-                if let Some(finish) = leader.finish.as_mut() {
-                    let _ = finish.recv();
-                }
+            if let Some(leader) = df_state.mpp.leader_mut()
+                && let Some(finish) = leader.finish.as_mut()
+            {
+                let _ = finish.recv();
             }
         }
     }
@@ -1408,10 +1405,10 @@ impl AggregateScan {
                 // No Const node for this entry, skip the aggregate iterator if
                 // it's an aggregate that occupies a slot in `row.aggregates`
                 // (doc-count aggregates do not — see `uses_doc_count_path`).
-                if let TargetListEntry::Aggregate(agg_type) = entry {
-                    if !uses_doc_count_path(agg_type, aggregate_clause) {
-                        agg_iter.next();
-                    }
+                if let TargetListEntry::Aggregate(agg_type) = entry
+                    && !uses_doc_count_path(agg_type, aggregate_clause)
+                {
+                    agg_iter.next();
                 }
                 continue;
             };

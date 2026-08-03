@@ -24,16 +24,16 @@
  * By using this file, you agree to comply with the AGPL v3.0 terms.
  *
  */
+use lindera::character_filter::BoxCharacterFilter;
 use lindera::character_filter::unicode_normalize::{
     UnicodeNormalizeCharacterFilter, UnicodeNormalizeKind,
 };
-use lindera::character_filter::BoxCharacterFilter;
 use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
 use lindera::token::Token as LinderaToken;
+use lindera::token_filter::BoxTokenFilter;
 use lindera::token_filter::japanese_reading_form::JapaneseReadingFormTokenFilter;
 use lindera::token_filter::korean_reading_form::KoreanReadingFormTokenFilter;
-use lindera::token_filter::BoxTokenFilter;
 use lindera::tokenizer::Tokenizer as LinderaTokenizer;
 use once_cell::sync::{Lazy, OnceCell};
 use std::sync::Arc;

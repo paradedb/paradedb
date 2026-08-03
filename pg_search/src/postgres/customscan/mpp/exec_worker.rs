@@ -44,20 +44,19 @@ use tantivy::index::SegmentId;
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::shm::{
-    collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
-    InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, MppSender,
-    ShmChannelResolver,
-};
 use datafusion_distributed::PartitionSink;
+use datafusion_distributed::shm::{
+    CooperativeDrainSet, InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink,
+    MppSender, ShmChannelResolver, collect_task_metrics, proc_for_task, run_worker_fragment,
+};
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 
+use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_cap;
-use crate::postgres::customscan::mpp::interrupt::{check_for_interrupts, HeldInterrupts};
+use crate::postgres::customscan::mpp::interrupt::{HeldInterrupts, check_for_interrupts};
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
-use crate::postgres::ParallelScanState;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
 };

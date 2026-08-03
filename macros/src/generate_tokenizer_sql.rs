@@ -20,7 +20,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::HashMap;
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, Error, Ident, LitBool, LitStr, Result, Token};
+use syn::{Error, Ident, LitBool, LitStr, Result, Token, parse_macro_input};
 
 pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let mut args = parse_macro_input!(input as NamedArgs);

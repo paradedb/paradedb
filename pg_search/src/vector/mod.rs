@@ -18,7 +18,7 @@
 pub mod clusterer;
 pub mod metric;
 
-use pgrx::{pg_sys, FromDatum};
+use pgrx::{FromDatum, pg_sys};
 
 /// Owned `Vec<f32>` extracted from a pgvector datum. pgvector's on-disk
 /// layout (after the varlena header) is `[int16 dim][int16 unused]

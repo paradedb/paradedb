@@ -21,8 +21,8 @@ use crate::postgres::storage::{LinkedBytesList, LinkedBytesListWriter};
 use pgrx::pg_sys;
 use std::io::{BufWriter, Result, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
 use tantivy::index::SegmentComponent;
 
@@ -154,10 +154,10 @@ impl<W: Write> Write for PanicSafeBufWriter<W> {
 /// we want to skip the `Drop` of the writer entirely on panic
 impl<W: Write> Drop for PanicSafeBufWriter<W> {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Some(buffer) = self.inner.take() {
-                std::mem::forget(buffer);
-            }
+        if std::thread::panicking()
+            && let Some(buffer) = self.inner.take()
+        {
+            std::mem::forget(buffer);
         }
     }
 }
@@ -260,7 +260,7 @@ mod tests {
     /// unwind instead of re-entering the PG buffer manager.
     #[pg_test]
     fn writer_noops_during_unwind() {
-        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
         static WRITE_OK: AtomicBool = AtomicBool::new(false);
@@ -315,10 +315,10 @@ mod tests {
                 // Record observations only -- a failed assert here would be a
                 // panic during unwind, aborting the test harness.  The asserts
                 // happen after catch_unwind returns.
-                if let Ok(n) = self.writer.write(b"should be skipped") {
-                    if n == 17 {
-                        WRITE_OK.store(true, Ordering::SeqCst);
-                    }
+                if let Ok(n) = self.writer.write(b"should be skipped")
+                    && n == 17
+                {
+                    WRITE_OK.store(true, Ordering::SeqCst);
                 }
                 if self.writer.flush().is_ok() {
                     FLUSH_OK.store(true, Ordering::SeqCst);

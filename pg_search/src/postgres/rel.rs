@@ -21,7 +21,7 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
-use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
+use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -405,7 +405,10 @@ impl PgSearchRelation {
         }
     }
 
-    pub fn indices(&self, lockmode: pg_sys::LOCKMODE) -> impl Iterator<Item = PgSearchRelation> {
+    pub fn indices(
+        &self,
+        lockmode: pg_sys::LOCKMODE,
+    ) -> impl Iterator<Item = PgSearchRelation> + use<> {
         // SAFETY: we know self.as_ptr() is a valid pointer as we created it
         let list =
             unsafe { PgList::<pg_sys::Oid>::from_pg(pg_sys::RelationGetIndexList(self.as_ptr())) };

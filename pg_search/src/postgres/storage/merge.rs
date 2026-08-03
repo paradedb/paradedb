@@ -18,12 +18,12 @@
 use crate::api::{HashMap, HashSet};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
+    BM25PageSpecialData, LinkedList, MVCCEntry, PgItem, block_number_is_valid, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::{pg_sys, StringInfo};
+use pgrx::{StringInfo, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::slice::from_raw_parts;
 use tantivy::index::SegmentId;

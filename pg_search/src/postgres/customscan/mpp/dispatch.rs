@@ -34,11 +34,11 @@ use std::sync::Arc;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::prelude::SessionContext;
 
-use datafusion_distributed::shm::{proc_for_task, MppMesh};
+use datafusion_distributed::shm::{MppMesh, proc_for_task};
 
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
 use crate::postgres::customscan::mpp::worker_fragments::{
-    classify_stages, DiscoveredStage, FragmentAssignment, FragmentRouting,
+    DiscoveredStage, FragmentAssignment, FragmentRouting, classify_stages,
 };
 
 /// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.

@@ -29,11 +29,11 @@ use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
 
-use crate::api::operator::searchqueryinput_typoid;
-use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
+use crate::api::operator::searchqueryinput_typoid;
+use crate::api::version::{Version, VersionInfo};
+use crate::postgres::customscan::explain::{ExplainFormat, format_for_explain};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::more_like_this::MoreLikeThisQuery;
@@ -43,7 +43,7 @@ use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
 use pgrx::{
-    pg_sys, varlena_to_byte_slice, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType,
+    FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType, pg_sys, varlena_to_byte_slice,
 };
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -54,9 +54,9 @@ use tantivy::query::{
     Query as TantivyQuery, QueryParser, TermSetQuery,
 };
 use tantivy::{
-    query_grammar::Occur,
-    schema::{Field, FieldType, DATE_TIME_PRECISION_INDEXED},
     Searcher, Term,
+    query_grammar::Occur,
+    schema::{DATE_TIME_PRECISION_INDEXED, Field, FieldType},
 };
 use thiserror::Error;
 
@@ -704,24 +704,21 @@ pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Val
     match json_value {
         serde_json::Value::Object(obj) => {
             // Check if this is a "with_index" object and remove its "oid" if present
-            if obj.contains_key("with_index") {
-                if let Some(with_index) = obj.get_mut("with_index") {
-                    if let Some(with_index_obj) = with_index.as_object_mut() {
-                        with_index_obj.remove("oid");
-                    }
-                }
+            if obj.contains_key("with_index")
+                && let Some(with_index) = obj.get_mut("with_index")
+                && let Some(with_index_obj) = with_index.as_object_mut()
+            {
+                with_index_obj.remove("oid");
             }
 
             // Handle PostgresExpression: remove raw node (internal representation)
             // Keep the expr_desc field which contains the human-readable SQL expression
-            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression") {
-                if let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut() {
-                    if let Some(pg_expr) = wrapper_obj.get_mut("expr") {
-                        if let Some(expr_obj) = pg_expr.as_object_mut() {
-                            expr_obj.remove("node");
-                        }
-                    }
-                }
+            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression")
+                && let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut()
+                && let Some(pg_expr) = wrapper_obj.get_mut("expr")
+                && let Some(expr_obj) = pg_expr.as_object_mut()
+            {
+                expr_obj.remove("node");
             }
 
             // Recursively process all values in the object
@@ -764,14 +761,14 @@ impl SearchQueryInput {
             && (*array).ndim <= pg_sys::MAXDIM as i32
             && (*array).elemtype == searchqueryinput_typoid();
 
-        if is_sqi_array {
-            if let Some(elements) = FromDatum::from_polymorphic_datum(
+        if is_sqi_array
+            && let Some(elements) = FromDatum::from_polymorphic_datum(
                 pg_sys::Datum::from(detoasted),
                 false,
                 searchqueryinput_typoid(),
-            ) {
-                return Some(Self::boolean_disjunction(elements));
-            }
+            )
+        {
+            return Some(Self::boolean_disjunction(elements));
         }
 
         let bytes = varlena_to_byte_slice(detoasted);
@@ -1638,7 +1635,7 @@ pub fn value_to_term(
     index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let json_options = match field_type {
-        FieldType::JsonObject(ref options) => Some(options),
+        FieldType::JsonObject(options) => Some(options),
         _ => None,
     };
 
@@ -1653,10 +1650,10 @@ pub fn value_to_term(
     }
 
     // For facet fields, convert string values to facet terms
-    if matches!(field_type, FieldType::Facet(_)) {
-        if let PdbOwnedValue::Str(text) = value {
-            return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
-        }
+    if matches!(field_type, FieldType::Facet(_))
+        && let PdbOwnedValue::Str(text) = value
+    {
+        return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
     }
 
     Ok(match value {
@@ -1909,267 +1906,323 @@ mod tests {
         assert!(!create_match_query().is_full_scan_query());
 
         // Exists queries are not full scans
-        assert!(!SearchQueryInput::FieldedQuery {
-            field: "test".into(),
-            query: pdb::Query::Exists,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::FieldedQuery {
+                field: "test".into(),
+                query: pdb::Query::Exists,
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_boolean_must_only() {
         // Single Must clause with All → full scan
-        assert!(SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Multiple Must clauses with all All → full scan
-        assert!(SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All, SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Must clause with All and term → not full scan (not all Must are full scan)
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All, create_term_query()],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, create_term_query()],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Must clause with only term → not full scan
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![create_term_query()],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![create_term_query()],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_boolean_should_only() {
         // Should clause with All → full scan
-        assert!(SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![SearchQueryInput::All],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![],
+                should: vec![SearchQueryInput::All],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Should clause with All and term → full scan (any Should is full scan)
-        assert!(SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![SearchQueryInput::All, create_term_query()],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![],
+                should: vec![SearchQueryInput::All, create_term_query()],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Should clause with only term → not full scan
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![create_term_query()],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![],
+                should: vec![create_term_query()],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Empty Should clause → not full scan
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_boolean_must_not() {
         // Must with All, MustNot with term → not full scan (MustNot excludes docs)
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![create_term_query()],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![create_term_query()],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Must with All, MustNot with Empty → full scan (MustNot excludes nothing)
-        assert!(SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![SearchQueryInput::Empty],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::Empty],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Must with All, MustNot with multiple Empty → full scan
-        assert!(SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![SearchQueryInput::Empty, SearchQueryInput::Empty],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::Empty, SearchQueryInput::Empty],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Must with All, MustNot with Empty and term → not full scan (one MustNot excludes docs)
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![SearchQueryInput::Empty, create_term_query()],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::Empty, create_term_query()],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_boolean_mixed() {
         // Must with All, Should with term → full scan (Must satisfies "at least one")
-        assert!(SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![create_term_query()],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![create_term_query()],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
 
         // Must with term, Should with All → not full scan (not all Must are full scan)
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![create_term_query()],
-            should: vec![SearchQueryInput::All],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![create_term_query()],
+                should: vec![SearchQueryInput::All],
+                must_not: vec![],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_disjunction_max() {
         // DisjunctionMax with All → full scan
-        assert!(SearchQueryInput::DisjunctionMax {
-            disjuncts: vec![SearchQueryInput::All],
-            tie_breaker: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::DisjunctionMax {
+                disjuncts: vec![SearchQueryInput::All],
+                tie_breaker: None,
+            }
+            .is_full_scan_query()
+        );
 
         // DisjunctionMax with All and term → full scan (any disjunct is full scan)
-        assert!(SearchQueryInput::DisjunctionMax {
-            disjuncts: vec![SearchQueryInput::All, create_term_query()],
-            tie_breaker: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::DisjunctionMax {
+                disjuncts: vec![SearchQueryInput::All, create_term_query()],
+                tie_breaker: None,
+            }
+            .is_full_scan_query()
+        );
 
         // DisjunctionMax with only terms → not full scan
-        assert!(!SearchQueryInput::DisjunctionMax {
-            disjuncts: vec![create_term_query(), create_match_query()],
-            tie_breaker: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::DisjunctionMax {
+                disjuncts: vec![create_term_query(), create_match_query()],
+                tie_breaker: None,
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_wrapper_queries() {
         // WithIndex wrapping All → full scan
-        assert!(SearchQueryInput::WithIndex {
-            oid: 12345.into(),
-            query: Box::new(SearchQueryInput::All),
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::WithIndex {
+                oid: 12345.into(),
+                query: Box::new(SearchQueryInput::All),
+            }
+            .is_full_scan_query()
+        );
 
         // WithIndex wrapping term → not full scan
-        assert!(!SearchQueryInput::WithIndex {
-            oid: 12345.into(),
-            query: Box::new(create_term_query()),
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::WithIndex {
+                oid: 12345.into(),
+                query: Box::new(create_term_query()),
+            }
+            .is_full_scan_query()
+        );
 
         // Boost wrapping All → full scan
-        assert!(SearchQueryInput::Boost {
-            query: Box::new(SearchQueryInput::All),
-            factor: 2.0,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::Boost {
+                query: Box::new(SearchQueryInput::All),
+                factor: 2.0,
+            }
+            .is_full_scan_query()
+        );
 
         // ConstScore wrapping All → full scan
-        assert!(SearchQueryInput::ConstScore {
-            query: Box::new(SearchQueryInput::All),
-            score: 1.0,
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::ConstScore {
+                query: Box::new(SearchQueryInput::All),
+                score: 1.0,
+            }
+            .is_full_scan_query()
+        );
 
         // ScoreFilter with All → full scan
-        assert!(SearchQueryInput::ScoreFilter {
-            bounds: vec![],
-            query: Some(Box::new(SearchQueryInput::All)),
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::ScoreFilter {
+                bounds: vec![],
+                query: Some(Box::new(SearchQueryInput::All)),
+            }
+            .is_full_scan_query()
+        );
 
         // ScoreFilter without query → not full scan
-        assert!(!SearchQueryInput::ScoreFilter {
-            bounds: vec![],
-            query: None,
-        }
-        .is_full_scan_query());
+        assert!(
+            !SearchQueryInput::ScoreFilter {
+                bounds: vec![],
+                query: None,
+            }
+            .is_full_scan_query()
+        );
 
         // HeapFilter with All → full scan
-        assert!(SearchQueryInput::HeapFilter {
-            indexed_query: Box::new(SearchQueryInput::All),
-            field_filters: vec![],
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::HeapFilter {
+                indexed_query: Box::new(SearchQueryInput::All),
+                field_filters: vec![],
+            }
+            .is_full_scan_query()
+        );
     }
 
     #[pg_test]
     fn test_is_full_scan_query_nested_queries() {
         // Nested Boolean with All deep inside Should
-        assert!(SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![SearchQueryInput::Boolean {
-                must: vec![SearchQueryInput::All],
-                should: vec![],
+        assert!(
+            SearchQueryInput::Boolean {
+                must: vec![],
+                should: vec![SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: vec![],
+                    must_not: vec![],
+                    minimum_should_match: None,
+                }],
                 must_not: vec![],
                 minimum_should_match: None,
-            }],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+            }
+            .is_full_scan_query()
+        );
 
         // Nested WithIndex(Boolean(All))
-        assert!(SearchQueryInput::WithIndex {
-            oid: 12345.into(),
-            query: Box::new(SearchQueryInput::Boolean {
-                must: vec![SearchQueryInput::All],
-                should: vec![],
-                must_not: vec![],
-                minimum_should_match: None,
-            }),
-        }
-        .is_full_scan_query());
+        assert!(
+            SearchQueryInput::WithIndex {
+                oid: 12345.into(),
+                query: Box::new(SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: vec![],
+                    must_not: vec![],
+                    minimum_should_match: None,
+                }),
+            }
+            .is_full_scan_query()
+        );
 
         // Complex nesting that should not be full scan
-        assert!(!SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::Boolean {
-                must: vec![SearchQueryInput::All, create_term_query()], // Not all Must are full scan
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All, create_term_query()], // Not all Must are full scan
+                    should: vec![],
+                    must_not: vec![],
+                    minimum_should_match: None,
+                }],
                 should: vec![],
                 must_not: vec![],
                 minimum_should_match: None,
-            }],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        }
-        .is_full_scan_query());
+            }
+            .is_full_scan_query()
+        );
     }
 }

@@ -24,8 +24,8 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
-use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
+use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -38,7 +38,7 @@ use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
 
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{pg_sys, PgTupleDesc};
+use pgrx::{PgTupleDesc, pg_sys};
 use tantivy::index::SegmentId;
 use tantivy::snippet::SnippetGenerator;
 
@@ -395,10 +395,10 @@ impl BaseScanState {
     }
 
     pub fn reset(&mut self) {
-        if let Some(parallel) = self.parallel {
-            if parallel.is_leader() {
-                parallel.reset_work_queue();
-            }
+        if let Some(parallel) = self.parallel
+            && parallel.is_leader()
+        {
+            parallel.reset_work_queue();
         }
         self.telemetry.reset();
         self.virtual_tuple_count = 0;
@@ -492,10 +492,16 @@ impl BaseScanState {
                         };
                         match field {
                             serde_json::Value::String(val) => Some(val),
-                            serde_json::Value::Array(array) => Some(array.into_iter().filter_map(|v| match v {
-                                serde_json::Value::String(s) => Some(s),
-                                _ => None
-                            }).collect::<Vec<_>>().join(" ")),
+                            serde_json::Value::Array(array) => Some(
+                                array
+                                    .into_iter()
+                                    .filter_map(|v| match v {
+                                        serde_json::Value::String(s) => Some(s),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
+                            ),
                             val => unimplemented!(
                                 "only text fields for json/jsonb are supported for snippets, found {:?}",
                                 val

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys, FromDatum, IntoDatum};
+use pgrx::{FromDatum, IntoDatum, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -132,12 +132,11 @@ pub fn lookup_namespace_name(namespace_oid: pg_sys::Oid) -> Option<String> {
 pub fn lookup_fully_qualified_func_name(funcid: pg_sys::Oid) -> Option<String> {
     let name = lookup_func_name(funcid)?;
     let namespace_oid = unsafe { pg_sys::get_func_namespace(funcid) };
-    if namespace_oid != pg_sys::InvalidOid {
-        if let Some(namespace) = lookup_namespace_name(namespace_oid) {
-            if namespace != "pg_catalog" {
-                return Some(format!("{}.{}", namespace, name));
-            }
-        }
+    if namespace_oid != pg_sys::InvalidOid
+        && let Some(namespace) = lookup_namespace_name(namespace_oid)
+        && namespace != "pg_catalog"
+    {
+        return Some(format!("{}.{}", namespace, name));
     }
     Some(name)
 }

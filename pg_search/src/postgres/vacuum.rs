@@ -17,7 +17,7 @@
 
 use pgrx::*;
 
-use crate::postgres::merge::{do_merge, MergeStyle};
+use crate::postgres::merge::{MergeStyle, do_merge};
 use crate::postgres::rel::PgSearchRelation;
 
 #[pg_guard]

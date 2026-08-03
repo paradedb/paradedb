@@ -949,9 +949,12 @@ impl SearchIndexReader {
                     }};
                 }
 
-                // Range fields are stored as a tantivy JSON object, so they'd land in the
-                // `JsonObject` arm below and panic. They get their own computer, which compares
-                // the bound sub-columns the way Postgres' `range_cmp` does.
+                // A range is indexed as a tantivy JSON object, so `value_type()` below reports
+                // `Type::Json`, which no arm handles — it would reach the catch-all `panic!`.
+                // Dispatch on the Postgres type instead: tantivy cannot distinguish a range's
+                // JSON from a user-supplied JSON column, and only the former is sortable (see
+                // `SearchField::is_sortable`). `SortByRange` compares the bound sub-columns the
+                // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
                     return TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                         segment_ids,

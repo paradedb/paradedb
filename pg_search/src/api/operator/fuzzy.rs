@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::boost::{query_to_boost, BoostType};
-use crate::api::operator::const_score::{query_to_const, ConstType};
+use crate::api::operator::boost::{BoostType, query_to_boost};
+use crate::api::operator::const_score::{ConstType, query_to_const};
 use crate::query::pdb_query::pdb;
 use pgrx::{extension_sql, pg_cast, pg_extern};
 
@@ -47,7 +47,7 @@ mod sql_datum_support {
     use pgrx::pgrx_sql_entity_graph::metadata::{
         ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
-    use pgrx::{pg_sys, FromDatum, IntoDatum};
+    use pgrx::{FromDatum, IntoDatum, pg_sys};
 
     impl From<FuzzyType> for pdb::Query {
         fn from(value: FuzzyType) -> Self {
@@ -112,8 +112,8 @@ mod sql_datum_support {
 mod typedef {
     use crate::api::operator::fuzzy::FuzzyType;
     use crate::query::pdb_query::pdb;
-    use crate::query::pdb_query::pdb::{query_out, FuzzyData};
-    use pgrx::{extension_sql, pg_extern, pg_sys, Array};
+    use crate::query::pdb_query::pdb::{FuzzyData, query_out};
+    use pgrx::{Array, extension_sql, pg_extern, pg_sys};
     use std::ffi::{CStr, CString};
     use std::str::FromStr;
 

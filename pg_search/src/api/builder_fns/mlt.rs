@@ -22,7 +22,7 @@ mod pdb {
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
     use crate::query::SearchQueryInput;
-    use pgrx::{default, pg_extern, AnyElement, PgOid};
+    use pgrx::{AnyElement, PgOid, default, pg_extern};
 
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
     pub fn more_like_this_empty() -> SearchQueryInput {

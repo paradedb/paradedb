@@ -30,9 +30,9 @@ use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
+use tantivy::SegmentReader;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
-use tantivy::SegmentReader;
 
 mod build;
 pub mod build_logging;
@@ -674,7 +674,7 @@ impl ParallelScanState {
         self.init_cv.broadcast();
     }
 
-    pub fn acquire_mutex(&mut self) -> impl Drop {
+    pub fn acquire_mutex(&mut self) -> impl Drop + use<> {
         self.mutex.acquire()
     }
 
@@ -1079,7 +1079,7 @@ impl ParallelScanState {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn IsLogicalWorker() -> bool;
 }
 

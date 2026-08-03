@@ -17,8 +17,8 @@
 
 use crate::parallel_worker::mqueue::MessageQueueReceiver;
 use crate::parallel_worker::{
-    estimate_chunk, estimate_keys, ParallelProcess, ParallelStateManager, TocKeys, WorkerStyle,
-    MAXALIGN_DOWN,
+    MAXALIGN_DOWN, ParallelProcess, ParallelStateManager, TocKeys, WorkerStyle, estimate_chunk,
+    estimate_keys,
 };
 use pgrx::{check_for_interrupts, pg_sys};
 use std::ffi::CString;

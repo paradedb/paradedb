@@ -391,6 +391,10 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 1m
+          # paired-bootstrap owns real alerting; the point threshold stays only as a
+          # catastrophic-regression backstop in case the overlap step is skipped.
+          alert_strategy: paired-bootstrap
+          alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
@@ -434,6 +438,10 @@ jobs:
           dataset: cohere
           index: ${{ env.COHERE_INDEX }}
           size: 10m
+          # paired-bootstrap owns real alerting; the point threshold stays only as a
+          # catastrophic-regression backstop in case the overlap step is skipped.
+          alert_strategy: paired-bootstrap
+          alert_threshold: 200%
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}

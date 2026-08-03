@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan, MarkRestoreCapable};
+use crate::postgres::customscan::{CustomScan, MarkRestoreCapable, wrap_custom_scan_state};
 use pgrx::{pg_guard, pg_sys};
 
 /// Complete initialization of the supplied CustomScanState. Standard fields have been initialized

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_sys, PgList, PgMemoryContexts};
+use pgrx::{PgList, PgMemoryContexts, pg_sys};
 use std::fmt::{Debug, Formatter};
 use std::ptr::addr_of_mut;
 

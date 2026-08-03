@@ -180,16 +180,16 @@ fn generate_sample_values(column: &Column) -> Vec<String> {
 /// Returns (precision, scale) or None for unbounded NUMERIC.
 fn parse_numeric_type(sql_type: &str) -> Option<(u32, i32)> {
     // Match NUMERIC(p,s) or NUMERIC(p)
-    if let Some(start) = sql_type.find('(') {
-        if let Some(end) = sql_type.find(')') {
-            let params = &sql_type[start + 1..end];
-            let parts: Vec<&str> = params.split(',').map(|s| s.trim()).collect();
+    if let Some(start) = sql_type.find('(')
+        && let Some(end) = sql_type.find(')')
+    {
+        let params = &sql_type[start + 1..end];
+        let parts: Vec<&str> = params.split(',').map(|s| s.trim()).collect();
 
-            let precision: u32 = parts.first()?.parse().ok()?;
-            let scale: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let precision: u32 = parts.first()?.parse().ok()?;
+        let scale: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-            return Some((precision, scale));
-        }
+        return Some((precision, scale));
     }
     None
 }
@@ -243,10 +243,12 @@ fn generate_numeric_samples(precision: u32, scale: i32) -> Vec<String> {
 }
 
 /// Strategy to generate a single numeric comparison expression.
-pub fn arb_numeric_comparison(
-    tables: Vec<impl AsRef<str>>,
+// `tables` is a named generic rather than `impl AsRef<str>` so the return type can use precise
+// capturing; see the note on `arb_wheres`.
+pub fn arb_numeric_comparison<S: AsRef<str>>(
+    tables: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = NumericExpr> {
+) -> impl Strategy<Value = NumericExpr> + use<S> {
     let tables: Vec<String> = tables.iter().map(|t| t.as_ref().to_string()).collect();
 
     // Collect numeric column info for all tables
@@ -308,10 +310,10 @@ pub fn arb_numeric_comparison(
 }
 
 /// Strategy to generate combined numeric expressions with AND/OR.
-pub fn arb_numeric_expr(
-    tables: Vec<impl AsRef<str>>,
+pub fn arb_numeric_expr<S: AsRef<str>>(
+    tables: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = NumericExpr> {
+) -> impl Strategy<Value = NumericExpr> + use<S> {
     let tables: Vec<String> = tables.iter().map(|t| t.as_ref().to_string()).collect();
     let columns = columns.to_vec();
 

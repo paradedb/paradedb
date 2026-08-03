@@ -20,17 +20,17 @@ use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
-use crate::postgres::customscan::pushdown::{is_complex, try_build_pushdown_qual, PushdownField};
+use crate::postgres::customscan::pushdown::{PushdownField, is_complex, try_build_pushdown_qual};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::VarContext;
+use crate::query::SearchQueryInput;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
-use crate::query::SearchQueryInput;
 use pg_sys::BoolExprType;
-use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{FromDatum, IntoDatum, PgList, pg_guard, pg_sys};
 use std::ops::Bound;
 
 #[derive(Debug, Clone)]
@@ -959,13 +959,12 @@ pub unsafe fn extract_quals(
 
                     if let Some(search_field) =
                         indexrel.schema().ok()?.search_field(field.attname())
+                        && search_field.is_fast()
                     {
-                        if search_field.is_fast() {
-                            // This is an indexed boolean field, create proper pushdown qual
-                            // T_Var alone represents "field = true"
-                            state.uses_tantivy_to_query = true;
-                            return Some(Qual::PushdownVarEqTrue { field });
-                        }
+                        // This is an indexed boolean field, create proper pushdown qual
+                        // T_Var alone represents "field = true"
+                        state.uses_tantivy_to_query = true;
+                        return Some(Qual::PushdownVarEqTrue { field });
                     }
                 }
 
@@ -1012,19 +1011,14 @@ pub unsafe fn extract_quals(
             // Note: PushdownField::try_new requires PlannerInfo
             if let Some(root) = context.planner_info() {
                 if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), indexrel)
-                {
-                    if let Some(search_field) =
+                    && let Some(search_field) =
                         indexrel.schema().ok()?.search_field(field.attname().root())
-                    {
-                        if search_field.is_fast() {
-                            if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                                return Some(Qual::PushdownIsNotNull { field });
-                            } else {
-                                return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull {
-                                    field,
-                                })));
-                            }
-                        }
+                    && search_field.is_fast()
+                {
+                    if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
+                        return Some(Qual::PushdownIsNotNull { field });
+                    } else {
+                        return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
                     }
                 }
                 // If we reach here, try creating HeapExpr
@@ -1495,20 +1489,17 @@ pub unsafe fn contains_correlated_param(
         context: *mut core::ffi::c_void,
     ) -> bool {
         let root = context as *mut pg_sys::PlannerInfo;
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
-                let param_is_from_init_plan =
-                    PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
-                        .iter_ptr()
-                        .any(|subplan| {
-                            pg_sys::list_member_int((*subplan).setParam, (*param).paramid)
-                        });
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+        {
+            let param_is_from_init_plan = PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+                .iter_ptr()
+                .any(|subplan| pg_sys::list_member_int((*subplan).setParam, (*param).paramid));
 
-                if !param_is_from_init_plan {
-                    // If this PARAM_EXEC param is not from any init plan, then we have to assume
-                    // that it is correlated.
-                    return true;
-                }
+            if !param_is_from_init_plan {
+                // If this PARAM_EXEC param is not from any init plan, then we have to assume
+                // that it is correlated.
+                return true;
             }
         }
         pg_sys::expression_tree_walker(node, Some(walker), context)
@@ -1529,10 +1520,10 @@ pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
         node: *mut pg_sys::Node,
         _data: *mut core::ffi::c_void,
     ) -> bool {
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
-                return true;
-            }
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+        {
+            return true;
         }
         pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
@@ -1687,14 +1678,13 @@ pub unsafe fn extract_join_predicates(
                 true,
                 &mut qual_extract_state,
                 attempt_pushdown,
-            ) {
-                if qual_extract_state.uses_our_operator {
-                    // Convert qual to SearchQueryInput and return the entire expression
-                    let search_input = SearchQueryInput::from(&qual);
-                    // Return the entire simplified expression for scoring
-                    // This preserves OR structures like (TRUE OR name:"Rowling")
-                    return Some(search_input);
-                }
+            ) && qual_extract_state.uses_our_operator
+            {
+                // Convert qual to SearchQueryInput and return the entire expression
+                let search_input = SearchQueryInput::from(&qual);
+                // Return the entire simplified expression for scoring
+                // This preserves OR structures like (TRUE OR name:"Rowling")
+                return Some(search_input);
             }
         }
     }
@@ -1876,10 +1866,10 @@ unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sy
     ) -> bool {
         let target_rti = context as pg_sys::Index;
 
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            if (*var).varno as pg_sys::Index == target_rti {
-                return true;
-            }
+        if let Some(var) = nodecast!(Var, T_Var, node)
+            && (*var).varno as pg_sys::Index == target_rti
+        {
+            return true;
         }
 
         pg_sys::expression_tree_walker(node, Some(walker), context)
@@ -1964,17 +1954,15 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
             if let Qual::HeapExpr {
                 search_query_input, ..
             } = &mut quals[heap_idx]
+                && matches!(**search_query_input, SearchQueryInput::All)
+                && !indexed_queries.is_empty()
             {
-                if matches!(**search_query_input, SearchQueryInput::All)
-                    && !indexed_queries.is_empty()
-                {
-                    **search_query_input = SearchQueryInput::Boolean {
-                        must: indexed_queries.clone(),
-                        should: vec![],
-                        must_not: vec![],
-                        minimum_should_match: None,
-                    };
-                }
+                **search_query_input = SearchQueryInput::Boolean {
+                    must: indexed_queries.clone(),
+                    should: vec![],
+                    must_not: vec![],
+                    minimum_should_match: None,
+                };
             }
         }
 

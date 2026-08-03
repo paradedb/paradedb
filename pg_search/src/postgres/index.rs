@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use anyhow::{anyhow, Result};
-use pgrx::{pg_sys, Spi};
+use anyhow::{Result, anyhow};
+use pgrx::{Spi, pg_sys};
 
 pub enum IndexKind {
     Index(PgSearchRelation),

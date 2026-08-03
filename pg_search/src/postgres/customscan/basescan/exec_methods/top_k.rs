@@ -21,10 +21,11 @@ use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::gucs::WorkMem;
-use crate::index::fast_fields_helper::{resolve_ctid, FFType};
+use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::reader::index::{
-    SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults, MAX_TOPK_FEATURES,
+    MAX_TOPK_FEATURES, SearchIndexReader, TopKAuxiliaryCollector, TopKSearch, TopKSearchResults,
 };
+use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
@@ -34,17 +35,16 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
-use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
+use pgrx::{IntoDatum, check_for_interrupts, direct_function_call, pg_sys};
+use tantivy::SegmentOrdinal;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
 use tantivy::index::SegmentId;
-use tantivy::SegmentOrdinal;
 
 struct PreparedAggregations {
     aggregations: Aggregations,

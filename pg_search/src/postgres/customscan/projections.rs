@@ -22,22 +22,22 @@
 //! (e.g., `jsonb_pretty(pdb.agg(...))`).
 #![allow(clippy::unnecessary_cast)]
 
-use crate::api::agg_fn_oid;
-use crate::api::operator::ReturnedNodePointer;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
+use crate::api::agg_fn_oid;
+use crate::api::operator::ReturnedNodePointer;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::snippet::{
-    extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
-    snippet_positions_funcoids, SnippetType,
+    SnippetType, extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
+    snippet_positions_funcoids,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::customscan::score_funcoids;
-use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_vars};
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, Internal, IntoDatum, PgList};
-use std::ptr::{addr_of_mut, NonNull};
+use pgrx::{Internal, IntoDatum, PgList, direct_function_call, pg_extern, pg_guard, pg_sys};
+use std::ptr::{NonNull, addr_of_mut};
 use tantivy::snippet::SnippetGenerator;
 
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
@@ -303,10 +303,10 @@ unsafe extern "C-unwind" fn find_join_expr_walker(
     // `JoinExpr`. Without this, placeholder functions (score/snippet) used in a
     // comma-join query are not wrapped in a PlaceHolderVar and get re-evaluated
     // above the Gather Merge, panicking with "Unsupported query shape" (#5108).
-    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node) {
-        if PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1 {
-            return true;
-        }
+    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node)
+        && PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1
+    {
+        return true;
     }
     expression_tree_walker(node, Some(find_join_expr_walker), _context)
 }
@@ -356,7 +356,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         let phv = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
             #[allow(improper_ctypes)]
             #[rustfmt::skip]
-            extern "C-unwind" {
+            unsafe extern "C-unwind" {
                 fn make_placeholder_expr(root: *mut pg_sys::PlannerInfo, expr: *mut pg_sys::Expr, phrels: pg_sys::Relids) -> *mut pg_sys::PlaceHolderVar;
             }
 

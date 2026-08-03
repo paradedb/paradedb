@@ -17,13 +17,14 @@
 
 use std::panic::{catch_unwind, resume_unwind};
 
-use crate::api::version::Version;
 use crate::api::FieldName;
+use crate::api::version::Version;
 use crate::gucs::WorkMem;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
+use crate::postgres::IsLogicalWorker;
 use crate::postgres::composite::CompositeSlotValues;
-use crate::postgres::merge::{do_merge, MergeStyle};
+use crate::postgres::merge::{MergeStyle, do_merge};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
@@ -32,12 +33,11 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
 };
-use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
-use tantivy::index::SegmentId;
+use pgrx::{PgMemoryContexts, pg_guard, pg_sys};
 use tantivy::TantivyDocument;
+use tantivy::index::SegmentId;
 
 pub struct InsertModeImmutable {
     writer: Box<SerialIndexWriter>,

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 /// Check if an RTE represents a plain table (not a view, subquery, etc.)
 /// Returns the relid if it's a plain relation (RELKIND_RELATION or RELKIND_MATVIEW).

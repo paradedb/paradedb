@@ -115,13 +115,12 @@ impl PdbOwnedValue {
             ),
             OwnedValue::Object(object) => {
                 // serialized Date's end up as objects, so we'll need to look for their shape here.
-                if object.len() == 1 {
-                    if let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
-                    {
-                        // Strings that parse as a datetime must be assumed to be datetimes
-                        if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
-                            return PdbOwnedValue::Date(pgdt);
-                        }
+                if object.len() == 1
+                    && let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
+                {
+                    // Strings that parse as a datetime must be assumed to be datetimes
+                    if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
+                        return PdbOwnedValue::Date(pgdt);
                     }
                 }
 

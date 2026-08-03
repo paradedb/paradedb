@@ -1,6 +1,6 @@
 [package]
 name = "pg_search"
-description = "Full text search for PostgreSQL using BM25"
+description = "One Postgres for your application data, full-text search, vector retrieval, and aggregations"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
@@ -97,12 +97,12 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "9cebcb426cc5236eaec4ce035001e1299bbd9cf2", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "9cebcb426cc5236eaec4ce035001e1299bbd9cf2", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
   "openblas",
 ] }
 
@@ -110,6 +110,3 @@ superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "s
 pgrx-tests.workspace = true
 rstest = "0.25.0"
 proptest = "1.11.0"
-
-[package.metadata.cargo-machete]
-ignored = ["indexmap", "tantivy-common"]

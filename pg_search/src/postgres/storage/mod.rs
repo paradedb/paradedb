@@ -21,9 +21,17 @@
 // ---------------------------------------------------------------
 
 // ---------------------------------------------------------------
+// MetaPage
+// Block 0 is always the MetaPage.  It stores the block numbers of
+// everything described below, so those blocks are allocated at
+// index build but their numbers are not fixed.  Indexes built
+// before those block numbers moved into the MetaPage fall back to
+// the hardcoded `LEGACY_*` numbers in `metadata.rs`.
+// ---------------------------------------------------------------
+
+// ---------------------------------------------------------------
 // Lock blocks
-// We burn the first two blocks to use as locks for merge and
-// vacuum cleanup
+// Two blocks are used as locks for merge and vacuum cleanup
 // ---------------------------------------------------------------
 
 // +-------------------------------------------------------------+
@@ -40,8 +48,8 @@
 
 // ---------------------------------------------------------------
 // Metadata blocks
-// These blocks are created at index build
-// Their block numbers should never change
+// These blocks are created at index build and their block numbers
+// are recorded in the MetaPage
 // ---------------------------------------------------------------
 
 // +-------------------------------------------------------------+

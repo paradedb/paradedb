@@ -24,8 +24,8 @@ use crate::postgres::var::find_one_var;
 
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
-    IntoDatum, PgList,
+    AnyElement, IntoDatum, PgList, default, direct_function_call, extension_sql, pg_extern,
+    pg_guard, pg_sys,
 };
 use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
@@ -258,7 +258,7 @@ pub mod pdb {
     use pgrx::pgrx_sql_entity_graph::metadata::{
         ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
-    use pgrx::{default, pg_extern, pg_sys, AnyElement, IntoDatum};
+    use pgrx::{AnyElement, IntoDatum, default, pg_extern, pg_sys};
 
     // Newtype wrapper for Vec<Vec<i32>> to implement custom IntoDatum
     // This ensures it serializes as a proper 2D PostgreSQL integer array
@@ -348,7 +348,9 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!(
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+        );
     }
 
     #[allow(unused_variables)]
@@ -362,7 +364,9 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!(
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+        );
     }
 
     #[allow(unused_variables)]
@@ -386,7 +390,9 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!(
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+        );
     }
 }
 
@@ -403,7 +409,9 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!(
+        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+    );
 }
 
 #[warn(deprecated)]
@@ -418,7 +426,9 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!(
+        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+    );
 }
 
 #[warn(deprecated)]
@@ -443,7 +453,9 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!(
+        "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+    );
 }
 
 extension_sql!(

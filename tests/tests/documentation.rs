@@ -19,8 +19,8 @@ use approx::assert_relative_eq;
 use num_traits::ToPrimitive;
 use pgvector::Vector;
 use rstest::*;
-use sqlx::types::BigDecimal;
 use sqlx::PgConnection;
+use sqlx::types::BigDecimal;
 use std::str::FromStr;
 use tests::fixtures::*;
 

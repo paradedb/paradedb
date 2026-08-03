@@ -31,7 +31,7 @@ mod pdb {
     use macros::builder_fn;
     use pgrx::aggregate::Aggregate;
     use pgrx::datum::RangeBound;
-    use pgrx::{default, pg_extern, pg_sys, AnyElement, AnyNumeric, Internal, Range};
+    use pgrx::{AnyElement, AnyNumeric, Internal, Range, default, pg_extern, pg_sys};
 
     #[pg_extern(immutable, parallel_safe, name = "all")]
     pub fn pdb_all() -> pdb::Query {

@@ -17,7 +17,7 @@ default-members = ["pg_search", "tokenizers"]
 
 [workspace.package]
 version = "0.25.0"
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0"
 
 [profile.dev]
@@ -58,7 +58,7 @@ debug-assertions = false
 inherits = "dev"
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c5526969ab6e5d1acf4d2847472129e1cadeb787", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "eadcfaf293c91cd69fec2e009ca20818688dc5fe", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -71,7 +71,7 @@ pgrx-tests = "=0.19.2"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c5526969ab6e5d1acf4d2847472129e1cadeb787" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "eadcfaf293c91cd69fec2e009ca20818688dc5fe" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

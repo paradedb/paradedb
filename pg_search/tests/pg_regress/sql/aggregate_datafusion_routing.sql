@@ -8,6 +8,7 @@
 -- it reflects both the column's n_distinct and the @@@ selectivity.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 DROP TABLE IF EXISTS routing_test;

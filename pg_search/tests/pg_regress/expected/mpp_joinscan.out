@@ -4,14 +4,13 @@
 -- Same dataset shape as mpp_aggregate.sql but the queries don't
 -- aggregate — they project columns through a JOIN under a LIMIT,
 -- which is what JoinScan activates on. Two passes: serial baseline
--- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 4). Results must
+-- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 3). Results must
 -- match across the two passes; the EXPLAIN trees differ.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.mpp_worker_count TO 4;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
 -- planner picks the serial JoinScan and MPP never activates.
@@ -121,12 +120,12 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
--- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same query, same results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same query, same results.
 -- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
 -- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
 -- fragment dispatch, leader-side NetworkCoalesceExec gather).
 -- =====================================================================
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
@@ -219,7 +218,7 @@ DROP FUNCTION mpp_explain_analyze_lines(text);
 -- worker. This tests that the expression context is properly provided
 -- to the worker.
 -- =====================================================================
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
@@ -360,32 +359,34 @@ LIMIT 10;
            : ┌───── DistributedExec
            : │ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            : │   SortPreservingMergeExec: [title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], fetch=10
-           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : │     [Stage 3] => NetworkCoalesceExec: output_partitions=16, input_tasks=4
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=3, partitions=3
+           :   ┌───── Stage 3 ── tasks=4, partitions=4
            :   │ LocalLimitExec: fetch=10
            :   │   TantivyLookupExec: decode=[title]
            :   │     SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, size_bytes@1 ASC NULLS LAST], k=10, visibility_checks=[f]
            :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@3, size_bytes@5, ctid_1@0, title@2]
-           :   │         [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
-           :   │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+           :   │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=4
+           :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=4
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 1 ── tasks=3, partitions=9
-           :     │ RepartitionExec: partitioning=Hash([id@1], 9), input_partitions=3
+           :     ┌───── Stage 1 ── tasks=4, partitions=16
+           :     │ RepartitionExec: partitioning=Hash([id@1], 16), input_partitions=4
            :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: segments=2, partition=id[-∞..51), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :     │     t1: PgSearchScan: segments=2, partition=id[51..101), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-           :     │     t2: PgSearchScan: segments=2, partition=id[101..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t0: PgSearchScan: segments=2, partition=id[-∞..38), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t1: PgSearchScan: segments=2, partition=id[38..76), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t2: PgSearchScan: segments=2, partition=id[76..126), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+           :     │     t3: PgSearchScan: segments=2, partition=id[126..∞), query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
            :     └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=3, partitions=9
-           :     │ RepartitionExec: partitioning=Hash([file_id@1], 9), input_partitions=3
+           :     ┌───── Stage 2 ── tasks=4, partitions=16
+           :     │ RepartitionExec: partitioning=Hash([file_id@1], 16), input_partitions=4
            :     │   VisibilityFilterExec: tables=[p]
            :     │     DistributedLeafExec:
-           :     │       t0: PgSearchScan: segments=2, partition=file_id[-∞..51), dynamic_filters=1, query="all"
-           :     │       t1: PgSearchScan: segments=2, partition=file_id[51..101), dynamic_filters=1, query="all"
-           :     │       t2: PgSearchScan: segments=2, partition=file_id[101..∞), dynamic_filters=1, query="all"
+           :     │       t0: PgSearchScan: segments=2, partition=file_id[-∞..38), dynamic_filters=1, query="all"
+           :     │       t1: PgSearchScan: segments=2, partition=file_id[38..76), dynamic_filters=1, query="all"
+           :     │       t2: PgSearchScan: segments=2, partition=file_id[76..126), dynamic_filters=1, query="all"
+           :     │       t3: PgSearchScan: segments=2, partition=file_id[126..∞), dynamic_filters=1, query="all"
            :     └──────────────────────────────────────────────────
-(37 rows)
+(39 rows)
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id

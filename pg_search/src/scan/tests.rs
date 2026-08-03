@@ -18,7 +18,7 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
+    use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
@@ -231,7 +231,7 @@ mod tests {
     #[pg_test]
     fn test_filter_pushdown_analysis() {
         use crate::scan::filter_pushdown::FilterAnalyzer;
-        use datafusion::logical_expr::{col, lit, Expr};
+        use datafusion::logical_expr::{Expr, col, lit};
         use filter_analyzer_helpers::{assert_exact, assert_unsupported};
 
         let fields = test_fields();

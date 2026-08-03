@@ -57,9 +57,9 @@ mod pdb {
     #[pg_extern(volatile, parallel_safe, name = "window_agg")]
     pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
         pgrx::error!(
-        "window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {}",
-        window_aggregate_json
-    )
+            "window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {}",
+            window_aggregate_json
+        )
     }
 }
 

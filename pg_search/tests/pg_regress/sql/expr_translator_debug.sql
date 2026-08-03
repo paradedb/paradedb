@@ -10,6 +10,7 @@
 -- the expected log lines appear in order.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 
 DROP TABLE IF EXISTS et_items CASCADE;
 DROP TABLE IF EXISTS et_exclusions CASCADE;

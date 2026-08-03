@@ -15,17 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::strip_unnest_and_relabel;
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
-use crate::postgres::PgSearchRelation;
-use pgrx::pg_sys;
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
 use pgrx::PgList;
+use pgrx::pg_sys;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupingColumn {

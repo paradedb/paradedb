@@ -17,8 +17,8 @@
 
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    function_name, pg_sys, GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel,
-    PgSqlErrorCode,
+    GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
+    pg_sys,
 };
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
@@ -141,12 +141,6 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// logs). When off, the same call sites route through `debug1!()` — still reachable via
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-/// Total number of MPP participants (leader + workers). Default 4 splits
-/// scan + shuffle + partial-aggregate work across 4 processes. PG's
-/// `max_parallel_workers_per_gather` still caps the actual worker count
-/// at exec time, so users in constrained environments see fewer.
-static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 
 /// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
 /// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
@@ -284,8 +278,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_join_custom_scan",
-        c"Enable ParadeDB's experimental join custom scan",
-        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        c"Enable ParadeDB's join custom scan",
+        c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),
@@ -637,18 +631,6 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.mpp_worker_count",
-        c"Total MPP participants (leader + parallel workers)",
-        c"Sets the number of MPP participants per query when parallel execution is enabled. \
-          The queue mesh and drain thread are general over N. Setting this below 3 disables MPP.",
-        &MPP_WORKER_COUNT,
-        1,
-        64,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-inbox ring size for MPP shuffles",
         c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
@@ -865,10 +847,6 @@ pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
 }
 
-pub fn mpp_worker_count() -> i32 {
-    MPP_WORKER_COUNT.get()
-}
-
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
 }
@@ -989,14 +967,16 @@ mod tests {
         assert_eq!(global_mutable_segment_rows(), None);
 
         // invalid options
-        assert!(std::panic::catch_unwind(|| Spi::run(
-            "SET paradedb.global_mutable_segment_rows = 10001;"
-        ))
-        .is_err());
-        assert!(std::panic::catch_unwind(|| Spi::run(
-            "SET paradedb.global_mutable_segment_rows = -2;"
-        ))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| Spi::run(
+                "SET paradedb.global_mutable_segment_rows = 10001;"
+            ))
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| Spi::run("SET paradedb.global_mutable_segment_rows = -2;"))
+                .is_err()
+        );
 
         // global override
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();

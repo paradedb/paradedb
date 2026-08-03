@@ -90,19 +90,6 @@ pub mod builder {
             }
         }
 
-        #[allow(dead_code)]
-        pub fn len(&self) -> usize {
-            match self {
-                ChunkStyle::Sorted1x { .. } => BitPacker1x::BLOCK_LEN,
-                ChunkStyle::Sorted4x { .. } => BitPacker4x::BLOCK_LEN,
-                ChunkStyle::Sorted8x { .. } => BitPacker8x::BLOCK_LEN,
-                ChunkStyle::StrictlySorted1x { .. } => BitPacker1x::BLOCK_LEN,
-                ChunkStyle::StrictlySorted4x { .. } => BitPacker4x::BLOCK_LEN,
-                ChunkStyle::StrictlySorted8x { .. } => BitPacker8x::BLOCK_LEN,
-                ChunkStyle::Uncompressed(values) => values.len(),
-            }
-        }
-
         pub fn byte_len(&self) -> usize {
             match self {
                 ChunkStyle::Sorted1x { bytes, .. }
@@ -207,19 +194,14 @@ pub mod builder {
     }
 
     impl BlockList {
-        #[allow(dead_code)]
-        pub fn is_empty(&self) -> bool {
-            self.chunks.is_empty() && self.queue.is_empty()
-        }
-
         pub fn push(&mut self, block_number: pg_sys::BlockNumber) {
             assert!(block_number != 0, "cannot add block 0 to the blocklist");
 
-            if let Some(last) = self.queue.last() {
-                if last == &block_number {
-                    // we just added this block
-                    return;
-                }
+            if let Some(last) = self.queue.last()
+                && last == &block_number
+            {
+                // we just added this block
+                return;
             }
 
             if self.queue.len() == BitPacker4x::BLOCK_LEN {
@@ -513,11 +495,6 @@ pub mod reader {
             }
 
             Self { blocks }
-        }
-
-        #[allow(dead_code)]
-        pub fn len(&self) -> usize {
-            self.blocks.len()
         }
 
         pub fn get(&self, i: usize) -> Option<pg_sys::BlockNumber> {

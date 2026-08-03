@@ -75,8 +75,8 @@
 //! }
 //! ```
 
-use super::estimate_tree::QueryWithEstimates;
 use super::SearchQueryInput;
+use super::estimate_tree::QueryWithEstimates;
 use tantivy::query::Query as TantivyQuery;
 
 /// Build different output types from Tantivy queries.

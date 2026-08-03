@@ -292,10 +292,10 @@ async fn compound_sort_partitioned(mut conn: PgConnection) {
 // Helper function to recursively collect Custom Scan nodes from a plan
 fn collect_custom_scan_nodes(plan: &Value, nodes: &mut Vec<Value>) {
     // Check if this is a Custom Scan node
-    if let Some(node_type) = plan.get("Node Type").and_then(|v| v.as_str()) {
-        if node_type == "Custom Scan" {
-            nodes.push(plan.clone());
-        }
+    if let Some(node_type) = plan.get("Node Type").and_then(|v| v.as_str())
+        && node_type == "Custom Scan"
+    {
+        nodes.push(plan.clone());
     }
 
     // Recursively check child plans

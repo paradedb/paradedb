@@ -18,7 +18,7 @@
 use std::ops::{Bound, RangeBounds};
 use tantivy::query::{EmptyScorer, EnableScoring, Explanation, Query, QueryClone, Scorer, Weight};
 use tantivy::schema::Field;
-use tantivy::{DocId, DocSet, Score, SegmentReader, Term, TERMINATED};
+use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
 #[derive(Debug)]
 pub struct ScoreFilter {

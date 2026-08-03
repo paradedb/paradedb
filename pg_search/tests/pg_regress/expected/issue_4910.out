@@ -96,7 +96,7 @@ LIMIT 25;
            :           PgSearchScan: segments=1, query="all"
            :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
-           :             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :             RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
            :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null}}}}
 (17 rows)
 

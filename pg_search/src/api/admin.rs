@@ -27,14 +27,14 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
-use crate::query::pdb_query::pdb as pdb_query;
 use crate::query::SearchQueryInput;
+use crate::query::pdb_query::pdb as pdb_query;
 use crate::schema::{IndexRecordOption, SearchFieldType};
 use anyhow::Result;
-use pgrx::datum::DatumWithOid;
-use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
+use pgrx::datum::DatumWithOid;
+use pgrx::prelude::*;
 use serde_json::Value;
 use tantivy::schema::FieldType;
 
@@ -627,10 +627,10 @@ fn verify_heap_references(
     // Iterate through all segments and all documents
     for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
         // Skip segments not in the filter (if filter is specified)
-        if let Some(ref filter) = segment_filter {
-            if !filter.contains(&seg_idx) {
-                continue;
-            }
+        if let Some(filter) = segment_filter
+            && !filter.contains(&seg_idx)
+        {
+            continue;
         }
 
         let segment_id = segment_reader.segment_id().short_uuid_string();
@@ -652,10 +652,10 @@ fn verify_heap_references(
         // Iterate through all document IDs in this segment
         for doc_id in 0..segment_reader.max_doc() {
             // Skip deleted documents
-            if let Some(bitset) = &alive_bitset {
-                if !bitset.is_alive(doc_id) {
-                    continue;
-                }
+            if let Some(bitset) = &alive_bitset
+                && !bitset.is_alive(doc_id)
+            {
+                continue;
             }
 
             // Apply sampling: use a hash of the doc_id for deterministic sampling
@@ -1308,10 +1308,10 @@ pub mod pdb {
 
             for (idx, segment_reader) in segment_readers.iter().enumerate() {
                 // Skip segments not in the filter (if filter is specified)
-                if let Some(ref filter) = segment_filter {
-                    if !filter.contains(&idx) {
-                        continue;
-                    }
+                if let Some(ref filter) = segment_filter
+                    && !filter.contains(&idx)
+                {
+                    continue;
                 }
 
                 segments_checked += 1;

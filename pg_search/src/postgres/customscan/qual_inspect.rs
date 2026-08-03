@@ -1546,10 +1546,10 @@ pub unsafe fn contains_extern_param(root: *mut pg_sys::Node) -> bool {
         node: *mut pg_sys::Node,
         _data: *mut core::ffi::c_void,
     ) -> bool {
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
-                return true;
-            }
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN
+        {
+            return true;
         }
         pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
@@ -1585,14 +1585,14 @@ pub unsafe fn collect_implicit_and_conjuncts(
         return;
     }
 
-    if let Some(bool_expr) = nodecast!(BoolExpr, T_BoolExpr, node) {
-        if (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR {
-            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-            for arg in args.iter_ptr() {
-                collect_implicit_and_conjuncts(arg, conjuncts);
-            }
-            return;
+    if let Some(bool_expr) = nodecast!(BoolExpr, T_BoolExpr, node)
+        && (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR
+    {
+        let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+        for arg in args.iter_ptr() {
+            collect_implicit_and_conjuncts(arg, conjuncts);
         }
+        return;
     }
 
     conjuncts.push(node);

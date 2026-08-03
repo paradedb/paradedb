@@ -689,13 +689,6 @@ struct PathRestrictInfo {
     /// Cross-table @@@ clause pointers (will be transformed via
     /// `build_search_filter` after plan_positions are assigned).
     search_clauses: Vec<*mut pg_sys::Node>,
-    /// Planner identity of every residual stored in `search_clauses`.
-    ///
-    /// The same RestrictInfo can be reachable from both joinrestrictinfo and a
-    /// parameterized base path's ppi_clauses, sometimes as different node
-    /// copies. `rinfo_serial` identifies that shared planner provenance without
-    /// collapsing two intentionally repeated, structurally equal SQL clauses.
-    search_clause_serials: crate::api::HashSet<i32>,
     /// Number of RestrictInfo entries we couldn't classify as equi-keys or
     /// @@@ predicates. Non-zero means unhandled quals that would be silently
     /// dropped - the caller should reject the DataFusion path.
@@ -751,7 +744,6 @@ unsafe fn analyze_join_path_restrictinfo(
         equi_keys: Vec::new(),
         wrapped_equi_keys: Vec::new(),
         search_clauses: Vec::new(),
-        search_clause_serials: Default::default(),
         unhandled: 0,
         coverage: PathPredicateCoverage::Complete,
     };
@@ -784,6 +776,17 @@ unsafe fn classify_path_restrictinfo(
         // candidate must decline instead of serializing a partially executable
         // filter.
         if contains_extern_param(clause) {
+            info.unhandled += 1;
+            continue;
+        }
+
+        // A volatile predicate cannot be lowered into the DataFusion join at
+        // all: DataFusion evaluates it at a different point and row count than
+        // PostgreSQL would, so even a single evaluation changes the answer.
+        // Declining here also makes the residual inventory below idempotent,
+        // which is what lets it deduplicate by structure on every supported
+        // version. Matches the volatility guards in BaseScan and JoinScan.
+        if pg_sys::contain_volatile_functions(clause) {
             info.unhandled += 1;
             continue;
         }
@@ -843,12 +846,17 @@ unsafe fn classify_path_restrictinfo(
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                // Deduplicate overlapping planner representations by
-                // RestrictInfo identity, not expression structure. Structural
-                // equality is not sufficient for volatile expressions, where
-                // two syntactically repeated conjuncts may require two
-                // evaluations even though they look identical.
-                if info.search_clause_serials.insert((*ri).rinfo_serial) {
+                // The same predicate is reachable from both joinrestrictinfo
+                // and a parameterized path's ppi_clauses, sometimes as separate
+                // node copies, so pointer identity is not enough. Compare by
+                // structure: the volatility guard above means every residual
+                // that reaches here is idempotent, so collapsing two equal
+                // conjuncts preserves the result set.
+                if !info
+                    .search_clauses
+                    .iter()
+                    .any(|&c| pg_sys::equal(c.cast(), clause.cast()))
+                {
                     info.search_clauses.push(clause);
                 }
                 continue;

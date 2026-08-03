@@ -20,6 +20,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+    format_bytes,
 };
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -895,11 +896,17 @@ mod plan {
 
         let mwm_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
         if total > mwm_bytes {
+            // Round up in the unit pg_size_pretty will display, so that setting
+            // `maintenance_work_mem` to the printed value always passes this check.
+            let mut unit = 1024;
+            while total.div_ceil(unit) >= 10 * 1024 {
+                unit *= 1024;
+            }
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
                 format!(
-                    "vector clustering during index build requires `maintenance_work_mem` of at least {}MB",
-                    total.div_ceil(1024 * 1024)
+                    "vector clustering during index build requires `maintenance_work_mem` of at least {}",
+                    format_bytes((total.div_ceil(unit) * unit) as u64)
                 ),
                 function_name!(),
             )

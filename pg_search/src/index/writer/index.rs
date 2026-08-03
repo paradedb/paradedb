@@ -185,7 +185,7 @@ impl DiskSpaceGuard {
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     let bytes = bytes.min(i64::MAX as u64) as i64;
     unsafe {
         direct_function_call::<String>(pg_sys::pg_size_pretty, &[bytes.into_datum()])

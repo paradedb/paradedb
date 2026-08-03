@@ -285,12 +285,14 @@ impl<'a> PredicateTranslator<'a> {
     ///
     /// IMPORTANT: This translator is used to check if a predicate CAN be translated,
     /// but the actual predicate evaluation happens via heap fetch + PostgreSQL evaluation.
-    /// Cross-type comparisons (e.g., INT < NUMERIC) involve type casts that change value
-    /// semantics - we cannot simply look through them because the underlying storage
-    /// representations differ (e.g., INT 95 vs Numeric64 5225 for 52.25).
+    /// Value-preserving casts are looked through: binary-compatible `RelabelType` nodes
+    /// (e.g. varchar → text) and `CoerceViaIO` within the text family.
     ///
-    /// For predicates involving type casts, we return None to indicate that the predicate
-    /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
+    /// Casts that change value representation are not. Cross-type comparisons
+    /// (e.g. INT < NUMERIC) involve casts whose underlying storage representations differ
+    /// (e.g. INT 95 vs Numeric64 5225 for 52.25), so we return None to indicate that the
+    /// predicate cannot be evaluated purely in DataFusion and must fall back to PostgreSQL
+    /// evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             pgrx::debug1!("PredicateTranslator: null node pointer");

@@ -8329,7 +8329,6 @@ dependencies = [
  "rand 0.9.4",
  "rstest",
  "rustc-hash",
- "serde",
  "serde_json",
  "soa_derive",
  "sqlx",

@@ -282,7 +282,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
     let state = {
-        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `Bm25ScanState` above in
         // amrescan, which is always called prior to this function
         (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
             .as_mut()
@@ -393,7 +393,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     assert!(!scan.is_null());
 
     let state = {
-        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `Bm25ScanState` above in
         // amrescan, which is always called prior to this function
         (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
             .as_mut()

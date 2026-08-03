@@ -235,10 +235,15 @@ pub unsafe fn extract_join_tree_from_parse(
     // is a fallback that only runs when Path 1 produced no predicates.
 
     // 1. Path-based: predicates classified by `walk_path_restrictinfo`.
+    let path_search_clauses: Vec<_> = path_info
+        .search_clauses
+        .iter()
+        .map(|search_clause| search_clause.clause)
+        .collect();
     apply_search_filter_or_decline(
         root,
         sources,
-        &path_info.search_clauses,
+        &path_search_clauses,
         "path joinrestrictinfo",
         "cross-table predicate cannot be pushed into the aggregate scan",
         &mut plan,
@@ -680,9 +685,10 @@ struct PathRestrictInfo {
     /// Supplemental equality keys found only after traversing a transparent
     /// path wrapper.
     wrapped_equi_keys: Vec<JoinKeyPair>,
-    /// Cross-table @@@ clause pointers (will be transformed via
-    /// `build_search_filter` after plan_positions are assigned).
-    search_clauses: Vec<*mut pg_sys::Node>,
+    /// Cross-table residuals (transformed via `build_search_filter` after
+    /// plan_positions are assigned), together with the planner inventory that
+    /// exposed each one.
+    search_clauses: Vec<PathSearchClause>,
     /// Number of RestrictInfo entries we couldn't classify as equi-keys or
     /// @@@ predicates. Non-zero means unhandled quals that would be silently
     /// dropped - the caller should reject the DataFusion path.
@@ -703,6 +709,18 @@ enum EquiKeySource {
     Ignore,
     Direct,
     BehindWrapper,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RestrictInfoOrigin {
+    JoinRestrictInfo,
+    ParamPathInfo,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PathSearchClause {
+    clause: *mut pg_sys::Node,
+    origin: RestrictInfoOrigin,
 }
 
 impl PathRestrictInfo {
@@ -753,6 +771,7 @@ unsafe fn classify_path_restrictinfo(
     restrictinfo: *mut pg_sys::List,
     allow_unpushed_cross_table: bool,
     equi_key_source: EquiKeySource,
+    origin: RestrictInfoOrigin,
     sources: &[JoinAggSource],
     search_op: pg_sys::Oid,
     info: &mut PathRestrictInfo,
@@ -768,15 +787,6 @@ unsafe fn classify_path_restrictinfo(
         // No ParamListInfo binding for DataFusion join predicates; see
         // apply_search_filter_or_decline.
         if contains_extern_param(clause) {
-            info.unhandled += 1;
-            continue;
-        }
-
-        // Volatile predicates can't be lowered into the DataFusion join at all:
-        // it evaluates them at a different point and row count than PostgreSQL,
-        // so even one evaluation changes the answer. The dedup below relies on
-        // this - it compares by structure. Mirrors BaseScan and JoinScan.
-        if pg_sys::contain_volatile_functions(clause) {
             info.unhandled += 1;
             continue;
         }
@@ -836,16 +846,28 @@ unsafe fn classify_path_restrictinfo(
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                // Reachable from both joinrestrictinfo and ppi_clauses,
-                // sometimes as separate node copies - pointer identity misses
-                // those. Structural comparison is safe given the guard above.
-                if !info
-                    .search_clauses
-                    .iter()
-                    .any(|&c| pg_sys::equal(c.cast(), clause.cast()))
-                {
-                    info.search_clauses.push(clause);
+                // Deduplicate structural copies only across the overlapping
+                // joinrestrictinfo and ppi_clauses inventories. Equal clauses
+                // within one inventory may be intentional repetitions.
+                let overlap = info.search_clauses.iter().find(|existing| {
+                    std::ptr::eq(existing.clause, clause)
+                        || (existing.origin != origin
+                            && pg_sys::equal(existing.clause.cast(), clause.cast()))
+                });
+
+                if let Some(existing) = overlap {
+                    // Without rinfo_serial on PG15, distinct volatile copies may
+                    // be one planner predicate or two intentional calls.
+                    if !std::ptr::eq(existing.clause, clause)
+                        && pg_sys::contain_volatile_functions(clause)
+                    {
+                        info.unhandled += 1;
+                    }
+                    continue;
                 }
+
+                info.search_clauses
+                    .push(PathSearchClause { clause, origin });
                 continue;
             }
         }
@@ -883,6 +905,7 @@ unsafe fn walk_path_restrictinfo(
             (*param_info).ppi_clauses,
             false,
             EquiKeySource::Ignore,
+            RestrictInfoOrigin::ParamPathInfo,
             sources,
             search_op,
             info,
@@ -927,6 +950,7 @@ unsafe fn walk_path_restrictinfo(
         } else {
             EquiKeySource::Direct
         },
+        RestrictInfoOrigin::JoinRestrictInfo,
         sources,
         search_op,
         info,

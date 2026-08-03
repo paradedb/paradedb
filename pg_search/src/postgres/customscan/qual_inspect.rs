@@ -1537,9 +1537,9 @@ pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
 
 /// Returns true if the expression contains a prepared-statement parameter.
 ///
-/// `PARAM_EXTERN` values are bound when a generic prepared plan executes.  A
-/// custom scan must have an explicit executor contract for resolving them;
-/// planner-time expression translation alone is not sufficient.
+/// `PARAM_EXTERN` values are bound when a generic prepared plan executes, so a
+/// custom scan needs an executor-side contract for resolving them; planner-time
+/// translation alone is not sufficient.
 pub unsafe fn contains_extern_param(root: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(

@@ -2,14 +2,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
--- #5751 predicate-normalization contract:
---   1. T_List and top-level AND are containers, never executable expressions.
---   2. Each conjunct is classified independently; OR and NOT stay intact.
---   3. Single-relation conjuncts remain owned by their base scans.
---   4. A present unsupported predicate declines AggregateScan; it is never dropped.
---   5. Custom prepared plans with Const substitutions remain eligible.
---   6. Base-filter PARAM_EXTERN uses the existing live ExprContext binding path.
---   7. PARAM_EXTERN in cross-table, HAVING, or FILTER expressions declines.
 
 CREATE TABLE issue_5751_series (
     id bigint PRIMARY KEY,
@@ -68,7 +60,7 @@ BEGIN
   RETURN result;
 END $$ LANGUAGE plpgsql;
 
--- PostgreSQL retains the two WHERE conjuncts in an implicit-AND List.  Each
+-- PostgreSQL retains the two WHERE conjuncts in an implicit-AND List. Each
 -- item is a base predicate even though the container references both tables.
 SELECT issue_5751_plan_uses(
   $$SELECT count(*)
@@ -98,7 +90,7 @@ SELECT issue_5751_result(
 ) AS matches_postgres;
 
 -- The same semantic query can place the equality in the implicit-join WHERE
--- list.  The equality is a join key; the other two conjuncts remain owned by
+-- list. The equality is a join key; the other two conjuncts remain owned by
 -- their base scans.
 SELECT issue_5751_plan_uses(
   $$SELECT count(*)
@@ -129,7 +121,7 @@ FROM issue_5751_entries e
 JOIN issue_5751_series s ON s.id = e.series_id
 WHERE s.state = 'active' AND e.user_id = 'u1';
 
--- Custom prepared plans replace PARAM_EXTERN with Const nodes.  Preserve that
+-- Custom prepared plans replace PARAM_EXTERN with Const nodes. Preserve that
 -- existing supported path and verify that this fix does not merely fall back to
 -- PostgreSQL for every prepared statement.
 INSERT INTO issue_5751_series VALUES
@@ -209,7 +201,7 @@ SELECT issue_5751_result(
 DEALLOCATE issue_5751_cross_param;
 
 -- A present HAVING or aggregate FILTER must not be represented as None merely
--- because its PARAM_EXTERN cannot be translated.  Both shapes decline and
+-- because its PARAM_EXTERN cannot be translated. Both shapes decline and
 -- PostgreSQL evaluates the original expression.
 PREPARE issue_5751_having(bigint) AS
 SELECT s.state, count(*)
@@ -234,9 +226,8 @@ SELECT issue_5751_plan_uses(
   'ParadeDB Aggregate Scan') AS filter_uses_aggregate_scan;
 EXECUTE issue_5751_filter('u1');
 
--- The generic prepared executions above must match independently planned
--- PostgreSQL queries with the same parameter values. This catches a present
--- HAVING or FILTER being mistaken for an absent one.
+-- Cross-check the values against literal equivalents. The decline itself is
+-- asserted by the plan checks above.
 SELECT issue_5751_result(
   $$EXECUTE issue_5751_having(1)$$,
   true
@@ -268,7 +259,7 @@ RESET client_min_messages;
 RESET plan_cache_mode;
 
 -- PostgreSQL may enforce an inner-join predicate on a parameterized inner
--- index path and remove it from the parent NestPath.joinrestrictinfo.  The
+-- index path and remove it from the parent NestPath.joinrestrictinfo. The
 -- predicate remains in ParamPathInfo.ppi_clauses and must be inventoried when
 -- AggregateScan reconstructs the DataFusion join.  Equality-only execution
 -- would incorrectly count all five rows instead of the three qualifying rows.

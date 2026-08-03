@@ -299,12 +299,9 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
-        // List is an implicit conjunction container, not an expression node.
-        // Reaching this point means a caller violated the normalization
-        // contract. Translation is also used as a capability probe, so an
-        // unsupported representation must return None rather than aborting a
-        // valid query during speculative path construction. The owning planner
-        // layer decides whether the failed probe warrants a user-facing warning.
+        // A List is an implicit conjunction container, so reaching here means a
+        // caller skipped normalization. `translate` doubles as a capability
+        // probe, so decline rather than abort an otherwise valid query.
         if (*node).type_ == pg_sys::NodeTag::T_List {
             pgrx::debug1!(
                 "PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"

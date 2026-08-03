@@ -204,12 +204,9 @@ pub unsafe fn extract_join_tree_from_parse(
     // keys and cross-table @@@ search predicates (mirrors JoinScan's approach).
     let path_info = analyze_join_path_restrictinfo(input_rel, sources);
 
-    // Preserve the pre-existing behavior for directly visible JoinPaths.
-    // The retained query tree already supplies every syntactic equality. Keys
-    // discovered only after traversing a newly supported wrapper are therefore
-    // supplemental EC-derived equalities: they are needed only when the
-    // reconstructed tree has a keyless join level. Injecting them otherwise
-    // would make plan shape, rather than SQL semantics, determine the key set.
+    // Wrapper-only keys are EC-derived extras; the query tree already supplies
+    // every syntactic equality. Inject them only for a keyless join level, or
+    // plan shape rather than SQL semantics decides the key set.
     if !path_info.equi_keys.is_empty() {
         plan.inject_equi_keys(path_info.equi_keys);
     }
@@ -227,10 +224,8 @@ pub unsafe fn extract_join_tree_from_parse(
     // Handles both @@@ predicates and non-@@@ cross-table predicates
     // (like `b.id > 5`) that reference fast fields.
     //
-    // Use the selected path's normalized predicate inventory first. If it
-    // contains no residual join predicate, inspect retained FromExpr.quals for
-    // a cross-table conjunct that PostgreSQL assigned elsewhere. The earlier
-    // coverage check guarantees that an opaque path cannot reach this fallback.
+    // The earlier coverage check guarantees an opaque path cannot reach the
+    // FromExpr.quals fallback below.
     let mut join_level_predicates = Vec::new();
     let mut multi_table_predicates = Vec::new();
     let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
@@ -680,8 +675,7 @@ unsafe fn extract_equi_keys_from_quals(
 
 /// Result of a single walk over the cheapest path's `joinrestrictinfo`.
 struct PathRestrictInfo {
-    /// Equi-join keys from JoinPaths that were directly visible before this
-    /// change (`a.id = b.id`).
+    /// Equi-join keys from directly inspected JoinPaths (`a.id = b.id`).
     equi_keys: Vec<JoinKeyPair>,
     /// Supplemental equality keys found only after traversing a transparent
     /// path wrapper.
@@ -771,21 +765,17 @@ unsafe fn classify_path_restrictinfo(
             continue;
         }
 
-        // Generic plans retain PARAM_EXTERN nodes. Executor-side translation
-        // of DataFusion join predicates has no ParamListInfo binding, so this
-        // candidate must decline instead of serializing a partially executable
-        // filter.
+        // No ParamListInfo binding for DataFusion join predicates; see
+        // apply_search_filter_or_decline.
         if contains_extern_param(clause) {
             info.unhandled += 1;
             continue;
         }
 
-        // A volatile predicate cannot be lowered into the DataFusion join at
-        // all: DataFusion evaluates it at a different point and row count than
-        // PostgreSQL would, so even a single evaluation changes the answer.
-        // Declining here also makes the residual inventory below idempotent,
-        // which is what lets it deduplicate by structure on every supported
-        // version. Matches the volatility guards in BaseScan and JoinScan.
+        // Volatile predicates can't be lowered into the DataFusion join at all:
+        // it evaluates them at a different point and row count than PostgreSQL,
+        // so even one evaluation changes the answer. The dedup below relies on
+        // this - it compares by structure. Mirrors BaseScan and JoinScan.
         if pg_sys::contain_volatile_functions(clause) {
             info.unhandled += 1;
             continue;
@@ -846,12 +836,9 @@ unsafe fn classify_path_restrictinfo(
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                // The same predicate is reachable from both joinrestrictinfo
-                // and a parameterized path's ppi_clauses, sometimes as separate
-                // node copies, so pointer identity is not enough. Compare by
-                // structure: the volatility guard above means every residual
-                // that reaches here is idempotent, so collapsing two equal
-                // conjuncts preserves the result set.
+                // Reachable from both joinrestrictinfo and ppi_clauses,
+                // sometimes as separate node copies - pointer identity misses
+                // those. Structural comparison is safe given the guard above.
                 if !info
                     .search_clauses
                     .iter()
@@ -884,17 +871,14 @@ unsafe fn walk_path_restrictinfo(
     // ppi_clauses at every path node before following wrappers or children.
     let param_info = (*path).param_info;
     if !param_info.is_null() {
-        // ppi_clauses belong to parameterized base paths. PostgreSQL marks
-        // WHERE and INNER JOIN clauses is_pushed_down=true, so the conservative
-        // false below still accepts inner-join residuals. It rejects only
-        // non-degenerate outer-join ON clauses, which cannot be applied as a
-        // post-join filter without changing NULL-extension semantics.
+        // PostgreSQL marks WHERE and INNER JOIN clauses is_pushed_down=true, so
+        // the conservative `false` still accepts inner-join residuals; it
+        // rejects only outer-join ON clauses, which would change NULL-extension
+        // semantics as a post-join filter.
         //
-        // AggregateScan reconstructs explicit and implicit equality keys from
-        // the retained query tree, so ppi equality clauses are coverage-only.
-        // Recording EC-derived ppi equalities here can add transitively
-        // redundant keys to a multi-table DataFusion join.  Residual ppi
-        // clauses still pass through the normal classifier and are retained.
+        // Equality keys come from the retained query tree, so ppi equalities are
+        // coverage-only - recording them would add transitively redundant keys
+        // to a multi-table join. Residual ppi clauses are still retained.
         classify_path_restrictinfo(
             (*param_info).ppi_clauses,
             false,

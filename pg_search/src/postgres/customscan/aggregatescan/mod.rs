@@ -1196,9 +1196,6 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        // Prove predicate coverage for the selected lower path. Transparent
-        // execution wrappers are traversed; opaque join-level paths decline
-        // rather than relying on the retained parse tree as a coverage proxy.
         match unsafe { datafusion_build::check_join_path_predicates(input_rel, &sources) } {
             datafusion_build::JoinPathPredicateCheck::Complete => {}
             datafusion_build::JoinPathPredicateCheck::UnhandledQuals => {

@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy/indexing/create-index).",
+    "content": "ParadeDB Cloud is now in early access! [Sign up here](https://www.paradedb.com/cloud) to try it out.",
     "dismissible": false
   },
   "navigation": {

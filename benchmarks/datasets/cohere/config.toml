@@ -252,6 +252,9 @@ values = [
 [sweeps.pg_search.knn_top10_unfiltered]
 param = "pg_search_max_probe_unfiltered"
 values = [
+  "0.001",
+  "0.002",
+  "0.003",
   "0.005",
   "0.0075",
   "0.01",
@@ -271,6 +274,9 @@ values = [
 [sweeps.pg_search.knn_top10_10pct]
 param = "pg_search_max_probe_10pct"
 values = [
+  "0.001",
+  "0.002",
+  "0.003",
   "0.005",
   "0.0075",
   "0.01",
@@ -290,6 +296,9 @@ values = [
 [sweeps.pg_search.knn_top10_1pct]
 param = "pg_search_max_probe_1pct"
 values = [
+  "0.001",
+  "0.002",
+  "0.003",
   "0.005",
   "0.0075",
   "0.01",

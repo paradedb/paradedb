@@ -522,6 +522,17 @@ impl BM25IndexOptions {
                     .cloned()
             })
             .or_else(|| {
+                // `datetime_fields` only applies to fields stored as tantivy Date. Indexes
+                // created by v0.24.1+ store datetimes as i64, where the option is deprecated
+                // and must be discarded: its `SearchFieldConfig::Date` cannot be converted to
+                // the tantivy options of an i64 field. The available options (fast) are already on
+                // by default for i64 anyways.
+                if !matches!(
+                    self.get_field_type(field_name),
+                    Some(SearchFieldType::Date(_))
+                ) {
+                    return None;
+                }
                 self.datetime_config()
                     .as_ref()
                     .unwrap()

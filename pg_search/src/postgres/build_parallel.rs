@@ -888,19 +888,15 @@ mod plan {
 
         let mwm_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
         if total > mwm_bytes {
-            let to_mb = |bytes: usize| bytes.div_ceil(1024 * 1024);
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
                 "`maintenance_work_mem` is not high enough for vector clustering during index build",
                 function_name!(),
             )
-            .set_detail(format!(
-                "{nlaunched} workers each need about {}MB to cluster a merged segment of ~{docs_per_merge} vectors ({}MB total), but `maintenance_work_mem` is {}MB",
-                to_mb(per_merge),
-                to_mb(total),
-                to_mb(mwm_bytes),
+            .set_hint(format!(
+                "`SET maintenance_work_mem = '{}MB'`",
+                total.div_ceil(1024 * 1024)
             ))
-            .set_hint("`SET maintenance_work_mem = <number>`, or reduce `max_parallel_maintenance_workers`")
             .report(PgLogLevel::ERROR);
         }
     }

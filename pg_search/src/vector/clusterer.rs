@@ -85,9 +85,49 @@ impl Default for SuperKMeansIvfClusterer {
     }
 }
 
+/// Estimates the peak memory a clusterer holds resident while building the IVF
+/// structure for one merged segment's vector field. Used before an index build
+/// launches to reject builds whose concurrent merges would exceed
+/// `maintenance_work_mem`. Backends with cheaper representations (e.g. future
+/// quantized training sets) implement this with a smaller footprint.
+pub trait MergeMemoryEstimate {
+    /// Bytes to hold one dimension of one training vector in memory.
+    fn bytes_per_dim(&self) -> usize;
+
+    /// Estimated peak bytes to cluster one vector field of a merged segment
+    /// containing `num_docs` vectors of `dim` dimensions.
+    fn estimated_merge_bytes(&self, num_docs: usize, dim: usize) -> usize;
+}
+
+impl MergeMemoryEstimate for SuperKMeansIvfClusterer {
+    fn bytes_per_dim(&self) -> usize {
+        size_of::<f32>()
+    }
+
+    // Mirrors the training-set sampling in tantivy's IVF merge. Peak residency is
+    // during `train`: the sampled training matrix plus superkmeans' rotated copy of
+    // it (`sample_and_rotate_vectors` always materializes one), its doc ids, and
+    // the centroid output.
+    fn estimated_merge_bytes(&self, num_docs: usize, dim: usize) -> usize {
+        let num_centroids = ((num_docs as f64) * f64::from(self.centroid_ratio)).ceil() as usize;
+        let num_centroids = num_centroids.clamp(1, num_docs.max(1));
+        let training_samples =
+            num_docs.min(num_centroids.saturating_mul(self.training_samples_per_centroid));
+        let row_bytes = dim * self.bytes_per_dim();
+        training_samples * (2 * row_bytes + size_of::<u32>()) + num_centroids * row_bytes
+    }
+}
+
 impl SuperKMeansIvfClusterer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn from_options(options: &BM25IndexOptions) -> Self {
+        Self::new()
+            .with_centroid_ratio(options.centroid_ratio())
+            .with_training_samples_per_centroid(options.training_samples_per_centroid())
+            .with_replicas(options.cluster_replication())
     }
 
     pub fn with_centroid_ratio(mut self, centroid_ratio: f32) -> Self {
@@ -297,11 +337,7 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
 }
 
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
-    let clusterer = SuperKMeansIvfClusterer::new()
-        .with_centroid_ratio(options.centroid_ratio())
-        .with_training_samples_per_centroid(options.training_samples_per_centroid())
-        .with_replicas(options.cluster_replication());
-    index.set_ivf_clusterer(Arc::new(clusterer));
+    index.set_ivf_clusterer(Arc::new(SuperKMeansIvfClusterer::from_options(options)));
 }
 
 #[cfg(test)]
@@ -329,5 +365,29 @@ mod tests {
             .merge_settings(total)
             .unwrap();
         assert_eq!(clamped.replicas, 1, "non-positive clamps to primary-only");
+    }
+
+    #[test]
+    fn merge_memory_estimate() {
+        let clusterer = SuperKMeansIvfClusterer::new();
+        assert_eq!(clusterer.bytes_per_dim(), 4);
+
+        // defaults: centroid_ratio 0.01, 32 samples per centroid
+        // 1M docs, dim 96: 10k centroids, 320k samples
+        let dim = 96;
+        let row = dim * 4;
+        assert_eq!(
+            clusterer.estimated_merge_bytes(1_000_000, dim),
+            320_000 * (2 * row + 4) + 10_000 * row
+        );
+
+        // sample count is capped at num_docs
+        let saturated = SuperKMeansIvfClusterer::new().with_centroid_ratio(0.5);
+        assert_eq!(
+            saturated.estimated_merge_bytes(1000, dim),
+            1000 * (2 * row + 4) + 500 * row
+        );
+
+        assert_eq!(clusterer.estimated_merge_bytes(0, dim), 4 * dim);
     }
 }

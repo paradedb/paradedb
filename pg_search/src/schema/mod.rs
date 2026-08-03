@@ -524,6 +524,19 @@ impl SearchIndexSchema {
         })
     }
 
+    /// Dimensionality of each vector field in the schema.
+    pub fn vector_field_dims(&self) -> Vec<usize> {
+        self.fields()
+            .filter_map(|(_, field_entry)| {
+                let field_name: FieldName = field_entry.name().into();
+                match self.bm25_options.get_field_type(&field_name) {
+                    Some(SearchFieldType::Vector(_, dims, _)) => Some(dims),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
     /// A lookup from a Postgres column name to search fields that have
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<SearchField>> {

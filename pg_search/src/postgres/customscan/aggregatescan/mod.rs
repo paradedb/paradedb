@@ -55,6 +55,7 @@ use datafusion_distributed::shm::MppMesh;
 use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parallelism;
 
 use crate::api::SortDirection;
 use crate::api::agg_funcoid;
@@ -1089,11 +1090,10 @@ impl AggregateScan {
     /// and contains execution metrics. We merge in MPP worker metrics if applicable.
     ///
     /// In plain EXPLAIN, execution hasn't happened, so we must rebuild the physical plan.
-    /// When `mpp_is_active()` we rebuild with the same distributed planner the leader
-    /// will run with, attached to a drain-less stub mesh. The planner only consults
-    /// the mesh's worker count, not the actual `shm_mq` queues, so the stub is enough
-    /// to produce a `DistributedExec` root. That lets us render the stage boxes via
-    /// `datafusion_distributed::display_plan_ascii`.
+    /// When `mpp_is_active()` we first rebuild against `producer_worker_cap()` (`mesh = None`)
+    /// so the distributed planner can emit a `DistributedExec` for display. If task
+    /// discovery says launch will not run (#5784 / `max_producer_task_count < 2`), rebuild
+    /// serially so the printed shape matches execution.
     fn render_df_physical_plan(
         df_state: &scan_state::DataFusionAggState,
         explainer: &mut Explainer,
@@ -1118,36 +1118,40 @@ impl AggregateScan {
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
-            let ctx = if mpp_is_active() {
-                // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
-                // The shared session-context builder takes `mesh = None` and derives `n_workers`
-                // from `producer_worker_cap()`, so the planner still emits a `DistributedExec`
-                // root with the right stage sizing for display.
-                Self::build_mpp_session_context(None)
-            } else {
-                create_aggregate_session_context()
-            };
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
                 explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
                 return;
             };
-            let plan_result = runtime.block_on(async {
-                let (logical, _) = build_join_aggregate_plan(
-                    &df_state.plan,
-                    &df_state.targetlist,
-                    df_state.topk.as_ref(),
-                    &df_state.join_level_predicates,
-                    custom_exprs,
-                    custom_scan_tlist,
-                    df_state.having_filter.as_ref(),
-                    &ctx,
-                    Some(expr_context.as_ptr()),
-                    None,
-                    false,
-                )
-                .await?;
-                build_physical_plan(&ctx, logical).await
-            });
+            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+                runtime.block_on(async {
+                    let (logical, _) = build_join_aggregate_plan(
+                        &df_state.plan,
+                        &df_state.targetlist,
+                        df_state.topk.as_ref(),
+                        &df_state.join_level_predicates,
+                        custom_exprs,
+                        custom_scan_tlist,
+                        df_state.having_filter.as_ref(),
+                        ctx,
+                        Some(expr_context.as_ptr()),
+                        None,
+                        false,
+                    )
+                    .await?;
+                    build_physical_plan(ctx, logical).await
+                })
+            };
+            let plan_result = if mpp_is_active() {
+                // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
+                // Plan against the cap first; fall back to serial when launch would not run (#5784).
+                match build_with(&Self::build_mpp_session_context(None)) {
+                    Ok(mpp_plan) if mpp_plan_has_data_parallelism(&mpp_plan) => Ok(mpp_plan),
+                    Ok(_) => build_with(&create_aggregate_session_context()),
+                    Err(e) => Err(e),
+                }
+            } else {
+                build_with(&create_aggregate_session_context())
+            };
             match plan_result {
                 Ok(p) => p,
                 Err(e) => {

@@ -106,16 +106,15 @@ impl MergeMemoryEstimate for SuperKMeansIvfClusterer {
     }
 
     // Mirrors the training-set sampling in tantivy's IVF merge. Peak residency is
-    // during `train`: the sampled training matrix plus superkmeans' rotated copy of
-    // it (`sample_and_rotate_vectors` always materializes one), its doc ids, and
-    // the centroid output.
+    // during `train`: the sampled training matrix (owned by superkmeans and rotated
+    // in place — no second copy), its doc ids, and the centroid output.
     fn estimated_merge_bytes(&self, num_docs: usize, dim: usize) -> usize {
         let num_centroids = ((num_docs as f64) * f64::from(self.centroid_ratio)).ceil() as usize;
         let num_centroids = num_centroids.clamp(1, num_docs.max(1));
         let training_samples =
             num_docs.min(num_centroids.saturating_mul(self.training_samples_per_centroid));
         let row_bytes = dim * self.bytes_per_dim();
-        training_samples * (2 * row_bytes + size_of::<u32>()) + num_centroids * row_bytes
+        training_samples * (row_bytes + size_of::<u32>()) + num_centroids * row_bytes
     }
 }
 
@@ -382,14 +381,14 @@ mod tests {
         let row = dim * 4;
         assert_eq!(
             clusterer.estimated_merge_bytes(1_000_000, dim),
-            320_000 * (2 * row + 4) + 10_000 * row
+            320_000 * (row + 4) + 10_000 * row
         );
 
         // sample count is capped at num_docs
         let saturated = SuperKMeansIvfClusterer::new().with_centroid_ratio(0.5);
         assert_eq!(
             saturated.estimated_merge_bytes(1000, dim),
-            1000 * (2 * row + 4) + 500 * row
+            1000 * (row + 4) + 500 * row
         );
 
         assert_eq!(clusterer.estimated_merge_bytes(0, dim), 4 * dim);

@@ -1,5 +1,5 @@
 {
-  description = "pg_search: full-text search for PostgreSQL using BM25";
+  description = "pg_search: one Postgres for your application data, full-text search, vector retrieval, and aggregations";
 
   # Flake inputs
   # To update all inputs: nix flake update

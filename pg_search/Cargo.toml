@@ -1,6 +1,6 @@
 [package]
 name = "pg_search"
-description = "Full text search for PostgreSQL using BM25"
+description = "One Postgres for your application data, full-text search, vector retrieval, and aggregations"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }

@@ -33,8 +33,8 @@
 //! [`tantivy::collector::sort_key::ComparatorEnum`] places according to the query's
 //! NULLS FIRST/LAST direction.
 
-use tantivy::collector::sort_key::shared_threshold::SharedThresholdArcOpt;
 use tantivy::collector::sort_key::ComparatorEnum;
+use tantivy::collector::sort_key::shared_threshold::SharedThresholdArcOpt;
 use tantivy::collector::{SegmentSortKeyComputer, SortKeyComputer};
 use tantivy::columnar::{Column, StrColumn};
 use tantivy::termdict::TermOrdinal;

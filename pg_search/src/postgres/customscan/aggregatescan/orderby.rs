@@ -16,19 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
-use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
+use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
+use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo,
+    PathKeyInfo, extract_pathkey_styles_with_sortability_check,
 };
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
-use crate::postgres::PgSearchRelation;
-use pgrx::pg_sys;
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use pgrx::PgList;
+use pgrx::pg_sys;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OrderByClause {

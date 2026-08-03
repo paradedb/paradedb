@@ -15,11 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! The proximity operators `##` and `##>`.
+//!
+//! The `#[opname]` attributes below spell them `# #` and `# #>`. Edition 2024 reserves `##` as a
+//! token sequence, so the hashes have to be separated in the macro input; pgrx strips the
+//! whitespace out of the `opname` token stream, so the operators Postgres sees are unchanged.
+
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use pgrx::{opname, pg_operator};
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##)]
+#[opname(pg_catalog.# #)]
 fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
     ProximityClause::Proximity {
         left: Box::new(left),
@@ -33,7 +39,7 @@ fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##)]
+#[opname(pg_catalog.# #)]
 fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
@@ -47,12 +53,14 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
                 right: Box::new(right),
             }
         }
-        _ => panic!("left hand side of `##` must be a `<token-expression> ## <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"),
+        _ => panic!(
+            "left hand side of `##` must be a `<token-expression> ## <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"
+        ),
     }
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##>)]
+#[opname(pg_catalog.# #>)]
 fn lhs_prox_in_order(left: ProximityClause, distance: i32) -> ProximityClause {
     ProximityClause::Proximity {
         left: Box::new(left),
@@ -66,7 +74,7 @@ fn lhs_prox_in_order(left: ProximityClause, distance: i32) -> ProximityClause {
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.##>)]
+#[opname(pg_catalog.# #>)]
 fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
@@ -80,6 +88,8 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
                 right: Box::new(right),
             }
         }
-        _ => panic!("left hand side of `##>` must be a `<token-expression> ##> <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"),
+        _ => panic!(
+            "left hand side of `##>` must be a `<token-expression> ##> <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"
+        ),
     }
 }

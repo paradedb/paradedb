@@ -21,7 +21,7 @@ use core::panic;
 use pgvector::Vector;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::{types::BigDecimal, PgConnection};
+use sqlx::{PgConnection, types::BigDecimal};
 use std::str::FromStr;
 use tests::fixtures::*;
 

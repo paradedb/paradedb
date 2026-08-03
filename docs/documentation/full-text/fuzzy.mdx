@@ -186,7 +186,10 @@ Edit distance is a measure of how many single-character operations are needed to
 
 - **Insertion** adds a character e.g., "shoe" → "shoes" (insert "s") has an edit distance of `1`
 - **Deletion** removes a character e.g. "runnning" → "running" (delete one "n") has an edit distance of `1`
-- **Transposition** replaces on character with another e.g., "shose" → "shoes" (transpose "s" → "e") has an edit distance of `2`
+- **Substitution** replaces one character with another e.g., "shoos" → "shoes" (substitute "o" → "e") has an edit distance of `1`
+
+Swapping two adjacent characters — a **transposition** — is not a distinct operation by default. "shose" → "shoes" costs two
+substitutions, so it has an edit distance of `2`. This can be lowered to `1`, see [transposition cost](#transposition-cost).
 
 <Note>For performance reasons, the maximum allowed edit distance is `2`.</Note>
 

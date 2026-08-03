@@ -29,9 +29,9 @@ use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
-use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
+use crate::postgres::customscan::pg_expr_udf::{PG_EXPR_UDF_PREFIX, PgExprUdf};
 use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
@@ -270,15 +270,15 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to deserialize SearchPredicateUDF: {e}"))
             })?;
-            if let Some(plan_position) = udf.plan_position() {
-                if !self.index_segment_ids.is_empty() {
-                    let ids = self
-                        .index_segment_ids
-                        .get(plan_position)
-                        .cloned()
-                        .expect("missing canonical segment IDs for plan_position");
-                    udf.set_canonical_segment_ids(ids);
-                }
+            if let Some(plan_position) = udf.plan_position()
+                && !self.index_segment_ids.is_empty()
+            {
+                let ids = self
+                    .index_segment_ids
+                    .get(plan_position)
+                    .cloned()
+                    .expect("missing canonical segment IDs for plan_position");
+                udf.set_canonical_segment_ids(ids);
             }
             return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
         }

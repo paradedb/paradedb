@@ -16,7 +16,7 @@ INSERT INTO issue_join_pre_filter_users SELECT i, 200 FROM generate_series(1, 10
 INSERT INTO issue_join_pre_filter_posts SELECT i, 'how using get create', i % 1000 + 1 FROM generate_series(1, 10000) i;
 ANALYZE issue_join_pre_filter_users;
 ANALYZE issue_join_pre_filter_posts;
-SET max_parallel_workers_per_gather = 2;
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan TO on;
 SET work_mem TO '4GB';
 -- Note: This test reliably reproduces the pre-filter "Column 0 not fetched" panic.

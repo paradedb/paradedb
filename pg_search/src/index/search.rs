@@ -19,7 +19,7 @@ use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
 use tokenizers::manager::SearchTokenizerFilters;
-use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
+use tokenizers::{SearchTokenizer, create_normalizer_manager, create_tokenizer_manager};
 
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
     let schema = index_relation.schema()?;

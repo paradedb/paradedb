@@ -22,12 +22,12 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 
 use pgrx::FromDatum;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{PgMemoryContexts, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::Field;
 use tantivy::{
+    DocId, DocSet, Score, SegmentReader, TERMINATED, Term,
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
-    DocId, DocSet, Score, SegmentReader, Term, TERMINATED,
 };
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression

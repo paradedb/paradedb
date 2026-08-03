@@ -17,8 +17,8 @@
 
 use cursive_core::align::HAlign;
 use cursive_table_view::TableViewItem;
-use postgres::types::{FromSql, Type};
 use postgres::Row;
+use postgres::types::{FromSql, Type};
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Display, Formatter};

@@ -1,4 +1,4 @@
-comment = 'pg_search: Full text search for PostgreSQL using BM25'
+comment = 'pg_search: One Postgres for your application data, full-text search, vector retrieval, and aggregations'
 default_version = '@CARGO_VERSION@'
 module_pathname = '$libdir/pg_search'
 relocatable = false

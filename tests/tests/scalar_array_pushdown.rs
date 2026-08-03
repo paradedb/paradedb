@@ -25,7 +25,7 @@ use std::fmt::Debug;
 use tests::fixtures::*;
 
 use tests::fixtures::querygen::opexprgen::{ArrayQuantifier, Operator, ScalarArrayOperator};
-use tests::fixtures::querygen::{compare, PgGucs};
+use tests::fixtures::querygen::{PgGucs, compare};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
@@ -83,7 +83,9 @@ pub struct ScalarArrayExpr {
 }
 
 impl ScalarArrayExpr {
-    fn sample_values(&self) -> impl Strategy<Value = String> {
+    // The strategy is built from owned data, so `use<>` keeps it from capturing the `&self`
+    // lifetime that edition 2024 would otherwise pull into the opaque type.
+    fn sample_values(&self) -> impl Strategy<Value = String> + use<> {
         let values = match self.column_type {
             ColumnType::Text => vec![
                 "'apple'".to_string(),

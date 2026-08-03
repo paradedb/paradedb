@@ -17,7 +17,7 @@
 
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 #[pg_extern(immutable, parallel_safe)]
 #[allow(clippy::too_many_arguments)]

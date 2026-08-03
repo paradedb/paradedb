@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use crate::api::{FieldName, HashMap};
 use crate::gucs;
-use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -590,6 +590,17 @@ impl BM25IndexOptions {
                     .cloned()
             })
             .or_else(|| {
+                // `datetime_fields` only applies to fields stored as tantivy Date. Indexes
+                // created by v0.24.1+ store datetimes as i64, where the option is deprecated
+                // and must be discarded: its `SearchFieldConfig::Date` cannot be converted to
+                // the tantivy options of an i64 field. The available options (fast) are already on
+                // by default for i64 anyways.
+                if !matches!(
+                    self.get_field_type(field_name),
+                    Some(SearchFieldType::Date(_))
+                ) {
+                    return None;
+                }
                 self.datetime_config()
                     .as_ref()
                     .unwrap()
@@ -703,10 +714,10 @@ impl BM25IndexOptions {
             .into_iter()
             .chain(self.aliased_json_configs())
         {
-            if &aliased_field_name == field_name {
-                if let Some(alias) = config.alias() {
-                    return self.get_field_type(&FieldName::from(alias.to_string()));
-                }
+            if &aliased_field_name == field_name
+                && let Some(alias) = config.alias()
+            {
+                return self.get_field_type(&FieldName::from(alias.to_string()));
             }
         }
 
@@ -746,12 +757,12 @@ impl BM25IndexOptions {
                 .into_iter()
                 .chain(self.aliased_json_configs())
             {
-                if aliased_name == current_name {
-                    if let Some(alias) = config.alias() {
-                        current_name = FieldName::from(alias.to_string());
-                        found_alias = true;
-                        break;
-                    }
+                if aliased_name == current_name
+                    && let Some(alias) = config.alias()
+                {
+                    current_name = FieldName::from(alias.to_string());
+                    found_alias = true;
+                    break;
                 }
             }
 

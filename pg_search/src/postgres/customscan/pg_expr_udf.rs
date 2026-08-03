@@ -36,8 +36,8 @@ use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::*;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
-use pgrx::pg_sys;
 use pgrx::PgMemoryContexts;
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use super::expr_eval::{InputVarInfo, PreparedPgExpr};

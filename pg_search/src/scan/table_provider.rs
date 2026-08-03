@@ -33,12 +33,12 @@ use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::ParallelScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
-use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
+use crate::scan::filter_pushdown::{FilterAnalyzer, combine_with_and};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::range_partitioning::RangePartitioningSample;
@@ -673,7 +673,7 @@ impl PgSearchTableProvider {
         let target_partitions = state.config().target_partitions();
         // The output partitions of the scan default to min(segments, target_partitions),
         // or exactly `target_partitions` when range partitioning is enabled.
-        // During distributed planning, the `PgSearchScanTaskEstimator` reads this partition
+        // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
         let partition_count = if self.range_sample.is_some() {
             // When using range partitioning, we target the session's target partitions.

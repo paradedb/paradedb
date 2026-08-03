@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use paradedb::{
-    confidence_interval_half_width, mean, percentile, percentile_confidence_interval, Window,
+    Window, confidence_interval_half_width, fnv1a, mean, percentile, percentile_confidence_interval,
 };
 use sqlx::{Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
@@ -34,7 +34,7 @@ mod convert;
 mod sample;
 mod utils;
 
-use config::{load_dataset_config, DatasetConfig, LoadFormat, SweepConfig};
+use config::{DatasetConfig, LoadFormat, SweepConfig, load_dataset_config};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -208,6 +208,10 @@ pub struct QueryRunResults {
     /// True when each sample is a distinct query vector rather than a repeat of one. Only then is
     /// the sample set a latency distribution, so only then are percentiles meaningful.
     pub per_vector: bool,
+    /// Hash of the held-out query vectors, in sample order. Published alongside the samples so a
+    /// later run can pair its samples with a baseline's index-by-index, and detect when the vector
+    /// set changed and pairing would be meaningless.
+    pub vector_hash: Option<u64>,
 }
 
 enum IndexCreationResult {
@@ -321,10 +325,28 @@ impl JSONBenchmarkResult {
             res.results.samples.len()
         );
 
+        // The raw per-vector samples ride along on the p50 entry (once per operating point, not
+        // per percentile), so a later run can pair its samples with this one's by index and test
+        // per-query latency ratios instead of comparing independent percentile estimates.
+        let samples_prefix = res.results.vector_hash.map(|hash| {
+            let samples = res
+                .results
+                .samples
+                .iter()
+                .map(|v| format!("{v:.3}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("samples_fnv={hash:016x}; samples=[{samples}]; ")
+        });
+
         TRACKED_PERCENTILES
             .iter()
             .map(|(label, p)| {
                 let (lo, hi) = percentile_confidence_interval(&res.results.samples, *p, 0.95);
+                let extra = match (*label, &samples_prefix) {
+                    ("p50", Some(prefix)) => format!("{prefix}{extra}"),
+                    _ => extra.clone(),
+                };
                 Self {
                     // " - " is the dashboard's chart-grouping separator, so an operating point's
                     // three percentiles share one chart instead of getting one each.
@@ -332,7 +354,7 @@ impl JSONBenchmarkResult {
                     unit: "ms",
                     value: percentile(&res.results.samples, *p),
                     range: format!("95% CI [{lo:.3}, {hi:.3}]"),
-                    extra: extra.clone(),
+                    extra,
                 }
             })
             .collect()
@@ -1142,10 +1164,10 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     let mut results = Vec::new();
     for (query_type, query) in parsed_queries {
         let query = substitute_vars(&query, &query_params)?;
-        if args.clear_caches {
-            if let Err(err) = clear_caches(&mut utility_conn).await {
-                panic!("Failed to clear caches before query: {err}");
-            }
+        if args.clear_caches
+            && let Err(err) = clear_caches(&mut utility_conn).await
+        {
+            panic!("Failed to clear caches before query: {err}");
         }
 
         sqlx::raw_sql("CHECKPOINT;")
@@ -1154,13 +1176,21 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             .with_context(|| "Failed to execute checkpoint.")?;
 
         println!("Query Type: {query_type}\nQuery: {query}");
+        // Alternatives are fixed reference plans -- the exact pre-filter, say -- never a swept
+        // operating point, so nothing builds a percentile series from them. Sampling one once per
+        // held-out vector costs hours at 10m rows to produce a distribution no series reads.
+        let query_vectors = if is_alternative(&query_type) {
+            &[][..]
+        } else {
+            &query_vectors[..]
+        };
         let result = execute_query_multiple_times(
             &args.url,
             &query_type,
             &query,
             args.runs,
             args.fail_on_error,
-            &query_vectors,
+            query_vectors,
         )
         .await?;
         match result {
@@ -1705,11 +1735,7 @@ fn queries(file: &Path) -> Vec<String> {
                 .join("$$")
                 .trim()
                 .to_owned();
-            if query.is_empty() {
-                None
-            } else {
-                Some(query)
-            }
+            if query.is_empty() { None } else { Some(query) }
         })
         .collect()
 }
@@ -1719,6 +1745,15 @@ fn extract_index_name(statement: &str) -> &str {
         .split_whitespace()
         .nth(2)
         .expect("Failed to parse index name")
+}
+
+/// Suffix given to a query file's second and later statements. Doubles as the dashboard's
+/// chart-grouping separator, so alternatives plot alongside the statement they vary.
+const ALTERNATIVE_MARKER: &str = " - alternative ";
+
+/// Whether `query_type` names a non-first statement of its file.
+fn is_alternative(query_type: &str) -> bool {
+    query_type.contains(ALTERNATIVE_MARKER)
 }
 
 fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
@@ -1735,7 +1770,7 @@ fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
             let query_type = if idx == 0 {
                 query_type.clone()
             } else {
-                format!("{query_type} - alternative {idx}")
+                format!("{query_type}{ALTERNATIVE_MARKER}{idx}")
             };
             (query_type, query)
         })
@@ -1887,7 +1922,9 @@ async fn execute_query_multiple_times(
     }
 
     let query_id = get_query_id(measured_query, &mut conn).await?;
-    let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
+    let stats_query = format!(
+        "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};"
+    );
 
     // Log the plan the timings will measure, so a benchmark run's logs show which execution
     // path (serial, PG-parallel Gather, MPP DistributedExec) each query took. ANALYZE makes
@@ -1934,6 +1971,7 @@ async fn execute_query_multiple_times(
             }
         }
         results.per_vector = true;
+        results.vector_hash = Some(fnv1a(query_vectors));
         for vector in query_vectors {
             set_query_vector(&mut conn, vector).await?;
             match run_once(&mut conn, query, stats_reset_query, &stats_query).await {
@@ -2119,6 +2157,7 @@ mod tests {
                 samples,
                 num_results: 10,
                 per_vector,
+                vector_hash: per_vector.then_some(0xdead_beef),
             },
         }
     }
@@ -2138,11 +2177,24 @@ mod tests {
                 "knn_top10_1pct@r95 - p99"
             ]
         );
-        assert!(out
-            .iter()
-            .all(|r| r.unit == "ms" && r.range.starts_with("95% CI [")));
+        assert!(
+            out.iter()
+                .all(|r| r.unit == "ms" && r.range.starts_with("95% CI ["))
+        );
+        // The raw samples ride on the p50 entry only, prefixed so the pairing metadata cannot
+        // collide with the free-form query text at the end.
+        assert!(
+            out[0]
+                .extra
+                .starts_with("samples_fnv=00000000deadbeef; samples=[1.000,2.000,"),
+            "{}",
+            out[0].extra
+        );
+        assert!(out[0].extra.ends_with(
+            "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
+        ));
         assert_eq!(
-            out[0].extra,
+            out[1].extra,
             "cold_query_ms=11.108; n=100; p50=50.500; p95=95.050; p99=99.010; query=SELECT 1"
         );
     }
@@ -2212,5 +2264,26 @@ mod tests {
             json,
             r#"{"name":"i build time","unit":"min","value":1.0,"range":"","extra":""}"#
         );
+    }
+
+    /// The marker is produced in one place and matched in another; a rename that touched only one
+    /// would silently restore the 100x sampling cost on reference plans.
+    #[test]
+    fn only_non_first_statements_count_as_alternatives() {
+        let file_stem = "knn_top10_10pct";
+        let named: Vec<String> = (0..3)
+            .map(|idx| {
+                if idx == 0 {
+                    file_stem.to_owned()
+                } else {
+                    format!("{file_stem}{ALTERNATIVE_MARKER}{idx}")
+                }
+            })
+            .collect();
+
+        assert!(!is_alternative(&named[0]));
+        assert!(named[1..].iter().all(|n| is_alternative(n)));
+        // A swept operating point is still the file's first statement.
+        assert!(!is_alternative(&format!("{file_stem}@r95")));
     }
 }

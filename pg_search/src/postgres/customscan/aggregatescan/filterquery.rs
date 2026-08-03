@@ -27,20 +27,20 @@
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys;
 use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use tantivy::TantivyError;
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::bucket::{FilterAggregation, QueryBuilder};
 use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
 use tantivy::schema::Schema;
 use tantivy::tokenizer::TokenizerManager;
-use tantivy::TantivyError;
 
 /// Type alias for the filter query builder function.
 /// Set at runtime to keep PostgreSQL symbols out of the typetag registration path

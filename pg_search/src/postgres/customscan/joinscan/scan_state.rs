@@ -32,7 +32,7 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{col, Expr};
+use datafusion::logical_expr::{Expr, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -50,18 +50,17 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
-    PredicateTranslator,
+    ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
+    build_join_df_with_filter, make_col, make_source_col, make_source_score_col,
+    translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
-use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use async_trait::async_trait;
 use datafusion::execution::context::{QueryPlanner, SessionState};
@@ -197,28 +196,22 @@ pub struct JoinScanState {
     /// plus first scan plus the network hop to the leader).
     pub stream_built_at: Option<std::time::Instant>,
 
-    /// Shared state for parallel execution.
-    /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
-    /// `initialize_worker_custom_scan` (in a worker), and then consumed in
-    /// `exec_custom_scan` to initialize the DataFusion execution plan.
-    pub parallel_state: Option<*mut ParallelScanState>,
-
     /// Captured source manifests held by the leader. Serves two purposes:
-    /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan` and
-    ///    segment readers for DSM population in `initialize_dsm_custom_scan`.
+    /// 1. Provides the segment readers `launch_mpp` needs (via `ParallelScanArgs`) to size
+    ///    and populate the shared `ParallelScanState` in DSM.
     /// 2. Keeps the underlying Tantivy buffer pins alive for the full duration of the
     ///    scan, preventing background merges from recycling the canonical segments.
     ///
-    /// Must live on `JoinScanState` (not as a local in `initialize_dsm`) because the
-    /// buffer pins must survive from DSM initialization through `exec_custom_scan`,
+    /// Must live on `JoinScanState` (not as a local in the launch) because the
+    /// buffer pins must survive from DSM population through `exec_custom_scan`,
     /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(ids)`.
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
     /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
-    /// prepared on first exec before planning, launched once the plan's stages are committed.
-    /// Stays `Inactive` on the serial path.
+    /// launched on first exec once the built plan's stages are committed (#5667: the plan
+    /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
     pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
 }
 
@@ -282,7 +275,11 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
-    builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+    builder
+        .with_physical_optimizer_rule(Arc::new(
+            super::range_partitioning_rule::RangeCoPartitionedJoinRule,
+        ))
+        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
 /// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
@@ -939,36 +936,35 @@ fn build_source_df<'a>(
         ) {
             required_early.insert(name.to_string());
             let attno = unsafe { get_source_attno_by_name(source, name) };
-            if let Some(attno) = attno {
-                if let Some(registered) = source.column_name(attno) {
-                    if registered != name {
-                        required_early.insert(registered);
-                    }
-                }
+            if let Some(attno) = attno
+                && let Some(registered) = source.column_name(attno)
+                && registered != name
+            {
+                required_early.insert(registered);
             }
         }
 
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in join_clause.plan.join_keys() {
-            if source.contains_rti(jk.outer_rti) {
-                if let Some(col) = source.column_name(jk.outer_attno) {
-                    required_early.insert(col);
-                }
+            if source.contains_rti(jk.outer_rti)
+                && let Some(col) = source.column_name(jk.outer_attno)
+            {
+                required_early.insert(col);
             }
-            if source.contains_rti(jk.inner_rti) {
-                if let Some(col) = source.column_name(jk.inner_attno) {
-                    required_early.insert(col);
-                }
+            if source.contains_rti(jk.inner_rti)
+                && let Some(col) = source.column_name(jk.inner_attno)
+            {
+                required_early.insert(col);
             }
         }
         // Columns referenced by `JoinNode.filter` (e.g. a disjunctive Semi/Anti
         // `PgExpression`) must also be materialized eagerly — the filter is
         // evaluated per row pair before the join emits anything.
         for (rti, attno) in join_clause.plan.filter_input_vars() {
-            if source.contains_rti(rti) {
-                if let Some(col) = source.column_name(attno) {
-                    required_early.insert(col);
-                }
+            if source.contains_rti(rti)
+                && let Some(col) = source.column_name(attno)
+            {
+                required_early.insert(col);
             }
         }
 
@@ -1000,10 +996,10 @@ fn build_source_df<'a>(
                     }
                     OrderByFeature::Var { rti, attno, .. } => {
                         // Only insert columns belonging to THIS source
-                        if source.contains_rti(*rti) {
-                            if let Some(col_name) = source.column_name(*attno) {
-                                required_early.insert(col_name);
-                            }
+                        if source.contains_rti(*rti)
+                            && let Some(col_name) = source.column_name(*attno)
+                        {
+                            required_early.insert(col_name);
                         }
                     }
                     OrderByFeature::Score { .. } | OrderByFeature::VectorDistance { .. } => {}

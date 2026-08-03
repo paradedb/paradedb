@@ -4,6 +4,7 @@
 -- Tests: non-unique join keys, 3+ table outer joins, mixed join types
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================

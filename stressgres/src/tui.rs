@@ -18,6 +18,7 @@
 use crate::runner::{ConnInfo, JobRunner, RuntimeStats, SuiteRunner};
 use crate::table_helper::ArbitraryTableRow;
 use anyhow::Error;
+use cursive_core::Cursive;
 use cursive_core::align::HAlign;
 use cursive_core::event::Event;
 use cursive_core::style::{BaseColor, Color, ColorStyle, ColorType, PaletteColor};
@@ -25,7 +26,6 @@ use cursive_core::traits::{Nameable, Resizable};
 use cursive_core::utils::markup::StyledString;
 use cursive_core::view::SizeConstraint;
 use cursive_core::views::{LinearLayout, NamedView, Panel, ResizedView, TextView};
-use cursive_core::Cursive;
 use cursive_multiplex::Mux;
 use cursive_table_view::TableView;
 use human_bytes::human_bytes;
@@ -35,9 +35,9 @@ use std::fmt::Display;
 use std::num::NonZeroU32;
 use std::ops::DerefMut;
 use std::panic::panic_any;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 

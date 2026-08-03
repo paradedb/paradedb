@@ -67,8 +67,8 @@
 #![allow(static_mut_refs)]
 
 use crate::api::HashMap;
-use crate::postgres::insert::{insertcleanup, InsertMode, InsertState};
-use pgrx::pg_sys::{uint64, QueryDesc, ScanDirection};
+use crate::postgres::insert::{InsertMode, InsertState, insertcleanup};
+use pgrx::pg_sys::{QueryDesc, ScanDirection, uint64};
 use pgrx::{pg_guard, pg_sys};
 use std::collections::hash_map::Entry;
 

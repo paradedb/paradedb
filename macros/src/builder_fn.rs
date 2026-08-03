@@ -17,9 +17,9 @@
 
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
-use syn::__private::{quote, ToTokens};
+use syn::__private::{ToTokens, quote};
 use syn::spanned::Spanned;
-use syn::{parse_macro_input, FnArg, ItemFn, Pat};
+use syn::{FnArg, ItemFn, Pat, parse_macro_input};
 
 pub fn builder_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut stream = proc_macro2::TokenStream::new();
@@ -61,7 +61,9 @@ fn build_function(item_fn: &ItemFn) -> Result<proc_macro2::TokenStream, syn::Err
     if attributes.is_empty() {
         return Err(syn::Error::new(
             item_fn.span(),
-            err("`#[builder_fn]` must be attached to a function prior to the `#[pg_extern]` definition"),
+            err(
+                "`#[builder_fn]` must be attached to a function prior to the `#[pg_extern]` definition",
+            ),
         ));
     }
 

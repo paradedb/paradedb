@@ -1,6 +1,6 @@
 [package]
 name = "pg_search"
-description = "Full text search for PostgreSQL using BM25"
+description = "One Postgres for your application data, full-text search, vector retrieval, and aggregations"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
@@ -89,7 +89,7 @@ bytes = { version = "1", features = ["serde"] }
 # both point to the same datafusion ref.
 datafusion = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
 datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-07-27-225116", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-07-30-083335", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"
@@ -110,6 +110,3 @@ superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "s
 pgrx-tests.workspace = true
 rstest = "0.25.0"
 proptest = "1.11.0"
-
-[package.metadata.cargo-machete]
-ignored = ["indexmap", "tantivy-common"]

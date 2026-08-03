@@ -28,18 +28,18 @@ use crate::api::{FieldName, QueryVector};
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
 use crate::postgres::catalog::{
-    lookup_collation_locale, lookup_database_collation_locale, CollationLocale, CollationProvider,
+    CollationLocale, CollationProvider, lookup_collation_locale, lookup_database_collation_locale,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
-    fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers, VarContext,
+    VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,
 };
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
-use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_sys};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -138,12 +138,12 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
 }
 
 unsafe fn extract_score_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if score_funcoids().contains(&(*funcexpr).funcid) {
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            if args.len() == 1 {
-                return nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
-            }
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+        && score_funcoids().contains(&(*funcexpr).funcid)
+    {
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        if args.len() == 1 {
+            return nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
         }
     }
     None
@@ -179,17 +179,15 @@ unsafe fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_s
         pg_sys::NodeTag::T_Var => Some(node as *mut pg_sys::Var),
         pg_sys::NodeTag::T_FuncExpr => {
             let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::FuncExpr)).args);
-            let result = args
-                .iter_ptr()
-                .find_map(|arg| extract_any_var_from_expr(arg));
-            result
+
+            args.iter_ptr()
+                .find_map(|arg| extract_any_var_from_expr(arg))
         }
         pg_sys::NodeTag::T_OpExpr => {
             let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::OpExpr)).args);
-            let result = args
-                .iter_ptr()
-                .find_map(|arg| extract_any_var_from_expr(arg));
-            result
+
+            args.iter_ptr()
+                .find_map(|arg| extract_any_var_from_expr(arg))
         }
         pg_sys::NodeTag::T_RelabelType => {
             extract_any_var_from_expr((*(node as *mut pg_sys::RelabelType)).arg.cast())
@@ -240,26 +238,26 @@ pub unsafe fn analyze_sort_expression(
     // expressions like `lower(description)::pdb.literal('alias=literal_description')`
     // so subsequent sortability checks use `literal_description` rather than the heap
     // column name `description`.
-    if let Some(info) = index_info {
-        if let Some(fast_field) = find_matching_fast_field(
+    if let Some(info) = index_info
+        && let Some(fast_field) = find_matching_fast_field(
             node,
             info.index_expressions,
             info.schema.clone(),
             info.heap_rti,
-        ) {
-            let field_name = FieldName::from(fast_field.name());
-            if let Some(var) = extract_any_var_from_expr(node) {
-                return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
-            }
+        )
+    {
+        let field_name = FieldName::from(fast_field.name());
+        if let Some(var) = extract_any_var_from_expr(node) {
+            return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
         }
     }
 
-    if let Some(info) = index_info {
-        if let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema) {
-            let (relid, attno) = context.var_relation(var);
-            let field_name = fieldname_from_var(relid, var, attno);
-            return Some((vector_sort, var, field_name));
-        }
+    if let Some(info) = index_info
+        && let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema)
+    {
+        let (relid, attno) = context.var_relation(var);
+        let field_name = fieldname_from_var(relid, var, attno);
+        return Some((vector_sort, var, field_name));
     }
 
     if let Some(var) = extract_lower_var(node) {
@@ -542,10 +540,10 @@ where
             // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
             // that might be wrapped.
             let mut expr_to_analyze = expr;
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
-                    expr_to_analyze = funcexpr.cast();
-                }
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr)
+                && let Some(funcexpr) = extract_funcexpr_from_placeholder(phv)
+            {
+                expr_to_analyze = funcexpr.cast();
             }
 
             let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
@@ -571,48 +569,45 @@ where
                         break;
                     }
                     SortExpressionType::Lower => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if lower_sortability_check(&search_field) {
-                                    pathkey_styles.push(OrderByStyle::Field {
-                                        pathkey,
-                                        name: field_name,
-                                        rti,
-                                    });
-                                    found_valid_member = true;
-                                    break;
-                                }
-                            }
+                        if let Some(field_name) = field_name_opt
+                            && let Some(search_field) = schema.search_field(field_name.root())
+                            && lower_sortability_check(&search_field)
+                        {
+                            pathkey_styles.push(OrderByStyle::Field {
+                                pathkey,
+                                name: field_name,
+                                rti,
+                            });
+                            found_valid_member = true;
+                            break;
                         }
                     }
                     SortExpressionType::Raw => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if regular_sortability_check(&search_field) {
-                                    pathkey_styles.push(OrderByStyle::Field {
-                                        pathkey,
-                                        name: field_name,
-                                        rti,
-                                    });
-                                    found_valid_member = true;
-                                    break;
-                                }
-                            }
+                        if let Some(field_name) = field_name_opt
+                            && let Some(search_field) = schema.search_field(field_name.root())
+                            && regular_sortability_check(&search_field)
+                        {
+                            pathkey_styles.push(OrderByStyle::Field {
+                                pathkey,
+                                name: field_name,
+                                rti,
+                            });
+                            found_valid_member = true;
+                            break;
                         }
                     }
                     SortExpressionType::IndexedExpression => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if search_field.is_fast() {
-                                    pathkey_styles.push(OrderByStyle::Field {
-                                        pathkey,
-                                        name: field_name,
-                                        rti,
-                                    });
-                                    found_valid_member = true;
-                                    break;
-                                }
-                            }
+                        if let Some(field_name) = field_name_opt
+                            && let Some(search_field) = schema.search_field(field_name.root())
+                            && search_field.is_fast()
+                        {
+                            pathkey_styles.push(OrderByStyle::Field {
+                                pathkey,
+                                name: field_name,
+                                rti,
+                            });
+                            found_valid_member = true;
+                            break;
                         }
                     }
                     SortExpressionType::VectorDistance {

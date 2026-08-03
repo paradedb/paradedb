@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::DataFusionError;
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryPool, MemoryReservation};
 use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};

@@ -25,9 +25,9 @@ mod scan_state;
 pub(crate) mod telemetry;
 
 use cost::{
+    CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
     costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
-    topk_can_prune_for_method, CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason,
-    WorkerPathPolicy,
+    topk_can_prune_for_method,
 };
 
 use std::ffi::CStr;
@@ -41,22 +41,22 @@ use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
+use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
-    fast_fields, normal::NormalScanExecState, ExecState,
+    ExecState, fast_fields, normal::NormalScanExecState,
 };
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::projections::snippet::{
-    snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
+    SnippetType, snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets,
 };
 use crate::postgres::customscan::basescan::projections::window_agg::{
-    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
-    WindowAggregateInfo,
+    WindowAggregateInfo, deserialize_window_agg_placeholders,
+    resolve_window_aggregate_filters_at_plan_time,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType,
+    CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType, restrict_info,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -64,22 +64,22 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
+    PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
 use crate::postgres::customscan::parallel::{
-    compute_nworkers, list_segment_ids, max_useful_workers, RowEstimate,
+    RowEstimate, compute_nworkers, list_segment_ids, max_useful_workers,
 };
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
-    PlannerContext, Qual, QualExtractState,
+    PlannerContext, Qual, QualExtractState, extract_join_predicates, extract_quals, is_subplan,
+    optimize_quals_with_heap_expr,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
-    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
+    self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -88,16 +88,16 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
 };
-use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
+use crate::query::pdb_query::pdb;
 use crate::schema::SearchIndexSchema;
-use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
+use crate::{DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
-use tantivy::snippet::SnippetGenerator;
+use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::Index;
+use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScan;
@@ -363,7 +363,7 @@ impl BaseScan {
         }
 
         // Apply HeapExpr optimization to the base relation quals
-        if let Some(ref mut q) = quals {
+        if let Some(q) = quals {
             optimize_quals_with_heap_expr(q);
         }
 
@@ -796,7 +796,14 @@ impl CustomScan for BaseScan {
                 let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
                 let unnest_override = classify_target_list_srf(builder.args().root).is_safe();
 
-                (pg_says_pushable || lo.has_any_param() || unnest_override)
+                // PG zeroes `limit_tuples` whenever a WindowAgg sits between the LIMIT and the
+                // scan, because in general a window function needs every row. When the window is
+                // a bare ranking over the same order as the LIMIT, the top N rows *are* the first
+                // N in window order, so feeding the WindowAgg only those N is result-preserving.
+                // This is what makes the natural RRF hybrid-search shape a Top K scan. See #5742.
+                let window_override = window_limit_pushdown_is_safe(parse);
+
+                (pg_says_pushable || lo.has_any_param() || unnest_override || window_override)
                     && is_limit_pushdown_safe(
                         builder.args().root,
                         rel,
@@ -1110,28 +1117,28 @@ impl CustomScan for BaseScan {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
                 // Note: root was not available in the planner hook, so we needed to delay this until now.
                 let private_data = builder.custom_private();
-                if let Some(heaprelid) = private_data.heaprelid() {
-                    if let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
-                        let root = builder.args().root;
-                        let rti = private_data
-                            .range_table_index()
-                            .expect("range table index should be set");
+                if let Some(heaprelid) = private_data.heaprelid()
+                    && let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid)
+                {
+                    let root = builder.args().root;
+                    let rti = private_data
+                        .range_table_index()
+                        .expect("range table index should be set");
 
-                        resolve_window_aggregate_filters_at_plan_time(
-                            &mut window_aggregates,
-                            &bm25_index,
-                            root,
-                            rti,
-                        );
+                    resolve_window_aggregate_filters_at_plan_time(
+                        &mut window_aggregates,
+                        &bm25_index,
+                        root,
+                        rti,
+                    );
 
-                        // Validate that all fields in window aggregates exist in the index schema
-                        // and are supported for aggregate pushdown (not NUMERIC)
-                        if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
-                            for window_agg in &window_aggregates {
-                                for agg_type in window_agg.targetlist.aggregates() {
-                                    if let Err(e) = agg_type.validate_fields(&schema) {
-                                        pgrx::error!("{}", e);
-                                    }
+                    // Validate that all fields in window aggregates exist in the index schema
+                    // and are supported for aggregate pushdown (not NUMERIC)
+                    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
+                        for window_agg in &window_aggregates {
+                            for agg_type in window_agg.targetlist.aggregates() {
+                                if let Err(e) = agg_type.validate_fields(&schema) {
+                                    pgrx::error!("{}", e);
                                 }
                             }
                         }
@@ -1404,10 +1411,10 @@ impl CustomScan for BaseScan {
             );
         }
 
-        if explainer.is_verbose() {
-            if let Some(reason) = state.custom_state().worker_selection_reason {
-                explainer.add_text("Worker Selection", reason.label());
-            }
+        if explainer.is_verbose()
+            && let Some(reason) = state.custom_state().worker_selection_reason
+        {
+            explainer.add_text("Worker Selection", reason.label());
         }
 
         if explainer.is_analyze() {
@@ -1739,10 +1746,10 @@ impl CustomScan for BaseScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Leader-only: last chance to read DSM before Postgres destroys it.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel {
-            if parallel.is_leader() {
-                parallel.finalize_explain(&mut scan_state.telemetry);
-            }
+        if let Some(parallel) = scan_state.parallel
+            && parallel.is_leader()
+        {
+            parallel.finalize_explain(&mut scan_state.telemetry);
         };
     }
 
@@ -1751,10 +1758,10 @@ impl CustomScan for BaseScan {
         // Leader: do not touch DSM — Shutdown already ran (or serial path).
         {
             let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel {
-                if !parallel.is_leader() {
-                    parallel.publish_telemetry(&scan_state.telemetry);
-                }
+            if let Some(parallel) = scan_state.parallel
+                && !parallel.is_leader()
+            {
+                parallel.publish_telemetry(&scan_state.telemetry);
             }
         }
 
@@ -1826,6 +1833,112 @@ unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
         return false;
     };
     (*sort_clause).tleSortGroupRef == (*target_entry).ressortgroupref
+}
+
+/// Returns true if the scan may return only `LIMIT + OFFSET` rows even though a WindowAgg sits
+/// above it, i.e. the window functions compute the same values over that truncated input.
+///
+/// Four things all have to hold:
+///
+///   - The window functions are the *only* reason PG zeroed `limit_tuples`. That one field also
+///     stands in for `GROUP BY`, `GROUPING SETS`, `DISTINCT`, aggregates and `HAVING`, each of
+///     which collapses rows above the WindowAgg, so the top N of the final result needs more
+///     than N rows out of the scan.
+///   - Every window function is position-only (`row_number`, `rank`, `dense_rank`). One that reads
+///     the whole partition -- `sum(x) OVER ()`, `percent_rank()`, `cume_dist()` -- returns a
+///     different value over a truncated input.
+///   - No `PARTITION BY`. Partitions draw rows from outside the top N, so truncating first
+///     renumbers them.
+///   - The window ordering matches the query's `ORDER BY`. Otherwise the top N by the query's
+///     ordering are not the first N in window order, and the ranks shift.
+unsafe fn window_limit_pushdown_is_safe(parse: *mut pg_sys::Query) -> bool {
+    let Some(parse_ref) = parse.as_ref() else {
+        return false;
+    };
+    if parse_ref.windowClause.is_null() || parse_ref.sortClause.is_null() {
+        return false;
+    }
+    if !parse_ref.groupClause.is_null()
+        || !parse_ref.groupingSets.is_null()
+        || !parse_ref.distinctClause.is_null()
+        || !parse_ref.havingQual.is_null()
+        || parse_ref.hasAggs
+    {
+        return false;
+    }
+
+    let windows = PgList::<pg_sys::WindowClause>::from_pg(parse_ref.windowClause);
+    for wc in windows.iter_ptr() {
+        if !(*wc).partitionClause.is_null() {
+            return false;
+        }
+        if !pg_sys::equal(
+            (*wc).orderClause.cast::<core::ffi::c_void>(),
+            parse_ref.sortClause.cast::<core::ffi::c_void>(),
+        ) {
+            return false;
+        }
+    }
+
+    window_funcs_are_position_only(parse)
+}
+
+/// Returns true if every window function in `parse` derives solely from a row's position in the
+/// window ordering (`row_number`, `rank`, `dense_rank`).
+unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
+    use pgrx::pg_guard;
+
+    struct Context {
+        position_only: bool,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        let ctx = context.cast::<Context>();
+
+        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node)
+            && !matches!(
+                (*wfunc).winfnoid.to_u32(),
+                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
+            )
+        {
+            (*ctx).position_only = false;
+            return true;
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let Some(parse) = parse.as_ref() else {
+        return false;
+    };
+    if parse.targetList.is_null() {
+        return false;
+    }
+
+    let mut context = Context {
+        position_only: true,
+    };
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    for te in tlist.iter_ptr() {
+        if (*te).expr.is_null() {
+            continue;
+        }
+        walker(
+            (*te).expr.cast::<pg_sys::Node>(),
+            addr_of_mut!(context).cast::<core::ffi::c_void>(),
+        );
+        if !context.position_only {
+            return false;
+        }
+    }
+    context.position_only
 }
 
 ///
@@ -2482,10 +2595,10 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     // Check reltarget exprs.
     let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);
     for rte in reltarget_exprs.iter_ptr() {
-        if let Some(var) = nodecast!(Var, T_Var, rte) {
-            if (*var).varno as u32 == rte_index {
-                referenced_columns.insert((*var).varattno);
-            }
+        if let Some(var) = nodecast!(Var, T_Var, rte)
+            && (*var).varno as u32 == rte_index
+        {
+            referenced_columns.insert((*var).varattno);
         }
         // NOTE: Unless we encounter the fallback in `compute_exec_which_fast_fields`, then we
         // can be reasonably confident that directly inspecting Vars is sufficient. We haven't

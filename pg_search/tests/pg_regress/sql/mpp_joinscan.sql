@@ -4,7 +4,7 @@
 -- Same dataset shape as mpp_aggregate.sql but the queries don't
 -- aggregate — they project columns through a JOIN under a LIMIT,
 -- which is what JoinScan activates on. Two passes: serial baseline
--- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 4). Results must
+-- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 3). Results must
 -- match across the two passes; the EXPLAIN trees differ.
 -- =====================================================================
 
@@ -13,8 +13,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 
-SET paradedb.mpp_worker_count TO 4;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
 -- planner picks the serial JoinScan and MPP never activates.
@@ -105,13 +104,13 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
--- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same query, same results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same query, same results.
 -- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
 -- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
 -- fragment dispatch, leader-side NetworkCoalesceExec gather).
 -- =====================================================================
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -161,7 +160,7 @@ DROP FUNCTION mpp_explain_analyze_lines(text);
 -- to the worker.
 -- =====================================================================
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -198,6 +197,36 @@ SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
   AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
+-- Pass 6: outer joins keep the shuffle path
+--
+-- The co-partitioned range flip applies to inner joins only. A LEFT JOIN
+-- must keep the shuffle-based shape and stay correct under MPP.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 4;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SET max_parallel_workers_per_gather TO 0;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 

@@ -20,8 +20,8 @@ use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
-use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::datum::ToIsoString;
+use pgrx::datum::datetime_support::DateTimeConversionError;
 use serde::{Deserialize, Serialize};
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
@@ -47,20 +47,6 @@ pub fn unix_millis_to_pg_micros(unix_millis: i64) -> i64 {
     let unix_micros = unix_millis.checked_mul(1_000).unwrap();
     unix_micros_to_pg_micros(unix_micros)
 }
-
-/// The minimum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
-/// converted between Postgres types and Tantivy without underflowing i64 when floored to the
-/// day.
-#[allow(dead_code)]
-pub const MIN_SAFE_TANTIVY_NANOS: i64 =
-    (i64::MIN / 1_000_000_000 / 86_400) * 86_400 * 1_000_000_000;
-
-/// The maximum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
-/// converted between Postgres types and Tantivy without overflowing i64 when floored to the
-/// day.
-#[allow(dead_code)]
-pub const MAX_SAFE_TANTIVY_NANOS: i64 =
-    (i64::MAX / 1_000_000_000 / 86_400) * 86_400 * 1_000_000_000;
 
 /// The minimum microseconds from 1970-01-01 00:00:00 UTC that can be safely
 /// converted between Postgres types and Tantivy without underflowing i64 when floored to the
@@ -132,7 +118,11 @@ impl PostgresDateTime {
     }
 
     pub fn try_from_unix_nanos(unix_nanos: i64) -> Result<Self, DateTimeConversionError> {
-        assert_eq!(unix_nanos % 1_000, 0, "We should never see a timestamp with greater than microsecond precision because postgres only supports microsecond precision");
+        assert_eq!(
+            unix_nanos % 1_000,
+            0,
+            "We should never see a timestamp with greater than microsecond precision because postgres only supports microsecond precision"
+        );
         let unix_micros = unix_nanos / 1_000;
         Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
     }
@@ -214,10 +204,10 @@ impl TryFrom<&str> for PostgresDateTime {
 }
 /// Cheap way to skip full parsing of things that can't be valid rfc3339 dates
 fn can_be_rfc3339_date_time(text: &str) -> bool {
-    if let Some(&first_byte) = text.as_bytes().first() {
-        if first_byte.is_ascii_digit() {
-            return true;
-        }
+    if let Some(&first_byte) = text.as_bytes().first()
+        && first_byte.is_ascii_digit()
+    {
+        return true;
     }
 
     false

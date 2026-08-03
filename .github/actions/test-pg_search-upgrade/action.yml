@@ -15,11 +15,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Extract pgrx Version
-      id: pgrx
-      shell: bash
-      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
     - name: Preserve SQL Files
       shell: bash
       run: |
@@ -111,6 +106,13 @@ runs:
           git fetch origin ${{ github.sha }}:commit-${{ github.sha }}
           git checkout commit-${{ github.sha }}
         fi
+
+    # Must read the rev checked out above, not the `actions/checkout` merge ref
+    # at the top: they disagree whenever the base bumps pgrx after a PR is cut.
+    - name: Extract pgrx Version
+      id: pgrx
+      shell: bash
+      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
     - name: Install the pgrx version for ParadeDB
       shell: bash

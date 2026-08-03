@@ -15,17 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::typmod::{save_typmod, ParsedTypmod};
+use crate::api::tokenizers::typmod::{ParsedTypmod, save_typmod};
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{extension_sql, function_name, pg_extern, Array, PgLogLevel, PgSqlErrorCode};
+use pgrx::{Array, PgLogLevel, PgSqlErrorCode, extension_sql, function_name, pg_extern};
 use std::ffi::{CStr, CString};
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
     use crate::api::operator::{boost, const_score, fuzzy, slop};
     use crate::api::tokenizers::{
-        tokenize, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
-        TextArrayMarker, UuidMarker, VarcharArrayMarker,
+        DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker, TextArrayMarker,
+        UuidMarker, VarcharArrayMarker, tokenize,
     };
     use macros::generate_tokenizer_sql;
     use paste::paste;
@@ -34,10 +34,10 @@ pub(crate) mod pdb {
     use pgrx::pgrx_sql_entity_graph::metadata::{
         ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
-    use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
+    use pgrx::{FromDatum, IntoDatum, extension_sql, pg_extern, pg_sys};
     use std::ffi::CString;
-    use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
     use tokenizers::SearchTokenizer;
+    use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 
     pub trait TokenizerCtor {
         fn make_search_tokenizer() -> SearchTokenizer;

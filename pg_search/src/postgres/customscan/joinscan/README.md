@@ -38,10 +38,11 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 [`scan_state.rs`](scan_state.rs) builds a DataFusion logical plan from the `JoinCSClause`, then runs [physical optimization][optimizer-rules]:
 
-1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning
+1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning, sampling both sides of the join and injecting the merged sample into both `PgSearchTableProvider`s
 2. **`LateMaterializationRule`** — injects [`TantivyLookupExec`][lookup-exec] to defer string materialization
-3. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
-4. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
+3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` inner hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts, so MPP joins partition pairs task-locally instead of broadcasting the build side
+4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
+5. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
 
 If `max_parallel_workers_per_gather > 0` and PostgreSQL has planned parallel execution, `DistributedPlanner` converts the finalized physical plan into an MPP execution tree (`DistributedExec`), slicing it into isolated tasks.
 
@@ -67,7 +68,7 @@ JoinScan does not use DataFusion's standard in-process multithreading. Since Pos
 
 Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. We map PostgreSQL parallel workers to distributed tasks based on segment count:
 
-1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`.
+1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected a range sample, the scan instead declares `Partitioning::Range` with the sample's split points, which lets DataFusion treat the two sides of a join as co-partitioned.
 2. **Task Estimation**: During MPP planning, [`PgSearchScanTaskEstimator`](../../../scan/execution_plan.rs) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
 3. **Execution Routing**: This routes large multi-segment tables to scale out across all available PostgreSQL parallel workers, where each parallel worker uses `ParallelScanState` to lazily claim segments. Conversely, tables with a single segment evaluate to exactly 1 task; `datafusion-distributed` detects the absence of parallel work, avoids MPP planning overhead entirely, and falls back to running the query via local serial execution on a single worker.
 
@@ -80,7 +81,7 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 | [`scan_state.rs`](scan_state.rs)                           | DataFusion plan building, [optimizer registration][optimizer-rules], result streaming |
 | [`planning.rs`](planning.rs)                               | Cost estimation, field validation, ORDER BY extraction                                |
 | [`predicate.rs`](predicate.rs)                             | Postgres expression → `JoinLevelExpr`                                                 |
-| [`range_partitioning_rule.rs`](range_partitioning_rule.rs) | Optimizer rule for synchronizing Join-side MPP partition boundaries                   |
+| [`range_partitioning_rule.rs`](range_partitioning_rule.rs) | Rules that synchronize Join-side MPP partition boundaries and co-partition the join   |
 | [`translator.rs`](translator.rs)                           | Postgres ↔ DataFusion expression mapping                                              |
 | [`explain.rs`](explain.rs)                                 | EXPLAIN output formatting                                                             |
 

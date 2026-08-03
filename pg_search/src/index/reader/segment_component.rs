@@ -22,9 +22,9 @@ use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
 use std::io::Error;
 use std::ops::Range;
+use tantivy::HasLen;
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
-use tantivy::HasLen;
 
 #[derive(Debug)]
 pub struct SegmentComponentReader {

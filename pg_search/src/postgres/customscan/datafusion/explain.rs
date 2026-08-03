@@ -30,7 +30,7 @@ use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinLevelExpr, 
 use crate::postgres::deparse::node_to_string_fallback;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
-use datafusion_distributed::{display_plan_ascii, DistributedExec};
+use datafusion_distributed::{DistributedExec, display_plan_ascii};
 use pgrx::pg_sys;
 use std::sync::Arc;
 

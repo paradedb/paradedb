@@ -17,9 +17,9 @@
 
 use pretty_assertions::assert_eq;
 use rstest::*;
+use sqlx::PgConnection;
 use sqlx::postgres::types::PgRange;
 use sqlx::types::time::{Date, OffsetDateTime, PrimitiveDateTime};
-use sqlx::PgConnection;
 use std::fmt::{Debug, Display};
 use std::ops::Bound;
 use strum::IntoEnumIterator;

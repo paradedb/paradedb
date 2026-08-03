@@ -15,16 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
+use crate::customscan::aggregatescan::exec::AggregationResultsRow;
+use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
+use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::CustomScanState;
-use crate::postgres::PgSearchRelation;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -80,10 +82,14 @@ pub struct DataFusionAggState {
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
     /// Where MPP sits in its launch lifecycle for this scan: plan bytes stashed at begin,
-    /// prepared on first exec before planning, launched once the plan's stages are committed.
-    /// Stays `Inactive` on the serial path. Applies only when parallel execution is enabled and
-    /// the query qualifies (binary join + supported aggregate).
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// launched on first exec once the built plan's stages are committed (#5667: the plan
+    /// comes first; workers spawn only after it exists). Stays `Inactive` on the serial path.
+    /// Applies only when parallel execution is enabled and the query qualifies (binary join +
+    /// supported aggregate).
+    pub mpp: MppLifecycle,
+    /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
+    /// query launched distributed.
+    pub launch_timing: Option<MppLaunchTiming>,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own
@@ -182,14 +188,13 @@ impl SolvePostgresExpressions for AggregateScanState {
         // Check both the Tantivy-path search queries and DataFusion-path
         // join-level predicates for unresolved PostgresExpression nodes
         // (prepared statement parameters like $1).
-        if let Some(ref mut df) = self.datafusion_state {
-            if df
+        if let Some(ref mut df) = self.datafusion_state
+            && df
                 .join_level_predicates
                 .iter_mut()
                 .any(|p| p.query.has_postgres_expressions())
-            {
-                return true;
-            }
+        {
+            return true;
         }
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
@@ -199,14 +204,13 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn has_parameters(&mut self) -> bool {
-        if let Some(ref mut df) = self.datafusion_state {
-            if df
+        if let Some(ref mut df) = self.datafusion_state
+            && df
                 .join_level_predicates
                 .iter_mut()
                 .any(|p| p.query.has_parameters())
-            {
-                return true;
-            }
+        {
+            return true;
         }
         self.aggregate_clause.query_mut().has_parameters()
             || self
@@ -219,10 +223,10 @@ impl SolvePostgresExpressions for AggregateScanState {
         if let Some(base) = &self.base_aggregate_clause {
             self.aggregate_clause = base.clone();
         }
-        if let Some(ref mut df) = self.datafusion_state {
-            if let Some(base) = &df.base_join_level_predicates {
-                df.join_level_predicates = base.clone();
-            }
+        if let Some(ref mut df) = self.datafusion_state
+            && let Some(base) = &df.base_join_level_predicates
+        {
+            df.join_level_predicates = base.clone();
         }
     }
 

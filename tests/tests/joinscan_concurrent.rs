@@ -27,10 +27,10 @@
 use anyhow::Result;
 use rstest::*;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tests::fixtures::*;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// Helper to verify a query uses JoinScan
 fn assert_uses_joinscan(conn: &mut sqlx::PgConnection, query: &str) {

@@ -61,7 +61,9 @@ BASEVER=$(echo "${PGVER}" | cut -f1 -d.)
 PORT=288${BASEVER}  # Port 2880 + major version (e.g., 28818 for version 18.1)
 FEATURE=pg${BASEVER}  # Feature flag (e.g., pg18)
 
-# Enable command echo for debugging
+# Enable command echo for debugging the setup steps below. It is disabled again
+# at the end of the script so it does not leak into the sourcing script's own
+# commands (psql, cargo test).
 set -x
 
 # Stop any existing pgrx server with this feature
@@ -84,3 +86,6 @@ rm -rf /tmp/ephemeral_postgres_logs/*
 
 # Export the PG_CONFIG variable for use by sourcing scripts
 export PG_CONFIG="${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
+
+# Setup is done — stop echoing so the sourcing script's commands run quietly
+set +x

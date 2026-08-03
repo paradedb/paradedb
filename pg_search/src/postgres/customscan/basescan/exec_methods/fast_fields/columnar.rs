@@ -124,9 +124,9 @@ impl Inner {
 ///
 /// # Feature Flag
 /// This execution method is controlled by the `paradedb.enable_columnar_exec` GUC setting.
-/// It is disabled by default and can be enabled with:
+/// It is enabled by default and can be disabled with:
 /// ```sql
-/// SET paradedb.enable_columnar_exec = true;
+/// SET paradedb.enable_columnar_exec = false;
 /// ```
 pub struct ColumnarExecState {
     /// Core functionality shared with other fast field execution methods

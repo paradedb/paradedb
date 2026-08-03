@@ -24,9 +24,8 @@ use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
-use pgrx::{FromDatum, IntoDatum, pg_sys, set_varsize_4b};
+use pgrx::{FromDatum, IntoDatum, pg_sys};
 use std::marker::PhantomData;
-use std::ptr::addr_of_mut;
 use tokenizers::SearchTokenizer;
 use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
@@ -520,49 +519,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
 }
 
 pub trait DatumWrapper {
-    #[allow(dead_code)]
-    fn from_datum(datum: pg_sys::Datum) -> Self;
-
-    #[allow(dead_code)]
     fn as_datum(&self) -> pg_sys::Datum;
-
-    #[allow(dead_code)]
-    fn from_str<S: AsRef<str>>(value: S) -> Self
-    where
-        Self: Sized,
-    {
-        let s = value.as_ref();
-        let len = s.len().saturating_add(pg_sys::VARHDRSZ);
-        assert!(len < (u32::MAX as usize >> 2));
-        unsafe {
-            // SAFETY:  palloc gives us a valid pointer and if there's not enough memory it'll raise an error
-            let varlena = pg_sys::palloc(len) as *mut pg_sys::varlena;
-
-            // SAFETY: `varlena` can properly cast into a `varattrib_4b` and all of what it contains is properly
-            // allocated thanks to our call to `palloc` above
-            let varattrib_4b: *mut _ = &mut varlena
-                .cast::<pg_sys::varattrib_4b>()
-                .as_mut()
-                .unwrap_unchecked()
-                .va_4byte;
-
-            // This is the same as Postgres' `#define SET_VARSIZE_4B` (which have over in
-            // `pgrx/src/varlena.rs`), however we're asserting above that the input string
-            // isn't too big for a Postgres varlena, since it's limited to 32 bits and,
-            // in reality, it's a quarter that length, but this is good enough
-            set_varsize_4b(varlena, len as i32);
-
-            // SAFETY: src and dest pointers are valid, exactly `self.len()` bytes long,
-            // and the `dest` was freshly allocated, thus non-overlapping
-            std::ptr::copy_nonoverlapping(
-                s.as_ptr(),
-                addr_of_mut!((&mut *varattrib_4b).va_data).cast::<u8>(),
-                s.len(),
-            );
-
-            Self::from_datum(pg_sys::Datum::from(varlena))
-        }
-    }
 }
 
 // SAFETY: to_tokenize must be raw text or a tokenizer type
@@ -710,16 +667,6 @@ macro_rules! datum_wrapper_for {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl DatumWrapper for $ty {
-fn from_datum(datum: pg_sys::Datum) -> Self {
-    unsafe {
-        if datum.is_null() {
-            panic!("null datum not allowed in alias cast");
-        }
-        <$ty as pgrx::datum::FromDatum>::from_datum(datum, false)
-            .expect("failed to convert datum")
-    }
-}
-
                 fn as_datum(&self) -> pg_sys::Datum {
                     unreachable!("this is not supported")
                 }

@@ -771,6 +771,8 @@ pub(super) fn build_index(
 mod plan {
     use super::*;
 
+    pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
+
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
@@ -808,6 +810,19 @@ mod plan {
         let maintenance_workers = maintenance_workers
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
+
+        // For vector builds, beyond 4 workers there's no improvement to index build time:
+        // clustering dominates and parallelizes internally (rayon + BLAS threads), so
+        // parallelizing the heap scan/segment flushing isn't the bottleneck. Constrain to 4
+        // because fewer concurrent merges means less memory.
+        let maintenance_workers = if indexrel
+            .schema()
+            .is_ok_and(|schema| schema.has_vector_field())
+        {
+            maintenance_workers.min(MAX_VECTOR_BUILD_WORKERS)
+        } else {
+            maintenance_workers
+        };
 
         if maintenance_workers < 3 {
             ErrorReport::new(

@@ -16,8 +16,10 @@
 #      containers from the dataset's docker-compose (overriding paradedb's image
 #      to the source build).
 #   4. Load both backends, restart, then run the three k6 passes.
-#   5. Upload the k6 dashboards as artifacts and (on main) push QPS / p95 latency
-#      to gh-pages via github-action-benchmark for over-time tracking.
+#   5. Upload the k6 dashboards as artifacts, publish each run's self-contained
+#      dashboard HTML (with per-container CPU/memory graphs) to gh-pages and link
+#      it from a PR comment, and (on main) push QPS + p50/p90/p95/p99 latency to
+#      gh-pages via github-action-benchmark for over-time tracking.
 
 name: Benchmark pg_search (Benchmarker)
 
@@ -80,7 +82,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker')
     env:
-      pg_version: 18
+      pg_version: "18"
       BENCHMARKER_REPO: paradedb/benchmarker
       DATASET: hn_cutdown
       DATASET_S3: s3://paradedb-benchmarker/datasets/hn_cutdown
@@ -101,12 +103,11 @@ jobs:
       - name: Determine Ref to Benchmark
         id: determine-ref
         run: |
-          # workflow_dispatch input wins; PRs benchmark the merge commit (github.sha,
-          # which exists in the base repo even for forks); otherwise default to main.
+          # A workflow_dispatch `commit` input wins. Otherwise use github.sha: on a
+          # PR that is the merge commit (present in the base repo even for forks),
+          # and on push/dispatch it is the triggering commit.
           if [ -n "${{ inputs.commit }}" ]; then
             echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           else
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
@@ -119,7 +120,9 @@ jobs:
 
       - name: Derive Short Commit
         id: commit_info
-        run: echo "short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+        # HEAD is the just-checked-out ref, so this is the actual benchmarked
+        # commit even when a branch/tag/custom ref was requested above.
+        run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
       # ---- Build the full ParadeDB image from source -----------------------
 
@@ -193,7 +196,10 @@ jobs:
           repository: ${{ env.BENCHMARKER_REPO }}
           ref: ${{ inputs.benchmarker_ref || 'main' }}
           path: benchmarker
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Falls back to GITHUB_TOKEN (fine if benchmarker is public). If it is
+          # private, set the BENCHMARKER_TOKEN secret to a token with read access;
+          # the default GITHUB_TOKEN cannot read a different repo.
+          token: ${{ secrets.BENCHMARKER_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -266,7 +272,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}
-          path: benchmarker/results/*.{json,html}
+          # Two patterns, not a brace glob: @actions/glob does not expand {json,html}.
+          path: |
+            benchmarker/results/*.json
+            benchmarker/results/*.html
           if-no-files-found: warn
 
       # ---- Publish to gh-pages for over-time tracking ----------------------

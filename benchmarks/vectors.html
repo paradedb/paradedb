@@ -51,6 +51,7 @@
 cohere suite benchmarks. Newest published run per arm.</p>
 
 <div class="bar">
+  <label>Dataset size <select id="size"></select></label>
   <span id="meta" class="note"></span>
 </div>
 
@@ -66,7 +67,7 @@ cohere suite benchmarks. Newest published run per arm.</p>
   <div class="grid" id="build"></div>
 
   <h2>Index size</h2>
-  <div class="grid" id="size"></div>
+  <div class="grid" id="size-charts"></div>
 </div>
 
 <script src="data.js"></script>
@@ -102,7 +103,7 @@ function collect(entries) {
       }
     }
     runs[arm + "|" + size] = rec;
-    meta.push(`${arm} ${size} @ ${rec.commit} (${rec.when})`);
+    meta.push({ arm, size, commit: rec.commit, when: rec.when });
   }
   return { runs, meta };
 }
@@ -226,34 +227,45 @@ function legend(series) {
 
 function render() {
   const { runs, meta } = window.__DATA;
-  document.getElementById("meta").textContent = meta.length + " suites · newest run each";
+  const size = document.getElementById("size").value;
+  document.getElementById("meta").textContent = meta
+    .filter((m) => m.size === size)
+    .map((m) => `${m.arm} @ ${m.commit} (${m.when})`)
+    .join(" · ");
   document.getElementById("curvenote").innerHTML =
     "Up and to the left is better. The line is p50 and the shaded band runs p50\u2192p99, so a wide band means a heavy tail " +
     "at that operating point. The y axis is the <em>target</em> the sweep aimed at, not the recall it achieved \u2014 data.js does " +
     "not publish achieved recall, so a point an arm could not actually reach still plots at its target.";
 
-  document.getElementById("curves").innerHTML = SIZES.flatMap((size) =>
-    QUERIES.map((q) => {
-      const s = seriesFor(runs, size, q);
-      return `<div class="card"><h3>${q.label} — ${size} rows</h3>
-              <p class="cap">line = p50 · band = p50→p99 · tick = p95</p>${lineChart(s)}${legend(s)}</div>`;
-    })
-  ).join("");
+  document.getElementById("curves").innerHTML = QUERIES.map((q) => {
+    const s = seriesFor(runs, size, q);
+    return `<div class="card"><h3>${q.label}</h3>
+            <p class="cap">line = p50 · band = p50→p99 · tick = p95</p>${lineChart(s)}${legend(s)}</div>`;
+  }).join("");
 
-  document.getElementById("build").innerHTML = SIZES.map((size) =>
-    `<div class="card"><h3>Build time — ${size} rows</h3><p class="cap">minutes, lower is better</p>
-     ${barChart(runs, size, "buildMin", "minutes", (v) => v.toFixed(1))}</div>`).join("");
+  document.getElementById("build").innerHTML =
+    `<div class="card"><h3>Build time</h3><p class="cap">minutes, lower is better</p>
+     ${barChart(runs, size, "buildMin", "minutes", (v) => v.toFixed(1))}</div>`;
 
-  document.getElementById("size").innerHTML = SIZES.map((size) =>
-    `<div class="card"><h3>Index size — ${size} rows</h3><p class="cap">MB on disk, lower is better</p>
-     ${barChart(runs, size, "sizeMb", "MB", (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(0)))}</div>`).join("");
+  document.getElementById("size-charts").innerHTML =
+    `<div class="card"><h3>Index size</h3><p class="cap">MB on disk, lower is better</p>
+     ${barChart(runs, size, "sizeMb", "MB", (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(0)))}</div>`;
 }
 
 (function init() {
   const d = window.BENCHMARK_DATA;
   if (!d || !d.entries) { document.getElementById("status").textContent = "Could not read data.js."; return; }
   window.__DATA = collect(d.entries);
-  if (!window.__DATA.meta.length) { document.getElementById("status").textContent = "No cohere suites in data.js yet."; return; }
+  const { runs, meta } = window.__DATA;
+  if (!meta.length) { document.getElementById("status").textContent = "No cohere suites in data.js yet."; return; }
+
+  // Offer only sizes that actually published, largest first so 10m is the default view.
+  const sizes = [...new Set(Object.values(runs).map((r) => r.size))]
+    .sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+  const sel = document.getElementById("size");
+  sel.innerHTML = sizes.map((s) => `<option value="${s}">${s} rows</option>`).join("");
+  sel.addEventListener("change", render);
+
   document.getElementById("status").hidden = true;
   document.getElementById("app").hidden = false;
   render();

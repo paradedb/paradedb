@@ -196,10 +196,7 @@ jobs:
           repository: ${{ env.BENCHMARKER_REPO }}
           ref: ${{ inputs.benchmarker_ref || 'main' }}
           path: benchmarker
-          # Falls back to GITHUB_TOKEN (fine if benchmarker is public). If it is
-          # private, set the BENCHMARKER_TOKEN secret to a token with read access;
-          # the default GITHUB_TOKEN cannot read a different repo.
-          token: ${{ secrets.BENCHMARKER_TOKEN || secrets.GITHUB_TOKEN }}
+          # benchmarker is a public repo, so checkout's default token reads it.
 
       - name: Set up Go
         uses: actions/setup-go@v6

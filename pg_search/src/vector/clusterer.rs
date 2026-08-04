@@ -15,9 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
 
-use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
+use superkmeans::{
+    ClusterTree, HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, NodeId, TreeNode,
+};
 use tantivy::vector::{
     IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfTrainingVectors, IvfVectors,
     Metric, VectorOptions,
@@ -27,6 +31,12 @@ use tantivy::{Index, TantivyError};
 use crate::postgres::options::BM25IndexOptions;
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
+
+/// Children per internal split of the cluster tree. Wider than the superkmeans
+/// default of `2` so a merge of tens of millions of vectors stays a handful of
+/// levels deep; the cut below reaches its cell count long before the tree
+/// bottoms out either way.
+const TREE_BRANCHING_FACTOR: usize = 16;
 
 /// A `HierarchicalSuperKMeans` built for assignment, tagged with the
 /// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
@@ -72,9 +82,12 @@ impl std::fmt::Debug for SuperKMeansIvfClusterer {
 impl Default for SuperKMeansIvfClusterer {
     fn default() -> Self {
         // Per-run knobs live on the nested `base` config in superkmeans-rs.
+        // `balance_lambda` keeps its default: evenly sized posting lists are
+        // the reason we cluster hierarchically in the first place.
         let mut config = HierarchicalSuperKMeansConfig::default();
         config.base.suppress_warnings = true;
         config.base.sampling_fraction = 1.0;
+        config.branching_factor = TREE_BRANCHING_FACTOR;
         Self {
             config,
             centroid_ratio: 0.01,
@@ -183,24 +196,34 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
             )));
         }
 
+        let rows = vectors.matrix.rows;
         let mut config = self.config.clone();
         if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
             config.base.angular = true;
         }
-        let mut clusterer = HierarchicalSuperKMeans::with_config(num_centroids, dim, config);
-        let rows = vectors.matrix.rows;
-        // Hand the buffer to superkmeans so it can rotate in place instead of
-        // keeping a second full-size copy alive through training.
-        let centroids = clusterer.train_owned(vectors.matrix.values, rows);
-        if centroids.len() != num_centroids * dim {
+        config.max_leaf_size = max_leaf_size_for(rows, num_centroids);
+
+        let mut clusterer = HierarchicalSuperKMeans::with_config(dim, config);
+        // `train_owned`'s in-place rotation has not landed on the hierarchical
+        // branch, so training keeps a rotated copy alongside this buffer.
+        let leaf_centroids = clusterer.train(&vectors.matrix.values, rows);
+
+        if leaf_centroids.is_empty() || !leaf_centroids.len().is_multiple_of(dim) {
             return Err(TantivyError::InternalError(format!(
-                "SuperKMeans returned {} centroid floats, expected {}",
-                centroids.len(),
-                num_centroids * dim
+                "SuperKMeans returned {} centroid floats, expected a positive multiple of {dim}",
+                leaf_centroids.len()
             )));
         }
+        let n_leaves = leaf_centroids.len() / dim;
+        if n_leaves != clusterer.tree.n_leaves {
+            return Err(TantivyError::InternalError(format!(
+                "SuperKMeans returned {n_leaves} centroids for a tree with {} leaves",
+                clusterer.tree.n_leaves
+            )));
+        }
+
         Ok(IvfCentroids::F32(IvfMatrix {
-            values: centroids,
+            values: cut_tree(&clusterer.tree, &leaf_centroids, num_centroids, dim),
             rows: num_centroids,
             dims: dim,
         }))
@@ -274,11 +297,7 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
                 _ => {
                     let mut config = self.config.clone();
                     config.base.angular = angular;
-                    let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(
-                        centroid_matrix.rows,
-                        dim,
-                        config,
-                    ));
+                    let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(dim, config));
                     *cache = Some(AssignClusterer {
                         dim,
                         angular,
@@ -300,6 +319,110 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
     }
 }
 
+/// Leaf size that makes the tree at least as fine-grained as the requested
+/// centroid count. Leaves partition the training sample and hold at most
+/// `max_leaf_size` points each, so flooring here guarantees `rows /
+/// max_leaf_size >= num_centroids` leaves to cut from — the tree is built
+/// finer than we need and [`cut_tree`] stops at the requested count.
+fn max_leaf_size_for(rows: usize, num_centroids: usize) -> usize {
+    (rows / num_centroids.max(1)).max(1)
+}
+
+/// Cut the cluster tree into exactly `num_centroids` cells and return their
+/// centroids, row-major.
+///
+/// Hierarchical balanced clustering no longer takes a cluster count: it
+/// returns one centroid per leaf, and the leaf count is emergent. Tantivy's
+/// `IvfClusterer` contract still requires exactly the requested number of
+/// rows (it sizes the posting-list offsets from that count), so we descend the
+/// tree, always expanding the largest cell, until the frontier holds enough
+/// cells. Every cut is therefore a balanced partition of the sample.
+///
+/// A cell's centroid is the size-weighted mean of the leaf centroids beneath
+/// it. Rotation is orthogonal and linear, so this stays in whatever domain
+/// superkmeans returned its leaf centroids in.
+fn cut_tree(
+    tree: &ClusterTree,
+    leaf_centroids: &[f32],
+    num_centroids: usize,
+    dim: usize,
+) -> Vec<f32> {
+    fn push_cell(
+        tree: &ClusterTree,
+        id: NodeId,
+        terminal: &mut Vec<NodeId>,
+        splittable: &mut BinaryHeap<(usize, Reverse<usize>)>,
+    ) {
+        let node = tree.node(id);
+        if node.is_leaf() {
+            terminal.push(id);
+        } else {
+            splittable.push((node.size(), Reverse(id.0)));
+        }
+    }
+
+    let mut terminal: Vec<NodeId> = Vec::with_capacity(num_centroids);
+    let mut splittable: BinaryHeap<(usize, Reverse<usize>)> = BinaryHeap::new();
+    push_cell(tree, tree.root, &mut terminal, &mut splittable);
+
+    while terminal.len() + splittable.len() < num_centroids {
+        let Some((_, Reverse(id))) = splittable.pop() else {
+            break;
+        };
+        for &child in tree.node(NodeId(id)).children() {
+            push_cell(tree, child, &mut terminal, &mut splittable);
+        }
+    }
+
+    // The last expansion overshoots by up to `branching_factor - 1` cells;
+    // dropping the smallest of them costs less recall than dropping large
+    // ones, and their points fall through to the nearest surviving centroid.
+    let mut cells: Vec<NodeId> = terminal
+        .into_iter()
+        .chain(splittable.into_iter().map(|(_, Reverse(id))| NodeId(id)))
+        .collect();
+    cells.sort_unstable_by_key(|id| (Reverse(tree.node(*id).size()), id.0));
+    cells.truncate(num_centroids);
+
+    let mut values = Vec::with_capacity(num_centroids * dim);
+    for &id in &cells {
+        values.extend(cell_centroid(tree, id, leaf_centroids, dim));
+    }
+    // Only reachable when the sample carries fewer points than the requested
+    // centroid count, which leaves the tree short of cells to cut. Repeating
+    // centroids keeps tantivy's row-count contract; the duplicates lose every
+    // nearest-centroid tie and stay empty.
+    while values.len() < num_centroids * dim {
+        values.extend_from_within(0..dim);
+    }
+    values
+}
+
+fn cell_centroid(tree: &ClusterTree, cell: NodeId, leaf_centroids: &[f32], dim: usize) -> Vec<f32> {
+    let mut sum = vec![0.0_f64; dim];
+    let mut members = 0_usize;
+    let mut stack = vec![cell];
+    while let Some(id) = stack.pop() {
+        match tree.node(id) {
+            TreeNode::Leaf { leaf_id, size, .. } => {
+                let start = leaf_id.0 * dim;
+                let leaf = &leaf_centroids[start..start + dim];
+                for (acc, value) in sum.iter_mut().zip(leaf) {
+                    *acc += f64::from(*value) * *size as f64;
+                }
+                members += size;
+            }
+            TreeNode::Internal { children, .. } => stack.extend(children.iter().copied()),
+        }
+    }
+    let scale = if members == 0 {
+        0.0
+    } else {
+        1.0 / members as f64
+    };
+    sum.into_iter().map(|acc| (acc * scale) as f32).collect()
+}
+
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
         .with_centroid_ratio(options.centroid_ratio())
@@ -311,6 +434,114 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use superkmeans::LeafId;
+
+    /// Two-level binary tree over 8 points: the root splits into a heavy left
+    /// child (two leaves of 3 and 3) and a light right leaf of 2.
+    fn sample_tree() -> (ClusterTree, Vec<f32>) {
+        let leaf_centroids = vec![0.0, 0.0, 6.0, 6.0, 30.0, 30.0];
+        let tree = ClusterTree {
+            nodes: vec![
+                TreeNode::Internal {
+                    centroid_offset: 0,
+                    size: 8,
+                    children: vec![NodeId(1), NodeId(2)],
+                },
+                TreeNode::Internal {
+                    centroid_offset: 1,
+                    size: 6,
+                    children: vec![NodeId(3), NodeId(4)],
+                },
+                TreeNode::Leaf {
+                    centroid_offset: 2,
+                    size: 2,
+                    leaf_id: LeafId(2),
+                },
+                TreeNode::Leaf {
+                    centroid_offset: 3,
+                    size: 3,
+                    leaf_id: LeafId(0),
+                },
+                TreeNode::Leaf {
+                    centroid_offset: 4,
+                    size: 3,
+                    leaf_id: LeafId(1),
+                },
+            ],
+            centroids: Vec::new(),
+            leaf_members: vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7]],
+            n_leaves: 3,
+            root: NodeId(0),
+        };
+        (tree, leaf_centroids)
+    }
+
+    /// Flooring keeps the tree finer than the requested cut, so there is
+    /// always something left to expand.
+    #[test]
+    fn max_leaf_size_bounds_the_leaf_count() {
+        assert_eq!(max_leaf_size_for(1_000, 10), 100);
+        assert_eq!(max_leaf_size_for(1_050, 10), 105);
+        assert_eq!(max_leaf_size_for(5, 10), 1, "more centroids than rows");
+        assert_eq!(max_leaf_size_for(0, 0), 1, "no division by zero");
+        for (rows, requested) in [(1_000usize, 7usize), (999, 128), (64, 64), (10_000, 3)] {
+            let leaves = rows.div_ceil(max_leaf_size_for(rows, requested));
+            assert!(
+                leaves >= requested.min(rows),
+                "{rows} rows / {requested} centroids yields only {leaves} leaves"
+            );
+        }
+    }
+
+    /// The cut returns exactly what was requested at every depth, and an
+    /// internal cell carries the size-weighted mean of the leaves under it.
+    #[test]
+    fn cut_tree_returns_requested_rows() {
+        let (tree, leaf_centroids) = sample_tree();
+
+        let root_only = cut_tree(&tree, &leaf_centroids, 1, 2);
+        assert_eq!(root_only, vec![9.75, 9.75], "(3·0 + 3·6 + 2·30) / 8");
+
+        let split = cut_tree(&tree, &leaf_centroids, 2, 2);
+        assert_eq!(split, vec![3.0, 3.0, 30.0, 30.0], "largest cell first");
+
+        let all_leaves = cut_tree(&tree, &leaf_centroids, 3, 2);
+        assert_eq!(all_leaves, vec![0.0, 0.0, 6.0, 6.0, 30.0, 30.0]);
+    }
+
+    /// A tree with fewer cells than centroids still fills the matrix, because
+    /// tantivy rejects any row count other than the one it asked for.
+    #[test]
+    fn cut_tree_pads_when_the_tree_runs_out() {
+        let (tree, leaf_centroids) = sample_tree();
+        let padded = cut_tree(&tree, &leaf_centroids, 5, 2);
+        assert_eq!(padded.len(), 10);
+        assert_eq!(&padded[..6], &[0.0, 0.0, 6.0, 6.0, 30.0, 30.0]);
+        assert_eq!(&padded[6..], &[0.0, 0.0, 0.0, 0.0]);
+    }
+
+    /// End-to-end over a real tree: training with the derived `max_leaf_size`
+    /// always leaves more cells than the cut asks for, and the cut hands back
+    /// exactly the row count tantivy demands.
+    #[test]
+    fn training_produces_enough_cells_to_cut() {
+        let (rows, dim, requested) = (2_000usize, 8usize, 50usize);
+        let data = superkmeans::make_blobs(rows, dim, 12, true, 1.0, 5.0, 42);
+
+        let mut config = SuperKMeansIvfClusterer::new().config;
+        config.max_leaf_size = max_leaf_size_for(rows, requested);
+        let mut clusterer = HierarchicalSuperKMeans::with_config(dim, config);
+        let leaf_centroids = clusterer.train(&data, rows);
+
+        assert!(
+            leaf_centroids.len() / dim >= requested,
+            "{} leaves for {requested} requested centroids",
+            leaf_centroids.len() / dim
+        );
+        let centroids = cut_tree(&clusterer.tree, &leaf_centroids, requested, dim);
+        assert_eq!(centroids.len(), requested * dim);
+        assert!(centroids.iter().all(|value| value.is_finite()));
+    }
 
     /// Replication is off by default (`replicas = 1`), and non-positive
     /// configured values clamp to `1` rather than disabling clustering.

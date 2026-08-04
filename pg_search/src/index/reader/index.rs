@@ -970,7 +970,6 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
-                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });

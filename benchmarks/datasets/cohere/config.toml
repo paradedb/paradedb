@@ -48,6 +48,3 @@ vchord_probes_1pct_off = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 100
 vchord_probes_1pct_on = "CASE {{ dataset_size }} WHEN 1000000 THEN 420 WHEN 10000000 THEN 1200 ELSE greatest(1, round(0.21 * (CASE WHEN {{ dataset_size }} < 2000000 THEN 2000 WHEN {{ dataset_size }} < 100000000 THEN 10000 ELSE 80000 END))::int) END"
 
 pg_search_max_probe = "0.05"
-pg_search_probe_epsilon_unfiltered = "0.4"
-pg_search_probe_epsilon_10pct = "0.45"
-pg_search_probe_epsilon_1pct = "0.65"

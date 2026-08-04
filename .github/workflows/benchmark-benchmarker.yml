@@ -2,7 +2,7 @@
 #
 # Benchmark pg_search (Benchmarker)
 # Runs the external benchmarker suite (github.com/paradedb/benchmarker) against a
-# pg_search build made from THIS repo's source, using the `hn_benchmarker`
+# pg_search build made from THIS repo's source, using the `hn-benchmarker`
 # dataset. Every k6 script the dataset ships is run once against the single
 # database under test (the branch's pg_search). Background:
 # https://www.paradedb.com/blog/benchmarker-iteration.
@@ -12,10 +12,10 @@
 #   2. Overlay those artifacts onto a released ParadeDB image (docker/
 #      Dockerfile.paradedb-source-18) so only the pg_search binary changes -> the
 #      Postgres version, tuning, and bootstrap match the published image.
-#   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn_benchmarker
+#   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn-benchmarker
 #      dataset from the public S3 bucket, and stand up the paradedb container
-#      (the branch under test) from the dataset's docker-compose, overriding
-#      paradedb's image to the source build.
+#      (the branch under test) from the dataset's docker-compose, with
+#      PARADEDB_IMAGE pointed at the source build.
 #   4. Load paradedb, restart it, then run every k6 script in the dataset once.
 #   5. Upload the k6 dashboards as artifacts, publish each run's self-contained
 #      dashboard HTML (with per-container CPU/memory graphs) to gh-pages and link
@@ -85,8 +85,8 @@ jobs:
     env:
       pg_version: "18"
       BENCHMARKER_REPO: paradedb/benchmarker
-      DATASET: hn_benchmarker
-      DATASET_S3: s3://paradedb-benchmarker/datasets/hn_benchmarker
+      DATASET: hn-benchmarker
+      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-benchmarker
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -213,23 +213,15 @@ jobs:
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
-      - name: Point paradedb service at the source build
-        working-directory: benchmarker
-        run: |
-          # loader pull writes the dataset's own docker-compose.yml; add an override
-          # so the paradedb service uses our locally-built image instead of the
-          # pinned release image. pull_policy=never keeps compose from trying to
-          # fetch the local-only tag.
-          cat > "datasets/${DATASET}/docker-compose.override.yml" <<EOF
-          services:
-            paradedb:
-              image: ${IMAGE_TAG}
-              pull_policy: never
-          EOF
-
       - name: Start database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
-        run: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait paradedb
+        # The dataset compose reads image: ${PARADEDB_IMAGE:-<release>}, so we
+        # point it at the local source build. Must be set on every compose
+        # invocation, otherwise compose would see config drift and recreate the
+        # container with the default release image.
+        env:
+          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
+        run: docker compose up -d --wait paradedb
 
       - name: Load data (paradedb)
         working-directory: benchmarker
@@ -237,9 +229,11 @@ jobs:
 
       - name: Restart database for a clean start
         working-directory: benchmarker/datasets/${{ env.DATASET }}
+        env:
+          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
         run: |
           docker restart paradedb
-          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait paradedb
+          docker compose up -d --wait paradedb
 
       - name: Run k6 scripts
         working-directory: benchmarker
@@ -329,7 +323,7 @@ jobs:
       - name: Publish Throughput (QPS)
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "benchmarker hn_benchmarker (QPS)"
+          name: "benchmarker hn-benchmarker (QPS)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customBiggerIsBetter
           output-file-path: benchmarker/benchmarker_qps.json
@@ -346,7 +340,7 @@ jobs:
       - name: Publish Latency (p50/p90/p95/p99)
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "benchmarker hn_benchmarker (latency percentiles)"
+          name: "benchmarker hn-benchmarker (latency percentiles)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customSmallerIsBetter
           output-file-path: benchmarker/benchmarker_latency.json

@@ -213,10 +213,8 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         centroids: &IvfCentroids,
     ) -> tantivy::Result<Vec<u32>> {
         let IvfVectors::F32(vectors) = vectors;
-        let IvfCentroids::F32(centroids) = centroids;
         let dim = options.dim();
         let vector_matrix = vectors.matrix;
-        let centroid_matrix = centroids;
         if vector_matrix.dims != dim {
             return Err(TantivyError::InvalidArgument(format!(
                 "vector dimensionality mismatch: expected {dim}, got {}",
@@ -237,27 +235,50 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
                 vector_matrix.values.len()
             )));
         }
-        if centroid_matrix.rows == 0 {
+        let num_centroids = centroids.rows();
+        if num_centroids == 0 {
             return Err(TantivyError::InvalidArgument(
                 "cannot assign with zero centroids".to_string(),
             ));
         }
-        if centroid_matrix.dims != dim {
+        if centroids.dims() != dim {
             return Err(TantivyError::InvalidArgument(format!(
                 "centroid dimensionality mismatch: expected {dim}, got {}",
-                centroid_matrix.dims
-            )));
-        }
-        if centroid_matrix.values.len() != centroid_matrix.rows * dim {
-            return Err(TantivyError::InvalidArgument(format!(
-                "centroid value count mismatch: expected {}, got {}",
-                centroid_matrix.rows * dim,
-                centroid_matrix.values.len()
+                centroids.dims()
             )));
         }
         if vector_matrix.rows == 0 {
             return Ok(Vec::new());
         }
+
+        // SuperKMeans scores against a flat f32 matrix, so SQ4 centroids
+        // (what tantivy hands to `assign` from format V3 on) decode into a
+        // transient buffer per batch — for `F32` the values are borrowed
+        // directly. Decoding per call keeps this instance stateless across
+        // the concurrent merges that share it; scoring the codes natively
+        // in superkmeans (or a safely-keyed decode cache) is the follow-up
+        // if the decode ever shows up in merge profiles.
+        let decoded: Vec<f32>;
+        let centroid_values: &[f32] = match centroids {
+            IvfCentroids::F32(matrix) => {
+                if matrix.values.len() != num_centroids * dim {
+                    return Err(TantivyError::InvalidArgument(format!(
+                        "centroid value count mismatch: expected {}, got {}",
+                        num_centroids * dim,
+                        matrix.values.len()
+                    )));
+                }
+                matrix.values.as_slice()
+            }
+            _ => {
+                let mut buf = vec![0f32; num_centroids * dim];
+                for row in 0..num_centroids {
+                    centroids.decode_row_into(row, &mut buf[row * dim..][..dim]);
+                }
+                decoded = buf;
+                decoded.as_slice()
+            }
+        };
 
         let angular = matches!(options.metric(), Metric::Cosine | Metric::Dot);
 
@@ -275,7 +296,7 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
                     let mut config = self.config.clone();
                     config.base.angular = angular;
                     let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(
-                        centroid_matrix.rows,
+                        num_centroids,
                         dim,
                         config,
                     ));
@@ -291,11 +312,7 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         // Primary (nearest-centroid) assignment via superkmeans, angular-aware
         // for cosine/dot. One cluster per vector — no replication. `n_centroids`
         // is derived from the centroid slice length.
-        let primaries = clusterer.assign(
-            vector_matrix.values,
-            centroid_matrix.values.as_slice(),
-            vector_matrix.rows,
-        );
+        let primaries = clusterer.assign(vector_matrix.values, centroid_values, vector_matrix.rows);
         Ok(primaries)
     }
 }

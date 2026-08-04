@@ -1429,13 +1429,13 @@ FROM logs
 WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
 -- Test 49: pdb.agg() with exact text match WHERE clause and filter_pushdown enabled
 -- With filter_pushdown ON, the custom scan should handle this via HeapExpr retention
 -- Result: Custom scan evaluates the WHERE clause via Tantivy's heap_filter
@@ -1445,10 +1445,10 @@ FROM logs
 WHERE description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.12 rows=1 width=76)
-   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.12 rows=1 width=76)
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
          Table: logs
          Index: logs_idx
          Segment Count: 1
@@ -1457,7 +1457,7 @@ LIMIT 1;
             TopK Order By: timestamp desc
             TopK Limit: 1
          Full Index Scan: true
-         Tantivy Query: "all"
+         Tantivy Query: {"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(description = 'Database connection error'::text)"}]}}
 (11 rows)
 
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
@@ -1465,9 +1465,9 @@ FROM logs
 WHERE description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
- id |        description        |                                                                                                                               agg                                                                                                                               
-----+---------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- 11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ id |        description        |                                                      agg                                                       
+----+---------------------------+----------------------------------------------------------------------------------------------------------------
+  1 | Database connection error | {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 SET paradedb.enable_filter_pushdown TO off;
@@ -1509,7 +1509,7 @@ FROM logs
 WHERE description @@@ 'error' AND description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
 -- Test 52: Same query works with filter_pushdown enabled
 SET paradedb.enable_filter_pushdown TO on;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
@@ -1544,7 +1544,7 @@ FROM logs
 WHERE description = 'Database connection error' AND random() > -1
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
+ERROR:  Cannot execute window aggregate: WHERE clause contains volatile functions which cannot be safely evaluated in a custom scan
 -- Test 55: pdb.agg() as window function with subplan in WHERE clause
 -- Result: Planner throws an error because subqueries cannot be evaluated inside a custom scan
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
@@ -1552,7 +1552,7 @@ FROM logs
 WHERE description = (SELECT description FROM logs l2 WHERE l2.id = logs.id ORDER BY id LIMIT 1)
 ORDER BY timestamp DESC
 LIMIT 1;
-ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
+ERROR:  Cannot execute window aggregate: WHERE clause contains subqueries which cannot be evaluated in a custom scan
 -- =====================================================================
 -- SECTION 16: pdb.agg() with Composite Aggregation
 -- =====================================================================
@@ -2440,8 +2440,7 @@ SELECT 'expecting error from placeholder pdb.agg in GENERIC mode:';
 (1 row)
 
 EXECUTE agg_param_g('{"terms":{"field":"category"}}');
-WARNING:  Aggregate Scan not used: pdb.agg argument must be a constant for aggregate pushdown (table: agg_param_test)
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  Cannot execute pdb.agg: pdb.agg argument must be a constant for aggregate pushdown
 \set VERBOSITY default
 -- Sanity check: backend is still alive.
 SELECT 1 AS backend_still_alive;

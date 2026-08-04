@@ -69,6 +69,11 @@ permissions:
 jobs:
   benchmark-pg_search-queries:
     name: Run Benchmark Jobs
+    # pgvectorscale sweeps query_search_list_size to its 10000 maximum on the filtered arms, and
+    # post-filter streaming at 1% selectivity makes the top of that ladder enormously more expensive
+    # per point than any other index here. Its first run died at the 360m default. A day is enough
+    # to measure it rather than truncate the sweep; every other arm keeps the default it fits in.
+    timeout-minutes: ${{ (inputs.cohere_index == 'pgvectorscale' || github.event.label.name == 'benchmark-cohere-pgvectorscale') && 1440 || 360 }}
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}

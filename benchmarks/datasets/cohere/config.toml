@@ -328,9 +328,14 @@ values = [
 # The filtered arms cannot reach 90% on this build. Filtering is post-filter streaming, so only the
 # ~10%/1% of the beam that passes the predicate survives, and at most 1000 candidates are ever
 # exact-rescored. With rescore already pinned at that maximum in the query SQL, beam width is the
-# only lever left, so those two sweep query_search_list_size to its 10000 ceiling and report where
-# they land. Uncompressed `storage_layout = plain` would lift them, but is far too slow to build in
-# CI. This arm is therefore NOT iso-recall with the others -- that is the property being surfaced.
+# only lever left, so those two sweep query_search_list_size and report where they land.
+#
+# Their ladders stop short of the GUC's 10000 maximum on purpose. Recall plateaus far below it --
+# measured around 0.88 at 10% and 0.67 at 1% -- while cost keeps climbing, so the top few values are
+# the most expensive points in the whole run and buy no recall. They end just past the plateau,
+# which is enough to show the curve flattening. Uncompressed `storage_layout = plain` would lift
+# recall, but is far too slow to build in CI. This arm is therefore NOT iso-recall with the others
+# -- that is the property being surfaced.
 [sweeps.pgvectorscale.knn_top10_unfiltered]
 param = "pgvectorscale_rescore_unfiltered"
 values = [
@@ -362,21 +367,8 @@ values = [
   "2500",
   "3500",
   "5000",
-  "7000",
-  "10000",
 ]
 
 [sweeps.pgvectorscale.knn_top10_1pct]
 param = "pgvectorscale_search_list_size_1pct"
-values = [
-  "500",
-  "750",
-  "1100",
-  "1600",
-  "2200",
-  "3000",
-  "4000",
-  "5500",
-  "7500",
-  "10000",
-]
+values = ["500", "750", "1100", "1600", "2200", "3000", "4000", "5500"]

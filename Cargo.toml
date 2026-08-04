@@ -58,7 +58,7 @@ debug-assertions = false
 inherits = "dev"
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "56364789511c6c804d15b360ee31c4e43751e028", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c97fc25d7dbac9218d0b5724c290c2bafd785f03", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -71,7 +71,7 @@ pgrx-tests = "=0.19.2"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "56364789511c6c804d15b360ee31c4e43751e028" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "c97fc25d7dbac9218d0b5724c290c2bafd785f03" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

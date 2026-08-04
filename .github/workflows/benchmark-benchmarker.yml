@@ -297,30 +297,33 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # For every k6 script's dashboard JSON, emit QPS (query count / wall-clock)
-          # and p50/p90/p95/p99 of the per-query latencies (ms). Metric names are
-          # prefixed with the script basename so each is its own gh-pages series.
-          # Schema: dashboard/output.go -> runs: { <name>: { backend, latencies[],
-          # startTime, endTime } }.
+          # Aggregate each dashboard's per-query samples into per-run QPS and
+          # p50/p90/p95/p99. Schema: dashboard/output.go ->
+          #   runs: { <run>: { name, backend, startTime, endTime,
+          #                    queries: { <q>: { latencies[], timestamps[] } } } }
+          # Latencies (ms) live under queries[].latencies; QPS = sample count over
+          # the timestamp span. Each run's .name (e.g. "paradedb (single_topk)")
+          # is already a unique, descriptive series name.
           mkdir -p _metrics
           for j in results/*.json; do
             nm="$(basename "$j" .json)"
-            jq --arg s "$nm" '[ .runs | to_entries[]
-                  | select((.value.latencies|length) > 0)
-                  | { name:  ($s + " " + .value.backend + " QPS"),
+            jq '[ .runs | to_entries[] | .value as $r
+                  | ([$r.queries[]?.latencies[]?]) as $lat
+                  | ([$r.queries[]?.timestamps[]?]) as $ts
+                  | ($lat | length) as $n
+                  | select($n > 0)
+                  | { name:  ($r.name + " QPS"),
                       unit:  "QPS",
-                      value: ((.value.latencies|length)
-                              / ((((.value.endTime - .value.startTime) | if . <= 0 then 1000 else . end)) / 1000)) } ]' \
+                      value: ($n / (((($ts|max) - ($ts|min)) | if . <= 0 then 1000 else . end) / 1000)) } ]' \
               "$j" > "_metrics/${nm}.qps.json"
-            # `(50,90,95,99) as $p` fans out => four percentile rows per backend
+            # `(50,90,95,99) as $p` fans out => four percentile rows per run
             # (nearest-rank on sorted latencies).
-            jq --arg s "$nm" '[ .runs | to_entries[]
-                  | select((.value.latencies|length) > 0)
-                  | .value as $v
-                  | ($v.latencies | sort) as $sorted
+            jq '[ .runs | to_entries[] | .value as $r
+                  | ([$r.queries[]?.latencies[]?] | sort) as $sorted
                   | ($sorted | length) as $n
+                  | select($n > 0)
                   | (50, 90, 95, 99) as $p
-                  | { name:  ($s + " " + $v.backend + " p" + ($p|tostring) + " latency"),
+                  | { name:  ($r.name + " p" + ($p|tostring) + " latency"),
                       unit:  "ms",
                       value: $sorted[ ((($n - 1) * $p / 100) | floor) ] } ]' \
               "$j" > "_metrics/${nm}.lat.json"
@@ -335,6 +338,8 @@ jobs:
         run: rm -rf ./benchmark-data-repository
 
       - name: Publish Throughput (QPS)
+        # Never let a metrics/publish hiccup block the HTML dashboards + comment.
+        continue-on-error: true
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "benchmarker hn-benchmarker (QPS)"
@@ -352,6 +357,7 @@ jobs:
           comment-always: ${{ github.event_name == 'pull_request' }}
 
       - name: Publish Latency (p50/p90/p95/p99)
+        continue-on-error: true
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "benchmarker hn-benchmarker (latency percentiles)"

@@ -46,5 +46,5 @@ tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23.1"
 num-traits = "0.2.19"
 proptest = "1.11.0"
-proptest-derive = "0.6.0"
+proptest-derive = "0.8.0"
 env_logger = "0.11.10"

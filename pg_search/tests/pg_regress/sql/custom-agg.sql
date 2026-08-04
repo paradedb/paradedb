@@ -742,8 +742,7 @@ SET paradedb.enable_custom_scan TO on;
 
 -- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
 -- The custom scan will reject queries where quals can't be extracted
--- Result: Query executes correctly via PostgreSQL (not custom scan), returns filtered results
--- This is SAFE behavior - WHERE clause is applied correctly, no silent data loss
+-- Result: Planner throws an error because the custom scan is required to execute pdb.agg()
 SET paradedb.enable_filter_pushdown TO off;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
@@ -758,8 +757,8 @@ ORDER BY timestamp DESC
 LIMIT 1;
 
 -- Test 49: pdb.agg() with exact text match WHERE clause and filter_pushdown enabled
--- With filter_pushdown ON, the custom scan should handle this via Qual::All + PostgreSQL filtering
--- Result: Custom scan uses Qual::All, PostgreSQL applies WHERE clause filter, returns correct results
+-- With filter_pushdown ON, the custom scan should handle this via HeapExpr retention
+-- Result: Custom scan evaluates the WHERE clause via Tantivy's heap_filter
 SET paradedb.enable_filter_pushdown TO on;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
@@ -804,13 +803,29 @@ ORDER BY timestamp DESC
 LIMIT 1;
 SET paradedb.enable_filter_pushdown TO off;
 
--- Test 51: pdb.agg() as window function with @@@ WHERE clause
+-- Test 53: pdb.agg() as window function with @@@ WHERE clause
 -- Currently requires filter_pushdown because we can't determine at planner time
 -- if ALL predicates are pushable (conservative approach to prevent silent data loss)
 SET paradedb.enable_filter_pushdown TO on;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 54: pdb.agg() as window function with volatile function in WHERE clause
+-- Result: Planner throws an error because volatile functions cannot be pushed down safely
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error' AND random() > -1
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 55: pdb.agg() as window function with subplan in WHERE clause
+-- Result: Planner throws an error because subqueries cannot be evaluated inside a custom scan
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = (SELECT description FROM logs l2 WHERE l2.id = logs.id ORDER BY id LIMIT 1)
 ORDER BY timestamp DESC
 LIMIT 1;
 

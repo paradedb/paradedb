@@ -215,13 +215,15 @@ jobs:
 
       - name: Start database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
-        # The dataset compose reads image: ${PARADEDB_IMAGE:-<release>}, so we
-        # point it at the local source build. Must be set on every compose
-        # invocation, otherwise compose would see config drift and recreate the
-        # container with the default release image.
+        # The dataset's paradedb service is gated behind the `paradedb` compose
+        # profile, so select it via COMPOSE_PROFILES. PARADEDB_IMAGE points the
+        # compose image: ${PARADEDB_IMAGE:-<release>} at our source build; it
+        # must be set on every compose invocation, otherwise compose sees config
+        # drift and recreates the container with the default release image.
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
-        run: docker compose up -d --wait paradedb
+          COMPOSE_PROFILES: paradedb
+        run: docker compose up -d --wait
 
       - name: Load data (paradedb)
         working-directory: benchmarker
@@ -231,9 +233,10 @@ jobs:
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         env:
           PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
+          COMPOSE_PROFILES: paradedb
         run: |
           docker restart paradedb
-          docker compose up -d --wait paradedb
+          docker compose up -d --wait
 
       - name: Run k6 scripts
         working-directory: benchmarker

@@ -8133,7 +8133,6 @@ dependencies = [
  "soa_derive",
  "sqlx",
  "strum",
- "strum_macros",
  "tantivy",
  "tempfile",
  "time",

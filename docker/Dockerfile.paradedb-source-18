@@ -17,7 +17,7 @@
 #   --build-arg RUST_TOOLCHAIN=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
 #   --build-arg CARGO_PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
 
-ARG BASE_IMAGE=paradedb/paradedb:v0.23.1-pg18
+ARG BASE_IMAGE=paradedb/paradedb:v0.25.0-pg18
 ARG PG_VERSION_MAJOR=18
 
 # ---- builder: compile pg_search from source --------------------------------

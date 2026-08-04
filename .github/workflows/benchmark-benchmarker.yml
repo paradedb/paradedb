@@ -50,7 +50,7 @@ on:
       base_paradedb_image:
         description: "Released ParadeDB image whose pg_search is overwritten with the source build."
         required: false
-        default: "paradedb/paradedb:v0.23.1-pg18"
+        default: "paradedb/paradedb:v0.25.0-pg18"
 
 permissions:
   contents: write # github-action-benchmark pushes to the gh-pages branch
@@ -179,7 +179,7 @@ jobs:
           # MOUNTS. Together: warm layers AND warm incremental compile.
           docker buildx build \
             --file docker/Dockerfile.paradedb-source-18 \
-            --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:v0.23.1-pg18' }}" \
+            --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:v0.25.0-pg18' }}" \
             --build-arg PG_VERSION_MAJOR="${{ env.pg_version }}" \
             --build-arg RUST_TOOLCHAIN="${RUST_TOOLCHAIN}" \
             --build-arg CARGO_PGRX_VERSION="${PGRX_VERSION}" \

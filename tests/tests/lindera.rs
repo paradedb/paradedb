@@ -23,6 +23,7 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 #[rstest]
+#[async_std::test]
 async fn lindera_korean_tokenizer(mut conn: PgConnection) {
     r#"CREATE TABLE IF NOT EXISTS korean (
         id SERIAL PRIMARY KEY,
@@ -73,6 +74,7 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
     r#"CREATE TABLE IF NOT EXISTS chinese (
         id SERIAL PRIMARY KEY,
@@ -122,6 +124,7 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
     r#"
     CREATE TABLE IF NOT EXISTS japanese (

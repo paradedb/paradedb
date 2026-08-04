@@ -21,6 +21,7 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 #[rstest]
+#[async_std::test]
 async fn test_copy_to_table(mut conn: PgConnection) {
     r#"
         DROP TABLE IF EXISTS test_copy_to_table;

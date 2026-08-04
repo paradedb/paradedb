@@ -22,6 +22,7 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 #[rstest]
+#[async_std::test]
 async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -44,6 +45,7 @@ async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn concurrent_reindex(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -66,6 +68,7 @@ async fn concurrent_reindex(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn reindex_with_updates(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -99,6 +102,7 @@ async fn reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn reindex_with_deletes(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -130,6 +134,7 @@ async fn reindex_with_deletes(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn reindex_schema_validation(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -153,6 +158,7 @@ async fn reindex_schema_validation(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
@@ -183,6 +189,7 @@ async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn concurrent_reindex_with_updates(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -210,6 +217,7 @@ async fn concurrent_reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn reindex_table(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -232,6 +240,7 @@ async fn reindex_table(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 

@@ -69,6 +69,7 @@ fn prevent_duplicate(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn drop_column(mut conn: PgConnection) {
     r#"
     CREATE TABLE f_table (

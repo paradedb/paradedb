@@ -23,7 +23,7 @@ Each branch contributes `weight / (k + rank)`, and the contributions are added.
 
 Suppose a row comes back 5th in the text branch and 10th in the vector branch, with `k = 60` and the text branch weighted `1.0` against the vector branch's `0.7`:
 
-```
+```text
 text        1.0 / (60 +  5) = 0.0154
 vector      0.7 / (60 + 10) = 0.0100
                               ------
@@ -84,7 +84,7 @@ SELECT ...;
 
 If the query is accelerated, there should be a `TopKScanExecState` printed for each branch.
 
-```
+```text
 ->  WindowAgg
       Window: w1 AS (ORDER BY pdb.score(id), id ROWS UNBOUNDED PRECEDING)
       ->  Custom Scan (ParadeDB Base Scan) on mock_items

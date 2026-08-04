@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy/indexing/create-index).",
+    "content": "ParadeDB Cloud is coming soon. [Request access here](https://www.paradedb.com/cloud).",
     "dismissible": false
   },
   "navigation": {
@@ -324,7 +324,9 @@
                     "pages": [
                       "deploy/cloud-platforms/railway",
                       "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean"
+                      "deploy/cloud-platforms/digitalocean",
+                      "deploy/cloud-platforms/fly"
+                      "deploy/cloud-platforms/dokku"
                     ]
                   },
                   {

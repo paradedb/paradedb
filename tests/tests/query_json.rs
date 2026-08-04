@@ -485,7 +485,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     {
         Err(err) => {
             assert_eq!(
-                err.to_string(),
+                db_error_message(&err),
                 "error returned from database: more_like_this must be called with either key_value or document"
             )
         }
@@ -504,7 +504,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     {
         Err(err) => {
             assert_eq!(
-                err.to_string(),
+                db_error_message(&err),
                 "error returned from database: more_like_this must be called with either key_value or document"
             )
         }
@@ -569,7 +569,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
     {
         Err(err) => {
             assert_eq!(
-                err.to_string(),
+                db_error_message(&err),
                 "error returned from database: more_like_this must be called with either key_value or document"
             )
         }
@@ -1237,7 +1237,7 @@ fn parse_error(mut conn: PgConnection) {
 
     match result {
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             r#"error returned from database: error parsing search query input json at ".": data did not match any variant of untagged enum SearchQueryInput"#
         ),
         _ => {

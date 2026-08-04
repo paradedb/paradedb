@@ -170,7 +170,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
 #[pg_extern]
 fn random_words(num_words: i32) -> String {
-    use rand::Rng;
+    use rand::RngExt;
 
     let mut rng = rand::rng();
     let letters = "abcdefghijklmnopqrstuvwxyz";

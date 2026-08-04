@@ -2,20 +2,21 @@
 #
 # Benchmark pg_search (Benchmarker)
 # Runs the external benchmarker suite (github.com/paradedb/benchmarker) against a
-# pg_search build made from THIS repo's source, using the `hn_cutdown` dataset
-# and the closed-loop / open-loop k6 passes from the "Benchmarker iteration" blog
-# post (https://www.paradedb.com/blog/benchmarker-iteration).
+# pg_search build made from THIS repo's source, using the `hn_benchmarker`
+# dataset. Every k6 script the dataset ships is run once against the single
+# database under test (the branch's pg_search). Background:
+# https://www.paradedb.com/blog/benchmarker-iteration.
 #
 # How it works, end to end:
 #   1. Build pg_search from the checked-out source with cargo-pgrx.
 #   2. Overlay those artifacts onto a released ParadeDB image (docker/
 #      Dockerfile.paradedb-source-18) so only the pg_search binary changes -> the
 #      Postgres version, tuning, and bootstrap match the published image.
-#   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn_cutdown
-#      dataset from the public S3 bucket, and stand up the paradedb + postgres
-#      containers from the dataset's docker-compose (overriding paradedb's image
-#      to the source build).
-#   4. Load both backends, restart, then run the three k6 passes.
+#   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn_benchmarker
+#      dataset from the public S3 bucket, and stand up the paradedb container
+#      (the branch under test) from the dataset's docker-compose, overriding
+#      paradedb's image to the source build.
+#   4. Load paradedb, restart it, then run every k6 script in the dataset once.
 #   5. Upload the k6 dashboards as artifacts, publish each run's self-contained
 #      dashboard HTML (with per-container CPU/memory graphs) to gh-pages and link
 #      it from a PR comment, and (on main) push QPS + p50/p90/p95/p99 latency to
@@ -84,8 +85,8 @@ jobs:
     env:
       pg_version: "18"
       BENCHMARKER_REPO: paradedb/benchmarker
-      DATASET: hn_cutdown
-      DATASET_S3: s3://paradedb-benchmarker/datasets/hn_cutdown
+      DATASET: hn_benchmarker
+      DATASET_S3: s3://paradedb-benchmarker/datasets/hn_benchmarker
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -226,43 +227,49 @@ jobs:
               pull_policy: never
           EOF
 
-      - name: Start databases
+      - name: Start database
         working-directory: benchmarker/datasets/${{ env.DATASET }}
-        run: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait paradedb
 
-      - name: Load data (paradedb + postgres)
+      - name: Load data (paradedb)
         working-directory: benchmarker
-        run: |
-          ./bin/loader load --backend paradedb "./datasets/${DATASET}"
-          ./bin/loader load --backend postgres "./datasets/${DATASET}"
+        run: ./bin/loader load --backend paradedb "./datasets/${DATASET}"
 
-      - name: Restart databases for a clean start
+      - name: Restart database for a clean start
         working-directory: benchmarker/datasets/${{ env.DATASET }}
         run: |
-          docker restart paradedb postgres
-          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait
+          docker restart paradedb
+          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait paradedb
 
-      - name: Run k6 passes
+      - name: Run k6 scripts
         working-directory: benchmarker
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          root="$PWD"
           mkdir -p results
-          run_pass() {
-            script="$1"; name="$2"
-            ( cd results && ../k6 run --out dashboard=json,html "../datasets/${DATASET}/k6/${script}" )
-            mv "$(ls -t results/dashboard_*.json | head -1)" "results/${name}.json"
-            mv "$(ls -t results/dashboard_*.html | head -1)" "results/${name}.html"
-          }
-          run_pass closed_loop_single.js closed_loop_single
-          run_pass closed_loop.js        closed_loop
-          run_pass open_loop.js          open_loop
+          scripts=("$root/datasets/${DATASET}/k6/"*.js)
+          if [ ${#scripts[@]} -eq 0 ]; then
+            echo "No k6 scripts found under datasets/${DATASET}/k6/" >&2
+            exit 1
+          fi
+          # Run every script the dataset ships, once each, against the single
+          # database under test. Name each pass by the script's basename so its
+          # dashboard + metrics are tracked under that name.
+          for script in "${scripts[@]}"; do
+            name="$(basename "$script" .js)"
+            echo "== running ${name} =="
+            ( cd "$root/results" && "$root/k6" run --out dashboard=json,html "$script" )
+            mv "$(ls -t "$root"/results/dashboard_*.json | head -1)" "$root/results/${name}.json"
+            mv "$(ls -t "$root"/results/dashboard_*.html | head -1)" "$root/results/${name}.html"
+          done
 
       - name: Dump database logs on failure
         if: failure()
-        run: docker logs paradedb || true; docker logs postgres || true
+        run: docker logs paradedb || true
 
       - name: Upload dashboards
         if: always()
@@ -281,29 +288,38 @@ jobs:
         working-directory: benchmarker
         run: |
           set -euo pipefail
-          # Track the closed-loop pass. Per run: QPS = query count / wall-clock,
-          # and p50/p90/p95/p99 of the collected per-query latencies (ms). Schema:
-          # dashboard/output.go -> { runs: { <name>: { backend, latencies[], startTime, endTime } } }.
-          DASH=results/closed_loop.json
-          jq '[ .runs | to_entries[]
-                | select((.value.latencies|length) > 0)
-                | { name:  ("closed_loop " + .value.backend + " QPS"),
-                    unit:  "QPS",
-                    value: ((.value.latencies|length)
-                            / ((((.value.endTime - .value.startTime) | if . <= 0 then 1000 else . end)) / 1000)) } ]' \
-            "$DASH" > benchmarker_qps.json
-          # One entry per backend x percentile. `(50,90,95,99) as $p` fans out,
-          # so each backend contributes four rows (nearest-rank on sorted latencies).
-          jq '[ .runs | to_entries[]
-                | select((.value.latencies|length) > 0)
-                | . as $e
-                | ($e.value.latencies | sort) as $sorted
-                | ($sorted | length) as $n
-                | (50, 90, 95, 99) as $p
-                | { name:  ("closed_loop " + $e.value.backend + " p" + ($p|tostring) + " latency"),
-                    unit:  "ms",
-                    value: $sorted[ ((($n - 1) * $p / 100) | floor) ] } ]' \
-            "$DASH" > benchmarker_latency.json
+          shopt -s nullglob
+          # For every k6 script's dashboard JSON, emit QPS (query count / wall-clock)
+          # and p50/p90/p95/p99 of the per-query latencies (ms). Metric names are
+          # prefixed with the script basename so each is its own gh-pages series.
+          # Schema: dashboard/output.go -> runs: { <name>: { backend, latencies[],
+          # startTime, endTime } }.
+          mkdir -p _metrics
+          for j in results/*.json; do
+            nm="$(basename "$j" .json)"
+            jq --arg s "$nm" '[ .runs | to_entries[]
+                  | select((.value.latencies|length) > 0)
+                  | { name:  ($s + " " + .value.backend + " QPS"),
+                      unit:  "QPS",
+                      value: ((.value.latencies|length)
+                              / ((((.value.endTime - .value.startTime) | if . <= 0 then 1000 else . end)) / 1000)) } ]' \
+              "$j" > "_metrics/${nm}.qps.json"
+            # `(50,90,95,99) as $p` fans out => four percentile rows per backend
+            # (nearest-rank on sorted latencies).
+            jq --arg s "$nm" '[ .runs | to_entries[]
+                  | select((.value.latencies|length) > 0)
+                  | .value as $v
+                  | ($v.latencies | sort) as $sorted
+                  | ($sorted | length) as $n
+                  | (50, 90, 95, 99) as $p
+                  | { name:  ($s + " " + $v.backend + " p" + ($p|tostring) + " latency"),
+                      unit:  "ms",
+                      value: $sorted[ ((($n - 1) * $p / 100) | floor) ] } ]' \
+              "$j" > "_metrics/${nm}.lat.json"
+          done
+          # Merge per-script arrays (guarded so an empty set yields [] not a hang).
+          if compgen -G "_metrics/*.qps.json" > /dev/null; then jq -s 'add' _metrics/*.qps.json; else echo '[]'; fi > benchmarker_qps.json
+          if compgen -G "_metrics/*.lat.json" > /dev/null; then jq -s 'add' _metrics/*.lat.json; else echo '[]'; fi > benchmarker_latency.json
           echo "== QPS =="; cat benchmarker_qps.json
           echo "== latency percentiles =="; cat benchmarker_latency.json
 
@@ -313,7 +329,7 @@ jobs:
       - name: Publish Throughput (QPS)
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "benchmarker hn_cutdown (closed_loop QPS)"
+          name: "benchmarker hn_benchmarker (QPS)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customBiggerIsBetter
           output-file-path: benchmarker/benchmarker_qps.json
@@ -330,7 +346,7 @@ jobs:
       - name: Publish Latency (p50/p90/p95/p99)
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "benchmarker hn_cutdown (closed_loop latency percentiles)"
+          name: "benchmarker hn_benchmarker (latency percentiles)"
           ref: ${{ steps.determine-ref.outputs.ref }}
           tool: customSmallerIsBetter
           output-file-path: benchmarker/benchmarker_latency.json
@@ -376,21 +392,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
           OVERTIME="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker/"
-          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "$(cat <<EOF
-          ### 📊 Benchmarker dashboards — \`${{ steps.commit_info.outputs.short_commit }}\`
-
-          Interactive per-run graphs (latency timeline, throughput, and per-container **CPU %** / **memory**):
-          - [Closed loop]($BASE/closed_loop.html)
-          - [Closed loop (single term)]($BASE/closed_loop_single.html)
-          - [Open loop]($BASE/open_loop.html)
-
-          Over-time tracking (QPS + latency percentiles across commits): [$OVERTIME]($OVERTIME)
-
-          _gh-pages may take ~a minute to deploy after this run._
-          EOF
-          )"
+          # One link per published script dashboard.
+          links=""
+          for h in _ghpages_html/*.html; do
+            nm="$(basename "$h" .html)"
+            links="${links}- [${nm}](${BASE}/${nm}.html)"$'\n'
+          done
+          {
+            printf '### 📊 Benchmarker dashboards — `%s`\n\n' "${{ steps.commit_info.outputs.short_commit }}"
+            printf 'Interactive per-script graphs (latency timeline, throughput, per-container **CPU %%** / **memory**):\n\n'
+            printf '%s\n' "$links"
+            printf 'Over-time tracking (QPS + latency percentiles across commits): [%s](%s)\n\n' "$OVERTIME" "$OVERTIME"
+            printf '_gh-pages may take ~a minute to deploy after this run._\n'
+          } > _comment.md
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file _comment.md
 
       - name: Comment dashboard links on commit (push)
         if: github.event_name == 'push'
@@ -398,6 +416,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
+          links=""
+          for h in _ghpages_html/*.html; do
+            nm="$(basename "$h" .html)"
+            links="${links}[${nm}](${BASE}/${nm}.html) · "
+          done
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-            -f body="📊 Benchmarker dashboards: [closed_loop]($BASE/closed_loop.html) · [closed_loop_single]($BASE/closed_loop_single.html) · [open_loop]($BASE/open_loop.html)"
+            -f body="📊 Benchmarker dashboards: ${links%· }"

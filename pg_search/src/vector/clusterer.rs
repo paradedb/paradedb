@@ -32,12 +32,6 @@ use crate::postgres::options::BM25IndexOptions;
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 
-/// Children per internal split of the cluster tree. Wider than the superkmeans
-/// default of `2` so a merge of tens of millions of vectors stays a handful of
-/// levels deep; the cut below reaches its cell count long before the tree
-/// bottoms out either way.
-const TREE_BRANCHING_FACTOR: usize = 16;
-
 /// A `HierarchicalSuperKMeans` built for assignment, tagged with the
 /// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
 /// centroids, pruner, or cluster count — it derives everything from the vectors
@@ -84,10 +78,12 @@ impl Default for SuperKMeansIvfClusterer {
         // Per-run knobs live on the nested `base` config in superkmeans-rs.
         // `balance_lambda` keeps its default: evenly sized posting lists are
         // the reason we cluster hierarchically in the first place.
+        // `branching_factor` and `iters_per_level` keep their defaults, which
+        // superkmeans tunes for build cost: the tree stays wide and shallow, so a
+        // merge of tens of millions of vectors is only a handful of levels deep.
         let mut config = HierarchicalSuperKMeansConfig::default();
         config.base.suppress_warnings = true;
         config.base.sampling_fraction = 1.0;
-        config.branching_factor = TREE_BRANCHING_FACTOR;
         Self {
             config,
             centroid_ratio: 0.01,

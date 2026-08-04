@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1
+#
+# docker/Dockerfile.paradedb-source-18
+#
+# Full, runnable ParadeDB image built from THIS repo's source, for the
+# benchmarker CI workflow (.github/workflows/benchmark-benchmarker.yml).
+#
+# Unlike Dockerfile.paradedb-18 (which downloads a *released* pg_search .deb),
+# the builder stage here compiles pg_search from the working tree with
+# cargo-pgrx, and the runtime stage overlays those artifacts onto a released
+# ParadeDB image. The result is a complete runnable image whose Postgres,
+# tuning, bootstrap, and other extensions match the published image, with only
+# pg_search swapped for the code under test.
+#
+# Build context is the repo root (source). .dockerignore trims .git, target/,
+# and datasets. Version pins are passed as build args so they track the repo:
+#   --build-arg RUST_TOOLCHAIN=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+#   --build-arg CARGO_PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+
+ARG BASE_IMAGE=paradedb/paradedb:v0.23.1-pg18
+ARG PG_VERSION_MAJOR=18
+
+# ---- builder: compile pg_search from source --------------------------------
+FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
+ARG PG_VERSION_MAJOR
+ARG RUST_TOOLCHAIN=1.96.0
+ARG CARGO_PGRX_VERSION=0.19.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+# Build toolchain + PG headers (the base image supplies the pg18 runtime + pg_config).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl git pkg-config libssl-dev clang \
+      "postgresql-server-dev-${PG_VERSION_MAJOR}" \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust, pinned to the repo's rust-toolchain.toml channel.
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain "${RUST_TOOLCHAIN}"
+
+# cargo-pgrx, pinned to the repo's pgrx version.
+RUN cargo install --locked cargo-pgrx --version "${CARGO_PGRX_VERSION}"
+
+WORKDIR /src
+COPY . .
+
+# Compile pg_search against the base image's Postgres and stage the install tree
+# under /out (mirrors what the release .deb lays down). cargo-pgrx init with a
+# system pg_config only records the path (it does not start a server, so root is
+# fine). The cp runs inside the same RUN as the cache-mounted target so the
+# artifacts are captured into /out (a real layer) before the mount detaches.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    PG_CONFIG="/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=${PG_CONFIG}"; \
+    cargo pgrx package --package pg_search --pg-config "${PG_CONFIG}"; \
+    mkdir -p "/out/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib" \
+             "/out/usr/share/postgresql/${PG_VERSION_MAJOR}/extension"; \
+    find target/release -type f -name 'pg_search*.so'      -exec cp {} "/out/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/" \; ; \
+    find target/release -type f -name 'pg_search*.control' -exec cp {} "/out/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/" \; ; \
+    find target/release -type f -name 'pg_search*.sql'     -exec cp {} "/out/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/" \; ; \
+    echo "Staged artifacts:"; find /out -type f
+
+# ---- runtime: full runnable image, only pg_search swapped ------------------
+FROM ${BASE_IMAGE}
+# Overwrite the base image's pg_search library, control file, and SQL scripts
+# with the source build. `CREATE EXTENSION pg_search` (run by the benchmarker
+# loader's pre.sql) then resolves to the version built from source.
+COPY --from=builder /out/usr/ /usr/

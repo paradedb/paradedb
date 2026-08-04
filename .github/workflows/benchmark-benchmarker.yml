@@ -1,0 +1,397 @@
+# workflows/benchmark-benchmarker.yml
+#
+# Benchmark pg_search (Benchmarker)
+# Runs the external benchmarker suite (github.com/paradedb/benchmarker) against a
+# pg_search build made from THIS repo's source, using the `hn_cutdown` dataset
+# and the closed-loop / open-loop k6 passes from the "Benchmarker iteration" blog
+# post (https://www.paradedb.com/blog/benchmarker-iteration).
+#
+# How it works, end to end:
+#   1. Build pg_search from the checked-out source with cargo-pgrx.
+#   2. Overlay those artifacts onto a released ParadeDB image (docker/
+#      Dockerfile.paradedb-source-18) so only the pg_search binary changes -> the
+#      Postgres version, tuning, and bootstrap match the published image.
+#   3. Clone benchmarker, `make` its custom k6 + loader, pull the hn_cutdown
+#      dataset from the public S3 bucket, and stand up the paradedb + postgres
+#      containers from the dataset's docker-compose (overriding paradedb's image
+#      to the source build).
+#   4. Load both backends, restart, then run the three k6 passes.
+#   5. Upload the k6 dashboards as artifacts and (on main) push QPS / p95 latency
+#      to gh-pages via github-action-benchmark for over-time tracking.
+
+name: Benchmark pg_search (Benchmarker)
+
+on:
+  # Track history on every push to main that could move performance.
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
+      - ".github/workflows/benchmark-benchmarker.yml"
+      - "docker/Dockerfile.paradedb-source-18"
+  # Opt-in on a PR by attaching the `benchmark-benchmarker` label.
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "pg_search commit/ref to benchmark. Defaults to the triggering ref (main on a manual run)."
+        required: false
+        default: ""
+      benchmarker_ref:
+        description: "benchmarker repo ref (branch/tag/SHA) to run."
+        required: false
+        default: "main"
+      base_paradedb_image:
+        description: "Released ParadeDB image whose pg_search is overwritten with the source build."
+        required: false
+        default: "paradedb/paradedb:v0.23.1-pg18"
+
+permissions:
+  contents: write # github-action-benchmark pushes to the gh-pages branch
+  pull-requests: write # comment benchmark alerts on PRs
+
+# No concurrency group: we want every benchmark run to complete (results are
+# appended to gh-pages history), matching the other benchmark workflows here.
+
+jobs:
+  benchmark-benchmarker:
+    name: Run Benchmarker Suite
+    # RunsOn (https://runs-on.com) provisions an ephemeral EC2 instance in our AWS
+    # account from these labels. See https://runs-on.com/configuration/job-labels/ (us-east-1).
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      # 8 vCPU / 32 GiB Graviton4 with local NVMe. Same m8gd family as the
+      # metal-24xl used by benchmark-pg_search-queries (comparable microarch),
+      # just the small size. The two DB containers are each capped at 4 cores by
+      # the dataset compose and only one is under load at a time, so 8 cores give
+      # ~4 to the active backend and ~4 to the k6 client. Bump the size (e.g.
+      # m8gd.4xlarge) if you widen client concurrency. 32 GiB fits both 8 GiB
+      # container limits plus headroom.
+      - family=m8gd.2xlarge
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache # magic S3-backed cache; see https://runs-on.com/caching/magic-cache/
+      # No EBS volume: rely on the on-machine NVMe to avoid the run-to-run
+      # variance EBS would introduce, matching the other benchmark runners.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker')
+    env:
+      pg_version: 18
+      BENCHMARKER_REPO: paradedb/benchmarker
+      DATASET: hn_cutdown
+      DATASET_S3: s3://paradedb-benchmarker/datasets/hn_cutdown
+      IMAGE_TAG: paradedb-source:ci
+
+    steps:
+      # A PR triggers this by having the `benchmark-benchmarker` label attached.
+      # Remove it once the job starts so it can be re-applied to run again.
+      - name: Maybe Remove Label
+        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label benchmark-benchmarker || true
+
+      - name: Determine Ref to Benchmark
+        id: determine-ref
+        run: |
+          # workflow_dispatch input wins; PRs benchmark the merge commit (github.sha,
+          # which exists in the base repo even for forks); otherwise default to main.
+          if [ -n "${{ inputs.commit }}" ]; then
+            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout pg_search Source at ref=${{ steps.determine-ref.outputs.ref }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.determine-ref.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Derive Short Commit
+        id: commit_info
+        run: echo "short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      # ---- Build the full ParadeDB image from source -----------------------
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Persist the Dockerfile's `RUN --mount=type=cache` dirs (cargo registry +
+      # target/) across runs. These BuildKit cache mounts are NOT carried by the
+      # type=gha layer cache and the builder is fresh each run, so without this
+      # the Rust compile is cold on every source change. buildkit-cache-dance
+      # extracts the mounts to host dirs that actions/cache stores (transparently
+      # S3-backed here via extras=s3-cache); this is the Docker-build equivalent
+      # of swatinem/rust-cache. See reproducible-containers/buildkit-cache-dance.
+      - name: Restore Rust build cache (cargo registry + target)
+        id: rust-docker-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache-cargo-registry
+            cache-rust-target
+          # SHA suffix + prefix restore-keys => each run saves a fresh entry and
+          # warms from the most recent match, a rolling incremental cache.
+          key: benchmarker-rustcache-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'docker/Dockerfile.paradedb-source-18') }}-${{ github.sha }}
+          restore-keys: |
+            benchmarker-rustcache-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'docker/Dockerfile.paradedb-source-18') }}-
+            benchmarker-rustcache-
+
+      - name: Inject Rust build cache into BuildKit
+        uses: reproducible-containers/buildkit-cache-dance@v3.1.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          # Keys are the host dirs above; values are the Dockerfile mount targets.
+          cache-map: |
+            {
+              "cache-cargo-registry": "/usr/local/cargo/registry",
+              "cache-rust-target": "/src/target"
+            }
+          # Nothing changed since the last exact hit => skip re-extraction.
+          skip-extraction: ${{ steps.rust-docker-cache.outputs.cache-hit }}
+
+      - name: Build ParadeDB image (pg_search from source)
+        run: |
+          set -euo pipefail
+          # Pin the build to the repo's toolchain + pgrx version so the image
+          # matches how pg_search is really built (no drift).
+          RUST_TOOLCHAIN=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+          echo "rust=${RUST_TOOLCHAIN} cargo-pgrx=${PGRX_VERSION}"
+
+          # type=gha carries the base/apt/rust-install LAYERS (also S3-backed via
+          # extras=s3-cache); the cache-dance above carries the cargo + target
+          # MOUNTS. Together: warm layers AND warm incremental compile.
+          docker buildx build \
+            --file docker/Dockerfile.paradedb-source-18 \
+            --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:v0.23.1-pg18' }}" \
+            --build-arg PG_VERSION_MAJOR="${{ env.pg_version }}" \
+            --build-arg RUST_TOOLCHAIN="${RUST_TOOLCHAIN}" \
+            --build-arg CARGO_PGRX_VERSION="${PGRX_VERSION}" \
+            --cache-from type=gha,scope=benchmarker-paradedb \
+            --cache-to type=gha,mode=max,scope=benchmarker-paradedb \
+            --tag "${IMAGE_TAG}" \
+            --load \
+            .
+
+      # ---- Set up and run benchmarker --------------------------------------
+
+      - name: Checkout benchmarker (${{ inputs.benchmarker_ref || 'main' }})
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.BENCHMARKER_REPO }}
+          ref: ${{ inputs.benchmarker_ref || 'main' }}
+          path: benchmarker
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: benchmarker/go.mod
+          cache-dependency-path: benchmarker/go.sum
+
+      - name: Build benchmarker (k6 + loader)
+        working-directory: benchmarker
+        run: make
+
+      - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
+        working-directory: benchmarker
+        run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
+
+      - name: Point paradedb service at the source build
+        working-directory: benchmarker
+        run: |
+          # loader pull writes the dataset's own docker-compose.yml; add an override
+          # so the paradedb service uses our locally-built image instead of the
+          # pinned release image. pull_policy=never keeps compose from trying to
+          # fetch the local-only tag.
+          cat > "datasets/${DATASET}/docker-compose.override.yml" <<EOF
+          services:
+            paradedb:
+              image: ${IMAGE_TAG}
+              pull_policy: never
+          EOF
+
+      - name: Start databases
+        working-directory: benchmarker/datasets/${{ env.DATASET }}
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait
+
+      - name: Load data (paradedb + postgres)
+        working-directory: benchmarker
+        run: |
+          ./bin/loader load --backend paradedb "./datasets/${DATASET}"
+          ./bin/loader load --backend postgres "./datasets/${DATASET}"
+
+      - name: Restart databases for a clean start
+        working-directory: benchmarker/datasets/${{ env.DATASET }}
+        run: |
+          docker restart paradedb postgres
+          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait
+
+      - name: Run k6 passes
+        working-directory: benchmarker
+        env:
+          BENCHMARKER_META: >-
+            {"commit":"${{ steps.commit_info.outputs.short_commit }}","ref":"${{ steps.determine-ref.outputs.ref }}","image":"${{ env.IMAGE_TAG }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          run_pass() {
+            script="$1"; name="$2"
+            ( cd results && ../k6 run --out dashboard=json,html "../datasets/${DATASET}/k6/${script}" )
+            mv "$(ls -t results/dashboard_*.json | head -1)" "results/${name}.json"
+            mv "$(ls -t results/dashboard_*.html | head -1)" "results/${name}.html"
+          }
+          run_pass closed_loop_single.js closed_loop_single
+          run_pass closed_loop.js        closed_loop
+          run_pass open_loop.js          open_loop
+
+      - name: Dump database logs on failure
+        if: failure()
+        run: docker logs paradedb || true; docker logs postgres || true
+
+      - name: Upload dashboards
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}
+          path: benchmarker/results/*.{json,html}
+          if-no-files-found: warn
+
+      # ---- Publish to gh-pages for over-time tracking ----------------------
+
+      - name: Extract tracked metrics
+        working-directory: benchmarker
+        run: |
+          set -euo pipefail
+          # Track the closed-loop pass. Per run: QPS = query count / wall-clock,
+          # and p50/p90/p95/p99 of the collected per-query latencies (ms). Schema:
+          # dashboard/output.go -> { runs: { <name>: { backend, latencies[], startTime, endTime } } }.
+          DASH=results/closed_loop.json
+          jq '[ .runs | to_entries[]
+                | select((.value.latencies|length) > 0)
+                | { name:  ("closed_loop " + .value.backend + " QPS"),
+                    unit:  "QPS",
+                    value: ((.value.latencies|length)
+                            / ((((.value.endTime - .value.startTime) | if . <= 0 then 1000 else . end)) / 1000)) } ]' \
+            "$DASH" > benchmarker_qps.json
+          # One entry per backend x percentile. `(50,90,95,99) as $p` fans out,
+          # so each backend contributes four rows (nearest-rank on sorted latencies).
+          jq '[ .runs | to_entries[]
+                | select((.value.latencies|length) > 0)
+                | . as $e
+                | ($e.value.latencies | sort) as $sorted
+                | ($sorted | length) as $n
+                | (50, 90, 95, 99) as $p
+                | { name:  ("closed_loop " + $e.value.backend + " p" + ($p|tostring) + " latency"),
+                    unit:  "ms",
+                    value: $sorted[ ((($n - 1) * $p / 100) | floor) ] } ]' \
+            "$DASH" > benchmarker_latency.json
+          echo "== QPS =="; cat benchmarker_qps.json
+          echo "== latency percentiles =="; cat benchmarker_latency.json
+
+      - name: Cleanup Previous Benchmark Publish Working Directory
+        run: rm -rf ./benchmark-data-repository
+
+      - name: Publish Throughput (QPS)
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "benchmarker hn_cutdown (closed_loop QPS)"
+          ref: ${{ steps.determine-ref.outputs.ref }}
+          tool: customBiggerIsBetter
+          output-file-path: benchmarker/benchmarker_qps.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-repository: github.com/${{ github.repository }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: benchmarker
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          alert-threshold: "115%"
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
+          comment-always: ${{ github.event_name == 'pull_request' }}
+
+      - name: Publish Latency (p50/p90/p95/p99)
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "benchmarker hn_cutdown (closed_loop latency percentiles)"
+          ref: ${{ steps.determine-ref.outputs.ref }}
+          tool: customSmallerIsBetter
+          output-file-path: benchmarker/benchmarker_latency.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-repository: github.com/${{ github.repository }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: benchmarker
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          alert-threshold: "115%"
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
+          comment-always: ${{ github.event_name == 'pull_request' }}
+
+      # ---- Publish per-run dashboards to gh-pages and link them -------------
+      # The k6 `dashboard=html` export is a self-contained page (data, including
+      # per-container CPU % / memory series, is inlined as
+      # window.__DASHBOARD_EMBEDDED_DATA), so hosting the .html alone renders the
+      # full interactive graphs. No JSON needed.
+
+      - name: Stage dashboards (HTML only) for gh-pages
+        run: |
+          set -euo pipefail
+          mkdir -p _ghpages_html
+          cp benchmarker/results/*.html _ghpages_html/
+          ls -la _ghpages_html
+
+      - name: Publish dashboards to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_ghpages_html
+          # Per-commit subdir; keep_files preserves the github-action-benchmark
+          # data under benchmarker/ (and every other run's dashboards).
+          destination_dir: benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}
+          keep_files: true
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "benchmarker dashboards for ${{ steps.commit_info.outputs.short_commit }}"
+
+      - name: Comment dashboard links on PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
+          OVERTIME="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker/"
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "$(cat <<EOF
+          ### 📊 Benchmarker dashboards — \`${{ steps.commit_info.outputs.short_commit }}\`
+
+          Interactive per-run graphs (latency timeline, throughput, and per-container **CPU %** / **memory**):
+          - [Closed loop]($BASE/closed_loop.html)
+          - [Closed loop (single term)]($BASE/closed_loop_single.html)
+          - [Open loop]($BASE/open_loop.html)
+
+          Over-time tracking (QPS + latency percentiles across commits): [$OVERTIME]($OVERTIME)
+
+          _gh-pages may take ~a minute to deploy after this run._
+          EOF
+          )"
+
+      - name: Comment dashboard links on commit (push)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/benchmarker-runs/${{ steps.commit_info.outputs.short_commit }}"
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -f body="📊 Benchmarker dashboards: [closed_loop]($BASE/closed_loop.html) · [closed_loop_single]($BASE/closed_loop_single.html) · [open_loop]($BASE/open_loop.html)"

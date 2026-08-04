@@ -7778,7 +7778,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "superkmeans-rs"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?branch=wwoodal%2Fhbc-1#4544e753b18bd5f10c6b2c76f889a3cdaa2004da"
+source = "git+https://github.com/paradedb/superkmeans-rs?branch=wwoodal%2Fhbc-1#80130302674329150959ac5705962544980f0a8b"
 dependencies = [
  "matrixmultiply",
  "pkg-config",

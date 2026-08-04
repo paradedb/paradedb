@@ -204,9 +204,9 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         config.max_leaf_size = max_leaf_size_for(rows, num_centroids);
 
         let mut clusterer = HierarchicalSuperKMeans::with_config(dim, config);
-        // `train_owned`'s in-place rotation has not landed on the hierarchical
-        // branch, so training keeps a rotated copy alongside this buffer.
-        let leaf_centroids = clusterer.train(&vectors.matrix.values, rows);
+        // Hand the buffer over so training rotates it in place; at index-build
+        // scale a second copy of the sample is the peak-memory term that matters.
+        let leaf_centroids = clusterer.train_owned(vectors.matrix.values, rows);
 
         if leaf_centroids.is_empty() || !leaf_centroids.len().is_multiple_of(dim) {
             return Err(TantivyError::InternalError(format!(

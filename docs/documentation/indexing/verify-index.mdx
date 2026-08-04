@@ -59,7 +59,7 @@ This returns a table with three columns:
 
 ### Example Output
 
-```
+```ini
                check_name               | passed |                    details
 ----------------------------------------+--------+-----------------------------------------------
  search_idx: schema_valid               | t      | Index schema loaded successfully
@@ -261,7 +261,7 @@ await dbContext.Database.VerifyIndex(
 
 </CodeGroup>
 
-Progress messages are emitted via PostgreSQL's `NOTICE` channel.
+Progress messages are emitted via Postgres's `NOTICE` channel.
 
 ### Verbose Mode
 
@@ -387,7 +387,7 @@ await dbContext.Database.VerifyIndex(
 
 ## Parallel Verification
 
-A single `verify_index` call processes segments sequentially within one PostgreSQL backend.
+A single `verify_index` call processes segments sequentially within one Postgres backend.
 For very large indexes, you can distribute verification across multiple database connections
 by specifying which segments each connection should check using the `segment_ids` parameter.
 This allows you to utilize multiple CPU cores by running verification in parallel processes.
@@ -429,7 +429,7 @@ await dbContext.Database.IndexSegments("search_idx").ToListAsync();
 
 </CodeGroup>
 
-```
+```ini
  partition_name | segment_idx | segment_id | num_docs | num_deleted | max_doc
 ----------------+-------------+------------+----------+-------------+---------
  search_idx     |           0 | b7e661af   |    10000 |           0 |   10000
@@ -882,7 +882,7 @@ await dbContext.Database
 
 </CodeGroup>
 
-```
+```ini
  schemaname |  tablename  |   indexname   | indexrelid | num_segments | total_docs
 ------------+-------------+---------------+------------+--------------+------------
  public     | products    | products_idx  |      16421 |            3 |      50000
@@ -898,7 +898,7 @@ To see the wall-clock time a ParadeDB index was built at:
 SELECT paradedb.index_created_at('search_idx');
 ```
 
-```
+```ini
        index_created_at
 ------------------------------
  2026-07-02 14:31:07.442218+00

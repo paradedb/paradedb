@@ -1212,8 +1212,10 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        match unsafe { datafusion_build::check_join_path_predicates(input_rel, &sources) } {
-            datafusion_build::JoinPathPredicateCheck::Complete => {}
+        let path_info = match unsafe {
+            datafusion_build::check_join_path_predicates(input_rel, &sources)
+        } {
+            datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
                 return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
             }
@@ -1225,11 +1227,11 @@ impl AggregateScan {
                     "the selected lower join path cannot be inspected completely".into(),
                 )));
             }
-        }
+        };
 
         // Extract the join tree from the parse tree
         let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
-            unsafe { extract_join_tree_from_parse(root, &sources, builder.args().input_rel()) }
+            unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)

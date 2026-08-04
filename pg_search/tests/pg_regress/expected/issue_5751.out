@@ -456,6 +456,66 @@ RESET plan_cache_mode;
 RESET enable_hashjoin;
 RESET enable_mergejoin;
 RESET enable_seqscan;
+-- A volatile cross-table residual. PG16+ discriminates residuals by
+-- RestrictInfo identity, so two occurrences of the same predicate stay two
+-- independent draws rather than collapsing into one. `random() * 0` is
+-- value-stable, so the row count is deterministic and any divergence from
+-- PostgreSQL means the predicate was dropped or applied the wrong number of
+-- times. (PG15 has no such identity and declines instead; that arm is
+-- compiled out here.)
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount + (random() * 0)::bigint$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount + (random() * 0)::bigint$$,
+  false
+) AS volatile_residual_matches_postgres;
+ volatile_residual_matches_postgres 
+------------------------------------
+ t
+(1 row)
+
+-- JoinScan and AggregateScan both proposing for the same joinrel. With
+-- `enable_join_custom_scan` on, JoinScan's CustomPath can be the joinrel's
+-- cheapest path; AggregateScan cannot reconstruct predicates through it and
+-- declines rather than falling back to the retained parse tree. Whichever
+-- scan wins, the answer must match PostgreSQL.
+CREATE TABLE issue_5751_js_left (id bigint PRIMARY KEY, body text);
+CREATE TABLE issue_5751_js_right (id bigint PRIMARY KEY, left_id bigint, body text);
+INSERT INTO issue_5751_js_left SELECT g, 'alpha beta' FROM generate_series(1, 20) g;
+INSERT INTO issue_5751_js_right SELECT g, g, 'gamma delta' FROM generate_series(1, 20) g;
+CREATE INDEX issue_5751_js_left_bm25
+ON issue_5751_js_left USING bm25 (id, body) WITH (key_field = 'id');
+CREATE INDEX issue_5751_js_right_bm25
+ON issue_5751_js_right USING bm25 (id, left_id, body) WITH (key_field = 'id');
+SET paradedb.enable_join_custom_scan = on;
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  false
+) AS joinscan_interaction_matches_postgres;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, r)
+ joinscan_interaction_matches_postgres 
+---------------------------------------
+ t
+(1 row)
+
+RESET paradedb.enable_join_custom_scan;
 DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
+DROP TABLE issue_5751_js_left, issue_5751_js_right;
 DROP TABLE issue_5751_entries, issue_5751_series,
            issue_5751_ppi_entries, issue_5751_ppi_series;

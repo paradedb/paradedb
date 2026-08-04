@@ -173,20 +173,19 @@ pub unsafe fn collect_join_agg_sources(
 ///    comma-separated `FROM`, and the join type (INNER, LEFT, etc.). This is
 ///    walked via [`build_relnode_from_fromexpr`] to produce the `RelNode` skeleton.
 ///
-/// 2. **Cheapest path** (`input_rel.cheapest_total_path`): provides the equi-join
-///    **keys** (e.g., `a.id = b.id`). By the time we reach `UPPERREL_GROUP_AGG`,
-///    the planner has distributed quals into `RestrictInfo` lists on the
-///    selected path. We recursively walk that path via
-///    [`analyze_join_path_restrictinfo`], traversing only known transparent
-///    wrappers and inspecting both `JoinPath.joinrestrictinfo` and
-///    `ParamPathInfo.ppi_clauses`.
+/// 2. **Selected path** (`path_info`): provides the equi-join **keys** (e.g.,
+///    `a.id = b.id`). By the time we reach `UPPERREL_GROUP_AGG`, the planner has
+///    distributed quals into `RestrictInfo` lists on the selected path. That
+///    walk happens in [`check_join_path_predicates`], which hands its result
+///    here so the classification eligibility was decided on is the one the plan
+///    is built from.
 ///
 /// The parse tree gives the skeleton, the path gives the keys, and
 /// [`RelNode::inject_equi_keys`] attaches the keys to the correct join levels.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
-    input_rel: &pg_sys::RelOptInfo,
+    path_info: PathRestrictInfo,
 ) -> Result<JoinTreeResult, String> {
     let parse = (*root).parse;
     if parse.is_null() {
@@ -200,13 +199,11 @@ pub unsafe fn extract_join_tree_from_parse(
 
     let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
 
-    // Walk the cheapest path's joinrestrictinfo once to extract both equi-join
-    // keys and cross-table @@@ search predicates (mirrors JoinScan's approach).
-    let path_info = analyze_join_path_restrictinfo(input_rel, sources);
-
     // Wrapper-only keys are EC-derived extras; the query tree already supplies
-    // every syntactic equality. Inject them only for a keyless join level, or
-    // plan shape rather than SQL semantics decides the key set.
+    // every syntactic equality. They are injected as a set once any join level
+    // is keyless, so an already-keyed level can pick up extras too - harmless,
+    // because an EC equality holds for every row the join emits. The gate is
+    // there to keep plan shape from deciding the key set, not to target levels.
     if !path_info.equi_keys.is_empty() {
         plan.inject_equi_keys(path_info.equi_keys);
     }
@@ -679,7 +676,7 @@ unsafe fn extract_equi_keys_from_quals(
 }
 
 /// Result of a single walk over the cheapest path's `joinrestrictinfo`.
-struct PathRestrictInfo {
+pub(crate) struct PathRestrictInfo {
     /// Equi-join keys from directly inspected JoinPaths (`a.id = b.id`).
     equi_keys: Vec<JoinKeyPair>,
     /// Supplemental equality keys found only after traversing a transparent
@@ -718,11 +715,12 @@ enum RestrictInfoOrigin {
 #[derive(Clone, Copy, Debug)]
 struct PathSearchClause {
     clause: *mut pg_sys::Node,
-    // PG15 has no planner-assigned RestrictInfo identity.
-    #[cfg(feature = "pg15")]
+    /// Which planner list this clause was reached through. PG16+ discriminates
+    /// by `rinfo_serial` instead, but the field is tiny and keeping it
+    /// unconditional keeps one plain constructor parameter on every version.
     origin: RestrictInfoOrigin,
-    // PG16+ uses this serial to identify quals enforced within a Path.
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    // PG15 has no planner-assigned RestrictInfo identity to compare.
+    #[cfg(not(feature = "pg15"))]
     rinfo_serial: i32,
 }
 
@@ -733,6 +731,16 @@ enum PathSearchClauseOverlap {
 }
 
 impl PathSearchClause {
+    /// Whether `other` is the same predicate this clause already stands for.
+    ///
+    /// Rests on the planner sharing one `RestrictInfo` when a predicate is
+    /// reachable at two join levels, so pointer equality identifies a genuine
+    /// re-encounter rather than a second occurrence the query asked for twice.
+    /// The shapes that would break that assumption - partitionwise child
+    /// copies - decline earlier via the opaque-path check, so they never reach
+    /// here. Two structurally equal clauses that are *not* the same
+    /// `RestrictInfo` stay distinct: repeating a volatile conjunct in SQL asks
+    /// for two independent draws.
     unsafe fn overlap(&self, other: &Self) -> Option<PathSearchClauseOverlap> {
         if std::ptr::eq(self.clause, other.clause) {
             return Some(PathSearchClauseOverlap::Duplicate);
@@ -753,7 +761,7 @@ impl PathSearchClause {
             }
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        #[cfg(not(feature = "pg15"))]
         {
             (self.rinfo_serial == other.rinfo_serial).then_some(PathSearchClauseOverlap::Duplicate)
         }
@@ -773,9 +781,11 @@ impl PathRestrictInfo {
 }
 
 /// Result of validating the selected lower path's join-predicate inventory.
-#[derive(Clone, Copy, Debug)]
 pub enum JoinPathPredicateCheck {
-    Complete,
+    /// Carries the walk that proved coverage. `extract_join_tree_from_parse`
+    /// consumes it rather than re-walking, so the classification the decision
+    /// was made on is the one the plan is built from.
+    Complete(PathRestrictInfo),
     Unsupported(PathPredicateDeclineReason),
     IncompletePath(pg_sys::NodeTag),
 }
@@ -819,8 +829,7 @@ unsafe fn classify_path_restrictinfo(
     restrictinfo: *mut pg_sys::List,
     allow_unpushed_cross_table: bool,
     equi_key_source: EquiKeySource,
-    #[cfg(feature = "pg15")] origin: RestrictInfoOrigin,
-    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))] _origin: RestrictInfoOrigin,
+    origin: RestrictInfoOrigin,
     sources: &[JoinAggSource],
     search_op: pg_sys::Oid,
     info: &mut PathRestrictInfo,
@@ -896,9 +905,8 @@ unsafe fn classify_path_restrictinfo(
             if acceptable {
                 let candidate = PathSearchClause {
                     clause,
-                    #[cfg(feature = "pg15")]
                     origin,
-                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                    #[cfg(not(feature = "pg15"))]
                     rinfo_serial: (*ri).rinfo_serial,
                 };
                 let overlap = info
@@ -907,7 +915,13 @@ unsafe fn classify_path_restrictinfo(
                     .find_map(|existing| existing.overlap(&candidate));
 
                 match overlap {
-                    Some(PathSearchClauseOverlap::Duplicate) => continue,
+                    Some(PathSearchClauseOverlap::Duplicate) => {
+                        pgrx::debug1!(
+                            "agg-on-join: residual already inventoried, reached again via {:?}",
+                            candidate.origin
+                        );
+                        continue;
+                    }
                     #[cfg(feature = "pg15")]
                     Some(PathSearchClauseOverlap::Ambiguous) => {
                         info.decline(PathPredicateDeclineReason::AmbiguousVolatileOverlap);
@@ -1033,7 +1047,7 @@ pub unsafe fn check_join_path_predicates(
         PathPredicateCoverage::Complete if let Some(reason) = info.decline_reason => {
             JoinPathPredicateCheck::Unsupported(reason)
         }
-        PathPredicateCoverage::Complete => JoinPathPredicateCheck::Complete,
+        PathPredicateCoverage::Complete => JoinPathPredicateCheck::Complete(info),
     }
 }
 

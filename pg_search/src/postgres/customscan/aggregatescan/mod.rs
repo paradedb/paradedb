@@ -1115,7 +1115,9 @@ impl AggregateScan {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                reason.emit();
+                if gucs::check_aggregate_scan() {
+                    reason.emit();
+                }
                 Vec::new()
             }
         }

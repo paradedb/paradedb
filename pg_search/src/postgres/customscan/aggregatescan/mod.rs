@@ -87,6 +87,9 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::collation_semantics::{
+    CollationOperation, CollationSafety, assess_collation, collation_supports,
+};
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
     shutdown_custom_scan,
@@ -94,7 +97,6 @@ use crate::postgres::customscan::exec::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
-use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -167,7 +169,9 @@ unsafe fn grouping_collations_are_pushdown_safe(
         }
 
         let collation = (*equivalence_class).ec_collation;
-        if collation != pg_sys::Oid::INVALID && !pg_sys::get_collation_isdeterministic(collation) {
+        if assess_collation(collation, CollationOperation::Equality)
+            == CollationSafety::NondeterministicEquality
+        {
             return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
         }
     }
@@ -189,7 +193,10 @@ unsafe fn grouping_key_order_is_pushdown_safe(args: &CreateUpperPathsHookArgs) -
         .all(|pathkey| {
             let equivalence_class = (*pathkey).pk_eclass;
             !equivalence_class.is_null()
-                && is_collation_pushdown_safe((*equivalence_class).ec_collation)
+                && collation_supports(
+                    (*equivalence_class).ec_collation,
+                    CollationOperation::Ordering,
+                )
         })
 }
 
@@ -2101,7 +2108,7 @@ unsafe fn detect_join_aggregate_topk(
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = pg_sys::exprCollation(sort_expr);
-        if !is_collation_pushdown_safe(collation) {
+        if !collation_supports(collation, CollationOperation::Ordering) {
             return None;
         }
 

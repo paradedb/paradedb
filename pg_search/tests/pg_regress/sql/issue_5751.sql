@@ -356,15 +356,15 @@ SELECT issue_5751_result(
 DEALLOCATE issue_5751_ppi_generic;
 RESET plan_cache_mode;
 
--- A volatile cross-table residual, still under the parameterized nested loop
--- above so the predicate is reachable from both `joinrestrictinfo` and
--- `ppi_clauses` - the overlap the residual dedup exists for. PG16+ tells the
--- two encounters apart by `rinfo_serial`; PG15 has no such identity, falls
--- back to comparing origins. Both accept this shape: the planner hands back
--- the same RestrictInfo, so pointer equality settles it before either
--- version-specific rule runs. `random() * 0` is value-stable, so the count is
--- deterministic and any divergence means the predicate was dropped or applied
--- twice.
+-- A volatile cross-table residual enforced through a parameterized inner path.
+-- For this selected nested-loop path, PostgreSQL records the clause in the
+-- inner path's `ParamPathInfo.ppi_clauses`. `create_nestloop_path()` then omits
+-- the clause assigned to the inner path from the `JoinPath.joinrestrictinfo`
+-- embedded in the parent `NestPath`.
+--
+-- This verifies that AggregateScan inventories and translates a volatile
+-- residual from `ppi_clauses` without dropping it. `random() * 0` keeps the
+-- expected result deterministic.
 SELECT issue_5751_plan_uses(
   $$SELECT count(*)
     FROM issue_5751_ppi_entries e

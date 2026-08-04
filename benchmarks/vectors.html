@@ -54,6 +54,11 @@ cohere suite benchmarks. Newest published run per arm.</p>
 
 <div class="bar">
   <label>Dataset size <select id="size"></select></label>
+  <label>Latency percentile <select id="pct">
+    <option value="p50">p50</option>
+    <option value="p95" selected>p95</option>
+    <option value="p99">p99</option>
+  </select></label>
   <span id="meta" class="note"></span>
 </div>
 
@@ -107,9 +112,8 @@ function collect(entries) {
   return { runs, meta };
 }
 
-/** One line per arm, plus a line per vchord prefilter variant. Each point keeps all three
- *  percentiles: they are the spread of one operating point, not three separate curves. */
-function seriesFor(runs, size, query) {
+/** One line per arm, plus a line per vchord prefilter variant, at the chosen percentile. */
+function seriesFor(runs, size, query, pct) {
   const out = [];
   for (const arm of ARMS) {
     const rec = runs[arm + "|" + size];
@@ -117,13 +121,9 @@ function seriesFor(runs, size, query) {
     const stems = [...new Set(rec.points.filter((p) => query.stem.test(p.stem)).map((p) => p.stem))].sort();
     for (const stem of stems) {
       const variant = stem.replace(/^knn_top10_(unfiltered|10pct|1pct)_?/, "").replace(/_/g, " ");
-      const byTarget = new Map();
-      for (const p of rec.points.filter((p) => p.stem === stem)) {
-        const e = byTarget.get(p.target) || { y: p.target };
-        e[p.pct] = p.ms;
-        byTarget.set(p.target, e);
-      }
-      const pts = [...byTarget.values()].filter((e) => e.p50 != null).sort((a, b) => a.y - b.y);
+      const pts = rec.points.filter((p) => p.stem === stem && p.pct === pct)
+                            .map((p) => ({ x: p.ms, y: p.target }))
+                            .sort((a, b) => a.y - b.y);
       if (pts.length) out.push({ arm, label: ARM_LABEL[arm] + (variant ? ` (${variant})` : ""),
                                  dashed: /off/.test(variant), pts });
     }
@@ -131,9 +131,9 @@ function seriesFor(runs, size, query) {
   return out;
 }
 
-function lineChart(series) {
+function lineChart(series, pct) {
   const W = 460, H = 300, L = 52, R = 12, T = 10, B = 42;
-  const xs = series.flatMap((s) => s.pts.flatMap((p) => [p.p50, p.p99 ?? p.p50]));
+  const xs = series.flatMap((s) => s.pts.map((p) => p.x));
   if (!xs.length) return `<svg viewBox="0 0 ${W} ${H}"><text x="16" y="30" class="lbl">no data</text></svg>`;
   // Latency spans an order of magnitude between arms, so a log x-axis keeps the fast ones readable.
   const lo = Math.log10(Math.min(...xs) * 0.8), hi = Math.log10(Math.max(...xs) * 1.25);
@@ -156,26 +156,13 @@ function lineChart(series) {
   g += `<text class="lbl" x="${(L + W - R) / 2}" y="${H - 8}" text-anchor="middle">latency (ms, log)</text>`;
   g += `<text class="lbl" transform="translate(13,${(T + H - B) / 2}) rotate(-90)" text-anchor="middle">recall target</text>`;
 
-  // A whisker per point rather than a filled ribbon: with three points and up to five overlapping
-  // arms, stacked translucent polygons read as vague shaded area instead of this point's spread.
   for (const s of series) {
     const c = css(s.arm);
-    for (const p of s.pts) {
-      if (p.p99 == null || p.p99 <= p.p50) continue;
-      const y = Y(p.y).toFixed(1), x0 = X(p.p50).toFixed(1), x1 = X(p.p99).toFixed(1);
-      g += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${c}" stroke-width="1.5" opacity=".5"/>` +
-           `<line x1="${x1}" y1="${(+y - 3).toFixed(1)}" x2="${x1}" y2="${(+y + 3).toFixed(1)}" stroke="${c}" stroke-width="1.5" opacity=".5"/>`;
-    }
-  }
-  for (const s of series) {
-    const c = css(s.arm);
-    const d = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p.p50).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
+    const d = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
     g += `<path d="${d}" fill="none" stroke="${c}" stroke-width="2"${s.dashed ? ' stroke-dasharray="5 3"' : ""}/>`;
     for (const p of s.pts) {
-      const tip = `${s.label} @ ${(p.y * 100).toFixed(0)}% — p50 ${p.p50.toFixed(1)} / p95 ${(p.p95 ?? NaN).toFixed(1)} / p99 ${(p.p99 ?? NaN).toFixed(1)} ms`;
-      g += `<circle cx="${X(p.p50).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5" fill="${c}"><title>${tip}</title></circle>`;
-      if (p.p95 != null)
-        g += `<circle cx="${X(p.p95).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="1.8" fill="${c}" opacity=".65"><title>${tip}</title></circle>`;
+      g += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5" fill="${c}">` +
+           `<title>${s.label} @ ${(p.y * 100).toFixed(0)}% — ${pct} ${p.x.toFixed(1)} ms</title></circle>`;
     }
   }
   return `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
@@ -231,19 +218,19 @@ function legend(series) {
 function render() {
   const { runs, meta } = window.__DATA;
   const size = document.getElementById("size").value;
+  const pct = document.getElementById("pct").value;
   document.getElementById("meta").textContent = meta
     .filter((m) => m.size === size)
     .map((m) => `${m.arm} @ ${m.commit} (${m.when})`)
     .join(" · ");
   document.getElementById("curvenote").innerHTML =
-    "Up and to the left is better. Each point is p50 with a whisker out to p99, so a long whisker means a heavy tail " +
-    "at that operating point. The y axis is the <em>target</em> the sweep aimed at, not the recall it achieved \u2014 data.js does " +
+    "Up and to the left is better. The y axis is the <em>target</em> the sweep aimed at, not the recall it achieved \u2014 data.js does " +
     "not publish achieved recall, so a point an arm could not actually reach still plots at its target.";
 
   document.getElementById("curves").innerHTML = QUERIES.map((q) => {
-    const s = seriesFor(runs, size, q);
+    const s = seriesFor(runs, size, q, pct);
     return `<div class="card"><h3>${q.label}</h3>
-            <p class="cap">dot = p50 · whisker to p99 · small tick = p95</p>${lineChart(s)}${legend(s)}</div>`;
+            <p class="cap">${pct} latency at each recall target</p>${lineChart(s, pct)}${legend(s)}</div>`;
   }).join("");
 
   document.getElementById("bars").innerHTML =
@@ -266,6 +253,7 @@ function render() {
   const sel = document.getElementById("size");
   sel.innerHTML = sizes.map((s) => `<option value="${s}">${s} rows</option>`).join("");
   sel.addEventListener("change", render);
+  document.getElementById("pct").addEventListener("change", render);
 
   document.getElementById("status").hidden = true;
   document.getElementById("app").hidden = false;

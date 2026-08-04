@@ -17,11 +17,11 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
-use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::fsm::FreeSpaceManager;
+use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
-use crate::postgres::storage::xlog::{finish_xlog, XlogFlag, XlogStyle};
+use crate::postgres::storage::xlog::{XlogFlag, XlogStyle, finish_xlog};
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::mem::size_of;
@@ -793,7 +793,7 @@ impl BufferManager {
         }
     }
 
-    pub fn fsm(&mut self) -> impl FreeSpaceManager {
+    pub fn fsm(&mut self) -> impl FreeSpaceManager + use<> {
         let fsm_blockno = *self
             .fsm_blockno
             .get_or_insert_with(|| MetaPage::open(self.rbufacc.rel()).fsm());

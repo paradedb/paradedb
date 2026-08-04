@@ -9,7 +9,6 @@
 
 # Cargo
 target/
-.lindera-cache/
 
 # SSH
 *.pem
@@ -27,9 +26,6 @@ target/
 
 # Ruff
 .ruff_cache/
-
-# pgvector
-pgvector/
 
 # Env files
 .env

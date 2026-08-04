@@ -186,9 +186,9 @@ ORDER BY m.id DESC LIMIT 10;
            :           CoalescePartitionsExec
            :             HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
            :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :               RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :               RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
            :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
-           :           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           :           RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (19 rows)
 

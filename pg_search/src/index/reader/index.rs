@@ -35,14 +35,14 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
+use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
 use anyhow::Result;
-use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::DistributedAggregationCollector;
+use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
     SortByString,
@@ -51,11 +51,11 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::vector::ProbeStats;
+use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
-    query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
-    ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
+    DateTime, DocAddress, DocId, DocSet, Executor, IndexReader, ReloadPolicy, Score, Searcher,
+    SegmentOrdinal, SegmentReader, TantivyDocument, query::Query, schema::OwnedValue,
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
@@ -250,12 +250,11 @@ impl Iterator for TopKSearchResults {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
-        if self.iterators.is_empty() {
-            if let Some(ref mut lazy) = self.lazy_iterators {
-                if let Some(next_iter) = lazy.next() {
-                    self.iterators.push(next_iter);
-                }
-            }
+        if self.iterators.is_empty()
+            && let Some(ref mut lazy) = self.lazy_iterators
+            && let Some(next_iter) = lazy.next()
+        {
+            self.iterators.push(next_iter);
         }
         self.iterators.last_mut()
     }
@@ -701,7 +700,9 @@ impl SearchIndexReader {
             });
             (field, generator)
         } else {
-            panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
+            panic!(
+                "failed to create snippet generator for field: {field_name}... can only highlight text fields"
+            )
         }
     }
 
@@ -1017,10 +1018,10 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
-                let only_score_feature =
-                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
-                if !(erased_features.is_empty() || only_score_feature) {
-                    panic!("secondary ORDER BY fields are not supported for vector distance");
+                if orderby_info[1..].iter().any(|o| o.is_score()) {
+                    panic!(
+                        "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
+                    );
                 }
                 let field = self
                     .schema
@@ -1039,13 +1040,54 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });
+
+                let mut erased_features = erased_features;
+                let score_index = erased_features.score_index();
+                let mut tie_breaks = Vec::with_capacity(erased_features.len());
+                while let Some(feature) = erased_features.pop() {
+                    tie_breaks.push(feature);
+                }
+                tie_breaks.reverse();
+                if let Some(i) = score_index {
+                    tie_breaks.remove(i);
+                }
+
                 // Record SegmentIds as the (possibly lazy) iterator is consumed so
                 // we can zip them with per-segment ProbeStats from the Fruit.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
                 let segment_ids = segment_ids.inspect(|id| collected_ids.borrow_mut().push(*id));
-                // Fruit is `VectorSimilarityFruit`: hits plus per-segment ProbeStats.
-                let (fruit, aggregation_results) =
-                    self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
+                // Fruit is `VectorSimilarityFruit` — hits plus per-segment
+                // ProbeStats — for every tie-break shape.
+                let tie_break_count = tie_breaks.len();
+                let mut tie_breaks = tie_breaks.into_iter();
+                let mut next = || tie_breaks.next().expect("tie-break feature should exist");
+                let (fruit, aggregation_results) = match tie_break_count {
+                    0 => self.collect_maybe_auxiliary(segment_ids, collector, aux_collector),
+                    1 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break(next()),
+                        aux_collector,
+                    ),
+                    2 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break((next(), next())),
+                        aux_collector,
+                    ),
+                    3 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break((next(), next(), next())),
+                        aux_collector,
+                    ),
+                    4 => self.collect_maybe_auxiliary(
+                        segment_ids,
+                        collector.with_tie_break((next(), next(), next(), next())),
+                        aux_collector,
+                    ),
+                    x => panic!(
+                        "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
+                        x + 1
+                    ),
+                };
                 let segment_ids = collected_ids.into_inner();
                 let segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
                 TopKSearch::with_segment_info(
@@ -1203,7 +1245,8 @@ impl SearchIndexReader {
                 if erased_features.score_index() == Some(x - 1) {
                     panic!(
                         "Unsupported sort-field count: {}. At most {} are supported when `pdb.score` is requested.",
-                        x, MAX_TOPK_FEATURES - 1
+                        x,
+                        MAX_TOPK_FEATURES - 1
                     )
                 } else {
                     panic!(
@@ -1298,7 +1341,7 @@ impl SearchIndexReader {
                     matching_docs: 0,
                     total_docs: 0,
                     query_cost: 0,
-                }
+                };
             }
             x => {
                 panic!(
@@ -1420,11 +1463,10 @@ impl SearchIndexReader {
         // actual leaf queries (e.g., real "All" query has 0 children and should be estimated).
         if matches!(&node.query, SearchQueryInput::Empty | SearchQueryInput::All)
             && node.children().len() == 1
+            && let Some(child_estimate) = node.children()[0].estimated_docs
         {
-            if let Some(child_estimate) = node.children()[0].estimated_docs {
-                node.set_estimate(child_estimate);
-                return;
-            }
+            node.set_estimate(child_estimate);
+            return;
         }
 
         let tantivy_query = node

@@ -27,7 +27,6 @@ pretty_assertions = "1.4.1"
 rand = "0.9.4"
 rstest = "0.25.0"
 rustc-hash = "2.1.2"
-serde = "1.0.228"
 serde_json = "1.0.149"
 soa_derive = "0.14.0"
 sqlx = { version = "0.8.6", features = [

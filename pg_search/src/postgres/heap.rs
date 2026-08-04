@@ -18,8 +18,8 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
-use pgrx::pg_sys;
 use pgrx::PgList;
+use pgrx::pg_sys;
 use std::ops::Deref;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
@@ -530,7 +530,7 @@ mod util {
     /// violation that also thrashes the VM cache).
     pub const HEAPBLOCKS_PER_PAGE: u32 = MAPSIZE * HEAPBLOCKS_PER_BYTE;
 
-    extern "C" {
+    unsafe extern "C" {
         /// Raw binding to Postgres `visibilitymap_get_status`. Safe to call without the
         /// pgrx wrapper ONLY when the caller has confirmed `*buf` is valid and already
         /// holds the correct mapBlock for `heapBlk` — i.e. the C function will take its

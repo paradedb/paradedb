@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use arrow_array::{new_empty_array, ArrayRef, StructArray, UInt32Array, UInt64Array, UnionArray};
+use arrow_array::{ArrayRef, StructArray, UInt32Array, UInt64Array, UnionArray, new_empty_array};
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::{DataType, Field, UnionFields, UnionMode};
 use std::sync::Arc;

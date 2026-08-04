@@ -20,7 +20,7 @@
 #![allow(clippy::tabs_in_doc_comments)]
 
 use parking_lot::Mutex;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{IntoDatum, PgList, PgMemoryContexts, direct_function_call, pg_sys};
 
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
@@ -272,11 +272,6 @@ pub struct RelPathlistHookArgs {
 }
 
 impl RelPathlistHookArgs {
-    #[allow(dead_code)]
-    pub fn root(&self) -> &pg_sys::PlannerInfo {
-        unsafe { self.root.as_ref().expect("Args::root should not be null") }
-    }
-
     pub fn rel(&self) -> &pg_sys::RelOptInfo {
         unsafe { self.rel.as_ref().expect("Args::rel should not be null") }
     }
@@ -299,40 +294,6 @@ pub struct JoinPathlistHookArgs {
     pub jointype: pg_sys::JoinType::Type,
     #[allow(dead_code)]
     pub extra: *mut pg_sys::JoinPathExtraData,
-}
-
-impl JoinPathlistHookArgs {
-    #[allow(dead_code)]
-    pub fn root(&self) -> &pg_sys::PlannerInfo {
-        unsafe { self.root.as_ref().expect("Args::root should not be null") }
-    }
-
-    #[allow(dead_code)]
-    pub fn joinrel(&self) -> &pg_sys::RelOptInfo {
-        unsafe {
-            self.joinrel
-                .as_ref()
-                .expect("Args::joinrel should not be null")
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn outerrel(&self) -> &pg_sys::RelOptInfo {
-        unsafe {
-            self.outerrel
-                .as_ref()
-                .expect("Args::outerrel should not be null")
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn innerrel(&self) -> &pg_sys::RelOptInfo {
-        unsafe {
-            self.innerrel
-                .as_ref()
-                .expect("Args::innerrel should not be null")
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

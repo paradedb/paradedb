@@ -108,7 +108,6 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          cache-directories: .lindera-cache
           # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
           save-if: false
 
@@ -126,7 +125,7 @@ jobs:
       # Needed for hybrid search unit tests
       - name: Install pgvector
         run: |
-          git clone --branch v0.8.4 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
           cd pgvector/
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j

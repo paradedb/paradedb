@@ -1082,7 +1082,7 @@ version = "3.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "519bd3116aeeb42d5372c29d982d16d0170d3d4a5ed85fc7dd91642ffff3c67c"
 dependencies = [
- "darling 0.20.11",
+ "darling 0.21.3",
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -1971,6 +1971,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
+ "strsim",
  "syn 2.0.117",
 ]
 
@@ -2276,7 +2277,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "2.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-07-27-225116#11008dc16a987ecd95e54ac56330b025ebe462b4"
+source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-07-30-083335#d0310831503abc905b8b312732602676a4a97fb9"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5553,7 +5554,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5766,9 +5767,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a83847efc71051a6dc93846e5c6dea5cbdac92b6fcff9a62b4ffcad487c396"
+checksum = "8d7e6f85d841cd9c01092ad3b9d60fc778bf54dc6174bbd24126250659af7d91"
 dependencies = [
  "bitflags 2.13.0",
  "bitvec",
@@ -5787,9 +5788,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-bindgen"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f2f7026019bc1b69b9fd9c272dcc67c4c4873385eee19a2b16de0f5f1fd0cc8"
+checksum = "81cd392ab2e05995ebecf15bd562d7eb666a1ced11b3e39ef910212d6b67f2a9"
 dependencies = [
  "bindgen",
  "cc",
@@ -5806,9 +5807,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c548a0ead422dbcf430e222a5ad58a4d7646cc37dd122ec6ae0f090c90719dac"
+checksum = "aefe3297831869ac1e3fc62045a0181cd9f3ba3e3ad3ed56b9d89ae899170581"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -5818,9 +5819,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cca92965c1dc76b2a2083afb7dadcf2601d1f04d174311914b6faa49e728fea"
+checksum = "41dd7c6196fcd41f76240f721b6373dc9c080489c87194e3ffb8f924a8fef4e0"
 dependencies = [
  "cargo_toml",
  "codepage",
@@ -5838,9 +5839,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e78e46545f1d6d0c9fd8d73099aa0bc9390dddc8fd6d7aabd98ad08e9086db52"
+checksum = "e8f2ee0cc6c14ebd3b91aa7d4576b45dc87945e905a53343ef50e2509e928c94"
 dependencies = [
  "cee-scape",
  "libc",
@@ -5852,9 +5853,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6888b62533c49fda36ab44a82abb96d62e1eba522556244f8a76783097b3b5"
+checksum = "48447cd6f7e60929d14ca24d3507c357d16a531dff896f9be921b59c03022759"
 dependencies = [
  "convert_case",
  "eyre",
@@ -5868,9 +5869,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.19.0"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0bbad9d4a83d86413c97bc0f7f02e201a36d6e96dc0f615030b5e4b503315f"
+checksum = "bf2bd839c188294cff06e8f0e4267f2d6e9fbdce634c05bffb970b55e6682f58"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -6439,7 +6440,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -7988,7 +7989,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "superkmeans-rs"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=9cebcb426cc5236eaec4ce035001e1299bbd9cf2#9cebcb426cc5236eaec4ce035001e1299bbd9cf2"
+source = "git+https://github.com/paradedb/superkmeans-rs?rev=b89e83196143acd518f1d8212ec1f53474e936d4#b89e83196143acd518f1d8212ec1f53474e936d4"
 dependencies = [
  "matrixmultiply",
  "pkg-config",
@@ -8087,7 +8088,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -8143,7 +8144,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "bitpacking",
 ]
@@ -8151,7 +8152,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -8166,7 +8167,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -8199,7 +8200,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -8211,7 +8212,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -8224,7 +8225,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -8261,7 +8262,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=3212ceeca1709bf9f1da9446a06a803e6691f7ef#3212ceeca1709bf9f1da9446a06a803e6691f7ef"
+source = "git+https://github.com/paradedb/tantivy.git?rev=eadcfaf293c91cd69fec2e009ca20818688dc5fe#eadcfaf293c91cd69fec2e009ca20818688dc5fe"
 dependencies = [
  "serde",
 ]
@@ -8328,7 +8329,6 @@ dependencies = [
  "rand 0.9.4",
  "rstest",
  "rustc-hash",
- "serde",
  "serde_json",
  "soa_derive",
  "sqlx",

@@ -17,7 +17,7 @@
 
 use datafusion::common::{Column, JoinType, NullEquality, Result, TableReference};
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, LogicalPlanBuilder, Operator};
+use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlanBuilder, Operator, col, lit};
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
@@ -285,12 +285,14 @@ impl<'a> PredicateTranslator<'a> {
     ///
     /// IMPORTANT: This translator is used to check if a predicate CAN be translated,
     /// but the actual predicate evaluation happens via heap fetch + PostgreSQL evaluation.
-    /// Cross-type comparisons (e.g., INT < NUMERIC) involve type casts that change value
-    /// semantics - we cannot simply look through them because the underlying storage
-    /// representations differ (e.g., INT 95 vs Numeric64 5225 for 52.25).
+    /// Value-preserving casts are looked through: binary-compatible `RelabelType` nodes
+    /// (e.g. varchar → text) and `CoerceViaIO` within the text family.
     ///
-    /// For predicates involving type casts, we return None to indicate that the predicate
-    /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
+    /// Casts that change value representation are not. Cross-type comparisons
+    /// (e.g. INT < NUMERIC) involve casts whose underlying storage representations differ
+    /// (e.g. INT 95 vs Numeric64 5225 for 52.25), so we return None to indicate that the
+    /// predicate cannot be evaluated purely in DataFusion and must fall back to PostgreSQL
+    /// evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             pgrx::debug1!("PredicateTranslator: null node pointer");
@@ -674,10 +676,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
         if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0) {
-                if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_col(&alias, &name));
-                }
+            if let Some(col_idx) = source.map_var(rti, 0)
+                && let Some(name) = source.column_name(col_idx)
+            {
+                return Some(make_col(&alias, &name));
             }
             return Some(make_col(&alias, SCORE_COL_NAME));
         }
@@ -697,8 +699,8 @@ mod tests {
     use datafusion::common::{JoinType, NullEquality};
     use datafusion::datasource::MemTable;
     use datafusion::logical_expr::col;
-    use datafusion::physical_plan::joins::HashJoinExec;
     use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::physical_plan::joins::HashJoinExec;
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 

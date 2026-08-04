@@ -18,8 +18,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.mpp_worker_count TO 4;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
@@ -99,7 +98,7 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.category
 ORDER BY f.category;
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category,
@@ -135,7 +134,7 @@ GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
@@ -166,7 +165,7 @@ HAVING COUNT(*) > 100
 ORDER BY s DESC
 LIMIT 3;
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
@@ -198,7 +197,7 @@ SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
@@ -255,7 +254,7 @@ WHERE f.content @@@ 'Section'
 GROUP BY c.name
 ORDER BY c.name;
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes

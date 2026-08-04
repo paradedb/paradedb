@@ -20,15 +20,15 @@ use std::ptr::NonNull;
 
 use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::version::VersionInfo;
 use crate::api::HashSet;
+use crate::api::version::VersionInfo;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
-use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
-use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
+use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::parallel_worker::{QueryWorkerStyle, WorkerStyle, chunk_range};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
 use crate::postgres::customscan::aggregatescan::json_rewrite::{
@@ -43,11 +43,11 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
+use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::aggregation::Key;
 use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
@@ -591,71 +591,71 @@ fn set_missing_on_terms(
         sub_aggregation,
     } in aggs.values_mut()
     {
-        if let AggregationVariants::Terms(terms) = agg {
-            if terms.missing.is_none() {
-                // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
-                let use_min = use_min_sentinel_fields.contains(&terms.field);
-                // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
-                // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
-                // for numeric column) would break the sort order.
-                //
-                // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
-                // theoretically collide with valid data values, though this is unlikely in practice.
-                // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
-                let sentinel = match schema.get_field_type(&terms.field) {
-                    Some(SearchFieldType::I64(_)) => {
-                        if use_min {
-                            Key::I64(i64::MIN)
-                        } else {
-                            Key::I64(i64::MAX)
-                        }
+        if let AggregationVariants::Terms(terms) = agg
+            && terms.missing.is_none()
+        {
+            // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
+            let use_min = use_min_sentinel_fields.contains(&terms.field);
+            // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
+            // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
+            // for numeric column) would break the sort order.
+            //
+            // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
+            // theoretically collide with valid data values, though this is unlikely in practice.
+            // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
+            let sentinel = match schema.get_field_type(&terms.field) {
+                Some(SearchFieldType::I64(_)) => {
+                    if use_min {
+                        Key::I64(i64::MIN)
+                    } else {
+                        Key::I64(i64::MAX)
                     }
-                    Some(SearchFieldType::Date(_)) => {
-                        // DateTime fields: Tantivy's terms aggregation doesn't accept Key::I64
-                        // for DateTime columns (it validates the Key type against column type).
-                        // We skip setting a missing value, which means NULL dates will be
-                        // excluded from GROUP BY results rather than appearing as a separate group.
-                        // This matches standard SQL behavior where NULLs are typically excluded
-                        // from aggregations unless explicitly handled.
-                        //
-                        // As of v0.24.1 (DATETIME_I64_STORAGE_VERSION), this is a legacy-only
-                        // codepath: new indexes store datetime values as i64 and so use the
-                        // I64 sentinel arm above.
-                        continue;
+                }
+                Some(SearchFieldType::Date(_)) => {
+                    // DateTime fields: Tantivy's terms aggregation doesn't accept Key::I64
+                    // for DateTime columns (it validates the Key type against column type).
+                    // We skip setting a missing value, which means NULL dates will be
+                    // excluded from GROUP BY results rather than appearing as a separate group.
+                    // This matches standard SQL behavior where NULLs are typically excluded
+                    // from aggregations unless explicitly handled.
+                    //
+                    // As of v0.24.1 (DATETIME_I64_STORAGE_VERSION), this is a legacy-only
+                    // codepath: new indexes store datetime values as i64 and so use the
+                    // I64 sentinel arm above.
+                    continue;
+                }
+                Some(SearchFieldType::U64(_)) => {
+                    // For U64, 0 is a common value so we use string for MIN
+                    if use_min {
+                        Key::Str(NULL_SENTINEL_MIN.to_string())
+                    } else {
+                        Key::U64(u64::MAX)
                     }
-                    Some(SearchFieldType::U64(_)) => {
-                        // For U64, 0 is a common value so we use string for MIN
-                        if use_min {
-                            Key::Str(NULL_SENTINEL_MIN.to_string())
-                        } else {
-                            Key::U64(u64::MAX)
-                        }
+                }
+                Some(SearchFieldType::F64(_)) => {
+                    if use_min {
+                        Key::F64(f64::MIN)
+                    } else {
+                        Key::F64(f64::MAX)
                     }
-                    Some(SearchFieldType::F64(_)) => {
-                        if use_min {
-                            Key::F64(f64::MIN)
-                        } else {
-                            Key::F64(f64::MAX)
-                        }
+                }
+                Some(SearchFieldType::Bool(_)) => {
+                    if use_min {
+                        Key::Str(NULL_SENTINEL_MIN.to_string())
+                    } else {
+                        Key::Str(NULL_SENTINEL_MAX.to_string())
                     }
-                    Some(SearchFieldType::Bool(_)) => {
-                        if use_min {
-                            Key::Str(NULL_SENTINEL_MIN.to_string())
-                        } else {
-                            Key::Str(NULL_SENTINEL_MAX.to_string())
-                        }
+                }
+                _ => {
+                    // Default for text/json/etc - string sentinels are safe here
+                    if use_min {
+                        Key::Str(NULL_SENTINEL_MIN.to_string())
+                    } else {
+                        Key::Str(NULL_SENTINEL_MAX.to_string())
                     }
-                    _ => {
-                        // Default for text/json/etc - string sentinels are safe here
-                        if use_min {
-                            Key::Str(NULL_SENTINEL_MIN.to_string())
-                        } else {
-                            Key::Str(NULL_SENTINEL_MAX.to_string())
-                        }
-                    }
-                };
-                terms.missing = Some(sentinel);
-            }
+                }
+            };
+            terms.missing = Some(sentinel);
         }
         set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
     }

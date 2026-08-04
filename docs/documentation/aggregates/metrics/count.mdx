@@ -72,13 +72,13 @@ See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregati
 
 ## SQL Count Syntax
 
-SQL's `COUNT` syntax is supported in beta. To enable it, first run
+SQL's `COUNT` syntax is supported in beta and is enabled by default. To disable it, run
 
 ```sql
-SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_aggregate_custom_scan TO off;
 ```
 
-With this feature enabled, the following query is equivalent to the above and is executed in the same way.
+The following query is equivalent to the above and is executed in the same way.
 
 ```sql SQL
 SELECT COUNT(rating) FROM mock_items

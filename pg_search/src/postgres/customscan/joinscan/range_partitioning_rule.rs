@@ -18,10 +18,15 @@
 use std::sync::Arc;
 
 use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::{Column, DataFusionError, Result};
+use datafusion::common::{Column, DataFusionError, JoinType, Result};
 use datafusion::logical_expr::{Expr, LogicalPlan, TableScan};
-use datafusion::optimizer::{optimizer::ApplyOrder, OptimizerConfig, OptimizerRule};
+use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrder};
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
 use tantivy::SegmentReader;
 
 use crate::api::FieldName;
@@ -29,6 +34,7 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
@@ -226,16 +232,15 @@ where
         }
         _ => {
             let inputs = plan.inputs();
-            if inputs.len() == 1 {
-                if let Ok(idx) = plan.schema().index_of_column(col) {
-                    let input_schema = inputs[0].schema();
-                    if idx < input_schema.fields().len() {
-                        let (q, field) = input_schema.qualified_field(idx);
-                        let inner_col = Column::new(q.cloned(), field.name());
+            if inputs.len() == 1
+                && let Ok(idx) = plan.schema().index_of_column(col)
+            {
+                let input_schema = inputs[0].schema();
+                if idx < input_schema.fields().len() {
+                    let (q, field) = input_schema.qualified_field(idx);
+                    let inner_col = Column::new(q.cloned(), field.name());
 
-                        return plan
-                            .map_children(|child| map_scan_for_column(child, &inner_col, f));
-                    }
+                    return plan.map_children(|child| map_scan_for_column(child, &inner_col, f));
                 }
             }
             Ok(Transformed::no(plan))
@@ -295,16 +300,12 @@ impl OptimizerRule for RangePartitioningRule {
                             Some((r_provider, r_field_name)),
                         ) = (l_res, r_res)
                         {
-                            let mut sample = None;
-                            if let Some(s) = l_provider.range_sample() {
-                                sample = Some(s.clone());
-                            } else if let Some(s) = r_provider.range_sample() {
-                                sample = Some(s.clone());
-                            }
-
-                            if sample.is_none() {
-                                sample = Some(sample_fast_field(l_provider, &l_field_name)?);
-                            }
+                            let sample = merged_sample(
+                                l_provider,
+                                &l_field_name,
+                                r_provider,
+                                &r_field_name,
+                            )?;
 
                             if let Some(mut shared_sample) = sample {
                                 shared_sample.partition_by = l_field_name;
@@ -341,6 +342,57 @@ impl OptimizerRule for RangePartitioningRule {
             Ok(Transformed::no(node))
         })
     }
+}
+
+/// Returns the arrow type of `field` when the provider exposes it as a named fast field.
+fn named_field_arrow_type(
+    provider: &PgSearchTableProvider,
+    field: &FieldName,
+) -> Option<arrow_schema::DataType> {
+    provider.fields.iter().find_map(|f| match f {
+        WhichFastField::Named(name, sft) if name == field.as_ref() => Some(sft.arrow_data_type()),
+        _ => None,
+    })
+}
+
+/// Sorts points ascending so that `RangePartitioningSample::build` produces
+/// sequential ranges.
+fn sort_sample_points(points: &mut [PdbOwnedValue]) {
+    points.sort_unstable_by(|a, b| {
+        if let (PdbOwnedValue::F64(f1), PdbOwnedValue::F64(f2)) = (a, b) {
+            f1.total_cmp(f2)
+        } else {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+}
+
+/// Samples both sides of the join and merges the two distributions, so the split
+/// points reflect the combined key space rather than one side's skew.
+///
+/// Returns `None` when the two key columns expose different arrow types: a shared
+/// sample could not describe both sides faithfully.
+fn merged_sample(
+    l_provider: &PgSearchTableProvider,
+    l_field: &FieldName,
+    r_provider: &PgSearchTableProvider,
+    r_field: &FieldName,
+) -> Result<Option<RangePartitioningSample>> {
+    let (Some(l_type), Some(r_type)) = (
+        named_field_arrow_type(l_provider, l_field),
+        named_field_arrow_type(r_provider, r_field),
+    ) else {
+        return Ok(None);
+    };
+    if l_type != r_type {
+        return Ok(None);
+    }
+
+    let mut sample = sample_fast_field(l_provider, l_field)?;
+    let r_sample = sample_fast_field(r_provider, r_field)?;
+    sample.sample_points.extend(r_sample.sample_points);
+    sort_sample_points(&mut sample.sample_points);
+    Ok(Some(sample))
 }
 
 fn sample_fast_field(
@@ -382,10 +434,10 @@ fn sample_fast_field(
     let ff_type = FFType::new(largest_segment.fast_fields(), partition_by.as_ref());
 
     let search_field_type = provider.fields.iter().find_map(|f| {
-        if let WhichFastField::Named(name, sft) = f {
-            if name == partition_by.as_ref() {
-                return Some(*sft);
-            }
+        if let WhichFastField::Named(name, sft) = f
+            && name == partition_by.as_ref()
+        {
+            return Some(*sft);
         }
         None
     });
@@ -403,21 +455,107 @@ fn sample_fast_field(
         sample_points.push(val.0);
     }
 
-    // Sort points ascending so that build() produces sequential ranges
-    sample_points.sort_unstable_by(|a, b| {
-        if let (
-            crate::postgres::pdb_owned_value::PdbOwnedValue::F64(f1),
-            crate::postgres::pdb_owned_value::PdbOwnedValue::F64(f2),
-        ) = (a, b)
-        {
-            f1.total_cmp(f2)
-        } else {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }
-    });
+    sort_sample_points(&mut sample_points);
 
     Ok(RangePartitioningSample {
         partition_by: partition_by.clone(),
         sample_points,
     })
+}
+
+/// Physical optimizer rule that converts a `CollectLeft` inner hash join to
+/// `Partitioned` mode when both inputs declare compatible `Partitioning::Range`
+/// layouts on the join keys.
+///
+/// A `CollectLeft` join materializes the entire build side in every consumer,
+/// which the distributed planner satisfies by broadcasting it across tasks. When
+/// both sides are range partitioned with identical split points, build-side
+/// partition `i` can only ever match probe-side partition `i`, so `Partitioned`
+/// mode joins each pair task-locally and the broadcast disappears.
+///
+/// A separate rule because `JoinSelection` picks `CollectLeft` from the build
+/// side's row and byte statistics alone. It never consults `output_partitioning`,
+/// so it can't see that these inputs are already co-partitioned and that the
+/// repartition it's avoiding would cost nothing here. Declaring
+/// `Partitioning::Range` on the scans only helps a join that is already
+/// `Partitioned`, so the mode has to be revisited after the fact. Runs after
+/// `EnsureRequirements` has resolved `PartitionMode::Auto` and inserted the build
+/// side's `CoalescePartitionsExec`.
+#[derive(Debug, Default)]
+pub struct RangeCoPartitionedJoinRule;
+
+impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
+    fn name(&self) -> &str {
+        "RangeCoPartitionedJoinRule"
+    }
+
+    fn schema_check(&self) -> bool {
+        true
+    }
+
+    fn optimize(
+        &self,
+        plan: Arc<dyn ExecutionPlan>,
+        _config: &ConfigOptions,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        plan.transform_up(|node| {
+            let Some(join) = node.downcast_ref::<HashJoinExec>() else {
+                return Ok(Transformed::no(node));
+            };
+            // `HashJoinExec` enables `allow_range_satisfaction_for_key_partitioning`
+            // only for Partitioned inner joins; flipping any other shape would make
+            // `EnforceDistribution` re-introduce hash repartitions on both sides.
+            if join.partition_mode() != &PartitionMode::CollectLeft
+                || join.join_type() != &JoinType::Inner
+            {
+                return Ok(Transformed::no(node));
+            }
+
+            // EnforceDistribution collapses the build side to a single partition for
+            // CollectLeft; peel that off to recover the source's declared partitioning.
+            let left = match join.left().downcast_ref::<CoalescePartitionsExec>() {
+                Some(coalesce) if coalesce.fetch().is_none() => Arc::clone(coalesce.input()),
+                _ => Arc::clone(join.left()),
+            };
+            let right = Arc::clone(join.right());
+
+            let range_partitioned = |input: &Arc<dyn ExecutionPlan>| {
+                matches!(input.output_partitioning(), Partitioning::Range(_))
+                    && input.output_partitioning().partition_count() > 1
+            };
+            if !range_partitioned(&left) || !range_partitioned(&right) {
+                return Ok(Transformed::no(node));
+            }
+
+            // Deliberately not `reset_state()`: it would drop the join's handle on the
+            // dynamic filter that `FilterPushdown` already pushed into the probe scan,
+            // leaving the scan holding a filter that nothing ever narrows. Switching the
+            // mode invalidates the cached properties on its own.
+            let candidate = join
+                .builder()
+                .with_new_children(vec![left, right])?
+                .with_partition_mode(PartitionMode::Partitioned)
+                .build_exec()?;
+
+            // Keep the flip only when DataFusion agrees the inputs are co-partitioned:
+            // the join keys match the range keys through equivalences and the split
+            // points are identical on both sides. Anything else keeps the CollectLeft
+            // join (and its broadcast) untouched.
+            let children: Vec<&dyn ExecutionPlan> = candidate
+                .children()
+                .into_iter()
+                .map(|child| child.as_ref())
+                .collect();
+            let co_partitioned = candidate
+                .input_distribution_requirements()
+                .unsatisfied_co_partitioned_children(candidate.name(), &children)?
+                .is_empty();
+            if co_partitioned {
+                Ok(Transformed::yes(candidate))
+            } else {
+                Ok(Transformed::no(node))
+            }
+        })
+        .map(|transformed| transformed.data)
+    }
 }

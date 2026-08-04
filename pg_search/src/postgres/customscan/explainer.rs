@@ -22,8 +22,8 @@ use pgrx::pg_sys::AsPgCStr;
 
 use crate::postgres::customscan::explain;
 use crate::postgres::customscan::explain::ExplainFormat;
-use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
+use crate::query::estimate_tree::QueryWithEstimates;
 
 pub struct Explainer {
     state: NonNull<pg_sys::ExplainState>,

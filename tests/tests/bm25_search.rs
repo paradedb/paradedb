@@ -21,7 +21,7 @@ use core::panic;
 use pgvector::Vector;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::{types::BigDecimal, PgConnection};
+use sqlx::{PgConnection, types::BigDecimal};
 use std::str::FromStr;
 use tests::fixtures::*;
 
@@ -760,8 +760,9 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 }
 
-// TODO: This test is currently ignored because hybrid plans do not reliably trigger the custom
-// scan on a partial BM25 index yet: see https://github.com/paradedb/paradedb/issues/2747
+// TODO: This test is currently ignored because hybrid plans did not reliably trigger the custom
+// scan on a partial BM25 index. The issue this pointed at (#2747) has since been closed, so the
+// test should be re-run and un-ignored if it now passes.
 #[ignore]
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {

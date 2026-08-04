@@ -32,14 +32,13 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 
-use datafusion_distributed::shm::{proc_for_task, MppMesh};
+use datafusion_distributed::shm::{MppMesh, proc_for_task};
 
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
 use crate::postgres::customscan::mpp::worker_fragments::{
-    collect_dispatched_stages, FragmentAssignment, FragmentRouting,
+    DiscoveredStage, FragmentAssignment, FragmentRouting, classify_stages,
 };
 
 /// One stage of the dispatch blob: the metadata a worker needs to route a stage's output.
@@ -115,21 +114,16 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
     })
 }
 
-/// Build the dispatch payload (the routing blob, framed to `capacity`) from the leader's own
-/// execution plan, and report how many producer stages it found. The stage subplans travel
-/// separately: the coordinator serializes each through the leader's
-/// [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
-///
-/// The leader executes the same plan object the routing derives from, so stage numbering and
-/// routing cannot drift from what the coordinator dispatches.
-pub fn dispatch_payload_from_plan(
-    physical: &Arc<dyn ExecutionPlan>,
+/// Build the dispatch payload (the routing blob, framed to `capacity`) from the stages the launch
+/// enumerated. The stage subplans travel separately: the coordinator serializes each through the
+/// leader's [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
+pub fn dispatch_payload_from_stages(
+    stages: &[DiscoveredStage],
     n_workers: u32,
     capacity: usize,
-) -> Result<(Vec<u8>, usize)> {
-    let stages = collect_dispatched_stages(physical, n_workers)?;
-    let stage_count = stages.len();
-    let dispatched: Vec<DispatchedStage> = stages
+) -> Result<Vec<u8>> {
+    let entries = classify_stages(stages, n_workers)?;
+    let dispatched: Vec<DispatchedStage> = entries
         .into_iter()
         .map(|stage| DispatchedStage {
             stage_num: stage.stage_num,
@@ -139,8 +133,7 @@ pub fn dispatch_payload_from_plan(
         .collect();
     let blob = bincode::serde::encode_to_vec(&dispatched, blob_config())
         .map_err(|e| DataFusionError::Internal(format!("mpp dispatch: blob encode: {e}")))?;
-    let payload = frame_dispatch_payload(&blob, capacity)?;
-    Ok((payload, stage_count))
+    frame_dispatch_payload(&blob, capacity)
 }
 
 /// Decode the dispatch blob from the framed DSM payload a worker copied out of DSM.

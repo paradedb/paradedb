@@ -4,7 +4,7 @@
 -- Same dataset shape as mpp_aggregate.sql but the queries don't
 -- aggregate — they project columns through a JOIN under a LIMIT,
 -- which is what JoinScan activates on. Two passes: serial baseline
--- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 4). Results must
+-- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 3). Results must
 -- match across the two passes; the EXPLAIN trees differ.
 -- =====================================================================
 
@@ -13,8 +13,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 
-SET paradedb.mpp_worker_count TO 4;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
 -- planner picks the serial JoinScan and MPP never activates.
@@ -105,13 +104,13 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
--- Pass 2: MPP path (max_parallel_workers_per_gather = 4). Same query, same results.
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same query, same results.
 -- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
 -- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
 -- fragment dispatch, leader-side NetworkCoalesceExec gather).
 -- =====================================================================
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -161,7 +160,7 @@ DROP FUNCTION mpp_explain_analyze_lines(text);
 -- to the worker.
 -- =====================================================================
 
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
@@ -202,10 +201,42 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
--- Pass 6: MPP with a parameterized search predicate (issue #5445)
+-- Pass 6: outer joins keep the shuffle path
+--
+-- The co-partitioned range flip applies to inner joins only. A LEFT JOIN
+-- must keep the shuffle-based shape and stay correct under MPP.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 4;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SET max_parallel_workers_per_gather TO 0;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
+-- Pass 7: MPP with a parameterized search predicate (issue #5445)
 --
 -- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
--- $1 unresolved in SearchQueryInput.
+-- $1 unresolved in SearchQueryInput. Compared against the same query run
+-- serially (enable_mpp = off) so MPP-vs-serial divergence surfaces as a
+-- diff, not just a missing worker_metrics_shown flag (see #5167).
 -- =====================================================================
 
 SET paradedb.enable_mpp TO on;
@@ -238,26 +269,97 @@ FROM mpp_explain_analyze_lines(
 WHERE line LIKE '%output_rows%';
 
 DEALLOCATE mpp_join_heapfilter_param;
+
+-- Same query, run serially, to diff against the MPP result above.
+SET paradedb.enable_mpp TO off;
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+SET paradedb.enable_mpp TO on;
+
 SET plan_cache_mode = auto;
 
 -- =====================================================================
--- Pass 7: MPP with InitPlan/Subquery Parameter
+-- Pass 8: MPP with InitPlan/Subquery Parameter
 --
 -- Pulling from a table forces an InitPlan rather than a folded constant.
 -- The leader must evaluate and solve this before dispatching to workers.
+-- ORDER BY id in the subquery keeps the picked row stable across runs.
 -- =====================================================================
 
 SELECT count(*) > 0 AS worker_metrics_shown
 FROM mpp_explain_analyze_lines(
   $$SELECT f.title, p.size_bytes
     FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-    WHERE f.content @@@ (SELECT content FROM mpp_join_files LIMIT 1)
+    WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
     ORDER BY f.title, p.size_bytes
     LIMIT 10$$
 ) AS line
 WHERE line LIKE '%output_rows%';
 
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
 DROP FUNCTION mpp_explain_analyze_lines(text);
+
+-- =====================================================================
+-- Pass 9: MPP with two parameterized source queries (review: mithuncy)
+--
+-- Solving multiple parameterized source queries must preserve all
+-- rewritten PostgreSQL expression trees until rebaking is complete.
+-- Exercises both sources having a rewritten Param-to-Const tree, so it
+-- fails regardless of which source the JoinScan traversal visits first.
+-- =====================================================================
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE mpp_join_two_source_params(int, int) AS
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f
+JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > $1
+  AND p.page_text @@@ 'Page'
+  AND length(p.page_text) > $2
+ORDER BY f.id, p.id
+LIMIT 5;
+
+EXECUTE mpp_join_two_source_params(6, 6);
+
+DEALLOCATE mpp_join_two_source_params;
+SET plan_cache_mode = auto;
+
+-- =====================================================================
+-- Pass 10: MPP with a join-level parameterized predicate (review: mithuncy)
+--
+-- A cross-relation OR lives in join_level_predicates rather than either
+-- source's scan_info.query, so the clause-wide has_parameters()/
+-- has_postgres_expressions() traversal is required to catch $1 here.
+-- =====================================================================
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE mpp_join_level_param(text) AS
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f
+JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ $1
+   OR p.page_text @@@ 'Page'
+ORDER BY f.id, p.id
+LIMIT 5;
+
+EXECUTE mpp_join_level_param('does-not-match');
+
+DEALLOCATE mpp_join_level_param;
+SET plan_cache_mode = auto;
+
+SET paradedb.enable_mpp TO off;
 
 -- =====================================================================
 -- Cleanup

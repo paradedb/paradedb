@@ -30,7 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
@@ -1155,7 +1155,7 @@ impl RelNode {
     /// Returns `true` if the key was successfully placed.
     fn inject_single_equi_key(&mut self, key: JoinKeyPair) -> bool {
         match self {
-            RelNode::Join(ref mut join_node) => {
+            RelNode::Join(join_node) => {
                 let outer_in_left = join_node.left.contains_rti(key.outer_rti);
                 let outer_in_right = join_node.right.contains_rti(key.outer_rti);
                 let inner_in_left = join_node.left.contains_rti(key.inner_rti);
@@ -1191,7 +1191,7 @@ impl RelNode {
 
                 false
             }
-            RelNode::Filter(ref mut filter) => filter.input.inject_single_equi_key(key),
+            RelNode::Filter(filter) => filter.input.inject_single_equi_key(key),
             RelNode::Scan(_) => false,
         }
     }
@@ -1266,6 +1266,20 @@ impl RelNode {
             RelNode::Filter(filt) => filt.input.visit_queries_mut(f),
         }
     }
+
+    /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
+    /// have a `&JoinCSClause`/`&RelNode` and want to inspect queries without cloning them
+    /// just to satisfy a `&mut` receiver.
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        match self {
+            RelNode::Scan(source) => f(&source.scan_info.query),
+            RelNode::Join(j) => {
+                j.left.visit_queries(f);
+                j.right.visit_queries(f);
+            }
+            RelNode::Filter(filt) => filt.input.visit_queries(f),
+        }
+    }
 }
 
 /// Finds an output-visible equivalent for `(pruned_rti, pruned_attno)` by
@@ -1322,12 +1336,10 @@ unsafe fn substitute_pruned_key_side(
             }
         }
 
-        if contains_pruned {
-            if let Some((rti, attno)) = replacement {
-                *out_rti = rti;
-                *out_attno = attno;
-                return true;
-            }
+        if contains_pruned && let Some((rti, attno)) = replacement {
+            *out_rti = rti;
+            *out_attno = attno;
+            return true;
         }
     }
 
@@ -1507,10 +1519,34 @@ impl JoinCSClause {
         }
     }
 
+    /// Read-only counterpart of `visit_queries_mut`, for callers (e.g. EXPLAIN) that only
+    /// have a `&JoinCSClause` and want to inspect queries without cloning the clause just
+    /// to satisfy a `&mut` receiver.
+    pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
+        self.plan.visit_queries(f);
+        for pred in &self.join_level_predicates {
+            f(&pred.query);
+        }
+    }
+
     pub fn has_postgres_expressions(&mut self) -> bool {
         let mut found = false;
         self.visit_queries_mut(&mut |q| {
             if q.has_postgres_expressions() {
+                found = true;
+            }
+        });
+        found
+    }
+
+    /// Read-only counterpart of `has_postgres_expressions`. Prefer this at call sites that
+    /// only have a `&JoinCSClause` (e.g. EXPLAIN) — it avoids cloning the clause just to get
+    /// a `&mut` receiver, since `SearchQueryInput::has_postgres_expressions` itself doesn't
+    /// mutate anything despite its `&mut self` signature.
+    pub fn has_postgres_expressions_ref(&self) -> bool {
+        let mut found = false;
+        self.visit_queries(&mut |q| {
+            if q.clone().has_postgres_expressions() {
                 found = true;
             }
         });
@@ -1527,15 +1563,39 @@ impl JoinCSClause {
         found
     }
 
+    /// Read-only counterpart of `has_parameters`. See `has_postgres_expressions_ref`.
+    pub fn has_parameters_ref(&self) -> bool {
+        let mut found = false;
+        self.visit_queries(&mut |q| {
+            if q.clone().has_parameters() {
+                found = true;
+            }
+        });
+        found
+    }
+
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
         self.visit_queries_mut(&mut |q| {
             q.init_postgres_expressions(planstate);
         });
     }
 
+    /// Solves every `SearchQueryInput` reachable from this clause against `expr_context`.
+    /// Resets `ecxt_per_tuple_memory` exactly once for the whole clause, then solves each
+    /// query with the no-reset variant, so a later source's solve doesn't free the rewritten
+    /// expression tree an earlier source's solve just built (see
+    /// `SearchQueryInput::solve_postgres_expressions_no_reset`). Both must stay alive through
+    /// `rebake_for_mpp`, which is why the whole clause resets only up front.
     pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe {
+            pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
+        }
         self.visit_queries_mut(&mut |q| {
-            q.solve_postgres_expressions(expr_context);
+            q.solve_postgres_expressions_no_reset(expr_context);
         });
     }
 }

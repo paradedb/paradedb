@@ -22,9 +22,9 @@ use async_std::task::block_on;
 use bytes::Bytes;
 use rand::Rng;
 use sqlx::{
+    ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection, Postgres, Type,
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
-    ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection, Postgres, Type,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

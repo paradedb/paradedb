@@ -26,6 +26,15 @@ on:
         description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18] regardless of this value."
         required: false
         default: "[15, 16, 17, 18]"
+      images:
+        description: "Which images to publish."
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - runnable
+          - extension
 
 concurrency:
   group: publish-paradedb-docker-${{ github.event.inputs.version || github.ref }}
@@ -169,6 +178,7 @@ jobs:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
     secrets: inherit
 
+  # Skipping this job also skips `open-dockerfile-prs` and `notify-orm-repos`, which need it.
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
@@ -176,6 +186,7 @@ jobs:
       - set-matrix
       - generate-dockerfiles
       - test-generated-dockerfiles
+    if: ${{ (github.event.inputs.images || 'all') != 'extension' }}
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
@@ -293,7 +304,7 @@ jobs:
     needs:
       - generate-dockerfiles
       - test-generated-dockerfiles
-    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
+    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') && (github.event.inputs.images || 'all') != 'runnable' }}
     strategy:
       matrix:
         # Mounted extension images require PostgreSQL 18+ because

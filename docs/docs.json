@@ -142,6 +142,13 @@
                           "documentation/vector/tuning"
                         ]
                       },
+                      {
+                        "group": "Hybrid Search",
+                        "pages": [
+                          "documentation/hybrid/overview",
+                          "documentation/hybrid/rrf"
+                        ]
+                      },
                       "documentation/sorting/topk",
                       "documentation/filtering",
                       {

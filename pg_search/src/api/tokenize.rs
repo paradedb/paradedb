@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{iter::TableIterator, name, pg_extern, JsonB};
+use pgrx::{JsonB, iter::TableIterator, name, pg_extern};
 use strum::VariantNames;
 use tokenizers::SearchTokenizer;
 

@@ -26,7 +26,7 @@ use std::fmt::Debug;
 use tests::fixtures::*;
 
 use tests::fixtures::querygen::opexprgen::Operator;
-use tests::fixtures::querygen::{compare, PgGucs};
+use tests::fixtures::querygen::{PgGucs, compare};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {

@@ -16,11 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::tokenizers::typmod;
-use crate::api::tokenizers::typmod::validation::{rule, PropertyRule, ValueConstraint};
-use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
+use crate::api::tokenizers::typmod::validation::{PropertyRule, ValueConstraint, rule};
+use crate::api::tokenizers::typmod::{ParsedTypmod, TypmodSchema, load_typmod};
+use tokenizers::SearchNormalizer;
 use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
-use tokenizers::SearchNormalizer;
 
 pub struct AliasTypmod(Option<String>);
 

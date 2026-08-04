@@ -321,7 +321,7 @@ jobs:
           Name:           pg_search_${{ matrix.pg_version }}
           Version:        ${{ steps.version.outputs.tag_version }}
           Release:        1%{?dist}
-          Summary:        Full-text search for PostgreSQL using BM25
+          Summary:        One Postgres for your application data, full-text search, vector retrieval, and aggregations
           License:        GNU Affero General Public License v3.0
           URL:            ${{ github.server_url }}/${{ github.repository }}
 
@@ -331,9 +331,9 @@ jobs:
           Requires:       openblas
 
           %description
-          pg_search is a Postgres extension that enables full-text search over
-          PostgreSQL tables using the BM25 algorithm. It is built on top of Tantivy,
-          the Rust-based alternative to Apache Lucene, using pgrx.
+          pg_search is a Postgres extension that brings full-text search, vector
+          retrieval, and aggregations to PostgreSQL tables. It is built on top of
+          Tantivy, the Rust-based alternative to Apache Lucene, using pgrx.
 
           %install
           %{__rm} -rf %{buildroot}

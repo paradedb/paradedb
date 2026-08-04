@@ -95,11 +95,7 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 
 ## Join Support
 
-Aggregate pushdown works across joins as well as single tables. When every participating table has a ParadeDB index and the custom aggregate scan is enabled, ParadeDB computes the result directly from the index's columnar storage, without scanning the underlying table rows.
-
-```sql
-SET paradedb.enable_aggregate_custom_scan TO on;
-```
+Aggregate pushdown works across joins as well as single tables. When every participating table has a ParadeDB index, ParadeDB computes the result directly from the index's columnar storage, without scanning the underlying table rows. The custom aggregate scan is enabled by default; to turn it off, run `SET paradedb.enable_aggregate_custom_scan TO off;`.
 
 The following join shapes are supported:
 

@@ -17,9 +17,9 @@
 
 use crate::api::AsCStr;
 use crate::postgres::customscan::joinscan::build::{ChildProjection, JoinCSClause};
+use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::PgList;
 use serde::{Deserialize, Serialize};
 
 pub const SCORE_COL_NAME: &str = "score";

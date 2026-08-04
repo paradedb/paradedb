@@ -12,10 +12,10 @@ metadata:
   name: cnpg-cloudnative-pg
   namespace: cnpg-system
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: cloudnative-pg/templates/config.yaml
@@ -43,10 +43,10 @@ metadata:
   name: cnpg-controller-manager-config
   namespace: cnpg-system
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 data:
   {}
@@ -58,10 +58,10 @@ metadata:
   name: cnpg-default-monitoring
   namespace: cnpg-system
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
     cnpg.io/reload: ""
 data:
@@ -69,30 +69,30 @@ data:
     |
       backends:
         query: |
-         SELECT sa.datname
-             , sa.usename
-             , sa.application_name
-             , states.state
-             , COALESCE(sa.count, 0) AS total
-             , COALESCE(sa.max_tx_secs, 0) AS max_tx_duration_seconds
-             FROM ( VALUES ('active')
-                 , ('idle')
-                 , ('idle in transaction')
-                 , ('idle in transaction (aborted)')
-                 , ('fastpath function call')
-                 , ('disabled')
-                 ) AS states(state)
-             LEFT JOIN (
-                 SELECT datname
-                     , state
-                     , usename
-                     , COALESCE(application_name, '') AS application_name
-                     , COUNT(*)
-                     , COALESCE(EXTRACT (EPOCH FROM (max(now() - xact_start))), 0) AS max_tx_secs
-                 FROM pg_catalog.pg_stat_activity
-                 GROUP BY datname, state, usename, application_name
-             ) sa ON states.state = sa.state
-             WHERE sa.usename IS NOT NULL
+          SELECT sa.datname
+            , sa.usename
+            , sa.application_name
+            , states.state
+            , COALESCE(sa.count, 0) AS total
+            , COALESCE(sa.max_tx_secs, 0) AS max_tx_duration_seconds
+          FROM ( VALUES ('active')
+            , ('idle')
+            , ('idle in transaction')
+            , ('idle in transaction (aborted)')
+            , ('fastpath function call')
+            , ('disabled')
+            ) AS states(state)
+          LEFT JOIN (
+            SELECT datname
+              , state
+              , usename
+              , COALESCE(application_name, '') AS application_name
+              , pg_catalog.count(*)
+              , COALESCE(EXTRACT (EPOCH FROM (pg_catalog.max(pg_catalog.now() OPERATOR(pg_catalog.-) xact_start))), 0) AS max_tx_secs
+            FROM pg_catalog.pg_stat_activity
+            GROUP BY datname, state, usename, application_name
+          ) sa ON states.state OPERATOR(pg_catalog.=) sa.state
+          WHERE sa.usename IS NOT NULL
         metrics:
           - datname:
               usage: "LABEL"
@@ -115,22 +115,22 @@ data:
 
       backends_waiting:
         query: |
-         SELECT count(*) AS total
-         FROM pg_catalog.pg_locks blocked_locks
-         JOIN pg_catalog.pg_locks blocking_locks
-           ON blocking_locks.locktype = blocked_locks.locktype
-           AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
-           AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
-           AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
-           AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
-           AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
-           AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
-           AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
-           AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
-           AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
-           AND blocking_locks.pid != blocked_locks.pid
-         JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
-         WHERE NOT blocked_locks.granted
+          SELECT pg_catalog.count(*) AS total
+          FROM pg_catalog.pg_locks blocked_locks
+          JOIN pg_catalog.pg_locks blocking_locks
+            ON blocking_locks.locktype OPERATOR(pg_catalog.=) blocked_locks.locktype
+            AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
+            AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
+            AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
+            AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
+            AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
+            AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
+            AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
+            AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
+            AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
+            AND blocking_locks.pid OPERATOR(pg_catalog.<>) blocked_locks.pid
+          JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid OPERATOR(pg_catalog.=) blocking_locks.pid
+          WHERE NOT blocked_locks.granted
         metrics:
           - total:
               usage: "GAUGE"
@@ -168,16 +168,17 @@ data:
               description: "Time at which postgres started (based on epoch)"
 
       pg_replication:
-        query: "SELECT CASE WHEN (
-                  NOT pg_catalog.pg_is_in_recovery()
-                  OR pg_catalog.pg_last_wal_receive_lsn() = pg_catalog.pg_last_wal_replay_lsn())
-                THEN 0
-                ELSE GREATEST (0,
-                  EXTRACT(EPOCH FROM (now() - pg_catalog.pg_last_xact_replay_timestamp())))
-                END AS lag,
-                pg_catalog.pg_is_in_recovery() AS in_recovery,
-                EXISTS (TABLE pg_stat_wal_receiver) AS is_wal_receiver_up,
-                (SELECT count(*) FROM pg_catalog.pg_stat_replication) AS streaming_replicas"
+        query: |
+          SELECT CASE WHEN (
+              NOT pg_catalog.pg_is_in_recovery()
+              OR pg_catalog.pg_last_wal_receive_lsn() OPERATOR(pg_catalog.=) pg_catalog.pg_last_wal_replay_lsn())
+            THEN 0
+            ELSE GREATEST (0,
+              EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) pg_catalog.pg_last_xact_replay_timestamp())))
+            END AS lag,
+            pg_catalog.pg_is_in_recovery() AS in_recovery,
+            EXISTS (TABLE pg_catalog.pg_stat_wal_receiver) AS is_wal_receiver_up,
+            (SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_replication) AS streaming_replicas
         metrics:
           - lag:
               usage: "GAUGE"
@@ -225,14 +226,17 @@ data:
         query: |
           SELECT archived_count
             , failed_count
-            , COALESCE(EXTRACT(EPOCH FROM (now() - last_archived_time)), -1) AS seconds_since_last_archival
-            , COALESCE(EXTRACT(EPOCH FROM (now() - last_failed_time)), -1) AS seconds_since_last_failure
+            , COALESCE(EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) last_archived_time)), -1) AS seconds_since_last_archival
+            , COALESCE(EXTRACT(EPOCH FROM (pg_catalog.now() OPERATOR(pg_catalog.-) last_failed_time)), -1) AS seconds_since_last_failure
             , COALESCE(EXTRACT(EPOCH FROM last_archived_time), -1) AS last_archived_time
             , COALESCE(EXTRACT(EPOCH FROM last_failed_time), -1) AS last_failed_time
-            , COALESCE(CAST(CAST('x'||pg_catalog.right(pg_catalog.split_part(last_archived_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_archived_wal_start_lsn
-            , COALESCE(CAST(CAST('x'||pg_catalog.right(pg_catalog.split_part(last_failed_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_failed_wal_start_lsn
+            , COALESCE(CAST(CAST('x' OPERATOR(pg_catalog.||) pg_catalog.right(pg_catalog.split_part(last_archived_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_archived_wal_start_lsn
+            , COALESCE(CAST(CAST('x' OPERATOR(pg_catalog.||) pg_catalog.right(pg_catalog.split_part(last_failed_wal, '.', 1), 16) AS pg_catalog.bit(64)) AS pg_catalog.int8), -1) AS last_failed_wal_start_lsn
             , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
           FROM pg_catalog.pg_stat_archiver
+        predicate_query: |
+          SELECT NOT pg_catalog.pg_is_in_recovery()
+            OR pg_catalog.current_setting('archive_mode') OPERATOR(pg_catalog.=) 'always'
         metrics:
           - archived_count:
               usage: "COUNTER"
@@ -445,20 +449,20 @@ data:
       pg_stat_replication:
         primary: true
         query: |
-         SELECT usename
-           , COALESCE(application_name, '') AS application_name
-           , COALESCE(client_addr::text, '') AS client_addr
-           , COALESCE(client_port::text, '') AS client_port
-           , EXTRACT(EPOCH FROM backend_start) AS backend_start
-           , COALESCE(pg_catalog.age(backend_xmin), 0) AS backend_xmin_age
-           , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), sent_lsn) AS sent_diff_bytes
-           , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), write_lsn) AS write_diff_bytes
-           , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), flush_lsn) AS flush_diff_bytes
-           , COALESCE(pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), replay_lsn),0) AS replay_diff_bytes
-           , COALESCE((EXTRACT(EPOCH FROM write_lag)),0)::float AS write_lag_seconds
-           , COALESCE((EXTRACT(EPOCH FROM flush_lag)),0)::float AS flush_lag_seconds
-           , COALESCE((EXTRACT(EPOCH FROM replay_lag)),0)::float AS replay_lag_seconds
-         FROM pg_catalog.pg_stat_replication
+          SELECT usename
+            , COALESCE(application_name, '') AS application_name
+            , COALESCE(client_addr::text, '') AS client_addr
+            , COALESCE(client_port::text, '') AS client_port
+            , EXTRACT(EPOCH FROM backend_start) AS backend_start
+            , COALESCE(pg_catalog.age(backend_xmin), 0) AS backend_xmin_age
+            , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), sent_lsn) AS sent_diff_bytes
+            , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), write_lsn) AS write_diff_bytes
+            , pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), flush_lsn) AS flush_diff_bytes
+            , COALESCE(pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_current_wal_lsn(), replay_lsn),0) AS replay_diff_bytes
+            , COALESCE((EXTRACT(EPOCH FROM write_lag)),0)::float AS write_lag_seconds
+            , COALESCE((EXTRACT(EPOCH FROM flush_lag)),0)::float AS flush_lag_seconds
+            , COALESCE((EXTRACT(EPOCH FROM replay_lag)),0)::float AS replay_lag_seconds
+          FROM pg_catalog.pg_stat_replication
         metrics:
           - usename:
               usage: "LABEL"
@@ -518,13 +522,13 @@ data:
       pg_extensions:
         query: |
           SELECT
-           current_database() as datname,
-           name as extname,
-           default_version,
-           installed_version,
-           CASE
-             WHEN default_version = installed_version THEN 0
-             ELSE 1
+            pg_catalog.current_database() as datname,
+            name as extname,
+            default_version,
+            installed_version,
+            CASE
+              WHEN default_version OPERATOR(pg_catalog.=) installed_version THEN 0
+              ELSE 1
           END AS update_available
           FROM pg_catalog.pg_available_extensions
           WHERE installed_version IS NOT NULL
@@ -552,7 +556,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: backups.postgresql.cnpg.io
 spec:
@@ -764,6 +768,11 @@ spec:
                     - key
                     - name
                     type: object
+                  useDefaultAzureCredentials:
+                    description: |-
+                      Use the default Azure authentication flow, which includes DefaultAzureCredential.
+                      This allows authentication using environment variables and managed identities.
+                    type: boolean
                 type: object
               backupId:
                 description: The ID of the Barman backup
@@ -861,6 +870,13 @@ spec:
                   podName:
                     description: The pod name
                     type: string
+                  sessionID:
+                    description: |-
+                      The instance manager session ID. This is a unique identifier generated at instance manager
+                      startup and changes on every restart (including container reboots). Used to detect if
+                      the instance manager was restarted during long-running operations like backups, which
+                      would terminate any running backup process.
+                    type: string
                 type: object
               majorVersion:
                 description: |-
@@ -882,6 +898,15 @@ spec:
                   type: string
                 description: A map containing the plugin metadata
                 type: object
+              reconciliationStartedAt:
+                description: When the backup process was started by the operator
+                format: date-time
+                type: string
+              reconciliationTerminatedAt:
+                description: When the reconciliation was terminated by the operator
+                  (either successfully or not)
+                format: date-time
+                type: string
               s3Credentials:
                 description: The credentials to use to upload data to S3
                 properties:
@@ -977,11 +1002,12 @@ spec:
                     type: array
                 type: object
               startedAt:
-                description: When the backup was started
+                description: When the backup execution was started by the backup tool
                 format: date-time
                 type: string
               stoppedAt:
-                description: When the backup was terminated
+                description: When the backup execution was terminated by the backup
+                  tool
                 format: date-time
                 type: string
               tablespaceMapFile:
@@ -1004,7 +1030,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: clusterimagecatalogs.postgresql.cnpg.io
 spec:
@@ -1048,11 +1074,150 @@ spec:
               Specification of the desired behavior of the ClusterImageCatalog.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
             properties:
+              componentImages:
+                description: |-
+                  ComponentImages is a list of named images for components other than PostgreSQL
+                  (e.g. pgbouncer). Keys must be unique within a catalog.
+                items:
+                  description: CatalogComponentImage is a named image entry for a
+                    non-PostgreSQL component.
+                  properties:
+                    image:
+                      description: Image is the container image reference.
+                      type: string
+                    key:
+                      description: Key is the unique identifier for this image within
+                        the catalog.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - image
+                  - key
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - key
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: Component image keys must be unique
+                  rule: self.all(e, self.filter(f, f.key==e.key).size() == 1)
               images:
                 description: List of CatalogImages available in the catalog
                 items:
                   description: CatalogImage defines the image and major version
                   properties:
+                    extensions:
+                      description: The configuration of the extensions to be added
+                      items:
+                        description: |-
+                          ExtensionConfiguration is the configuration used to add
+                          PostgreSQL extensions to the Cluster.
+                        properties:
+                          bin_path:
+                            description: |-
+                              A list of directories within the image to be appended to the
+                              PostgreSQL process's `PATH` environment variable.
+                            items:
+                              type: string
+                            type: array
+                          dynamic_library_path:
+                            description: |-
+                              The list of directories inside the image which should be added to dynamic_library_path.
+                              If not defined, defaults to "/lib".
+                            items:
+                              type: string
+                            type: array
+                          env:
+                            description: |-
+                              Env is a list of custom environment variables to be set in the
+                              PostgreSQL process for this extension. It is the responsibility of the
+                              cluster administrator to ensure the variables are correct for the
+                              specific extension. Note that changes to these variables require
+                              a manual cluster restart to take effect.
+                            items:
+                              description: |-
+                                ExtensionEnvVar defines an environment variable for a specific extension
+                                image volume.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name of the environment variable to be injected into the
+                                    PostgreSQL process.
+                                  minLength: 1
+                                  pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                  type: string
+                                value:
+                                  description: |-
+                                    Value of the environment variable. CloudNativePG performs a direct
+                                    replacement of this value, with support for placeholder expansion.
+                                    The ${`image_root`} placeholder resolves to the absolute mount path
+                                    of the extension's volume (e.g., `/extensions/my-extension`). This
+                                    is particularly useful for allowing applications or libraries to
+                                    locate specific directories within the mounted image.
+                                    Unrecognized placeholders are rejected. To include a literal ${...}
+                                    in the value, escape it as $${...}.
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - name
+                              - value
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          extension_control_path:
+                            description: |-
+                              The list of directories inside the image which should be added to extension_control_path.
+                              If not defined, defaults to "/share".
+                            items:
+                              type: string
+                            type: array
+                          image:
+                            description: The image containing the extension.
+                            properties:
+                              pullPolicy:
+                                description: |-
+                                  Policy for pulling OCI objects. Possible values are:
+                                  Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+                                  Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+                                  IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+                                  Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+                                type: string
+                              reference:
+                                description: |-
+                                  Required: Image or artifact reference to be used.
+                                  Behaves in the same way as pod.spec.containers[*].image.
+                                  Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+                                  More info: https://kubernetes.io/docs/concepts/containers/images
+                                  This field is optional to allow higher level config management to default or override
+                                  container images in workload controllers like Deployments and StatefulSets.
+                                type: string
+                            type: object
+                          ld_library_path:
+                            description: The list of directories inside the image
+                              which should be added to ld_library_path.
+                            items:
+                              type: string
+                            type: array
+                          name:
+                            description: |-
+                              The name of the extension, required. The limit of 59 characters
+                              leaves room for the prefix the operator adds when deriving the
+                              extension's Kubernetes Volume name (capped at 63 characters).
+                            maxLength: 59
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9_]*[a-z0-9])?$
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
                     image:
                       description: The image reference
                       type: string
@@ -1087,7 +1252,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: clusters.postgresql.cnpg.io
 spec:
@@ -2105,9 +2270,10 @@ spec:
                         operator:
                           description: |-
                             Operator represents a key's relationship to the value.
-                            Valid operators are Exists and Equal. Defaults to Equal.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                             Exists is equivalent to wildcard for value, so that a pod can
                             tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                           type: string
                         tolerationSeconds:
                           description: |-
@@ -2200,6 +2366,11 @@ spec:
                             - key
                             - name
                             type: object
+                          useDefaultAzureCredentials:
+                            description: |-
+                              Use the default Azure authentication flow, which includes DefaultAzureCredential.
+                              This allows authentication using environment variables and managed identities.
+                            type: boolean
                         type: object
                       data:
                         description: |-
@@ -2231,10 +2402,11 @@ spec:
                             description: |-
                               Compress a backup file (a tar file per tablespace) while streaming it
                               to the object store. Available options are empty string (no
-                              compression, default), `gzip`, `bzip2`, and `snappy`.
+                              compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
                             enum:
                             - bzip2
                             - gzip
+                            - lz4
                             - snappy
                             type: string
                           encryption:
@@ -2621,19 +2793,59 @@ spec:
                             type: array
                           pgDumpExtraOptions:
                             description: |-
-                              List of custom options to pass to the `pg_dump` command. IMPORTANT:
-                              Use these options with caution and at your own risk, as the operator
-                              does not validate their content. Be aware that certain options may
-                              conflict with the operator's intended functionality or design.
+                              List of custom options to pass to the `pg_dump` command.
+
+                              IMPORTANT: Use with caution. The operator does not validate these options,
+                              and certain flags may interfere with its intended functionality or design.
+                              You are responsible for ensuring that the provided options are compatible
+                              with your environment and desired behavior.
+                            items:
+                              type: string
+                            type: array
+                          pgRestoreDataOptions:
+                            description: |-
+                              Custom options to pass to the `pg_restore` command during the `data`
+                              section. This setting overrides the generic `pgRestoreExtraOptions` value.
+
+                              IMPORTANT: Use with caution. The operator does not validate these options,
+                              and certain flags may interfere with its intended functionality or design.
+                              You are responsible for ensuring that the provided options are compatible
+                              with your environment and desired behavior.
                             items:
                               type: string
                             type: array
                           pgRestoreExtraOptions:
                             description: |-
-                              List of custom options to pass to the `pg_restore` command. IMPORTANT:
-                              Use these options with caution and at your own risk, as the operator
-                              does not validate their content. Be aware that certain options may
-                              conflict with the operator's intended functionality or design.
+                              List of custom options to pass to the `pg_restore` command.
+
+                              IMPORTANT: Use with caution. The operator does not validate these options,
+                              and certain flags may interfere with its intended functionality or design.
+                              You are responsible for ensuring that the provided options are compatible
+                              with your environment and desired behavior.
+                            items:
+                              type: string
+                            type: array
+                          pgRestorePostdataOptions:
+                            description: |-
+                              Custom options to pass to the `pg_restore` command during the `post-data`
+                              section. This setting overrides the generic `pgRestoreExtraOptions` value.
+
+                              IMPORTANT: Use with caution. The operator does not validate these options,
+                              and certain flags may interfere with its intended functionality or design.
+                              You are responsible for ensuring that the provided options are compatible
+                              with your environment and desired behavior.
+                            items:
+                              type: string
+                            type: array
+                          pgRestorePredataOptions:
+                            description: |-
+                              Custom options to pass to the `pg_restore` command during the `pre-data`
+                              section. This setting overrides the generic `pgRestoreExtraOptions` value.
+
+                              IMPORTANT: Use with caution. The operator does not validate these options,
+                              and certain flags may interfere with its intended functionality or design.
+                              You are responsible for ensuring that the provided options are compatible
+                              with your environment and desired behavior.
                             items:
                               type: string
                             type: array
@@ -2697,6 +2909,7 @@ spec:
                       options:
                         description: |-
                           The list of options that must be passed to initdb when creating the cluster.
+
                           Deprecated: This could lead to inconsistent configurations,
                           please use the explicit provided parameters instead.
                           If defined, explicit values will be ignored.
@@ -3021,8 +3234,9 @@ spec:
                               integer)
                             type: string
                           targetTime:
-                            description: The target time as a timestamp in the RFC3339
-                              standard
+                            description: |-
+                              The target time as a timestamp in RFC3339 format or PostgreSQL timestamp format.
+                              Timestamps without an explicit timezone are interpreted as UTC.
                             type: string
                           targetXID:
                             description: The target transaction ID
@@ -3541,7 +3755,7 @@ spec:
                           resources:
                             description: |-
                               resources represents the minimum resources the volume should have.
-                              If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                              Users are allowed to specify resource requirements
                               that are lower than previous value but must still be higher than capacity recorded in the
                               status field of the claim.
                               More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -3745,6 +3959,11 @@ spec:
                               - key
                               - name
                               type: object
+                            useDefaultAzureCredentials:
+                              description: |-
+                                Use the default Azure authentication flow, which includes DefaultAzureCredential.
+                                This allows authentication using environment variables and managed identities.
+                              type: boolean
                           type: object
                         data:
                           description: |-
@@ -3776,10 +3995,11 @@ spec:
                               description: |-
                                 Compress a backup file (a tar file per tablespace) while streaming it
                                 to the object store. Available options are empty string (no
-                                compression, default), `gzip`, `bzip2`, and `snappy`.
+                                compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
                               enum:
                               - bzip2
                               - gzip
+                              - lz4
                               - snappy
                               type: string
                             encryption:
@@ -4330,6 +4550,8 @@ spec:
                           description: |-
                             List of one or more existing roles to which this role will be
                             immediately added as a new member. Default empty.
+                            Changes to the list are applied to an existing role through
+                            `GRANT` and `REVOKE` statements, not only at role creation.
                           items:
                             type: string
                           type: array
@@ -4337,7 +4559,7 @@ spec:
                           default: true
                           description: |-
                             Whether a role "inherits" the privileges of roles it is a member of.
-                            Defaults is `true`.
+                            Default is `true`.
                           type: boolean
                         login:
                           description: |-
@@ -4351,8 +4573,10 @@ spec:
                           type: string
                         passwordSecret:
                           description: |-
-                            Secret containing the password of the role (if present)
-                            If null, the password will be ignored unless DisablePassword is set
+                            Secret containing the password of the role (if present).
+                            If null, the password will be ignored unless DisablePassword is set.
+                            When set, the secret must follow the `kubernetes.io/basic-auth` format
+                            and contain both a `username` and a `password` field.
                           properties:
                             name:
                               description: Name of the referent.
@@ -4885,6 +5109,14 @@ spec:
                       Deprecated: This feature will be removed in an upcoming release. If
                       you need this functionality, you can create a PodMonitor manually.
                     type: boolean
+                  metricsQueriesTTL:
+                    description: |-
+                      The interval during which metrics computed from queries are considered current.
+                      Once it is exceeded, a new scrape will trigger a rerun
+                      of the queries.
+                      If not set, defaults to 30 seconds, in line with Prometheus scraping defaults.
+                      Setting this to zero disables the caching mechanism and can cause heavy load on the PostgreSQL server.
+                    type: string
                   podMonitorMetricRelabelings:
                     description: |-
                       The list of metric relabelings for the `PodMonitor`. Applied to samples before ingestion.
@@ -5126,6 +5358,318 @@ spec:
                   - name
                   type: object
                 type: array
+              podSecurityContext:
+                description: |-
+                  Override the PodSecurityContext applied to every Pod of the cluster.
+                  When set, this overrides the operator's default PodSecurityContext for the cluster.
+                  If omitted, the operator defaults are used.
+                  This field doesn't have any effect if SecurityContextConstraints are present.
+                properties:
+                  appArmorProfile:
+                    description: |-
+                      appArmorProfile is the AppArmor options to use by the containers in this pod.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      localhostProfile:
+                        description: |-
+                          localhostProfile indicates a profile loaded on the node that should be used.
+                          The profile must be preconfigured on the node to work.
+                          Must match the loaded name of the profile.
+                          Must be set if and only if type is "Localhost".
+                        type: string
+                      type:
+                        description: |-
+                          type indicates which kind of AppArmor profile will be applied.
+                          Valid options are:
+                            Localhost - a profile pre-loaded on the node.
+                            RuntimeDefault - the container runtime's default profile.
+                            Unconfined - no AppArmor enforcement.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  fsGroup:
+                    description: |-
+                      A special supplemental group that applies to all containers in a pod.
+                      Some volume types allow the Kubelet to change the ownership of that volume
+                      to be owned by the pod:
+
+                      1. The owning GID will be the FSGroup
+                      2. The setgid bit is set (new files created in the volume will be owned by FSGroup)
+                      3. The permission bits are OR'd with rw-rw----
+
+                      If unset, the Kubelet will not modify the ownership and permissions of any volume.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  fsGroupChangePolicy:
+                    description: |-
+                      fsGroupChangePolicy defines behavior of changing ownership and permission of the volume
+                      before being exposed inside Pod. This field will only apply to
+                      volume types which support fsGroup based ownership(and permissions).
+                      It will have no effect on ephemeral volume types such as: secret, configmaps
+                      and emptydir.
+                      Valid values are "OnRootMismatch" and "Always". If not specified, "Always" is used.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: string
+                  runAsGroup:
+                    description: |-
+                      The GID to run the entrypoint of the container process.
+                      Uses runtime default if unset.
+                      May also be set in SecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence
+                      for that container.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  runAsNonRoot:
+                    description: |-
+                      Indicates that the container must run as a non-root user.
+                      If true, the Kubelet will validate the image at runtime to ensure that it
+                      does not run as UID 0 (root) and fail to start the container if it does.
+                      If unset or false, no such validation will be performed.
+                      May also be set in SecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                    type: boolean
+                  runAsUser:
+                    description: |-
+                      The UID to run the entrypoint of the container process.
+                      Defaults to user specified in image metadata if unspecified.
+                      May also be set in SecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence
+                      for that container.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  seLinuxChangePolicy:
+                    description: |-
+                      seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.
+                      It has no effect on nodes that do not support SELinux or to volumes does not support SELinux.
+                      Valid values are "MountOption" and "Recursive".
+
+                      "Recursive" means relabeling of all files on all Pod volumes by the container runtime.
+                      This may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.
+
+                      "MountOption" mounts all eligible Pod volumes with `-o context` mount option.
+                      This requires all Pods that share the same volume to use the same SELinux label.
+                      It is not possible to share the same volume among privileged and unprivileged Pods.
+                      Eligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes
+                      whose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their
+                      CSIDriver instance. Other volumes are always re-labelled recursively.
+                      "MountOption" value is allowed only when SELinuxMount feature gate is enabled.
+
+                      If not specified and SELinuxMount feature gate is enabled, "MountOption" is used.
+                      If not specified and SELinuxMount feature gate is disabled, "MountOption" is used for ReadWriteOncePod volumes
+                      and "Recursive" for all other volumes.
+
+                      This field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.
+
+                      All Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: string
+                  seLinuxOptions:
+                    description: |-
+                      The SELinux context to be applied to all containers.
+                      If unspecified, the container runtime will allocate a random SELinux context for each
+                      container.  May also be set in SecurityContext.  If set in
+                      both SecurityContext and PodSecurityContext, the value specified in SecurityContext
+                      takes precedence for that container.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      level:
+                        description: Level is SELinux level label that applies to
+                          the container.
+                        type: string
+                      role:
+                        description: Role is a SELinux role label that applies to
+                          the container.
+                        type: string
+                      type:
+                        description: Type is a SELinux type label that applies to
+                          the container.
+                        type: string
+                      user:
+                        description: User is a SELinux user label that applies to
+                          the container.
+                        type: string
+                    type: object
+                  seccompProfile:
+                    description: |-
+                      The seccomp options to use by the containers in this pod.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      localhostProfile:
+                        description: |-
+                          localhostProfile indicates a profile defined in a file on the node should be used.
+                          The profile must be preconfigured on the node to work.
+                          Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                          Must be set if type is "Localhost". Must NOT be set for any other type.
+                        type: string
+                      type:
+                        description: |-
+                          type indicates which kind of seccomp profile will be applied.
+                          Valid options are:
+
+                          Localhost - a profile defined in a file on the node should be used.
+                          RuntimeDefault - the container runtime default profile should be used.
+                          Unconfined - no profile should be applied.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  supplementalGroups:
+                    description: |-
+                      A list of groups applied to the first process run in each container, in
+                      addition to the container's primary GID and fsGroup (if specified).  If
+                      the SupplementalGroupsPolicy feature is enabled, the
+                      supplementalGroupsPolicy field determines whether these are in addition
+                      to or instead of any group memberships defined in the container image.
+                      If unspecified, no additional groups are added, though group memberships
+                      defined in the container image may still be used, depending on the
+                      supplementalGroupsPolicy field.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    items:
+                      format: int64
+                      type: integer
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  supplementalGroupsPolicy:
+                    description: |-
+                      Defines how supplemental groups of the first container processes are calculated.
+                      Valid values are "Merge" and "Strict". If not specified, "Merge" is used.
+                      (Alpha) Using the field requires the SupplementalGroupsPolicy feature gate to be enabled
+                      and the container runtime must implement support for this feature.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: string
+                  sysctls:
+                    description: |-
+                      Sysctls hold a list of namespaced sysctls used for the pod. Pods with unsupported
+                      sysctls (by the container runtime) might fail to launch.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    items:
+                      description: Sysctl defines a kernel parameter to be set
+                      properties:
+                        name:
+                          description: Name of a property to set
+                          type: string
+                        value:
+                          description: Value of a property to set
+                          type: string
+                      required:
+                      - name
+                      - value
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  windowsOptions:
+                    description: |-
+                      The Windows specific settings applied to all containers.
+                      If unspecified, the options within a container's SecurityContext will be used.
+                      If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is linux.
+                    properties:
+                      gmsaCredentialSpec:
+                        description: |-
+                          GMSACredentialSpec is where the GMSA admission webhook
+                          (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                          GMSA credential spec named by the GMSACredentialSpecName field.
+                        type: string
+                      gmsaCredentialSpecName:
+                        description: GMSACredentialSpecName is the name of the GMSA
+                          credential spec to use.
+                        type: string
+                      hostProcess:
+                        description: |-
+                          HostProcess determines if a container should be run as a 'Host Process' container.
+                          All of a Pod's containers must have the same effective HostProcess value
+                          (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                          In addition, if HostProcess is true then HostNetwork must also be set to true.
+                        type: boolean
+                      runAsUserName:
+                        description: |-
+                          The UserName in Windows to run the entrypoint of the container process.
+                          Defaults to the user specified in image metadata if unspecified.
+                          May also be set in PodSecurityContext. If set in both SecurityContext and
+                          PodSecurityContext, the value specified in SecurityContext takes precedence.
+                        type: string
+                    type: object
+                type: object
+              podSelectorRefs:
+                description: |-
+                  PodSelectorRefs defines named pod label selectors that can be referenced
+                  in pg_hba rules using the ${podselector:NAME} syntax in the address field.
+                  The operator resolves matching pod IPs and the instance manager expands
+                  pg_hba lines accordingly. Only pods in the Cluster's own namespace are considered.
+                items:
+                  description: |-
+                    PodSelectorRef defines a named pod label selector for use in pg_hba rules.
+                    Pods matching the selector in the Cluster's namespace will have their IPs
+                    resolved and made available for pg_hba address expansion via the
+                    `${podselector:NAME}` syntax.
+                  properties:
+                    name:
+                      description: |-
+                        Name is the identifier used to reference this selector in pg_hba rules
+                        via the ${podselector:NAME} syntax in the address field.
+                      minLength: 1
+                      pattern: ^[a-z]([a-z0-9_-]*[a-z0-9])?$
+                      type: string
+                    selector:
+                      description: |-
+                        Selector is a label selector that identifies the pods whose IPs
+                        should be resolved. Only pods in the Cluster's namespace are considered.
+                      properties:
+                        matchExpressions:
+                          description: matchExpressions is a list of label selector
+                            requirements. The requirements are ANDed.
+                          items:
+                            description: |-
+                              A label selector requirement is a selector that contains values, a key, and an operator that
+                              relates the key and values.
+                            properties:
+                              key:
+                                description: key is the label key that the selector
+                                  applies to.
+                                type: string
+                              operator:
+                                description: |-
+                                  operator represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists and DoesNotExist.
+                                type: string
+                              values:
+                                description: |-
+                                  values is an array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. This array is replaced during a strategic
+                                  merge patch.
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                            map is equivalent to an element of matchExpressions, whose key field is "key", the
+                            operator is "In", and the values array contains only "value". The requirements are ANDed.
+                          type: object
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  required:
+                  - name
+                  - selector
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               postgresGID:
                 default: 26
                 description: The GID of the `postgres` user inside the image, defaults
@@ -5155,6 +5699,13 @@ spec:
                         ExtensionConfiguration is the configuration used to add
                         PostgreSQL extensions to the Cluster.
                       properties:
+                        bin_path:
+                          description: |-
+                            A list of directories within the image to be appended to the
+                            PostgreSQL process's `PATH` environment variable.
+                          items:
+                            type: string
+                          type: array
                         dynamic_library_path:
                           description: |-
                             The list of directories inside the image which should be added to dynamic_library_path.
@@ -5162,6 +5713,45 @@ spec:
                           items:
                             type: string
                           type: array
+                        env:
+                          description: |-
+                            Env is a list of custom environment variables to be set in the
+                            PostgreSQL process for this extension. It is the responsibility of the
+                            cluster administrator to ensure the variables are correct for the
+                            specific extension. Note that changes to these variables require
+                            a manual cluster restart to take effect.
+                          items:
+                            description: |-
+                              ExtensionEnvVar defines an environment variable for a specific extension
+                              image volume.
+                            properties:
+                              name:
+                                description: |-
+                                  Name of the environment variable to be injected into the
+                                  PostgreSQL process.
+                                minLength: 1
+                                pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                type: string
+                              value:
+                                description: |-
+                                  Value of the environment variable. CloudNativePG performs a direct
+                                  replacement of this value, with support for placeholder expansion.
+                                  The ${`image_root`} placeholder resolves to the absolute mount path
+                                  of the extension's volume (e.g., `/extensions/my-extension`). This
+                                  is particularly useful for allowing applications or libraries to
+                                  locate specific directories within the mounted image.
+                                  Unrecognized placeholders are rejected. To include a literal ${...}
+                                  in the value, escape it as $${...}.
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            - value
+                            type: object
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
                         extension_control_path:
                           description: |-
                             The list of directories inside the image which should be added to extension_control_path.
@@ -5170,7 +5760,7 @@ spec:
                             type: string
                           type: array
                         image:
-                          description: The image containing the extension, required
+                          description: The image containing the extension.
                           properties:
                             pullPolicy:
                               description: |-
@@ -5190,9 +5780,6 @@ spec:
                                 container images in workload controllers like Deployments and StatefulSets.
                               type: string
                           type: object
-                          x-kubernetes-validations:
-                          - message: An image reference is required
-                            rule: has(self.reference)
                         ld_library_path:
                           description: The list of directories inside the image which
                             should be added to ld_library_path.
@@ -5200,15 +5787,21 @@ spec:
                             type: string
                           type: array
                         name:
-                          description: The name of the extension, required
+                          description: |-
+                            The name of the extension, required. The limit of 59 characters
+                            leaves room for the prefix the operator adds when deriving the
+                            extension's Kubernetes Volume name (capped at 63 characters).
+                          maxLength: 59
                           minLength: 1
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          pattern: ^[a-z0-9]([-a-z0-9_]*[a-z0-9])?$
                           type: string
                       required:
-                      - image
                       - name
                       type: object
                     type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                   ldap:
                     description: Options to specify LDAP configuration
                     properties:
@@ -5290,7 +5883,9 @@ spec:
                   pg_hba:
                     description: |-
                       PostgreSQL Host Based Authentication rules (lines to be appended
-                      to the pg_hba.conf file)
+                      to the pg_hba.conf file).
+                      Use the ${podselector:NAME} syntax to reference a pod selector;
+                      the rule will be expanded for each Pod IP matching that selector.
                     items:
                       type: string
                     type: array
@@ -5349,6 +5944,12 @@ spec:
                         - required
                         - preferred
                         type: string
+                      failoverQuorum:
+                        description: |-
+                          FailoverQuorum enables a quorum-based check before failover, improving
+                          data durability and safety during failover events in CloudNativePG-managed
+                          PostgreSQL clusters.
+                        type: boolean
                       maxStandbyNamesFromCluster:
                         description: |-
                           Specifies the maximum number of local cluster pods that can be
@@ -5400,12 +6001,62 @@ spec:
                         || self.standbyNamesPre.size()==0) && (!has(self.standbyNamesPost)
                         || self.standbyNamesPost.size()==0))
                 type: object
+              primaryLease:
+                description: |-
+                  Configuration of the Kubernetes `Lease` used to coordinate safe primary
+                  election within the cluster. When omitted, the operator applies built-in
+                  defaults; tune these values only if you understand the consequences for
+                  failover timing.
+                properties:
+                  leaseDurationSeconds:
+                    default: 15
+                    description: |-
+                      How long, in seconds, the primary lease is considered valid before it
+                      expires and another instance may acquire it. It must be greater than
+                      `renewDeadlineSeconds`.
+                      Defaults to 15.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  releasedLeaseDurationSeconds:
+                    default: 1
+                    description: |-
+                      The TTL, in seconds, written when the primary explicitly releases the
+                      lease on a clean shutdown, allowing a replica to promote without waiting
+                      for the full lease duration to expire.
+                      Defaults to 1.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  renewDeadlineSeconds:
+                    default: 10
+                    description: |-
+                      How long, in seconds, the current primary keeps retrying to renew the
+                      lease before giving up and stopping. It must be smaller than
+                      `leaseDurationSeconds`.
+                      Defaults to 10.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  retryPeriodSeconds:
+                    default: 2
+                    description: |-
+                      How frequently, in seconds, a non-holder instance retries acquiring or
+                      renewing the lease.
+                      Defaults to 2.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
               primaryUpdateMethod:
                 default: restart
                 description: |-
                   Method to follow to upgrade the primary server during a rolling
                   update procedure, after all replicas have been successfully updated:
-                  it can be with a switchover (`switchover`) or in-place (`restart` - default)
+                  it can be with a switchover (`switchover`) or in-place (`restart` - default).
+                  Note: when using `switchover`, the operator will reject updates that change both
+                  the image name and PostgreSQL configuration parameters simultaneously to avoid
+                  configuration mismatches during the switchover process.
                 enum:
                 - switchover
                 - restart
@@ -5981,6 +6632,24 @@ spec:
                               description: Kubelet's generated CSRs will be addressed
                                 to this signer.
                               type: string
+                            userAnnotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                userAnnotations allow pod authors to pass additional information to
+                                the signer implementation.  Kubernetes does not restrict or validate this
+                                metadata in any way.
+
+                                These values are copied verbatim into the `spec.unverifiedUserAnnotations` field of
+                                the PodCertificateRequest objects that Kubelet creates.
+
+                                Entries are subject to the same validation as object metadata annotations,
+                                with the addition that all keys must be domain-prefixed. No restrictions
+                                are placed on values, except an overall size limitation on the entire field.
+
+                                Signers should document the keys and values they support. Signers should
+                                deny requests that contain keys they do not recognize.
+                              type: object
                           required:
                           - keyType
                           - signerName
@@ -6277,6 +6946,212 @@ spec:
                 required:
                 - type
                 type: object
+              securityContext:
+                description: |-
+                  Override the SecurityContext applied to every Container in the Pod of the cluster.
+                  When set, this overrides the operator's default Container SecurityContext.
+                  If omitted, the operator defaults are used.
+                properties:
+                  allowPrivilegeEscalation:
+                    description: |-
+                      AllowPrivilegeEscalation controls whether a process can gain more
+                      privileges than its parent process. This bool directly controls if
+                      the no_new_privs flag will be set on the container process.
+                      AllowPrivilegeEscalation is true always when the container is:
+                      1) run as Privileged
+                      2) has CAP_SYS_ADMIN
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: boolean
+                  appArmorProfile:
+                    description: |-
+                      appArmorProfile is the AppArmor options to use by this container. If set, this profile
+                      overrides the pod's appArmorProfile.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      localhostProfile:
+                        description: |-
+                          localhostProfile indicates a profile loaded on the node that should be used.
+                          The profile must be preconfigured on the node to work.
+                          Must match the loaded name of the profile.
+                          Must be set if and only if type is "Localhost".
+                        type: string
+                      type:
+                        description: |-
+                          type indicates which kind of AppArmor profile will be applied.
+                          Valid options are:
+                            Localhost - a profile pre-loaded on the node.
+                            RuntimeDefault - the container runtime's default profile.
+                            Unconfined - no AppArmor enforcement.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  capabilities:
+                    description: |-
+                      The capabilities to add/drop when running containers.
+                      Defaults to the default set of capabilities granted by the container runtime.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      add:
+                        description: Added capabilities
+                        items:
+                          description: Capability represent POSIX capabilities type
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      drop:
+                        description: Removed capabilities
+                        items:
+                          description: Capability represent POSIX capabilities type
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                  privileged:
+                    description: |-
+                      Run container in privileged mode.
+                      Processes in privileged containers are essentially equivalent to root on the host.
+                      Defaults to false.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: boolean
+                  procMount:
+                    description: |-
+                      procMount denotes the type of proc mount to use for the containers.
+                      The default value is Default which uses the container runtime defaults for
+                      readonly paths and masked paths.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: string
+                  readOnlyRootFilesystem:
+                    description: |-
+                      Whether this container has a read-only root filesystem.
+                      Default is false.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    type: boolean
+                  runAsGroup:
+                    description: |-
+                      The GID to run the entrypoint of the container process.
+                      Uses runtime default if unset.
+                      May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  runAsNonRoot:
+                    description: |-
+                      Indicates that the container must run as a non-root user.
+                      If true, the Kubelet will validate the image at runtime to ensure that it
+                      does not run as UID 0 (root) and fail to start the container if it does.
+                      If unset or false, no such validation will be performed.
+                      May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                    type: boolean
+                  runAsUser:
+                    description: |-
+                      The UID to run the entrypoint of the container process.
+                      Defaults to user specified in image metadata if unspecified.
+                      May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    format: int64
+                    type: integer
+                  seLinuxOptions:
+                    description: |-
+                      The SELinux context to be applied to the container.
+                      If unspecified, the container runtime will allocate a random SELinux context for each
+                      container.  May also be set in PodSecurityContext.  If set in both SecurityContext and
+                      PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      level:
+                        description: Level is SELinux level label that applies to
+                          the container.
+                        type: string
+                      role:
+                        description: Role is a SELinux role label that applies to
+                          the container.
+                        type: string
+                      type:
+                        description: Type is a SELinux type label that applies to
+                          the container.
+                        type: string
+                      user:
+                        description: User is a SELinux user label that applies to
+                          the container.
+                        type: string
+                    type: object
+                  seccompProfile:
+                    description: |-
+                      The seccomp options to use by this container. If seccomp options are
+                      provided at both the pod & container level, the container options
+                      override the pod options.
+                      Note that this field cannot be set when spec.os.name is windows.
+                    properties:
+                      localhostProfile:
+                        description: |-
+                          localhostProfile indicates a profile defined in a file on the node should be used.
+                          The profile must be preconfigured on the node to work.
+                          Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                          Must be set if type is "Localhost". Must NOT be set for any other type.
+                        type: string
+                      type:
+                        description: |-
+                          type indicates which kind of seccomp profile will be applied.
+                          Valid options are:
+
+                          Localhost - a profile defined in a file on the node should be used.
+                          RuntimeDefault - the container runtime default profile should be used.
+                          Unconfined - no profile should be applied.
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  windowsOptions:
+                    description: |-
+                      The Windows specific settings applied to all containers.
+                      If unspecified, the options from the PodSecurityContext will be used.
+                      If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                      Note that this field cannot be set when spec.os.name is linux.
+                    properties:
+                      gmsaCredentialSpec:
+                        description: |-
+                          GMSACredentialSpec is where the GMSA admission webhook
+                          (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                          GMSA credential spec named by the GMSACredentialSpecName field.
+                        type: string
+                      gmsaCredentialSpecName:
+                        description: GMSACredentialSpecName is the name of the GMSA
+                          credential spec to use.
+                        type: string
+                      hostProcess:
+                        description: |-
+                          HostProcess determines if a container should be run as a 'Host Process' container.
+                          All of a Pod's containers must have the same effective HostProcess value
+                          (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                          In addition, if HostProcess is true then HostNetwork must also be set to true.
+                        type: boolean
+                      runAsUserName:
+                        description: |-
+                          The UserName in Windows to run the entrypoint of the container process.
+                          Defaults to the user specified in image metadata if unspecified.
+                          May also be set in PodSecurityContext. If set in both SecurityContext and
+                          PodSecurityContext, the value specified in SecurityContext takes precedence.
+                        type: string
+                    type: object
+                type: object
+              serviceAccountName:
+                description: |-
+                  Name of an existing ServiceAccount in the same namespace to use for the cluster.
+                  When specified, the operator will not create a new ServiceAccount
+                  but will use the provided one. This is useful for sharing a single
+                  ServiceAccount across multiple clusters (e.g., for cloud IAM configurations).
+                  If not specified, a ServiceAccount will be created with the cluster name.
+                  Mutually exclusive with ServiceAccountTemplate.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
+                x-kubernetes-validations:
+                - message: serviceAccountName is immutable
+                  rule: self == oldSelf
               serviceAccountTemplate:
                 description: Configure the generation of the service account
                 properties:
@@ -6429,7 +7304,7 @@ spec:
                       resources:
                         description: |-
                           resources represents the minimum resources the volume should have.
-                          If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                          Users are allowed to specify resource requirements
                           that are lower than previous value but must still be higher than capacity recorded in the
                           status field of the claim.
                           More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -6685,7 +7560,7 @@ spec:
                             resources:
                               description: |-
                                 resources represents the minimum resources the volume should have.
-                                If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                                Users are allowed to specify resource requirements
                                 that are lower than previous value but must still be higher than capacity recorded in the
                                 status field of the claim.
                                 More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -7093,7 +7968,7 @@ spec:
                       resources:
                         description: |-
                           resources represents the minimum resources the volume should have.
-                          If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                          Users are allowed to specify resource requirements
                           that are lower than previous value but must still be higher than capacity recorded in the
                           status field of the claim.
                           More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -7503,8 +8378,10 @@ spec:
                   Deprecated: the field is not set for backup plugins.
                 type: object
               latestGeneratedNode:
-                description: ID of the latest generated node (used to avoid node name
-                  clashing)
+                description: |-
+                  ID of the latest generated node (used to avoid node name clashing)
+
+                  Deprecated: this field is not set anymore
                 type: integer
               managedRolesStatus:
                 description: ManagedRolesStatus reports the state of the managed roles
@@ -7523,8 +8400,10 @@ spec:
                         type: string
                       type: array
                     description: |-
-                      CannotReconcile lists roles that cannot be reconciled in PostgreSQL,
-                      with an explanation of the cause
+                      CannotReconcile lists roles that cannot be reconciled, with an
+                      explanation of the cause. Failures may originate in PostgreSQL
+                      (e.g. dropping a role that owns objects) or in Kubernetes (e.g.
+                      the referenced password Secret cannot be fetched).
                     type: object
                   passwordStatus:
                     additionalProperties:
@@ -7548,10 +8427,124 @@ spec:
                 description: OnlineUpdateEnabled shows if the online upgrade is enabled
                   inside the cluster
                 type: boolean
+              operatorCertificateFingerprint:
+                description: |-
+                  OperatorCertificateFingerprint is the SHA256 fingerprint of the operator's
+                  in-memory client certificate public key. The instance manager pins this
+                  fingerprint to authenticate requests from the operator.
+                type: string
               pgDataImageInfo:
                 description: PGDataImageInfo contains the details of the latest image
                   that has run on the current data directory.
                 properties:
+                  extensions:
+                    description: Extensions contains the container image extensions
+                      available for the current Image
+                    items:
+                      description: |-
+                        ExtensionConfiguration is the configuration used to add
+                        PostgreSQL extensions to the Cluster.
+                      properties:
+                        bin_path:
+                          description: |-
+                            A list of directories within the image to be appended to the
+                            PostgreSQL process's `PATH` environment variable.
+                          items:
+                            type: string
+                          type: array
+                        dynamic_library_path:
+                          description: |-
+                            The list of directories inside the image which should be added to dynamic_library_path.
+                            If not defined, defaults to "/lib".
+                          items:
+                            type: string
+                          type: array
+                        env:
+                          description: |-
+                            Env is a list of custom environment variables to be set in the
+                            PostgreSQL process for this extension. It is the responsibility of the
+                            cluster administrator to ensure the variables are correct for the
+                            specific extension. Note that changes to these variables require
+                            a manual cluster restart to take effect.
+                          items:
+                            description: |-
+                              ExtensionEnvVar defines an environment variable for a specific extension
+                              image volume.
+                            properties:
+                              name:
+                                description: |-
+                                  Name of the environment variable to be injected into the
+                                  PostgreSQL process.
+                                minLength: 1
+                                pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                type: string
+                              value:
+                                description: |-
+                                  Value of the environment variable. CloudNativePG performs a direct
+                                  replacement of this value, with support for placeholder expansion.
+                                  The ${`image_root`} placeholder resolves to the absolute mount path
+                                  of the extension's volume (e.g., `/extensions/my-extension`). This
+                                  is particularly useful for allowing applications or libraries to
+                                  locate specific directories within the mounted image.
+                                  Unrecognized placeholders are rejected. To include a literal ${...}
+                                  in the value, escape it as $${...}.
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            - value
+                            type: object
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
+                        extension_control_path:
+                          description: |-
+                            The list of directories inside the image which should be added to extension_control_path.
+                            If not defined, defaults to "/share".
+                          items:
+                            type: string
+                          type: array
+                        image:
+                          description: The image containing the extension.
+                          properties:
+                            pullPolicy:
+                              description: |-
+                                Policy for pulling OCI objects. Possible values are:
+                                Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+                                Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+                                IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+                                Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+                              type: string
+                            reference:
+                              description: |-
+                                Required: Image or artifact reference to be used.
+                                Behaves in the same way as pod.spec.containers[*].image.
+                                Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+                                More info: https://kubernetes.io/docs/concepts/containers/images
+                                This field is optional to allow higher level config management to default or override
+                                container images in workload controllers like Deployments and StatefulSets.
+                              type: string
+                          type: object
+                        ld_library_path:
+                          description: The list of directories inside the image which
+                            should be added to ld_library_path.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: |-
+                            The name of the extension, required. The limit of 59 characters
+                            leaves room for the prefix the operator adds when deriving the
+                            extension's Kubernetes Volume name (capped at 63 characters).
+                          maxLength: 59
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9_]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
                   image:
                     description: Image is the image name
                     type: string
@@ -7625,6 +8618,31 @@ spec:
                   - version
                   type: object
                 type: array
+              podSelectorRefs:
+                description: |-
+                  PodSelectorRefs contains the resolved pod IPs for each named selector
+                  defined in spec.podSelectorRefs.
+                items:
+                  description: PodSelectorRefStatus contains the resolved pod IPs
+                    for a named selector.
+                  properties:
+                    ips:
+                      description: |-
+                        IPs is the list of pod IPs matching the selector.
+                        Each IP is a single address (no CIDR notation).
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      description: Name corresponds to the name in the spec's PodSelectorRef.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               poolerIntegrations:
                 description: The integration needed by poolers referencing the cluster
                 properties:
@@ -7708,6 +8726,13 @@ spec:
                     description: The resource version of the "postgres" user secret
                     type: string
                 type: object
+              selector:
+                description: |-
+                  Selector is the serialized form of the label selector that identifies
+                  the pods managed by this cluster. Populated by the operator and exposed
+                  through the scale sub-resource so an autoscaler (such as HPA or VPA)
+                  can discover the managed instance pods.
+                type: string
               switchReplicaClusterStatus:
                 description: SwitchReplicaClusterStatus is the status of the switch
                   to replica cluster
@@ -7744,6 +8769,130 @@ spec:
                   - state
                   type: object
                 type: array
+              targetPgDataImageInfo:
+                description: |-
+                  TargetPGDataImageInfo contains the details of the target image for an
+                  in-progress major upgrade. It is set before the upgrade Job is created,
+                  and cleared on successful completion or when the upgrade is rolled back.
+                properties:
+                  extensions:
+                    description: Extensions contains the container image extensions
+                      available for the current Image
+                    items:
+                      description: |-
+                        ExtensionConfiguration is the configuration used to add
+                        PostgreSQL extensions to the Cluster.
+                      properties:
+                        bin_path:
+                          description: |-
+                            A list of directories within the image to be appended to the
+                            PostgreSQL process's `PATH` environment variable.
+                          items:
+                            type: string
+                          type: array
+                        dynamic_library_path:
+                          description: |-
+                            The list of directories inside the image which should be added to dynamic_library_path.
+                            If not defined, defaults to "/lib".
+                          items:
+                            type: string
+                          type: array
+                        env:
+                          description: |-
+                            Env is a list of custom environment variables to be set in the
+                            PostgreSQL process for this extension. It is the responsibility of the
+                            cluster administrator to ensure the variables are correct for the
+                            specific extension. Note that changes to these variables require
+                            a manual cluster restart to take effect.
+                          items:
+                            description: |-
+                              ExtensionEnvVar defines an environment variable for a specific extension
+                              image volume.
+                            properties:
+                              name:
+                                description: |-
+                                  Name of the environment variable to be injected into the
+                                  PostgreSQL process.
+                                minLength: 1
+                                pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                type: string
+                              value:
+                                description: |-
+                                  Value of the environment variable. CloudNativePG performs a direct
+                                  replacement of this value, with support for placeholder expansion.
+                                  The ${`image_root`} placeholder resolves to the absolute mount path
+                                  of the extension's volume (e.g., `/extensions/my-extension`). This
+                                  is particularly useful for allowing applications or libraries to
+                                  locate specific directories within the mounted image.
+                                  Unrecognized placeholders are rejected. To include a literal ${...}
+                                  in the value, escape it as $${...}.
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            - value
+                            type: object
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
+                        extension_control_path:
+                          description: |-
+                            The list of directories inside the image which should be added to extension_control_path.
+                            If not defined, defaults to "/share".
+                          items:
+                            type: string
+                          type: array
+                        image:
+                          description: The image containing the extension.
+                          properties:
+                            pullPolicy:
+                              description: |-
+                                Policy for pulling OCI objects. Possible values are:
+                                Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+                                Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+                                IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+                                Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+                              type: string
+                            reference:
+                              description: |-
+                                Required: Image or artifact reference to be used.
+                                Behaves in the same way as pod.spec.containers[*].image.
+                                Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+                                More info: https://kubernetes.io/docs/concepts/containers/images
+                                This field is optional to allow higher level config management to default or override
+                                container images in workload controllers like Deployments and StatefulSets.
+                              type: string
+                          type: object
+                        ld_library_path:
+                          description: The list of directories inside the image which
+                            should be added to ld_library_path.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: |-
+                            The name of the extension, required. The limit of 59 characters
+                            leaves room for the prefix the operator adds when deriving the
+                            extension's Kubernetes Volume name (capped at 63 characters).
+                          maxLength: 59
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9_]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  image:
+                    description: Image is the image name
+                    type: string
+                  majorVersion:
+                    description: MajorVersion is the major version of the image
+                    type: integer
+                required:
+                - image
+                - majorVersion
+                type: object
               targetPrimary:
                 description: |-
                   Target primary instance, this is different from the previous one
@@ -7801,6 +8950,7 @@ spec:
     storage: true
     subresources:
       scale:
+        labelSelectorPath: .status.selector
         specReplicasPath: .spec.instances
         statusReplicasPath: .status.instances
       status: {}
@@ -7810,7 +8960,336 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
+    helm.sh/resource-policy: keep
+  name: databaseroles.postgresql.cnpg.io
+spec:
+  group: postgresql.cnpg.io
+  names:
+    kind: DatabaseRole
+    listKind: DatabaseRoleList
+    plural: databaseroles
+    singular: databaserole
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .spec.cluster.name
+      name: Cluster
+      type: string
+    - jsonPath: .spec.name
+      name: PG Name
+      type: string
+    - jsonPath: .status.applied
+      name: Applied
+      type: boolean
+    - description: Latest reconciliation message
+      jsonPath: .status.message
+      name: Message
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: DatabaseRole is the Schema for the databaseroles API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              Specification of the desired DatabaseRole.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
+            properties:
+              bypassrls:
+                description: |-
+                  Whether a role bypasses every row-level security (RLS) policy.
+                  Default is `false`.
+                type: boolean
+              clientCertificate:
+                description: |-
+                  ClientCertificate configures the operator to generate and renew a TLS client
+                  certificate for this role, signed by the cluster's client CA. The certificate
+                  is stored in a Secret named `<databaserole-name>-client-cert`.
+                  Requires login to be true.
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled turns on client certificate issuance for this role. When true,
+                      the role must have login enabled. Defaults to true when the block is present.
+                    type: boolean
+                type: object
+              cluster:
+                description: The corresponding cluster
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: cluster reference is immutable after creation
+                  rule: self == oldSelf
+              comment:
+                description: Description of the role
+                type: string
+              connectionLimit:
+                default: -1
+                description: |-
+                  If the role can log in, this specifies how many concurrent
+                  connections the role can make. `-1` (the default) means no limit.
+                format: int64
+                type: integer
+              createdb:
+                description: |-
+                  When set to `true`, the role being defined will be allowed to create
+                  new databases. Specifying `false` (default) will deny a role the
+                  ability to create databases.
+                type: boolean
+              createrole:
+                description: |-
+                  Whether the role will be permitted to create, alter, drop, comment
+                  on, change the security label for, and grant or revoke membership in
+                  other roles. Default is `false`.
+                type: boolean
+              databaseRoleReclaimPolicy:
+                default: retain
+                description: The policy for end-of-life maintenance of this role
+                enum:
+                - delete
+                - retain
+                type: string
+              disablePassword:
+                description: DisablePassword indicates that a role's password should
+                  be set to NULL in Postgres
+                type: boolean
+              ensure:
+                default: present
+                description: Ensure the role is `present` or `absent` - defaults to
+                  "present"
+                enum:
+                - present
+                - absent
+                type: string
+              inRoles:
+                description: |-
+                  List of one or more existing roles to which this role will be
+                  immediately added as a new member. Default empty.
+                  Changes to the list are applied to an existing role through
+                  `GRANT` and `REVOKE` statements, not only at role creation.
+                items:
+                  type: string
+                type: array
+              inherit:
+                default: true
+                description: |-
+                  Whether a role "inherits" the privileges of roles it is a member of.
+                  Default is `true`.
+                type: boolean
+              login:
+                description: |-
+                  Whether the role is allowed to log in. A role having the `login`
+                  attribute can be thought of as a user. Roles without this attribute
+                  are useful for managing database privileges, but are not users in
+                  the usual sense of the word. Default is `false`.
+                type: boolean
+              name:
+                description: Name of the role
+                type: string
+              passwordSecret:
+                description: |-
+                  Secret containing the password of the role (if present).
+                  If null, the password will be ignored unless DisablePassword is set.
+                  When set, the secret must follow the `kubernetes.io/basic-auth` format
+                  and contain both a `username` and a `password` field.
+                properties:
+                  name:
+                    description: Name of the referent.
+                    type: string
+                required:
+                - name
+                type: object
+              replication:
+                description: |-
+                  Whether a role is a replication role. A role must have this
+                  attribute (or be a superuser) in order to be able to connect to the
+                  server in replication mode (physical or logical replication) and in
+                  order to be able to create or drop replication slots. A role having
+                  the `replication` attribute is a very highly privileged role, and
+                  should only be used on roles actually used for replication. Default
+                  is `false`.
+                type: boolean
+              superuser:
+                description: |-
+                  Whether the role is a `superuser` who can override all access
+                  restrictions within the database - superuser status is dangerous and
+                  should be used only when really needed. You must yourself be a
+                  superuser to create a new superuser. Defaults is `false`.
+                type: boolean
+              validUntil:
+                description: |-
+                  Date and time after which the role's password is no longer valid.
+                  When omitted, the password will never expire (default).
+                format: date-time
+                type: string
+            required:
+            - cluster
+            - name
+            type: object
+            x-kubernetes-validations:
+            - message: name is immutable
+              rule: self.name == oldSelf.name
+            - message: 'ensure: absent is not supported for DatabaseRole; delete the
+                resource with databaseRoleReclaimPolicy: delete instead'
+              rule: '!has(self.ensure) || self.ensure != ''absent'''
+            - message: the role name postgres is reserved
+              rule: self.name != 'postgres'
+            - message: the role name streaming_replica is reserved
+              rule: self.name != 'streaming_replica'
+            - message: role names starting with pg_ are reserved by PostgreSQL
+              rule: '!self.name.startsWith(''pg_'')'
+            - message: role names starting with cnpg_ are reserved by the operator
+              rule: '!self.name.startsWith(''cnpg_'')'
+            - message: role name must not be empty
+              rule: self.name.size() != 0
+            - message: passwordSecret and disablePassword are mutually exclusive
+              rule: '!has(self.passwordSecret) || !has(self.disablePassword) || !self.disablePassword'
+            - message: clientCertificate requires the role to have login enabled
+              rule: '!has(self.clientCertificate) || !self.clientCertificate.enabled
+                || self.login'
+          status:
+            description: |-
+              Most recently observed status of the DatabaseRole. This data may not be up
+              to date. Populated by the system. Read-only.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
+            properties:
+              applied:
+                description: Applied is true if the role was reconciled correctly
+                type: boolean
+              clientCertificate:
+                description: |-
+                  ClientCertificate holds the observed state of the generated TLS client
+                  certificate, when client certificate issuance is enabled.
+                properties:
+                  expiration:
+                    description: Expiration is the expiration time of the generated
+                      client certificate, in RFC3339 format.
+                    type: string
+                  message:
+                    description: |-
+                      Message contains a human-readable explanation of the current certificate status,
+                      such as why issuance was skipped or why an existing Secret was left untouched.
+                    type: string
+                type: object
+              conditions:
+                description: Conditions for the DatabaseRole object
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              message:
+                description: Message is the reconciliation error message
+                type: string
+              observedGeneration:
+                description: |-
+                  A sequence number representing the latest
+                  desired state that was synchronized
+                format: int64
+                type: integer
+              secretResourceVersion:
+                description: |-
+                  SecretResourceVersion is the resource version of the password secret
+                  last applied to the role; a change to it triggers reconciliation.
+                type: string
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+# Source: cloudnative-pg/templates/crds/crds.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: databases.postgresql.cnpg.io
 spec:
@@ -7895,6 +9374,9 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: cluster reference is immutable after creation
+                  rule: self == oldSelf
               collationVersion:
                 description: |-
                   Maps to the `COLLATION_VERSION` parameter of `CREATE DATABASE`. This
@@ -7940,16 +9422,16 @@ spec:
                     ensure:
                       default: present
                       description: |-
-                        Specifies whether an extension/schema should be present or absent in
-                        the database. If set to `present`, the extension/schema will be
-                        created if it does not exist. If set to `absent`, the
-                        extension/schema will be removed if it exists.
+                        Specifies whether an object (e.g schema) should be present or absent
+                        in the database. If set to `present`, the object will be created if
+                        it does not exist. If set to `absent`, the extension/schema will be
+                        removed if it exists.
                       enum:
                       - present
                       - absent
                       type: string
                     name:
-                      description: Name of the extension/schema
+                      description: Name of the object (extension, schema, FDW, server)
                       type: string
                     schema:
                       description: |-
@@ -7964,6 +9446,100 @@ spec:
                         The version of the extension to install. If empty, the operator will
                         install the default version (whatever is specified in the
                         extension's control file)
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              fdws:
+                description: The list of foreign data wrappers to be managed in the
+                  database
+                items:
+                  description: FDWSpec configures an Foreign Data Wrapper in a database
+                  properties:
+                    ensure:
+                      default: present
+                      description: |-
+                        Specifies whether an object (e.g schema) should be present or absent
+                        in the database. If set to `present`, the object will be created if
+                        it does not exist. If set to `absent`, the extension/schema will be
+                        removed if it exists.
+                      enum:
+                      - present
+                      - absent
+                      type: string
+                    handler:
+                      description: |-
+                        Name of the handler function (e.g., "postgres_fdw_handler").
+                        This will be empty if no handler is specified. In that case,
+                        the default handler is registered when the FDW extension is created.
+                      type: string
+                    name:
+                      description: Name of the object (extension, schema, FDW, server)
+                      type: string
+                    options:
+                      description: Options specifies the configuration options for
+                        the FDW.
+                      items:
+                        description: OptionSpec holds the name, value and the ensure
+                          field for an option
+                        properties:
+                          ensure:
+                            default: present
+                            description: |-
+                              Specifies whether an option should be present or absent in
+                              the database. If set to `present`, the option will be
+                              created if it does not exist. If set to `absent`, the
+                              option will be removed if it exists.
+                            enum:
+                            - present
+                            - absent
+                            type: string
+                          name:
+                            description: Name of the option
+                            type: string
+                          value:
+                            description: Value of the option
+                            type: string
+                        required:
+                        - name
+                        - value
+                        type: object
+                      type: array
+                    owner:
+                      description: |-
+                        Owner specifies the database role that will own the Foreign Data Wrapper.
+                        The role must have superuser privileges in the target database.
+                      type: string
+                    usage:
+                      description: List of roles for which `USAGE` privileges on the
+                        FDW are granted or revoked.
+                      items:
+                        description: UsageSpec configures a usage for a foreign data
+                          wrapper
+                        properties:
+                          name:
+                            description: Name of the usage
+                            type: string
+                            x-kubernetes-validations:
+                            - message: name is required
+                              rule: self != ''
+                          type:
+                            default: grant
+                            description: The type of usage
+                            enum:
+                            - grant
+                            - revoke
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                    validator:
+                      description: |-
+                        Name of the validator function (e.g., "postgres_fdw_validator").
+                        This will be empty if no validator is specified. In that case,
+                        the default validator is registered when the FDW extension is created.
                       type: string
                   required:
                   - name
@@ -8056,16 +9632,16 @@ spec:
                     ensure:
                       default: present
                       description: |-
-                        Specifies whether an extension/schema should be present or absent in
-                        the database. If set to `present`, the extension/schema will be
-                        created if it does not exist. If set to `absent`, the
-                        extension/schema will be removed if it exists.
+                        Specifies whether an object (e.g schema) should be present or absent
+                        in the database. If set to `present`, the object will be created if
+                        it does not exist. If set to `absent`, the extension/schema will be
+                        removed if it exists.
                       enum:
                       - present
                       - absent
                       type: string
                     name:
-                      description: Name of the extension/schema
+                      description: Name of the object (extension, schema, FDW, server)
                       type: string
                     owner:
                       description: |-
@@ -8074,6 +9650,90 @@ spec:
                         `OWNER TO` command of `ALTER SCHEMA`.
                       type: string
                   required:
+                  - name
+                  type: object
+                type: array
+              servers:
+                description: The list of foreign servers to be managed in the database
+                items:
+                  description: ServerSpec configures a server of a foreign data wrapper
+                  properties:
+                    ensure:
+                      default: present
+                      description: |-
+                        Specifies whether an object (e.g schema) should be present or absent
+                        in the database. If set to `present`, the object will be created if
+                        it does not exist. If set to `absent`, the extension/schema will be
+                        removed if it exists.
+                      enum:
+                      - present
+                      - absent
+                      type: string
+                    fdw:
+                      description: The name of the Foreign Data Wrapper (FDW)
+                      type: string
+                      x-kubernetes-validations:
+                      - message: fdw is required
+                        rule: self != ''
+                    name:
+                      description: Name of the object (extension, schema, FDW, server)
+                      type: string
+                    options:
+                      description: |-
+                        Options specifies the configuration options for the server
+                        (key is the option name, value is the option value).
+                      items:
+                        description: OptionSpec holds the name, value and the ensure
+                          field for an option
+                        properties:
+                          ensure:
+                            default: present
+                            description: |-
+                              Specifies whether an option should be present or absent in
+                              the database. If set to `present`, the option will be
+                              created if it does not exist. If set to `absent`, the
+                              option will be removed if it exists.
+                            enum:
+                            - present
+                            - absent
+                            type: string
+                          name:
+                            description: Name of the option
+                            type: string
+                          value:
+                            description: Value of the option
+                            type: string
+                        required:
+                        - name
+                        - value
+                        type: object
+                      type: array
+                    usage:
+                      description: List of roles for which `USAGE` privileges on the
+                        server are granted or revoked.
+                      items:
+                        description: UsageSpec configures a usage for a foreign data
+                          wrapper
+                        properties:
+                          name:
+                            description: Name of the usage
+                            type: string
+                            x-kubernetes-validations:
+                            - message: name is required
+                              rule: self != ''
+                          type:
+                            default: grant
+                            description: The type of usage
+                            enum:
+                            - grant
+                            - revoke
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                  required:
+                  - fdw
                   - name
                   type: object
                 type: array
@@ -8138,6 +9798,28 @@ spec:
                   - name
                   type: object
                 type: array
+              fdws:
+                description: FDWs is the status of the managed FDWs
+                items:
+                  description: DatabaseObjectStatus is the status of the managed database
+                    objects
+                  properties:
+                    applied:
+                      description: |-
+                        True of the object has been installed successfully in
+                        the database
+                      type: boolean
+                    message:
+                      description: Message is the object reconciliation message
+                      type: string
+                    name:
+                      description: The name of the object
+                      type: string
+                  required:
+                  - applied
+                  - name
+                  type: object
+                type: array
               message:
                 description: Message is the reconciliation output message
                 type: string
@@ -8149,6 +9831,28 @@ spec:
                 type: integer
               schemas:
                 description: Schemas is the status of the managed schemas
+                items:
+                  description: DatabaseObjectStatus is the status of the managed database
+                    objects
+                  properties:
+                    applied:
+                      description: |-
+                        True of the object has been installed successfully in
+                        the database
+                      type: boolean
+                    message:
+                      description: Message is the object reconciliation message
+                      type: string
+                    name:
+                      description: The name of the object
+                      type: string
+                  required:
+                  - applied
+                  - name
+                  type: object
+                type: array
+              servers:
+                description: Servers is the status of the managed servers
                 items:
                   description: DatabaseObjectStatus is the status of the managed database
                     objects
@@ -8184,7 +9888,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: failoverquorums.postgresql.cnpg.io
 spec:
@@ -8263,7 +9967,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: imagecatalogs.postgresql.cnpg.io
 spec:
@@ -8306,11 +10010,150 @@ spec:
               Specification of the desired behavior of the ImageCatalog.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
             properties:
+              componentImages:
+                description: |-
+                  ComponentImages is a list of named images for components other than PostgreSQL
+                  (e.g. pgbouncer). Keys must be unique within a catalog.
+                items:
+                  description: CatalogComponentImage is a named image entry for a
+                    non-PostgreSQL component.
+                  properties:
+                    image:
+                      description: Image is the container image reference.
+                      type: string
+                    key:
+                      description: Key is the unique identifier for this image within
+                        the catalog.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - image
+                  - key
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - key
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: Component image keys must be unique
+                  rule: self.all(e, self.filter(f, f.key==e.key).size() == 1)
               images:
                 description: List of CatalogImages available in the catalog
                 items:
                   description: CatalogImage defines the image and major version
                   properties:
+                    extensions:
+                      description: The configuration of the extensions to be added
+                      items:
+                        description: |-
+                          ExtensionConfiguration is the configuration used to add
+                          PostgreSQL extensions to the Cluster.
+                        properties:
+                          bin_path:
+                            description: |-
+                              A list of directories within the image to be appended to the
+                              PostgreSQL process's `PATH` environment variable.
+                            items:
+                              type: string
+                            type: array
+                          dynamic_library_path:
+                            description: |-
+                              The list of directories inside the image which should be added to dynamic_library_path.
+                              If not defined, defaults to "/lib".
+                            items:
+                              type: string
+                            type: array
+                          env:
+                            description: |-
+                              Env is a list of custom environment variables to be set in the
+                              PostgreSQL process for this extension. It is the responsibility of the
+                              cluster administrator to ensure the variables are correct for the
+                              specific extension. Note that changes to these variables require
+                              a manual cluster restart to take effect.
+                            items:
+                              description: |-
+                                ExtensionEnvVar defines an environment variable for a specific extension
+                                image volume.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name of the environment variable to be injected into the
+                                    PostgreSQL process.
+                                  minLength: 1
+                                  pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                  type: string
+                                value:
+                                  description: |-
+                                    Value of the environment variable. CloudNativePG performs a direct
+                                    replacement of this value, with support for placeholder expansion.
+                                    The ${`image_root`} placeholder resolves to the absolute mount path
+                                    of the extension's volume (e.g., `/extensions/my-extension`). This
+                                    is particularly useful for allowing applications or libraries to
+                                    locate specific directories within the mounted image.
+                                    Unrecognized placeholders are rejected. To include a literal ${...}
+                                    in the value, escape it as $${...}.
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - name
+                              - value
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          extension_control_path:
+                            description: |-
+                              The list of directories inside the image which should be added to extension_control_path.
+                              If not defined, defaults to "/share".
+                            items:
+                              type: string
+                            type: array
+                          image:
+                            description: The image containing the extension.
+                            properties:
+                              pullPolicy:
+                                description: |-
+                                  Policy for pulling OCI objects. Possible values are:
+                                  Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+                                  Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+                                  IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+                                  Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+                                type: string
+                              reference:
+                                description: |-
+                                  Required: Image or artifact reference to be used.
+                                  Behaves in the same way as pod.spec.containers[*].image.
+                                  Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+                                  More info: https://kubernetes.io/docs/concepts/containers/images
+                                  This field is optional to allow higher level config management to default or override
+                                  container images in workload controllers like Deployments and StatefulSets.
+                                type: string
+                            type: object
+                          ld_library_path:
+                            description: The list of directories inside the image
+                              which should be added to ld_library_path.
+                            items:
+                              type: string
+                            type: array
+                          name:
+                            description: |-
+                              The name of the extension, required. The limit of 59 characters
+                              leaves room for the prefix the operator adds when deriving the
+                              extension's Kubernetes Volume name (capped at 63 characters).
+                            maxLength: 59
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9_]*[a-z0-9])?$
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
                     image:
                       description: The image reference
                       type: string
@@ -8345,7 +10188,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: poolers.postgresql.cnpg.io
 spec:
@@ -8366,6 +10209,9 @@ spec:
       type: string
     - jsonPath: .spec.type
       name: Type
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
       type: string
     name: v1
     schema:
@@ -8405,6 +10251,9 @@ spec:
                 required:
                 - name
                 type: object
+                x-kubernetes-validations:
+                - message: cluster reference is immutable after creation
+                  rule: self == oldSelf
               deploymentStrategy:
                 description: The deployment strategy to use for pgbouncer to replace
                   existing pods with new ones
@@ -8459,19 +10308,23 @@ spec:
                 format: int32
                 type: integer
               monitoring:
-                description: |-
-                  The configuration of the monitoring infrastructure of this pooler.
-
-                  Deprecated: This feature will be removed in an upcoming release. If
-                  you need this functionality, you can create a PodMonitor manually.
+                description: The configuration of the monitoring infrastructure of
+                  this pooler.
                 properties:
                   enablePodMonitor:
                     default: false
-                    description: Enable or disable the `PodMonitor`
+                    description: |-
+                      Enable or disable the `PodMonitor`
+
+                      Deprecated: This feature will be removed in an upcoming release. If
+                      you need this functionality, you can create a PodMonitor manually.
                     type: boolean
                   podMonitorMetricRelabelings:
-                    description: The list of metric relabelings for the `PodMonitor`.
-                      Applied to samples before ingestion.
+                    description: |-
+                      The list of metric relabelings for the `PodMonitor`. Applied to samples before ingestion.
+
+                      Deprecated: This feature will be removed in an upcoming release. If
+                      you need this functionality, you can create a PodMonitor manually.
                     items:
                       description: |-
                         RelabelConfig allows dynamic rewriting of the label set for targets, alerts,
@@ -8558,8 +10411,11 @@ spec:
                       type: object
                     type: array
                   podMonitorRelabelings:
-                    description: The list of relabelings for the `PodMonitor`. Applied
-                      to samples before scraping.
+                    description: |-
+                      The list of relabelings for the `PodMonitor`. Applied to samples before scraping.
+
+                      Deprecated: This feature will be removed in an upcoming release. If
+                      you need this functionality, you can create a PodMonitor manually.
                     items:
                       description: |-
                         RelabelConfig allows dynamic rewriting of the label set for targets, alerts,
@@ -8645,6 +10501,18 @@ spec:
                           type: string
                       type: object
                     type: array
+                  tls:
+                    description: |-
+                      Configure TLS communication for the metrics endpoint.
+                      Changing tls.enabled option will force a rollout of all instances.
+                    properties:
+                      enabled:
+                        default: false
+                        description: |-
+                          Enable TLS for the monitoring endpoint.
+                          Changing this option will force a rollout of all instances.
+                        type: boolean
+                    type: object
                 type: object
               pgbouncer:
                 description: The PgBouncer configuration
@@ -8662,6 +10530,8 @@ spec:
                       query. In case it is specified, also an AuthQuery
                       (e.g. "SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename=$1")
                       has to be specified and no automatic CNPG Cluster integration will be triggered.
+
+                      Deprecated.
                     properties:
                       name:
                         description: Name of the referent.
@@ -8669,6 +10539,68 @@ spec:
                     required:
                     - name
                     type: object
+                  clientCASecret:
+                    description: |-
+                      ClientCASecret provides PgBouncer’s client_tls_ca_file, the root
+                      CA for validating client certificates
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  clientTLSSecret:
+                    description: |-
+                      ClientTLSSecret provides PgBouncer’s client_tls_key_file (private key)
+                      and client_tls_cert_file (certificate) used to accept client connections
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  image:
+                    description: |-
+                      Image is the pgbouncer container image to use. When set, it takes
+                      precedence over ImageCatalogRef and the operator default, but is
+                      overridden by an explicit image set in the pod template.
+                    type: string
+                  imageCatalogRef:
+                    description: |-
+                      ImageCatalogRef points to an entry in an ImageCatalog or ClusterImageCatalog.
+                      Mutually exclusive with Image.
+                    properties:
+                      apiGroup:
+                        description: |-
+                          APIGroup is the group for the resource being referenced.
+                          If APIGroup is not specified, the specified Kind must be in the core API group.
+                          For any other third-party types, APIGroup is required.
+                        type: string
+                      key:
+                        description: Key identifies the entry within the catalog's
+                          componentImages list.
+                        maxLength: 63
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        type: string
+                      kind:
+                        description: Kind is the type of resource being referenced
+                        type: string
+                      name:
+                        description: Name is the name of resource being referenced
+                        type: string
+                    required:
+                    - key
+                    - kind
+                    - name
+                    type: object
+                    x-kubernetes-map-type: atomic
+                    x-kubernetes-validations:
+                    - message: Only ImageCatalog and ClusterImageCatalog are supported
+                      rule: self.kind == 'ImageCatalog' || self.kind == 'ClusterImageCatalog'
+                    - message: apiGroup must be postgresql.cnpg.io
+                      rule: self.apiGroup == 'postgresql.cnpg.io'
                   parameters:
                     additionalProperties:
                       type: string
@@ -8698,7 +10630,46 @@ spec:
                     - session
                     - transaction
                     type: string
+                  serverCASecret:
+                    description: |-
+                      ServerCASecret provides PgBouncer’s server_tls_ca_file, the root
+                      CA for validating PostgreSQL certificates
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  serverTLSSecret:
+                    description: |-
+                      ServerTLSSecret, when pointing to a TLS secret, provides pgbouncer's
+                      `server_tls_key_file` and `server_tls_cert_file`, used when
+                      authenticating against PostgreSQL.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
+                x-kubernetes-validations:
+                - message: image and imageCatalogRef are mutually exclusive
+                  rule: '!(has(self.image) && has(self.imageCatalogRef))'
+              serviceAccountName:
+                description: |-
+                  Name of an existing ServiceAccount in the same namespace to use for the pooler.
+                  When specified, the operator will not create a new ServiceAccount
+                  but will use the provided one. This is useful for sharing a single
+                  ServiceAccount across multiple poolers (e.g., for cloud IAM configurations).
+                  If not specified, a ServiceAccount will be created with the pooler name.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
+                x-kubernetes-validations:
+                - message: serviceAccountName is immutable
+                  rule: self == oldSelf
               serviceTemplate:
                 description: Template for the Service to be created
                 properties:
@@ -10930,7 +12901,9 @@ spec:
                                   type: integer
                               type: object
                             resizePolicy:
-                              description: Resources resize policy for the container.
+                              description: |-
+                                Resources resize policy for the container.
+                                This field cannot be set on ephemeral containers.
                               items:
                                 description: ContainerResizePolicy represents resource
                                   resize policy for the container.
@@ -11160,7 +13133,6 @@ spec:
                                     procMount denotes the type of proc mount to use for the containers.
                                     The default value is Default which uses the container runtime defaults for
                                     readonly paths and masked paths.
-                                    This requires the ProcMountType feature flag to be enabled.
                                     Note that this field cannot be set when spec.os.name is windows.
                                   type: string
                                 readOnlyRootFilesystem:
@@ -12731,7 +14703,6 @@ spec:
                                     procMount denotes the type of proc mount to use for the containers.
                                     The default value is Default which uses the container runtime defaults for
                                     readonly paths and masked paths.
-                                    This requires the ProcMountType feature flag to be enabled.
                                     Note that this field cannot be set when spec.os.name is windows.
                                   type: string
                                 readOnlyRootFilesystem:
@@ -13215,7 +15186,6 @@ spec:
                           When set to false, a new userns is created for the pod. Setting false is useful for
                           mitigating container breakout vulnerabilities even allowing users to run their
                           containers as root without actually having root privileges on the host.
-                          This field is alpha-level and is only honored by servers that enable the UserNamespacesSupport feature.
                         type: boolean
                       hostname:
                         description: |-
@@ -14153,7 +16123,9 @@ spec:
                                   type: integer
                               type: object
                             resizePolicy:
-                              description: Resources resize policy for the container.
+                              description: |-
+                                Resources resize policy for the container.
+                                This field cannot be set on ephemeral containers.
                               items:
                                 description: ContainerResizePolicy represents resource
                                   resize policy for the container.
@@ -14383,7 +16355,6 @@ spec:
                                     procMount denotes the type of proc mount to use for the containers.
                                     The default value is Default which uses the container runtime defaults for
                                     readonly paths and masked paths.
-                                    This requires the ProcMountType feature flag to be enabled.
                                     Note that this field cannot be set when spec.os.name is windows.
                                   type: string
                                 readOnlyRootFilesystem:
@@ -14940,8 +16911,8 @@ spec:
                           will be made available to those containers which consume them
                           by name.
 
-                          This is an alpha field and requires enabling the
-                          DynamicResourceAllocation feature gate.
+                          This is a stable field but requires that the
+                          DynamicResourceAllocation feature gate is enabled.
 
                           This field is immutable.
                         items:
@@ -14952,6 +16923,14 @@ spec:
 
                             It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
                             Containers that need access to the ResourceClaim reference it with this name.
+
+                            When the DRAWorkloadResourceClaims feature gate is enabled and this Pod
+                            belongs to a PodGroup, a PodResourceClaim is matched to a
+                            PodGroupResourceClaim if all of their fields are equal (Name,
+                            ResourceClaimName, and ResourceClaimTemplateName). A matched claim references
+                            a single ResourceClaim shared across all Pods in the PodGroup, reserved for
+                            the PodGroup in ResourceClaimStatus.ReservedFor rather than for individual
+                            Pods.
                           properties:
                             name:
                               description: |-
@@ -14976,6 +16955,16 @@ spec:
                                 will also be deleted. The pod name and resource name, along with a
                                 generated component, will be used to form a unique name for the
                                 ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
+
+                                When the DRAWorkloadResourceClaims feature gate is enabled and the pod
+                                belongs to a PodGroup that defines a PodGroupResourceClaim with the same
+                                Name and ResourceClaimTemplateName, this PodResourceClaim resolves to the
+                                ResourceClaim generated for the PodGroup. All pods in the group that
+                                define an equivalent PodResourceClaim matching the
+                                PodGroupResourceClaim's Name and ResourceClaimTemplateName share the same
+                                generated ResourceClaim. ResourceClaims generated for a PodGroup are
+                                owned by the PodGroup and their lifecycles are tied to the PodGroup
+                                instead of any individual pod.
 
                                 This field is immutable and no changes will be made to the
                                 corresponding ResourceClaim by the control plane after creating the
@@ -15102,6 +17091,28 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        description: |-
+                          SchedulingGroup provides a reference to the immediate scheduling runtime
+                          grouping object that this Pod belongs to.
+                          This field is used by the scheduler to identify the group and apply the
+                          correct group scheduling policies. The association with a group also
+                          impacts other lifecycle aspects of a Pod that are relevant in a wider context
+                          of scheduling like preemption, resource attachment, etc. If not specified,
+                          the Pod is treated as a single unit in all of these aspects.
+                          The group object referenced by this field may not exist at the time the
+                          Pod is created.
+                          This field is immutable, but a group object with the same name may be
+                          recreated with different policies. Doing this during pod scheduling
+                          may result in the placement not conforming to the expected policies.
+                        properties:
+                          podGroupName:
+                            description: |-
+                              PodGroupName specifies the name of the standalone PodGroup object
+                              that represents the runtime instance of this group.
+                              Must be a DNS subdomain.
+                            type: string
+                        type: object
                       securityContext:
                         description: |-
                           SecurityContext holds pod-level security attributes and common container settings.
@@ -15400,9 +17411,10 @@ spec:
                             operator:
                               description: |-
                                 Operator represents a key's relationship to the value.
-                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                                 Exists is equivalent to wildcard for value, so that a pod can
                                 tolerate all taints of a particular category.
+                                Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                               type: string
                             tolerationSeconds:
                               description: |-
@@ -16196,7 +18208,7 @@ spec:
                                         resources:
                                           description: |-
                                             resources represents the minimum resources the volume should have.
-                                            If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                                            Users are allowed to specify resource requirements
                                             that are lower than previous value but must still be higher than capacity recorded in the
                                             status field of the claim.
                                             More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -16529,7 +18541,7 @@ spec:
                                 A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
                                 The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
                                 The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
-                                The volume will be mounted read-only (ro) and non-executable files (noexec).
+                                The volume will be mounted read-only (ro).
                                 Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
                                 The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
                               properties:
@@ -16701,8 +18713,7 @@ spec:
                               description: |-
                                 portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
                                 Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
-                                are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
-                                is on.
+                                are redirected to the pxd.portworx.com CSI driver.
                               properties:
                                 fsType:
                                   description: |-
@@ -17082,6 +19093,24 @@ spec:
                                             description: Kubelet's generated CSRs
                                               will be addressed to this signer.
                                             type: string
+                                          userAnnotations:
+                                            additionalProperties:
+                                              type: string
+                                            description: |-
+                                              userAnnotations allow pod authors to pass additional information to
+                                              the signer implementation.  Kubernetes does not restrict or validate this
+                                              metadata in any way.
+
+                                              These values are copied verbatim into the `spec.unverifiedUserAnnotations` field of
+                                              the PodCertificateRequest objects that Kubelet creates.
+
+                                              Entries are subject to the same validation as object metadata annotations,
+                                              with the addition that all keys must be domain-prefixed. No restrictions
+                                              are placed on values, except an overall size limitation on the entire field.
+
+                                              Signers should document the keys and values they support. Signers should
+                                              deny requests that contain keys they do not recognize.
+                                            type: object
                                         required:
                                         - keyType
                                         - signerName
@@ -17529,15 +19558,49 @@ spec:
               date. Populated by the system. Read-only.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
             properties:
+              error:
+                description: Error is the latest admission validation error
+                type: string
+              image:
+                description: |-
+                  Image is the resolved pgbouncer container image that the operator is
+                  using for this Pooler, including any override coming from spec.template.
+                  While Phase is Active or Paused this field reflects what the Deployment
+                  actually runs; while Phase is Inactive or Failed it may carry the last
+                  successfully resolved value (or be empty if the Pooler has never reconciled
+                  successfully).
+                type: string
               instances:
                 description: The number of pods trying to be scheduled
                 format: int32
                 type: integer
+              phase:
+                description: Phase summarizes the overall lifecycle state of the Pooler.
+                enum:
+                - active
+                - paused
+                - inactive
+                - failed
+                type: string
+              phaseReason:
+                description: PhaseReason is a human-readable explanation of the current
+                  Phase.
+                type: string
               secrets:
                 description: The resource version of the config object
                 properties:
                   clientCA:
                     description: The client CA secret version
+                    properties:
+                      name:
+                        description: The name of the secret
+                        type: string
+                      version:
+                        description: The ResourceVersion of the secret
+                        type: string
+                    type: object
+                  clientTLS:
+                    description: The client TLS secret version
                     properties:
                       name:
                         description: The name of the secret
@@ -17599,7 +19662,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: publications.postgresql.cnpg.io
 spec:
@@ -17668,6 +19731,9 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: cluster reference is immutable after creation
+                  rule: self == oldSelf
               dbname:
                 description: |-
                   The name of the database where the publication will be installed in
@@ -17796,7 +19862,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: scheduledbackups.postgresql.cnpg.io
 spec:
@@ -17866,6 +19932,9 @@ spec:
                 required:
                 - name
                 type: object
+                x-kubernetes-validations:
+                - message: cluster reference is immutable after creation
+                  rule: self == oldSelf
               immediate:
                 description: If the first backup has to be immediately start after
                   creation or not
@@ -17961,6 +20030,9 @@ spec:
               to date. Populated by the system. Read-only.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
             properties:
+              error:
+                description: Error is the latest admission validation error
+                type: string
               lastCheckTime:
                 description: The latest time the schedule
                 format: date-time
@@ -17989,7 +20061,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
   name: subscriptions.postgresql.cnpg.io
 spec:
@@ -18058,6 +20130,9 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: cluster reference is immutable after creation
+                  rule: self == oldSelf
               dbname:
                 description: |-
                   The name of the database where the publication will be installed in
@@ -18141,10 +20216,10 @@ kind: ClusterRole
 metadata:
   name: cnpg-cloudnative-pg
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups:
@@ -18262,7 +20337,17 @@ rules:
   verbs:
   - create
   - get
+  - list
   - update
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - monitoring.coreos.com
   resources:
@@ -18291,6 +20376,7 @@ rules:
   resources:
   - backups
   - clusters
+  - databaseroles
   - databases
   - poolers
   - publications
@@ -18338,6 +20424,7 @@ rules:
   - postgresql.cnpg.io
   resources:
   - clusters/finalizers
+  - databaseroles/finalizers
   - poolers/finalizers
   verbs:
   - update
@@ -18345,6 +20432,7 @@ rules:
   - postgresql.cnpg.io
   resources:
   - clusters/status
+  - databaseroles/status
   - poolers/status
   - failoverquorums/status
   verbs:
@@ -18381,10 +20469,10 @@ kind: ClusterRole
 metadata:
   name: cnpg-cloudnative-pg-view
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups:
@@ -18393,6 +20481,7 @@ rules:
   - backups
   - clusters
   - clusters/status
+  - databaseroles
   - databases
   - failoverquorums
   - poolers
@@ -18412,10 +20501,10 @@ kind: ClusterRole
 metadata:
   name: cnpg-cloudnative-pg-edit
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups:
@@ -18424,6 +20513,7 @@ rules:
   - backups
   - clusters
   - clusters/status
+  - databaseroles
   - databases
   - failoverquorums
   - poolers
@@ -18445,10 +20535,10 @@ kind: ClusterRoleBinding
 metadata:
   name: cnpg-cloudnative-pg
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -18466,10 +20556,10 @@ metadata:
   name: cnpg-webhook-service
   namespace: cnpg-system
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -18488,10 +20578,10 @@ metadata:
   name: cnpg-cloudnative-pg
   namespace: cnpg-system
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -18502,9 +20592,9 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/rbac: b678e04ec9b9b1cc5fc34343565eafbf92bcf402fc3a7e444feafcc72e5762f9
-        checksum/config: e98968318a269d20e56c01f502359a3ec9eaf13353276f48ce10a7f426ccdd00
-        checksum/monitoring-config: dbf5358d9a0c43aa092c29fb15e6994f9185d90b78360bca67c881e87bb35442
+        checksum/rbac: 8660100663791cf32738e2f096691c89561389c9c17f449da0134efd0747710f
+        checksum/config: adaf2088314edce78386c032b81e9bb7b7a4458fa1d07f9acec291635ce3d0c9
+        checksum/monitoring-config: 937b417a0e539de045c05995b5820573504860c9a1a92d1e5c9ba132a76d3517
       labels:
         app.kubernetes.io/name: cloudnative-pg
         app.kubernetes.io/instance: cnpg
@@ -18520,19 +20610,19 @@ spec:
         - /manager
         env:
         - name: OPERATOR_IMAGE_NAME
-          value: "ghcr.io/cloudnative-pg/cloudnative-pg:1.27.1"
+          value: "ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0"
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
         - name: MONITORING_QUERIES_CONFIGMAP
           value: "cnpg-default-monitoring"
-        image: "ghcr.io/cloudnative-pg/cloudnative-pg:1.27.1"
+        image: "ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0"
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
             path: /readyz
-            port: 9443
+            port: webhook-server
             scheme: HTTPS
           initialDelaySeconds: 3
         name: manager
@@ -18546,7 +20636,7 @@ spec:
         readinessProbe:
           httpGet:
             path: /readyz
-            port: 9443
+            port: webhook-server
             scheme: HTTPS
           initialDelaySeconds: 3
         resources:
@@ -18565,7 +20655,7 @@ spec:
           failureThreshold: 6
           httpGet:
             path: /readyz
-            port: 9443
+            port: webhook-server
             scheme: HTTPS
           periodSeconds: 5
         volumeMounts:
@@ -18594,10 +20684,10 @@ kind: MutatingWebhookConfiguration
 metadata:
   name: cnpg-mutating-webhook-configuration
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 webhooks:
 - admissionReviewVersions:
@@ -18691,10 +20781,10 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: cnpg-validating-webhook-configuration
   labels:
-    helm.sh/chart: cloudnative-pg-0.26.1
+    helm.sh/chart: cloudnative-pg-0.29.0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/instance: cnpg
-    app.kubernetes.io/version: "1.27.1"
+    app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 webhooks:
 - admissionReviewVersions:

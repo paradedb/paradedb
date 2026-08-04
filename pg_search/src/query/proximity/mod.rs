@@ -27,8 +27,8 @@ mod pdb {
     use serde::{Deserialize, Serialize};
     use std::borrow::Cow;
     use std::ffi::CStr;
-    use tantivy::schema::Field;
     use tantivy::SegmentReader;
+    use tantivy::schema::Field;
 
     #[derive(Debug, Clone, Eq, PartialEq, PostgresType, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]

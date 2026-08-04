@@ -48,8 +48,8 @@ LIMIT 5;
 
 ## Fast Ordering
 
-An `ORDER BY...LIMIT` over a single [text](/legacy/indexing/create-index#text-fields), [numeric](/legacy/indexing/create-index#numeric-fields),
-[datetime](/legacy/indexing/create-index#datetime-fields), or [boolean](/legacy/indexing/create-index#boolean-fields) field is automatically "pushed down"
+An `ORDER BY...LIMIT` over a single [text](/legacy/indexing/field-options#text-fields), [numeric](/legacy/indexing/field-options#numeric-fields),
+[datetime](/legacy/indexing/field-options#datetime-fields), or [boolean](/legacy/indexing/field-options#boolean-fields) field is automatically "pushed down"
 to the BM25 index if the `ORDER BY` field is indexed as [fast](/legacy/indexing/fast-fields). This makes these queries significantly faster.
 
 You can verify if an `ORDER BY...LIMIT` was pushed down by running `EXPLAIN` on the query. If pushdown occurred, a `Custom Scan` with a

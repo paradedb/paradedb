@@ -26,14 +26,14 @@
 
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
-use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator, ScalarUDF};
-use pgrx::{pg_sys, PgList};
+use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, col, lit};
+use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::translator::{
-    deparse_expr_for_debug, node_tag_debug, type_name, PredicateTranslator,
+    PredicateTranslator, deparse_expr_for_debug, node_tag_debug, type_name,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::PgExprUdf;

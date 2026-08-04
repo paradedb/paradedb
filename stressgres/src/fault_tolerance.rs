@@ -38,8 +38,8 @@
 
 use anyhow::Result;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Backoff bounds for retries within the reconnect grace window.

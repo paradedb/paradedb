@@ -18,7 +18,7 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
+    use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
@@ -231,7 +231,7 @@ mod tests {
     #[pg_test]
     fn test_filter_pushdown_analysis() {
         use crate::scan::filter_pushdown::FilterAnalyzer;
-        use datafusion::logical_expr::{col, lit, Expr};
+        use datafusion::logical_expr::{Expr, col, lit};
         use filter_analyzer_helpers::{assert_exact, assert_unsupported};
 
         let fields = test_fields();
@@ -704,18 +704,217 @@ mod tests {
             Some(sample),
         );
 
+        use datafusion::physical_plan::Partitioning;
+
+        // The boundaries cover the requested count exactly, so the plan declares
+        // `Partitioning::Range` and DataFusion can co-partition against it.
         assert_eq!(plan.properties().output_partitioning().partition_count(), 5);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
 
         let plan_2 = plan.repartition(2).unwrap();
         assert_eq!(
             plan_2.properties().output_partitioning().partition_count(),
             2
         );
+        assert!(matches!(
+            plan_2.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
 
+        // 10 partitions exceed what the 4-point sample can bound: the plan keeps
+        // the requested count as UnknownPartitioning and the extra partitions
+        // execute as empty streams.
         let plan_10 = plan.repartition(10).unwrap();
         assert_eq!(
             plan_10.properties().output_partitioning().partition_count(),
             10
         );
+        assert!(matches!(
+            plan_10.properties().output_partitioning(),
+            Partitioning::UnknownPartitioning(_)
+        ));
+    }
+
+    #[pg_test]
+    fn test_range_partitioning_to_datafusion() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::scan::range_partitioning::RangePartitioning;
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::common::ScalarValue;
+        use datafusion::physical_plan::Partitioning;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("ctid", DataType::UInt64, true),
+            Field::new("id", DataType::Int64, true),
+        ]));
+
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(10), PdbOwnedValue::I64(20)],
+        };
+
+        let partitioning = boundaries.to_datafusion(&schema).unwrap();
+        assert_eq!(partitioning.partition_count(), 3);
+        let Partitioning::Range(range) = &partitioning else {
+            panic!("expected range partitioning, got {partitioning:?}");
+        };
+        assert_eq!(range.split_points().len(), 2);
+        assert_eq!(
+            range.split_points()[0].values(),
+            &[ScalarValue::Int64(Some(10))]
+        );
+        assert_eq!(
+            range.split_points()[1].values(),
+            &[ScalarValue::Int64(Some(20))]
+        );
+        let sort_expr = range.ordering().iter().next().unwrap();
+        assert_eq!(sort_expr.expr.to_string(), "id@1");
+        assert!(!sort_expr.options.descending);
+        assert!(sort_expr.options.nulls_first);
+
+        // NULL split points have bespoke execution semantics that DataFusion's
+        // model does not express; decline to declare.
+        let with_null = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::Null],
+        };
+        assert!(with_null.to_datafusion(&schema).is_none());
+
+        // The sampler's FFType-driven integer classification can yield U64 for an
+        // Int64 column; the lossless cross-representation is accepted.
+        let cross_int = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::U64(10)],
+        };
+        let cross_partitioning = cross_int.to_datafusion(&schema).unwrap();
+        let Partitioning::Range(cross_range) = &cross_partitioning else {
+            panic!("expected range partitioning, got {cross_partitioning:?}");
+        };
+        assert_eq!(
+            cross_range.split_points()[0].values(),
+            &[ScalarValue::Int64(Some(10))]
+        );
+
+        // Value/column type mismatches decline rather than declare imprecisely.
+        let mismatched = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::F64(1.5)],
+        };
+        assert!(mismatched.to_datafusion(&schema).is_none());
+
+        // Columns missing from the schema decline.
+        let missing = RangePartitioning {
+            partition_by: FieldName::from("missing"),
+            split_points: vec![PdbOwnedValue::I64(10)],
+        };
+        assert!(missing.to_datafusion(&schema).is_none());
+    }
+
+    #[pg_test]
+    fn test_range_partitioned_assigned_execution() {
+        use datafusion::physical_plan::Partitioning;
+
+        let (heap_oid, index_oid) = get_relation_oids();
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+        ];
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
+
+        unsafe {
+            pg_sys::CommandCounterIncrement();
+            let snap = pg_sys::GetTransactionSnapshot();
+            pg_sys::PushActiveSnapshot(snap);
+        }
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+
+        let scan_state = crate::scan::execution_plan::ScanState {
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
+            },
+            ffhelper: ffhelper.into(),
+            visibility: Box::new(visibility),
+            reader: reader.clone(),
+        };
+
+        // Table t has ids 1..=100; split points [25, 50, 75] give partitions
+        // (-inf, 25), [25, 50), [50, 75), [75, inf).
+        let sample = crate::scan::range_partitioning::RangePartitioningSample {
+            partition_by: crate::api::FieldName::from("id"),
+            sample_points: vec![
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(25),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(50),
+                crate::postgres::pdb_owned_value::PdbOwnedValue::I64(75),
+            ],
+        };
+
+        let mut plan = PgSearchScanPlan::new(
+            Some(scan_state),
+            build_arrow_schema(&fields),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            index_oid.into(),
+            None,
+            4,
+            None,
+            Some(sample),
+        );
+        // As one of four task variants: this one owns partition 1 alone.
+        plan.assigned_partition = Some(1);
+
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 4);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let count_rows = |partition: usize| {
+            let mut stream = plan
+                .execute(partition, Arc::new(TaskContext::default()))
+                .unwrap();
+            let mut rows = 0;
+            runtime.block_on(async {
+                while let Some(batch) = stream.next().await {
+                    rows += batch.unwrap().num_rows();
+                }
+            });
+            rows
+        };
+
+        // Non-assigned partitions yield empty streams without touching the state, so
+        // the assigned partition still consumes it afterwards.
+        assert_eq!(count_rows(0), 0);
+        assert_eq!(count_rows(2), 0);
+        assert_eq!(count_rows(3), 0);
+        assert_eq!(count_rows(1), 25); // ids 25..=49
+
+        // The state is consumed exactly once.
+        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
     }
 }

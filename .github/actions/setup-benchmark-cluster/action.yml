@@ -134,8 +134,7 @@ runs:
     # index-build time. vchord requires `shared_preload_libraries = ...,vchord`; because a restored
     # heap snapshot overwrites postgresql.auto.conf, the benchmark workflow re-applies that preload
     # after restore rather than baking it in here (snapshots are shared with non-vchord runs).
-    # TODO: confirm VCHORD_VERSION against the version we intend to benchmark (latest release as of
-    # writing is 1.1.1). `vchordrq.prefilter` requires >= 0.4.0.
+    # `vchordrq.prefilter` requires VCHORD_VERSION >= 0.4.0.
     - name: Install VectorChord
       shell: bash
       env:

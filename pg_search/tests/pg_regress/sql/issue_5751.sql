@@ -356,17 +356,22 @@ SELECT issue_5751_result(
 DEALLOCATE issue_5751_ppi_generic;
 RESET plan_cache_mode;
 
-RESET enable_hashjoin;
-RESET enable_mergejoin;
-RESET enable_seqscan;
+-- A volatile cross-table residual, still under the parameterized nested loop
+-- above so the predicate is reachable from both `joinrestrictinfo` and
+-- `ppi_clauses` - the overlap the residual dedup exists for. PG16+ tells the
+-- two encounters apart by `rinfo_serial`; PG15 has no such identity, falls
+-- back to comparing origins. Both accept this shape: the planner hands back
+-- the same RestrictInfo, so pointer equality settles it before either
+-- version-specific rule runs. `random() * 0` is value-stable, so the count is
+-- deterministic and any divergence means the predicate was dropped or applied
+-- twice.
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_ppi_entries e
+    JOIN issue_5751_ppi_series s
+      ON s.id = e.series_id AND s.threshold < e.amount + (random() * 0)::bigint$$,
+  'ParadeDB Aggregate Scan') AS volatile_residual_uses_aggregate_scan;
 
--- A volatile cross-table residual. PG16+ discriminates residuals by
--- RestrictInfo identity, so two occurrences of the same predicate stay two
--- independent draws rather than collapsing into one. `random() * 0` is
--- value-stable, so the row count is deterministic and any divergence from
--- PostgreSQL means the predicate was dropped or applied the wrong number of
--- times. (PG15 has no such identity and declines instead; that arm is
--- compiled out here.)
 SELECT issue_5751_result(
   $$SELECT count(*)
     FROM issue_5751_ppi_entries e
@@ -381,11 +386,12 @@ SELECT issue_5751_result(
   false
 ) AS volatile_residual_matches_postgres;
 
--- JoinScan and AggregateScan both proposing for the same joinrel. With
--- `enable_join_custom_scan` on, JoinScan's CustomPath can be the joinrel's
--- cheapest path; AggregateScan cannot reconstruct predicates through it and
--- declines rather than falling back to the retained parse tree. Whichever
--- scan wins, the answer must match PostgreSQL.
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+RESET enable_seqscan;
+
+-- JoinScan and AggregateScan proposing for the same joinrel, with `@@@` on
+-- both sides so JoinScan genuinely competes.
 CREATE TABLE issue_5751_js_left (id bigint PRIMARY KEY, body text);
 CREATE TABLE issue_5751_js_right (id bigint PRIMARY KEY, left_id bigint, body text);
 INSERT INTO issue_5751_js_left SELECT g, 'alpha beta' FROM generate_series(1, 20) g;
@@ -396,6 +402,30 @@ CREATE INDEX issue_5751_js_right_bm25
 ON issue_5751_js_right USING bm25 (id, left_id, body) WITH (key_field = 'id');
 
 SET paradedb.enable_join_custom_scan = on;
+
+-- Both enabled: AggregateScan claims the query outright.
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  'ParadeDB Aggregate Scan') AS both_scans_on_uses_aggregate_scan;
+
+-- With AggregateScan out of the way, JoinScan still declines: it does not
+-- support aggregates (`JoinDeclineReason::ContainsAggregate`), so it never
+-- offers a CustomPath for this joinrel and AggregateScan's opaque-path check
+-- is never reached through it. The warning below is the anchor - #5285 will
+-- let JoinScan propose here, and this case then becomes a real interaction
+-- test rather than a record of why it cannot happen yet.
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_js_right r
+    JOIN issue_5751_js_left l ON l.id = r.left_id
+    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+  'ParadeDB Base Scan') AS joinscan_declines_falls_back_to_base_scans;
+SET paradedb.enable_aggregate_custom_scan = on;
+
 SELECT issue_5751_result(
   $$SELECT count(*)
     FROM issue_5751_js_right r
@@ -411,7 +441,48 @@ SELECT issue_5751_result(
 ) AS joinscan_interaction_matches_postgres;
 RESET paradedb.enable_join_custom_scan;
 
+-- Partitionwise join: the other opaque path shape. Partitioned parents are
+-- ineligible well before the opaque-path check runs, so an Append over
+-- per-partition joins never reaches it either. Recorded so that adding
+-- partitioned support surfaces this case instead of silently changing it.
+CREATE TABLE issue_5751_pw_a (id bigint, k bigint, s text) PARTITION BY RANGE (id);
+CREATE TABLE issue_5751_pw_a1 PARTITION OF issue_5751_pw_a FOR VALUES FROM (0) TO (100);
+CREATE TABLE issue_5751_pw_a2 PARTITION OF issue_5751_pw_a FOR VALUES FROM (100) TO (200);
+CREATE TABLE issue_5751_pw_b (id bigint, k bigint, t text) PARTITION BY RANGE (id);
+CREATE TABLE issue_5751_pw_b1 PARTITION OF issue_5751_pw_b FOR VALUES FROM (0) TO (100);
+CREATE TABLE issue_5751_pw_b2 PARTITION OF issue_5751_pw_b FOR VALUES FROM (100) TO (200);
+INSERT INTO issue_5751_pw_a SELECT g, g, 'x' FROM generate_series(1, 199) g;
+INSERT INTO issue_5751_pw_b SELECT g, g, 'y' FROM generate_series(1, 199) g;
+CREATE INDEX issue_5751_pw_a_bm25
+ON issue_5751_pw_a USING bm25 (id, k, ((s)::pdb.literal)) WITH (key_field = 'id');
+CREATE INDEX issue_5751_pw_b_bm25
+ON issue_5751_pw_b USING bm25 (id, k, ((t)::pdb.literal)) WITH (key_field = 'id');
+
+SET enable_partitionwise_join = on;
+SELECT issue_5751_plan_uses(
+  $$SELECT count(*)
+    FROM issue_5751_pw_a a
+    JOIN issue_5751_pw_b b ON a.id = b.id AND a.k = b.k
+    WHERE a.s = 'x' AND b.t = 'y'$$,
+  'ParadeDB Aggregate Scan') AS partitionwise_uses_aggregate_scan;
+
+SELECT issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_pw_a a
+    JOIN issue_5751_pw_b b ON a.id = b.id AND a.k = b.k
+    WHERE a.s = 'x' AND b.t = 'y'$$,
+  true
+) = issue_5751_result(
+  $$SELECT count(*)
+    FROM issue_5751_pw_a a
+    JOIN issue_5751_pw_b b ON a.id = b.id AND a.k = b.k
+    WHERE a.s = 'x' AND b.t = 'y'$$,
+  false
+) AS partitionwise_matches_postgres;
+RESET enable_partitionwise_join;
+
 DROP FUNCTION issue_5751_plan_uses(text, text), issue_5751_result(text, boolean);
 DROP TABLE issue_5751_js_left, issue_5751_js_right;
+DROP TABLE issue_5751_pw_a, issue_5751_pw_b;
 DROP TABLE issue_5751_entries, issue_5751_series,
            issue_5751_ppi_entries, issue_5751_ppi_series;

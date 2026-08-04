@@ -199,11 +199,13 @@ pub unsafe fn extract_join_tree_from_parse(
 
     let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
 
-    // Wrapper-only keys are EC-derived extras; the query tree already supplies
-    // every syntactic equality. They are injected as a set once any join level
-    // is keyless, so an already-keyed level can pick up extras too - harmless,
-    // because an EC equality holds for every row the join emits. The gate is
-    // there to keep plan shape from deciding the key set, not to target levels.
+    // Wrapper-only keys supplement the query tree, which already supplies every
+    // syntactic equality. They are injected as a set once any join level is
+    // keyless, so an already-keyed level can pick up extras - safe because each
+    // key routes to the level whose sides straddle its two RTIs and dedups
+    // there, and because these come from the chosen path's own joinrestrictinfo
+    // rather than being derived here. The gate keeps plan shape from deciding
+    // the key set; it does not target levels.
     if !path_info.equi_keys.is_empty() {
         plan.inject_equi_keys(path_info.equi_keys);
     }
@@ -715,9 +717,11 @@ enum RestrictInfoOrigin {
 #[derive(Clone, Copy, Debug)]
 struct PathSearchClause {
     clause: *mut pg_sys::Node,
-    /// Which planner list this clause was reached through. PG16+ discriminates
-    /// by `rinfo_serial` instead, but the field is tiny and keeping it
-    /// unconditional keeps one plain constructor parameter on every version.
+    /// Which planner list this clause was reached through. Only PG15 reads it,
+    /// in `overlap`; PG16+ discriminates by `rinfo_serial`. Recorded on every
+    /// version anyway so the constructor takes one plain parameter rather than
+    /// a cfg-split `origin`/`_origin` pair.
+    #[cfg_attr(not(feature = "pg15"), allow(dead_code))]
     origin: RestrictInfoOrigin,
     // PG15 has no planner-assigned RestrictInfo identity to compare.
     #[cfg(not(feature = "pg15"))]
@@ -733,14 +737,17 @@ enum PathSearchClauseOverlap {
 impl PathSearchClause {
     /// Whether `other` is the same predicate this clause already stands for.
     ///
-    /// Rests on the planner sharing one `RestrictInfo` when a predicate is
-    /// reachable at two join levels, so pointer equality identifies a genuine
-    /// re-encounter rather than a second occurrence the query asked for twice.
-    /// The shapes that would break that assumption - partitionwise child
-    /// copies - decline earlier via the opaque-path check, so they never reach
-    /// here. Two structurally equal clauses that are *not* the same
-    /// `RestrictInfo` stay distinct: repeating a volatile conjunct in SQL asks
-    /// for two independent draws.
+    /// One predicate can reach the walk twice: through a parent join's
+    /// `joinrestrictinfo` and through a child's `ppi_clauses`. Identical
+    /// pointers settle that on every version.
+    ///
+    /// PG16+ then compares `rinfo_serial`, which survives copying, so copies
+    /// and genuinely repeated conjuncts are told apart exactly. PG15 has no
+    /// such identity and uses `origin` as a proxy - different lists mean one
+    /// predicate seen twice, the same list means the query really did ask for
+    /// it twice, as a repeated volatile conjunct wants two independent draws.
+    /// That proxy assumes the planner never delivers two copies of one clause
+    /// through the same list.
     unsafe fn overlap(&self, other: &Self) -> Option<PathSearchClauseOverlap> {
         if std::ptr::eq(self.clause, other.clause) {
             return Some(PathSearchClauseOverlap::Duplicate);
@@ -915,13 +922,7 @@ unsafe fn classify_path_restrictinfo(
                     .find_map(|existing| existing.overlap(&candidate));
 
                 match overlap {
-                    Some(PathSearchClauseOverlap::Duplicate) => {
-                        pgrx::debug1!(
-                            "agg-on-join: residual already inventoried, reached again via {:?}",
-                            candidate.origin
-                        );
-                        continue;
-                    }
+                    Some(PathSearchClauseOverlap::Duplicate) => continue,
                     #[cfg(feature = "pg15")]
                     Some(PathSearchClauseOverlap::Ambiguous) => {
                         info.decline(PathPredicateDeclineReason::AmbiguousVolatileOverlap);

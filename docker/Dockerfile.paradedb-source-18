@@ -30,8 +30,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Build toolchain + PG headers (the base image supplies the pg18 runtime + pg_config).
+# libopenblas-dev provides -lopenblas, which pg_search links (SuperKMeans IVF
+# clusterer's BLAS backend); every other pg_search build path installs it too.
+# The runtime base already ships libopenblas0, so only the builder needs -dev.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl git pkg-config libssl-dev clang \
+      libopenblas-dev \
       "postgresql-server-dev-${PG_VERSION_MAJOR}" \
     && rm -rf /var/lib/apt/lists/*
 

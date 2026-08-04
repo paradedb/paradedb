@@ -66,7 +66,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
-use crate::postgres::catalog::lookup_collation_is_deterministic;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
@@ -113,6 +112,28 @@ use std::ffi::CStr;
 #[derive(Default)]
 pub struct AggregateScan;
 
+/// Why AggregateScan cannot preserve PostgreSQL's grouping semantics.
+///
+/// These are planner-level eligibility failures, rather than executor errors:
+/// PostgreSQL must retain the original rows and perform the aggregate itself.
+enum GroupingPushdownDeclineReason {
+    GroupingSets,
+    MissingPathKeys,
+    NondeterministicCollation,
+}
+
+impl GroupingPushdownDeclineReason {
+    fn planner_warning(&self) -> &'static str {
+        match self {
+            Self::GroupingSets => "Aggregate Scan not used: GROUPING SETS are not supported",
+            Self::MissingPathKeys => "Aggregate Scan not used: could not verify GROUP BY semantics",
+            Self::NondeterministicCollation => {
+                "Aggregate Scan not used: GROUP BY uses a nondeterministic collation"
+            }
+        }
+    }
+}
+
 /// Returns whether AggregateScan can preserve PostgreSQL's GROUP BY semantics.
 ///
 /// PostgreSQL uses each grouping expression's collation to determine equality,
@@ -120,24 +141,38 @@ pub struct AggregateScan;
 /// Deterministic collations break provider-level ties with a byte comparison,
 /// so they preserve byte-based grouping equality even when their ordering is
 /// not byte-compatible. Nondeterministic collations do not.
-unsafe fn grouping_collations_are_pushdown_safe(args: &CreateUpperPathsHookArgs) -> bool {
-    if args.root().group_pathkeys.is_null() {
-        return true;
+unsafe fn grouping_collations_are_pushdown_safe(
+    args: &CreateUpperPathsHookArgs,
+) -> Result<(), GroupingPushdownDeclineReason> {
+    let parse = args.root().parse;
+    if !parse.is_null() && !(*parse).groupingSets.is_null() {
+        return Err(GroupingPushdownDeclineReason::GroupingSets);
     }
 
-    PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys)
-        .iter_ptr()
-        .all(|pathkey| {
-            let equivalence_class = (*pathkey).pk_eclass;
-            if equivalence_class.is_null() {
-                return false;
-            }
+    if args.root().group_pathkeys.is_null() {
+        // A scalar aggregate has no grouping keys. In contrast, a GROUP BY
+        // with no pathkey metadata gives us no way to verify the collation
+        // semantics that the aggregation backend must preserve.
+        return if !parse.is_null() && !(*parse).groupClause.is_null() {
+            Err(GroupingPushdownDeclineReason::MissingPathKeys)
+        } else {
+            Ok(())
+        };
+    }
 
-            match (*equivalence_class).ec_collation {
-                pg_sys::Oid::INVALID => true,
-                collation => lookup_collation_is_deterministic(collation).unwrap_or(false),
-            }
-        })
+    for pathkey in PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys).iter_ptr() {
+        let equivalence_class = (*pathkey).pk_eclass;
+        if equivalence_class.is_null() {
+            return Err(GroupingPushdownDeclineReason::MissingPathKeys);
+        }
+
+        let collation = (*equivalence_class).ec_collation;
+        if collation != pg_sys::Oid::INVALID && !pg_sys::get_collation_isdeterministic(collation) {
+            return Err(GroupingPushdownDeclineReason::NondeterministicCollation);
+        }
+    }
+
+    Ok(())
 }
 
 /// Returns whether ordering a single grouping key can be delegated to ParadeDB.
@@ -252,7 +287,10 @@ impl CustomScan for AggregateScan {
 
         // If ParadeDB cannot preserve GROUP BY equality, do not offer an
         // AggregateScan path; PostgreSQL must aggregate the original rows.
-        if !unsafe { grouping_collations_are_pushdown_safe(builder.args()) } {
+        if let Err(reason) = unsafe { grouping_collations_are_pushdown_safe(builder.args()) } {
+            if has_paradedb_agg {
+                Self::add_planner_warning(reason.planner_warning(), ());
+            }
             return Vec::new();
         }
 

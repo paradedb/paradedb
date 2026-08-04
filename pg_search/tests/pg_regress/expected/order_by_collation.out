@@ -336,8 +336,85 @@ ORDER BY name;
  home        |     2
 (3 rows)
 
-\echo 'Test 2.6: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
-Test 2.6: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
+\echo 'Test 2.6: GROUPING SETS -> AggregateScan declined'
+Test 2.6: GROUPING SETS -> AggregateScan declined
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT lower(name_case_insensitive) AS name, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_case_insensitive), ());
+                        QUERY PLAN                        
+----------------------------------------------------------
+ MixedAggregate
+   Hash Key: name_case_insensitive
+   Group Key: ()
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_case_insensitive
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY GROUPING SETS ((name_case_insensitive), ())
+) AS grouped;
+ group_count 
+-------------
+           4
+(1 row)
+
+\echo 'Test 2.7: hash aggregation with a nondeterministic collation -> AggregateScan declined'
+Test 2.7: hash aggregation with a nondeterministic collation -> AggregateScan declined
+SET enable_sort TO off;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_case_insensitive, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ HashAggregate
+   Group Key: name_case_insensitive
+   ->  Custom Scan (ParadeDB Base Scan) on collation_test
+         Table: collation_test
+         Index: collation_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: name_case_insensitive
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_case_insensitive
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY name_case_insensitive
+) AS grouped;
+ group_count 
+-------------
+           3
+(1 row)
+
+RESET enable_sort;
+\echo 'Test 2.8: pdb.agg() with a nondeterministic grouping collation warns before failing'
+Test 2.8: pdb.agg() with a nondeterministic grouping collation warns before failing
+SELECT lower(name_case_insensitive) AS name,
+       pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+\echo 'Test 2.9: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
+Test 2.9: mixed safe and unsafe GROUP BY keys -> AggregateScan declined
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()

@@ -198,7 +198,48 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
 
-\echo 'Test 2.6: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
+\echo 'Test 2.6: GROUPING SETS -> AggregateScan declined'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT lower(name_case_insensitive) AS name, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY GROUPING SETS ((name_case_insensitive), ());
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_case_insensitive
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY GROUPING SETS ((name_case_insensitive), ())
+) AS grouped;
+
+\echo 'Test 2.7: hash aggregation with a nondeterministic collation -> AggregateScan declined'
+SET enable_sort TO off;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_case_insensitive, COUNT(*)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+
+SELECT COUNT(*) AS group_count
+FROM (
+    SELECT name_case_insensitive
+    FROM collation_test
+    WHERE id @@@ paradedb.all()
+    GROUP BY name_case_insensitive
+) AS grouped;
+
+RESET enable_sort;
+
+\echo 'Test 2.8: pdb.agg() with a nondeterministic grouping collation warns before failing'
+SELECT lower(name_case_insensitive) AS name,
+       pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_case_insensitive;
+
+\echo 'Test 2.9: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()

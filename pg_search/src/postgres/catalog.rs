@@ -290,16 +290,3 @@ pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale
         })
     }
 }
-
-/// Returns whether a collation uses deterministic equality semantics.
-///
-/// PostgreSQL breaks collation-provider ties by comparing the input bytes for
-/// deterministic collations. That makes byte-based grouping compatible with
-/// PostgreSQL equality even when the provider's ordering is not byte-compatible.
-pub fn lookup_collation_is_deterministic(collation: pg_sys::Oid) -> Option<bool> {
-    unsafe {
-        let entry =
-            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::COLLOID, collation.into_datum()?)?;
-        entry.attr::<bool>(pg_sys::Anum_pg_collation_collisdeterministic)
-    }
-}

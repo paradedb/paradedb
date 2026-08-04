@@ -472,7 +472,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     {
         Err(err) => {
             assert_eq!(
-                err.to_string(),
+                db_error_message(&err),
                 "error returned from database: more_like_this must be called with either key_value or document"
             )
         }
@@ -533,7 +533,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
     {
         Err(err) => {
             assert_eq!(
-                err.to_string(),
+                db_error_message(&err),
                 "error returned from database: more_like_this must be called with either key_value or document"
             )
         }

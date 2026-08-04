@@ -37,7 +37,7 @@ As shown in the diagram:
 
 Instead of having all tables in the `public` schema across multiple databases:
 
-```
+```text
 Database: users_service
 Schema: public
   - users
@@ -51,7 +51,7 @@ Schema: public
 
 Reorganize each database to use a dedicated schema:
 
-```
+```text
 Database: users_service
 Schema: users_service
   - users
@@ -155,7 +155,7 @@ CREATE SUBSCRIPTION orders_sub
 
 - **Multi Database BM25 Search**: Perform full-text search across tables distributed across multiple microservice databases in a single query
 - **Avoid Distributed Joins in Application**: Execute cross-database joins directly in ParadeDB instead of implementing complex join logic in your application
-- **Simple Architecture**: Uses standard PostgreSQL logical replication without extra infrastructure
+- **Simple Architecture**: Uses standard Postgres logical replication without extra infrastructure
 - **Namespace Isolation**: Schema-based separation prevents naming conflicts
 - **No Source Database Changes**: Microservices continue operating independently; ParadeDB acts as a read replica
 

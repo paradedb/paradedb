@@ -200,7 +200,7 @@ runs:
       working-directory: tests/
       shell: bash
       run: |
-        export DATABASE_URL=postgresql://localhost:288${{ inputs.pg_version }}/postgres
+        export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ inputs.pg_version }}/postgres
         export PG_CONFIG=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config
         RUST_BACKTRACE=1 cargo test --jobs $(nproc)
 

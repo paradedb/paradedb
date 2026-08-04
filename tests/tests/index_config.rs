@@ -40,7 +40,7 @@ fn invalid_create_index(mut conn: PgConnection) {
     {
         Ok(_) => panic!("should fail with no key_field"),
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             "error returned from database: index should have a `WITH (key_field='...')` option"
         ),
     };
@@ -395,7 +395,7 @@ fn null_key_field_build(mut conn: PgConnection) {
     {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             "error returned from database: key_field column 'id' cannot be NULL"
         ),
     };
@@ -415,7 +415,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
     {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             "error returned from database: key_field column 'id' cannot be NULL"
         ),
     };

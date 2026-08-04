@@ -19,7 +19,7 @@ INSERT INTO issue_5779_hashhashhash_repro (id, title_x) VALUES
     (5, 'nothing here');
 
 CREATE INDEX issue_5779_hashhashhash_idx ON issue_5779_hashhashhash_repro
-    USING bm25 (id, title_x)
+    USING bm25 (id, (title_x::pdb.simple))
     WITH (key_field = 'id');
 
 -- Baseline: the same query as a literal.

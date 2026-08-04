@@ -26,6 +26,8 @@
   select, button { font: inherit; padding: 4px 8px; background: var(--card); color: var(--fg);
                    border: 1px solid var(--line); border-radius: 6px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+  /* Four bars need far less width than a log-scale curve, so they pair up sooner. */
+  .grid.bars { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card);
           overflow-x: auto; }
   .card h3 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
@@ -61,13 +63,10 @@ cohere suite benchmarks. Newest published run per arm.</p>
   <p class="note" id="curvenote"></p>
   <div class="grid" id="curves"></div>
 
-  <h2>Index build time</h2>
+  <h2>Index cost</h2>
   <p class="note">Stacked: every arm except pg_search needs a separate GIN index on
   <code>text</code> to evaluate the filter, so the total is the comparable number.</p>
-  <div class="grid" id="build"></div>
-
-  <h2>Index size</h2>
-  <div class="grid" id="size-charts"></div>
+  <div class="grid bars" id="bars"></div>
 </div>
 
 <script src="data.js"></script>
@@ -157,12 +156,16 @@ function lineChart(series) {
   g += `<text class="lbl" x="${(L + W - R) / 2}" y="${H - 8}" text-anchor="middle">latency (ms, log)</text>`;
   g += `<text class="lbl" transform="translate(13,${(T + H - B) / 2}) rotate(-90)" text-anchor="middle">recall target</text>`;
 
-  // Ribbon first so the p50 lines stay legible on top of it.
+  // A whisker per point rather than a filled ribbon: with three points and up to five overlapping
+  // arms, stacked translucent polygons read as vague shaded area instead of this point's spread.
   for (const s of series) {
     const c = css(s.arm);
-    const up = s.pts.map((p) => `${X(p.p50).toFixed(1)},${Y(p.y).toFixed(1)}`);
-    const back = [...s.pts].reverse().map((p) => `${X(p.p99 ?? p.p50).toFixed(1)},${Y(p.y).toFixed(1)}`);
-    g += `<polygon points="${up.concat(back).join(" ")}" fill="${c}" opacity="0.13"/>`;
+    for (const p of s.pts) {
+      if (p.p99 == null || p.p99 <= p.p50) continue;
+      const y = Y(p.y).toFixed(1), x0 = X(p.p50).toFixed(1), x1 = X(p.p99).toFixed(1);
+      g += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="${c}" stroke-width="1.5" opacity=".5"/>` +
+           `<line x1="${x1}" y1="${(+y - 3).toFixed(1)}" x2="${x1}" y2="${(+y + 3).toFixed(1)}" stroke="${c}" stroke-width="1.5" opacity=".5"/>`;
+    }
   }
   for (const s of series) {
     const c = css(s.arm);
@@ -233,21 +236,19 @@ function render() {
     .map((m) => `${m.arm} @ ${m.commit} (${m.when})`)
     .join(" · ");
   document.getElementById("curvenote").innerHTML =
-    "Up and to the left is better. The line is p50 and the shaded band runs p50\u2192p99, so a wide band means a heavy tail " +
+    "Up and to the left is better. Each point is p50 with a whisker out to p99, so a long whisker means a heavy tail " +
     "at that operating point. The y axis is the <em>target</em> the sweep aimed at, not the recall it achieved \u2014 data.js does " +
     "not publish achieved recall, so a point an arm could not actually reach still plots at its target.";
 
   document.getElementById("curves").innerHTML = QUERIES.map((q) => {
     const s = seriesFor(runs, size, q);
     return `<div class="card"><h3>${q.label}</h3>
-            <p class="cap">line = p50 · band = p50→p99 · tick = p95</p>${lineChart(s)}${legend(s)}</div>`;
+            <p class="cap">dot = p50 · whisker to p99 · small tick = p95</p>${lineChart(s)}${legend(s)}</div>`;
   }).join("");
 
-  document.getElementById("build").innerHTML =
+  document.getElementById("bars").innerHTML =
     `<div class="card"><h3>Build time</h3><p class="cap">minutes, lower is better</p>
-     ${barChart(runs, size, "buildMin", "minutes", (v) => v.toFixed(1))}</div>`;
-
-  document.getElementById("size-charts").innerHTML =
+     ${barChart(runs, size, "buildMin", "minutes", (v) => v.toFixed(1))}</div>` +
     `<div class="card"><h3>Index size</h3><p class="cap">MB on disk, lower is better</p>
      ${barChart(runs, size, "sizeMb", "MB", (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(0)))}</div>`;
 }

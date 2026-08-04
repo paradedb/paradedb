@@ -21,8 +21,8 @@ serde = "1.0.228"
 serde_json = "1.0.149"
 tantivy.workspace = true
 tracing = "0.1.44"
-strum_macros = "0.27.2"
-strum = { version = "0.27.2", features = ["derive"] }
+strum_macros = "0.28.0"
+strum = { version = "0.28.0", features = ["derive"] }
 tantivy-jieba = { workspace = true }
 emojis = "0.8.2"
 icu_properties = "2.2.0"

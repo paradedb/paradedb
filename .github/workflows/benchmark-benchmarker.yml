@@ -86,7 +86,7 @@ jobs:
       pg_version: "18"
       BENCHMARKER_REPO: paradedb/benchmarker
       DATASET: hn-benchmarker
-      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-benchmarker
+      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-benchmarker.tar.gz
       IMAGE_TAG: paradedb-source:ci
 
     steps:

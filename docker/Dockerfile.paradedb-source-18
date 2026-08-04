@@ -46,6 +46,21 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-too
 # cargo-pgrx, pinned to the repo's pgrx version.
 RUN cargo install --locked cargo-pgrx --version "${CARGO_PGRX_VERSION}"
 
+# sccache: a content-hashed compiler cache. `COPY . .` below rewrites every source
+# file's mtime each build, which defeats cargo's mtime-based fingerprinting (so a
+# cached target/ still recompiles). sccache keys on input content instead, so
+# unchanged crates hit the cache across runs. Its dir is a persisted cache mount.
+ARG SCCACHE_VERSION=0.8.2
+RUN arch="$(uname -m)"; \
+    base="sccache-v${SCCACHE_VERSION}-${arch}-unknown-linux-musl"; \
+    curl -fsSL "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/${base}.tar.gz" \
+      | tar -xz -C /tmp; \
+    install -m 0755 "/tmp/${base}/sccache" /usr/local/bin/sccache; \
+    rm -rf "/tmp/${base}"
+# CARGO_INCREMENTAL=0 is required for sccache to cache (and is already the default
+# for --release; set explicitly so it can never silently disable caching).
+ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache CARGO_INCREMENTAL=0
+
 WORKDIR /src
 COPY . .
 
@@ -56,9 +71,11 @@ COPY . .
 # artifacts are captured into /out (a real layer) before the mount detaches.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/sccache \
     PG_CONFIG="/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=${PG_CONFIG}"; \
     cargo pgrx package --package pg_search --pg-config "${PG_CONFIG}"; \
+    sccache --show-stats || true; \
     mkdir -p "/out/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib" \
              "/out/usr/share/postgresql/${PG_VERSION_MAJOR}/extension"; \
     find target/release -type f -name 'pg_search*.so'      -exec cp {} "/out/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/" \; ; \

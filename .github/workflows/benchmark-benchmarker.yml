@@ -131,20 +131,21 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v4
 
-      # Persist the Dockerfile's `RUN --mount=type=cache` dirs (cargo registry +
-      # target/) across runs. These BuildKit cache mounts are NOT carried by the
-      # type=gha layer cache and the builder is fresh each run, so without this
-      # the Rust compile is cold on every source change. buildkit-cache-dance
-      # extracts the mounts to host dirs that actions/cache stores (transparently
-      # S3-backed here via extras=s3-cache); this is the Docker-build equivalent
-      # of swatinem/rust-cache. See reproducible-containers/buildkit-cache-dance.
-      - name: Restore Rust build cache (cargo registry + target)
+      # Persist the Dockerfile's `RUN --mount=type=cache` dirs across runs: the
+      # cargo registry (avoids re-downloading crates) and the sccache dir (the
+      # actual compile cache). We deliberately do NOT persist target/: COPY . .
+      # rewrites source mtimes each build, so a cached target/ recompiles anyway;
+      # sccache keys on content instead and survives that. These BuildKit cache
+      # mounts aren't carried by the type=gha layer cache and the builder is fresh
+      # each run, so buildkit-cache-dance extracts them to host dirs that
+      # actions/cache stores (S3-backed here via extras=s3-cache).
+      - name: Restore Rust build cache (cargo registry + sccache)
         id: rust-docker-cache
         uses: actions/cache@v4
         with:
           path: |
             cache-cargo-registry
-            cache-rust-target
+            cache-sccache
           # SHA suffix + prefix restore-keys => each run saves a fresh entry and
           # warms from the most recent match, a rolling incremental cache.
           key: benchmarker-rustcache-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'docker/Dockerfile.paradedb-source-18') }}-${{ github.sha }}
@@ -160,7 +161,7 @@ jobs:
           cache-map: |
             {
               "cache-cargo-registry": "/usr/local/cargo/registry",
-              "cache-rust-target": "/src/target"
+              "cache-sccache": "/sccache"
             }
           # Nothing changed since the last exact hit => skip re-extraction.
           skip-extraction: ${{ steps.rust-docker-cache.outputs.cache-hit }}
@@ -175,8 +176,8 @@ jobs:
           echo "rust=${RUST_TOOLCHAIN} cargo-pgrx=${PGRX_VERSION}"
 
           # type=gha carries the base/apt/rust-install LAYERS (also S3-backed via
-          # extras=s3-cache); the cache-dance above carries the cargo + target
-          # MOUNTS. Together: warm layers AND warm incremental compile.
+          # extras=s3-cache); the cache-dance above carries the cargo registry +
+          # sccache MOUNTS. Together: warm layers AND warm (sccache) compile.
           docker buildx build \
             --file docker/Dockerfile.paradedb-source-18 \
             --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:v0.25.0-pg18' }}" \

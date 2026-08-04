@@ -198,22 +198,34 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive
 ORDER BY name;
 
-\echo 'Test 2.6: GROUPING SETS -> AggregateScan declined'
+\echo 'Test 2.6: GROUPING SETS with a deterministic key -> AggregateScan declined'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT lower(name_case_insensitive) AS name, COUNT(*)
+SELECT name_c, COUNT(*)
 FROM collation_test
 WHERE id @@@ paradedb.all()
-GROUP BY GROUPING SETS ((name_case_insensitive), ());
+GROUP BY GROUPING SETS ((name_c), ());
 
 SELECT COUNT(*) AS group_count
 FROM (
-    SELECT name_case_insensitive
+    SELECT name_c
     FROM collation_test
     WHERE id @@@ paradedb.all()
-    GROUP BY GROUPING SETS ((name_case_insensitive), ())
+    GROUP BY GROUPING SETS ((name_c), ())
 ) AS grouped;
 
-\echo 'Test 2.7: hash aggregation with a nondeterministic collation -> AggregateScan declined'
+\echo 'Test 2.7: constant-equality GROUP BY key with no pathkeys -> AggregateScan declined'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*)
+FROM collation_test
+WHERE name_c = 'apple' AND id @@@ paradedb.all()
+GROUP BY name_c;
+
+SELECT name_c, pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM collation_test
+WHERE name_c = 'apple' AND id @@@ paradedb.all()
+GROUP BY name_c;
+
+\echo 'Test 2.8: hash aggregation with a nondeterministic collation -> AggregateScan declined'
 SET enable_sort TO off;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -232,14 +244,14 @@ FROM (
 
 RESET enable_sort;
 
-\echo 'Test 2.8: pdb.agg() with a nondeterministic grouping collation warns before failing'
+\echo 'Test 2.9: pdb.agg() with a nondeterministic grouping collation warns before failing'
 SELECT lower(name_case_insensitive) AS name,
        pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM collation_test
 WHERE id @@@ paradedb.all()
 GROUP BY name_case_insensitive;
 
-\echo 'Test 2.9: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
+\echo 'Test 2.10: mixed safe and unsafe GROUP BY keys -> AggregateScan declined'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name_c, name_case_insensitive, COUNT(*) FROM collation_test
 WHERE id @@@ paradedb.all()

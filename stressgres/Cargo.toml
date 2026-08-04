@@ -34,7 +34,10 @@ serde_json = { version = "1.0.149", features = [
   "arbitrary_precision",
 ] }
 shutdown_hooks = "0.1.0"
-sysinfo = "0.33.1"
+# `multithread` (parallel process refresh, via rayon) was in sysinfo's default
+# features through 0.33 and is opt-in since 0.34. The refresh loop in `runner.rs` calls
+# `refresh_processes(All, ..)` every 50ms, so keep it enabled explicitly.
+sysinfo = { version = "0.39.6", features = ["multithread"] }
 toml = "0.8.23"
 url = "2.5.8"
 postgres-openssl = "0.5.3"

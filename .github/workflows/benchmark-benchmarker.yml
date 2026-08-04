@@ -270,7 +270,17 @@ jobs:
 
       - name: Upload dashboards
         if: always()
-        uses: actions/upload-artifact@v4
+        # Best-effort: the gh-pages HTML + comment below are the real deliverables,
+        # so never let the artifact backend fail the job.
+        continue-on-error: true
+        # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
+        # server, which upload-artifact then POSTs to and fails with a non-JSON
+        # error. Pin the endpoint back to GitHub's canonical artifact receiver just
+        # for this step (see test-pg_search.yml).
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
+        uses: actions/upload-artifact@v7
         with:
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}
           # Two patterns, not a brace glob: @actions/glob does not expand {json,html}.

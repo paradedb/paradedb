@@ -371,11 +371,11 @@ WHERE p.description @@@ 'wireless'
     LIMIT 3;
 
 -- =============================================================================
--- TEST 13: Fallback — DISTINCT without LIMIT
+-- TEST 13: DISTINCT without LIMIT — AggregateScan owns the dedup
 -- =============================================================================
--- DISTINCT without a LIMIT clause. JoinScan requires a LIMIT to activate,
--- so this should fall back to native PG execution with the standard
--- "JoinScan not used: query must have a LIMIT clause" warning.
+-- JoinScan requires a top-level LIMIT, so it declines (emitting its
+-- "LIMIT is required" warning). AggregateScan then pushes the JOIN + DISTINCT
+-- into DataFusion rather than letting it fall back to native PG.
 
 EXPLAIN
 (COSTS OFF, VERBOSE, TIMING OFF)

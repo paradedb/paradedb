@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
-use rand::Rng;
+use rand::RngExt;
 use rstest::*;
 use sqlx::{AssertSqlSafe, Row};
 use tests::fixtures::*;

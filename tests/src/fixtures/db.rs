@@ -20,7 +20,7 @@ use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
-use rand::Rng;
+use rand::RngExt;
 use sqlx::{
     AssertSqlSafe, ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection,
     Postgres, Type,

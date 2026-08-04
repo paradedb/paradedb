@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 use futures::executor::block_on;
 use proptest::prelude::*;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use sqlx::{Connection, PgConnection};
 
 use crate::fixtures::ConnExt;
@@ -442,7 +442,7 @@ fn qgen_seed() -> Option<u64> {
 /// back to a coin flip on the supplied RNG. One call per
 /// `generated_queries_setup`; every table built in the same call gets the
 /// same count, different `#[test]` functions roll independently.
-fn pick_bulk_inserts(rng: &mut impl Rng) -> NonZeroUsize {
+fn pick_bulk_inserts(rng: &mut impl RngExt) -> NonZeroUsize {
     let mode = std::env::var("PARADEDB_QGEN_SEGMENTATION")
         .ok()
         .unwrap_or_default();

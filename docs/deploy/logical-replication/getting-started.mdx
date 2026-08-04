@@ -129,7 +129,7 @@ INSERT INTO mock_items (description, category, in_stock, latest_available_time, 
 VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1);
 ```
 
-PostgreSQL's default replica identity uses the primary key. Because
+Postgres's default replica identity uses the primary key. Because
 `mock_items` has a primary key, it already has a valid replica identity
 for `INSERT`, `UPDATE`, and `DELETE`, so no additional replica identity
 configuration is needed here.
@@ -187,7 +187,7 @@ CONNECTION 'host=192.168.0.30 port=5432 dbname=marketplace user=replicator passw
 PUBLICATION marketplace_pub;
 ```
 
-By default, PostgreSQL copies existing rows from the publisher and then keeps
+By default, Postgres copies existing rows from the publisher and then keeps
 streaming new changes. If you do not want the initial copy, create the
 subscription with `WITH (copy_data = false)` and backfill the tables by another
 method.

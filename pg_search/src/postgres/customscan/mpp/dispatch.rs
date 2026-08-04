@@ -119,10 +119,9 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
 /// leader's [`crate::postgres::customscan::mpp::glue::StagePlanDispatchSource`] as it dispatches.
 pub fn dispatch_payload_from_stages(
     stages: &[DiscoveredStage],
-    n_workers: u32,
     capacity: usize,
 ) -> Result<Vec<u8>> {
-    let entries = classify_stages(stages, n_workers)?;
+    let entries = classify_stages(stages)?;
     let dispatched: Vec<DispatchedStage> = entries
         .into_iter()
         .map(|stage| DispatchedStage {
@@ -210,4 +209,35 @@ pub fn fragments_for_worker(
     let session = build_mpp_session_context(seed, Some(mesh));
     let fragments = expand_to_assignments(body, this_proc, n_workers)?;
     Ok((fragments, session))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assigns_multiple_stage_tasks_to_one_proc_after_short_launch() {
+        let mut assignments = Vec::new();
+        push_owned_tasks(
+            &mut assignments,
+            7,
+            5,
+            &FragmentRouting::Coalesce { dest_proc: 0 },
+            1,
+            3,
+        );
+
+        assert_eq!(
+            assignments
+                .iter()
+                .map(|assignment| assignment.task_idx)
+                .collect::<Vec<_>>(),
+            vec![0, 3]
+        );
+        assert!(
+            assignments
+                .iter()
+                .all(|assignment| assignment.task_count == 5)
+        );
+    }
 }

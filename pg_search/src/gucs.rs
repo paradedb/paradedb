@@ -216,16 +216,6 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
-/// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
-/// past the best centroid the IVF probe loop keeps probing clusters. Lower
-/// epsilon probes fewer clusters, decreasing latency at the expense of
-/// recall. Default `0.5`.
-static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
-
-pub fn vector_cluster_probe_epsilon() -> f32 {
-    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
-}
-
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -446,17 +436,6 @@ pub fn init() {
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_cluster_probe_epsilon",
-        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
-        c"How far past the best centroid the IVF probe loop keeps probing clusters. Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
-        &VECTOR_CLUSTER_PROBE_EPSILON,
-        0.0,
-        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );

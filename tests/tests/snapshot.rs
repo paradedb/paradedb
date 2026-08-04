@@ -21,6 +21,7 @@ use sqlx::PgConnection;
 use tests::fixtures::*;
 
 #[rstest]
+#[async_std::test]
 async fn score_bm25_after_delete(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -35,6 +36,7 @@ async fn score_bm25_after_delete(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn snippet_after_delete(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -49,6 +51,7 @@ async fn snippet_after_delete(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn score_bm25_after_update(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -69,6 +72,7 @@ async fn score_bm25_after_update(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn snippet_after_update(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -91,6 +95,7 @@ async fn snippet_after_update(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn score_bm25_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);
@@ -113,6 +118,7 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn snippet_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);
@@ -135,6 +141,7 @@ async fn snippet_after_rollback(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -157,6 +164,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn snippet_after_vacuum(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

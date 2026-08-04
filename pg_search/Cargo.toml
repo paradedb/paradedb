@@ -108,5 +108,5 @@ superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "s
 
 [dev-dependencies]
 pgrx-tests.workspace = true
-rstest = "0.25.0"
+rstest = "0.26.1"
 proptest = "1.11.0"

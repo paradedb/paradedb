@@ -26,6 +26,7 @@ use std::str::FromStr;
 use tests::fixtures::*;
 
 #[rstest]
+#[async_std::test]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -54,6 +55,7 @@ async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn basic_search_ids(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -550,6 +552,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_array_flattening(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -576,6 +579,7 @@ async fn json_array_flattening(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_array_multiple_documents(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -609,6 +613,7 @@ async fn json_array_multiple_documents(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_array_mixed_data(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -635,6 +640,7 @@ async fn json_array_mixed_data(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_nested_arrays(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

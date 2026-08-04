@@ -22,8 +22,8 @@ use sqlx::postgres::types::PgRange;
 use sqlx::types::time::{Date, OffsetDateTime, PrimitiveDateTime};
 use std::fmt::{Debug, Display};
 use std::ops::Bound;
+use strum::EnumIter;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 use tests::fixtures::*;
 use time::macros::{date, datetime};
 

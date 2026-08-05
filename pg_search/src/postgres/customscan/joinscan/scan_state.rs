@@ -169,9 +169,10 @@ pub struct JoinScanState {
 
     /// Pristine copy of the join clause as it came from planning, with any
     /// PostgresExpression/Param-backed SearchQueryInputs still unresolved.
-    /// Only populated when the plan actually contains such nodes (see
-    /// create_custom_scan_state); left at default and never read otherwise.
-    pub base_join_clause: JoinCSClause,
+    /// `None` for plans with no such nodes — see `create_custom_scan_state`, which is the
+    /// only writer. Callers that need the unsolved clause (`init_search_query_input`, rescan)
+    /// match on this instead of relying on a comment to remember it may be empty.
+    pub base_join_clause: Option<JoinCSClause>,
 
     /// nodeToString'd custom_exprs snapshot from planning (pre-setrefs), used
     /// to re-bake the DataFusion logical plan for MPP after solving. See
@@ -228,11 +229,36 @@ pub struct JoinScanState {
 }
 
 impl JoinScanState {
-    /// Reset the scan state for a rescan.
+    /// Reset the scan state for a rescan. Also restores `join_clause` from
+    /// `base_join_clause` when the plan has Param/SubPlan-backed SearchQueryInputs, so a
+    /// correlated re-execution (e.g. this JoinScan sits under a lateral/subplan and runs once
+    /// per outer row) re-solves against the new outer values instead of reusing whatever the
+    /// previous row's `exec_custom_scan` already solved and rebaked into `join_clause` and
+    /// `logical_plan`.
+    ///
+    /// Without this, `maybe_solve_and_rebake`'s gate
+    /// (`source_queries_need_executor_state`) checks the *already-solved* `join_clause` on the
+    /// next exec, finds no more Param/PostgresExpression nodes (they were replaced with
+    /// resolved constants last time), and skips solving — silently re-running the previous
+    /// row's stale plan.
     pub fn reset(&mut self) {
         self.datafusion_stream = None;
         self.current_batch = None;
         self.batch_index = 0;
+
+        // base_join_clause is only populated (in create_custom_scan_state) when the plan
+        // actually has parameters/postgres expressions; None means there's nothing to
+        // restore, so the compiler-enforced match replaces the old "left at default and
+        // never read" comment with an actual guard.
+        if let Some(base) = &self.base_join_clause {
+            self.join_clause = base.clone();
+            // Deliberately NOT clearing logical_plan here: exec_custom_scan reads it
+            // unconditionally (`.expect("Logical plan is required")`) before
+            // maybe_solve_and_rebake's gate is checked, so nulling it out would panic. Restoring
+            // join_clause above is what makes that gate see unsolved expressions again and
+            // re-run rebake_for_mpp, which overwrites logical_plan with the freshly-resolved
+            // bytes before it's read.
+        }
     }
 }
 
@@ -244,7 +270,14 @@ impl CustomScanState for JoinScanState {
 
 impl SolvePostgresExpressions for JoinScanState {
     fn init_search_query_input(&mut self) {
-        self.join_clause = self.base_join_clause.clone();
+        // base_join_clause is populated in create_custom_scan_state exactly when
+        // has_parameters()/has_postgres_expressions() below would return true, so by the time
+        // the trait's caller (prepare_query_for_execution) reaches this it should always be
+        // Some. Guard anyway rather than unwrap: if that invariant is ever violated, leaving
+        // join_clause untouched is a safe no-op, not a panic.
+        if let Some(base) = &self.base_join_clause {
+            self.join_clause = base.clone();
+        }
     }
     fn has_postgres_expressions(&mut self) -> bool {
         self.join_clause.has_postgres_expressions()
@@ -380,13 +413,17 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
 
 /// Build the DataFusion logical plan for the join.
 /// Returns a LogicalPlan that can be serialized with datafusion_proto.
+///
+/// `force_serial`: bake every source with `mpp_source_idx = None` regardless of
+/// `mpp_is_active()`. See `bake_logical_plan`'s doc comment for why this exists.
 pub async fn build_joinscan_logical_plan(
     join_clause: &JoinCSClause,
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
+    force_serial: bool,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     let ctx = create_datafusion_session_context(SessionContextProfile::Join);
-    let is_parallel = crate::postgres::customscan::mpp::glue::mpp_is_active();
+    let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
     df.into_optimized_plan()
 }

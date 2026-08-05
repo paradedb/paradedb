@@ -921,6 +921,27 @@ impl JoinScan {
     /// plan bytes used for dispatch and for the leader's own execution have every
     /// Param/SubPlan-backed `SearchQueryInput` fully resolved.
     unsafe fn rebake_for_mpp(state: &mut CustomScanStateWrapper<Self>) -> Option<Vec<u8>> {
+        Self::rebake_from_custom_exprs_string(state, false)
+    }
+
+    /// Re-bake with `mpp_source_idx` forced to `None` on every source, for the short-launch
+    /// decline path (`launch_mpp` returns `None`: nothing to distribute, no workers survived
+    /// commit). The bytes already deserialized for the MPP attempt (via `plan_ctx` /
+    /// `build_mpp_session_context`) were baked while `mpp_is_active()` was true, so every
+    /// source carries `Some(source_idx)` — physically replanning with a serial session context
+    /// (as the caller already does) does NOT change that, because `source_idx` lives in the
+    /// *logical* plan bytes, fixed at bake time, not re-derived during physical planning. A
+    /// declined launch has no DSM/`parallel_state` for the per-source claim protocol those
+    /// `Some(source_idx)` sources expect, so without this the executor panics ("per-source
+    /// claim needs 'parallel_state' installed"). See review discussion on #5511 (mdashti).
+    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Option<Vec<u8>> {
+        Self::rebake_from_custom_exprs_string(state, true)
+    }
+
+    unsafe fn rebake_from_custom_exprs_string(
+        state: &mut CustomScanStateWrapper<Self>,
+        force_serial: bool,
+    ) -> Option<Vec<u8>> {
         let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
             Some(s) => {
                 let cstr = std::ffi::CString::new(s.as_str()).ok()?;
@@ -932,7 +953,7 @@ impl JoinScan {
         let mut private_data = PrivateData::new(state.custom_state().join_clause.clone());
         private_data.output_columns = state.custom_state().output_columns.clone();
 
-        bake_logical_plan(&mut private_data, custom_exprs);
+        bake_logical_plan(&mut private_data, custom_exprs, force_serial);
         private_data.logical_plan.map(|b| b.to_vec())
     }
 }
@@ -1051,15 +1072,30 @@ impl CustomScan for JoinScan {
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
-            // snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
-            private_data.custom_exprs_string = if node.custom_exprs.is_null() {
-                None
-            } else {
-                let s = pg_sys::nodeToString(node.custom_exprs.cast());
-                let owned = std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned();
-                pg_sys::pfree(s.cast());
-                Some(owned)
-            };
+            // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking. Only needed
+            // when the plan has Param/PostgresExpression nodes that maybe_solve_and_rebake will
+            // later resolve and re-bake — a plain query never rebakes, so paying for
+            // nodeToString on every JoinScan plan (not just parameterized ones) would be waste.
+            let needs_rebake_snapshot = private_data.join_clause.has_parameters()
+                || private_data.join_clause.has_postgres_expressions();
+            private_data.custom_exprs_string =
+                if !needs_rebake_snapshot || node.custom_exprs.is_null() {
+                    None
+                } else {
+                    // Non-lossy round-trip: fail loudly on invalid UTF-8 (should never happen —
+                    // nodeToString produces ASCII-safe output) rather than to_string_lossy()
+                    // silently mangling bytes stringToNode would later fail to parse, or worse,
+                    // parse into a different node than what was captured. Mirrors
+                    // PostgresPointer::serialize's handling of the same nodeToString/stringToNode
+                    // round-trip in query/mod.rs.
+                    let s = pg_sys::nodeToString(node.custom_exprs.cast());
+                    let owned = std::ffi::CStr::from_ptr(s)
+                        .to_str()
+                        .expect("nodeToString output must be valid UTF-8")
+                        .to_owned();
+                    pg_sys::pfree(s.cast());
+                    Some(owned)
+                };
 
             // Collect all required fields for execution
             collect_required_fields(
@@ -1068,7 +1104,7 @@ impl CustomScan for JoinScan {
                 node.custom_exprs,
             );
 
-            bake_logical_plan(&mut private_data, node.custom_exprs);
+            bake_logical_plan(&mut private_data, node.custom_exprs, false);
 
             // Convert PrivateData back to a list and preserve the restrictlist.
             let private_list = PrivateData::into(private_data);
@@ -1083,9 +1119,11 @@ impl CustomScan for JoinScan {
         let mut join_clause = builder.custom_private().join_clause.clone();
         let has_params = join_clause.has_parameters() || join_clause.has_postgres_expressions();
 
-        if has_params {
-            builder.custom_state().base_join_clause = join_clause.clone();
-        }
+        builder.custom_state().base_join_clause = if has_params {
+            Some(join_clause.clone())
+        } else {
+            None
+        };
         builder.custom_state().join_clause = join_clause;
 
         builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
@@ -1461,9 +1499,52 @@ impl CustomScan for JoinScan {
                             (exec_ctx, plan)
                         }
                         None => {
+                            // Short-launch decline: launch_mpp returned None because nothing
+                            // survived commit (no producers launched). The bytes deserialized
+                            // above still carry `Some(source_idx)` on every source — baked in
+                            // at bake_logical_plan time from the global mpp_is_active() budget
+                            // check, not from whether *this* attempt actually got workers — so
+                            // simply replanning physically with a serial session context (as
+                            // before) doesn't clear it: source_idx lives in the logical plan
+                            // bytes, unaffected by which SessionContext builds the physical
+                            // plan from them. Re-bake a genuinely serial-shaped logical plan
+                            // instead, so the per-source claim protocol those Some(source_idx)
+                            // sources expect isn't invoked without a parallel_state/DSM to
+                            // claim against.
                             let serial_ctx =
                                 create_datafusion_session_context(SessionContextProfile::Join);
-                            let plan = build_plan(&serial_ctx);
+                            let fallback_bytes = Self::rebake_for_mpp_fallback(state).expect(
+                                "failed to rebake a serial-shaped plan for MPP short-launch fallback",
+                            );
+                            let logical_plan = deserialize_logical_plan_with_runtime(
+                                &fallback_bytes,
+                                &serial_ctx.task_ctx(),
+                                None,
+                                Some(runtime_context),
+                                Some(planstate),
+                                index_segment_ids.clone(),
+                            )
+                            .expect("Failed to deserialize serial fallback logical plan");
+                            let logical_plan = match runtime_fetch {
+                                Some(fetch) => {
+                                    use datafusion::logical_expr::LogicalPlanBuilder;
+                                    LogicalPlanBuilder::from(logical_plan)
+                                        .limit(0, Some(fetch))
+                                        .expect("failed to add Limit to logical plan")
+                                        .build()
+                                        .expect("failed to build logical plan with Limit")
+                                }
+                                None => logical_plan,
+                            };
+                            let plan = runtime
+                                .block_on(build_physical_plan(&serial_ctx, logical_plan))
+                                .expect("Failed to create execution plan from serial fallback");
+                            // Keep custom_state's logical_plan in sync: a later rescan reads it
+                            // (see maybe_solve_and_rebake / JoinScanState::reset), and it should
+                            // reflect the serial shape actually executed here, not the MPP-shaped
+                            // bytes this fallback declined to use.
+                            state.custom_state_mut().logical_plan =
+                                Some(bytes::Bytes::from(fallback_bytes));
                             (serial_ctx, plan)
                         }
                     },
@@ -1848,7 +1929,20 @@ unsafe fn build_output_projection(
 /// Build the DataFusion logical plan for the JoinScan, serialize it, and store
 /// the bytes inside `private_data.logical_plan` so the executor can rehydrate
 /// it during scan startup.
-fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::List) {
+///
+/// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
+/// regardless of the global `mpp_is_active()` budget check. Used by
+/// `rebake_for_mpp_fallback` to produce a genuinely serial-shaped plan for the
+/// short-launch-decline path — `mpp_is_active()` reflects the cluster's static worker
+/// budget, not whether *this* attempt actually launched workers, so without this override
+/// a declined launch still bakes `Some(source_idx)` and the executor later panics looking
+/// for a `parallel_state`/DSM that was never installed (see `maybe_prepare_mpp`'s old
+/// two-phase design notes and review discussion on #5511).
+fn bake_logical_plan(
+    private_data: &mut PrivateData,
+    custom_exprs: *mut pg_sys::List,
+    force_serial: bool,
+) {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");
@@ -1857,6 +1951,7 @@ fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::
             &private_data.join_clause,
             &*private_data,
             custom_exprs,
+            force_serial,
         ))
         .expect("Failed to build DataFusion logical plan");
     private_data.logical_plan = Some(

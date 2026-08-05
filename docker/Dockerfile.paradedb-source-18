@@ -33,8 +33,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 # libopenblas-dev provides -lopenblas, which pg_search links (SuperKMeans IVF
 # clusterer's BLAS backend); every other pg_search build path installs it too.
 # The runtime base already ships libopenblas0, so only the builder needs -dev.
+# lld: the repo's .cargo/config.toml forces `-Clink-arg=-fuse-ld=lld` on Linux,
+# so every compile (incl. build scripts) needs the lld linker present.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential ca-certificates curl git pkg-config libssl-dev clang \
+      build-essential ca-certificates curl git pkg-config libssl-dev clang lld \
       libopenblas-dev \
       "postgresql-server-dev-${PG_VERSION_MAJOR}" \
     && rm -rf /var/lib/apt/lists/*

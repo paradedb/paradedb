@@ -1072,12 +1072,17 @@ impl CustomScan for JoinScan {
             // set_customscan_references. The Vars in these expressions will be converted to
             // INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
-            // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking. Only needed
-            // when the plan has Param/PostgresExpression nodes that maybe_solve_and_rebake will
-            // later resolve and re-bake — a plain query never rebakes, so paying for
-            // nodeToString on every JoinScan plan (not just parameterized ones) would be waste.
+            // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
+            // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
+            // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
+            // which can hit any MPP query regardless of params). Both funnel into
+            // translate_custom_exprs, which also resolves JoinLevelExpr::MultiTablePredicate
+            // nodes (cross-relation predicates like `users.age < products.age`) by indexing
+            // into custom_exprs — so this is required whenever the plan has params,
+            // postgres expressions, OR multi-table predicates, not just the first two.
             let needs_rebake_snapshot = private_data.join_clause.has_parameters()
-                || private_data.join_clause.has_postgres_expressions();
+                || private_data.join_clause.has_postgres_expressions()
+                || private_data.join_clause.has_multi_table_predicates();
             private_data.custom_exprs_string =
                 if !needs_rebake_snapshot || node.custom_exprs.is_null() {
                     None

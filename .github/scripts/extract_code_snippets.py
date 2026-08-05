@@ -21,6 +21,8 @@ IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
     # not SQL vs ORMs
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
+    # Non-executable fragments showing the distance metric spelling per ORM
+    "documentation__indexing__indexing-vectors__group-002",
 }
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent

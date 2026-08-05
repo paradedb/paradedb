@@ -33,14 +33,17 @@ WITH (key_field='id');
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
-indexing
-  .paradedbIndex("search_idx")
-  .on(
-    mockItems.id,
-    mockItems.description,
-    mockItems.category,
-    indexing.vectorField(mockItems.embedding, "cosine"),
-  );
+// In the pgTable definition:
+(table) => [
+  indexing
+    .paradedbIndex("search_idx")
+    .on(
+      table.id,
+      table.description,
+      table.category,
+      indexing.vectorField(table.embedding, "cosine"),
+    ),
+];
 ```
 
 ```python Django
@@ -174,18 +177,21 @@ WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, clu
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
-indexing
-  .paradedbIndex("search_idx", {
-    centroidRatio: 0.01,
-    trainingSamplesPerCentroid: 32,
-    clusterReplication: 1,
-  })
-  .on(
-    mockItems.id,
-    mockItems.description,
-    mockItems.category,
-    indexing.vectorField(mockItems.embedding, "cosine"),
-  );
+// In the pgTable definition:
+(table) => [
+  indexing
+    .paradedbIndex("search_idx", {
+      centroidRatio: 0.01,
+      trainingSamplesPerCentroid: 32,
+      clusterReplication: 1,
+    })
+    .on(
+      table.id,
+      table.description,
+      table.category,
+      indexing.vectorField(table.embedding, "cosine"),
+    ),
+];
 ```
 
 ```python Django

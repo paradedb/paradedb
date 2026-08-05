@@ -151,6 +151,7 @@ dependencies = [
  "linkme",
  "once_cell",
  "rand 0.8.7",
+ "rand_core 0.10.1",
  "rustc_version_runtime",
  "serde",
  "serde_json",
@@ -5069,7 +5070,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "postcard",
- "proptest",
+ "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "prost",
  "rand 0.10.2",
  "regex",
@@ -5674,7 +5675,26 @@ dependencies = [
  "num-traits",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
- "rand_xorshift",
+ "rand_xorshift 0.4.0",
+ "regex-syntax",
+ "rusty-fork",
+ "tempfile",
+ "unarray",
+]
+
+[[package]]
+name = "proptest"
+version = "1.11.0"
+source = "git+https://github.com/antithesishq/proptest?rev=6061eb48d67ff76f882e709677308816d5791ce7#6061eb48d67ff76f882e709677308816d5791ce7"
+dependencies = [
+ "antithesis_sdk",
+ "bit-set",
+ "bit-vec",
+ "bitflags 2.13.1",
+ "num-traits",
+ "rand 0.10.2",
+ "rand_chacha 0.10.0",
+ "rand_xorshift 0.5.0",
  "regex-syntax",
  "rusty-fork",
  "tempfile",
@@ -5894,6 +5914,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_chacha"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e6af7f3e25ded52c41df4e0b1af2d047e45896c2f3281792ed68a1c243daedb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5934,6 +5964,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
 dependencies = [
  "rand_core 0.9.5",
+]
+
+[[package]]
+name = "rand_xorshift"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60aa6af80be32871323012e02e6e65f8a7cc7890931ae421d217ad8fe0df2ccf"
+dependencies = [
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -7289,13 +7328,14 @@ dependencies = [
  "chrono",
  "cmd_lib",
  "dotenvy",
+ "dst",
  "env_logger",
  "futures",
  "lockfree-object-pool",
  "num-traits",
  "pgvector",
  "pretty_assertions",
- "proptest",
+ "proptest 1.11.0 (git+https://github.com/antithesishq/proptest?rev=6061eb48d67ff76f882e709677308816d5791ce7)",
  "proptest-derive",
  "rand 0.10.2",
  "rstest",

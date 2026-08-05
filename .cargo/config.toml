@@ -1,3 +1,7 @@
 # on macOS, PostgreSQL symbols won't be available until runtime
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
+
+# LLD is equivalent to GNU ld, but uses a fraction of the time and memory.
+[target.'cfg(target_os="linux")']
+rustflags = ["-Clink-arg=-fuse-ld=lld"]

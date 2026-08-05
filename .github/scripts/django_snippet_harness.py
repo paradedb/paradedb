@@ -11,7 +11,6 @@ import django
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField, IntegerRangeField
 from django.db import models
-
 from paradedb.queryset import ParadeDBManager
 
 DATABASES = {

@@ -472,7 +472,7 @@ fn leaky_file_handles(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         "error returned from database: error! 12 = 12",
-        &format!("{}", result.err().unwrap())
+        db_error_message(&result.err().unwrap())
     );
 
     fn tantivy_files_still_open(pid: i32) -> bool {

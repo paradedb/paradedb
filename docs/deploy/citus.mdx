@@ -4,7 +4,7 @@ description: Distributed full-text search with Citus and ParadeDB
 canonical: https://docs.paradedb.com/deploy/citus
 ---
 
-[Citus](https://github.com/citusdata/citus) transforms PostgreSQL into a distributed database with horizontal sharding. ParadeDB is fully compatible with Citus, enabling distributed full-text search across sharded tables.
+[Citus](https://github.com/citusdata/citus) transforms Postgres into a distributed database with horizontal sharding. ParadeDB is fully compatible with Citus, enabling distributed full-text search across sharded tables.
 
 ## What's Supported
 
@@ -20,7 +20,7 @@ Both `citus` and `pg_search` must be added to `shared_preload_libraries` in the 
 ```bash
 # Install Citus first
 curl https://install.citusdata.com/community/deb.sh | sudo bash
-apt-get install -y postgresql-18-citus-14.0
+apt-get install -y postgresql-18-citus-14.1
 
 # Add both extensions to shared_preload_libraries
 sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" /var/lib/postgresql/data/postgresql.conf
@@ -109,7 +109,7 @@ The plan should show:
 
 <Accordion title="Example EXPLAIN Output">
 
-```
+```text
 Sort  (cost=11041.82..11291.82 rows=100000 width=36)
   Output: remote_scan.id, remote_scan.title
   Sort Key: remote_scan.id
@@ -172,7 +172,7 @@ ORDER BY a.name;
 
 <Accordion title="Example EXPLAIN Output for JOIN">
 
-```
+```text
 Sort  (cost=12067.32..12317.32 rows=100000 width=64)
   Output: remote_scan.name, remote_scan.title
   Sort Key: remote_scan.name
@@ -207,7 +207,7 @@ Key indicators:
 
 ## Known Limitations
 
-- ❌ **Citus columnar tables** — ParadeDB indexes and other PostgreSQL indexes (like GiST, GIN) cannot be created on Citus columnar tables due to limitations in Citus's columnar storage implementation. However, you can use regular distributed tables with ParadeDB indexes alongside columnar tables for analytics.
+- ❌ **Citus columnar tables** — ParadeDB indexes and other Postgres indexes (like GiST, GIN) cannot be created on Citus columnar tables due to limitations in Citus's columnar storage implementation. However, you can use regular distributed tables with ParadeDB indexes alongside columnar tables for analytics.
 
 ## Performance Considerations
 

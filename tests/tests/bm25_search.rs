@@ -26,6 +26,7 @@ use std::str::FromStr;
 use tests::fixtures::*;
 
 #[rstest]
+#[async_std::test]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -54,6 +55,7 @@ async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn basic_search_ids(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -550,6 +552,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_array_flattening(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -576,6 +579,7 @@ async fn json_array_flattening(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_array_multiple_documents(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -609,6 +613,7 @@ async fn json_array_multiple_documents(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_array_mixed_data(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -635,6 +640,7 @@ async fn json_array_mixed_data(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn json_nested_arrays(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -760,10 +766,6 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 }
 
-// TODO: This test is currently ignored because hybrid plans did not reliably trigger the custom
-// scan on a partial BM25 index. The issue this pointed at (#2747) has since been closed, so the
-// test should be re-run and un-ignored if it now passes.
-#[ignore]
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     r#"
@@ -1402,7 +1404,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
 
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().to_string(),
+        db_error_message(&result.unwrap_err()),
         "error returned from database: cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key"
     );
 
@@ -1632,7 +1634,7 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
 
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().to_string(),
+        db_error_message(&result.unwrap_err()),
         "error returned from database: the name `ctid` is reserved by pg_search"
     );
 }
@@ -1685,7 +1687,7 @@ fn missing_source_column(mut conn: PgConnection) {
 
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().to_string(),
+        db_error_message(&result.unwrap_err()),
         "error returned from database: the column `nonexistent_column` referenced by the field configuration for 'alias' does not exist"
     );
 }

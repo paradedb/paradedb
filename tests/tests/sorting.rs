@@ -204,6 +204,7 @@ fn sort_by_raw(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_compound_sort(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 
@@ -225,6 +226,7 @@ async fn test_compound_sort(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn compound_sort_expression(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 
@@ -247,6 +249,7 @@ async fn compound_sort_expression(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn compound_sort_partitioned(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 

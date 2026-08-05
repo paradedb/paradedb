@@ -1,0 +1,11 @@
+# cargo-audit config, run by .github/workflows/lint-rust.yml.
+
+[advisories]
+ignore = [
+  # Optional dependency of rust_decimal that we never enable, so it is in
+  # Cargo.lock but unreachable from `cargo tree -i` on any target.
+  "RUSTSEC-2026-0235",
+]
+
+# Unmaintained crates are warnings, not failures. The tree carries nine.
+informational_warnings = ["unmaintained", "unsound", "notice"]

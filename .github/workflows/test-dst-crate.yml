@@ -40,6 +40,11 @@ jobs:
           cache: false
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
+      # .cargo/config.toml links Linux builds with LLD. The GitHub-hosted image
+      # currently ships it, but install it explicitly rather than depend on that.
+      - name: Install LLD
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends lld
+
       # With `enabled` off the DST crate compiles to nothing — this is what pg_search ships,
       # and it is the half the workspace-wide runs in lint-rust never see, since stressgres
       # pins `enabled` and feature unification turns it on for the whole workspace.

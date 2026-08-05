@@ -187,6 +187,33 @@ pub unsafe fn transform_to_search_expr(
         return None;
     }
 
+    // A List is an implicit conjunction container, not one expression. It
+    // must be decomposed before relation classification: collecting RTIs from
+    // the container can otherwise group unrelated single-table predicates into
+    // one apparent cross-table predicate.
+    let node_type = (*node).type_;
+    if node_type == pg_sys::NodeTag::T_List {
+        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        let mut children = Vec::new();
+        for item in list.iter_ptr() {
+            let child_expr = transform_to_search_expr(
+                root,
+                item,
+                sources,
+                join_clause,
+                multi_table_predicate_clauses,
+            )?;
+            children.push(child_expr);
+        }
+        return if children.is_empty() {
+            None
+        } else if children.len() == 1 {
+            Some(children.pop().unwrap())
+        } else {
+            Some(JoinLevelExpr::And(children))
+        };
+    }
+
     let search_op = anyelement_query_input_opoid();
     let has_search_op = expr_contains_any_operator(node, &[search_op]);
 
@@ -233,31 +260,6 @@ pub unsafe fn transform_to_search_expr(
             join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
         multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
         return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
-    }
-
-    // Handle List nodes: Postgres may wrap quals in a List (common on PG18).
-    // Treat as an implicit AND of the list elements.
-    let node_type = (*node).type_;
-    if node_type == pg_sys::NodeTag::T_List {
-        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
-        let mut children = Vec::new();
-        for item in list.iter_ptr() {
-            let child_expr = transform_to_search_expr(
-                root,
-                item,
-                sources,
-                join_clause,
-                multi_table_predicate_clauses,
-            )?;
-            children.push(child_expr);
-        }
-        return if children.is_empty() {
-            None
-        } else if children.len() == 1 {
-            Some(children.pop().unwrap())
-        } else {
-            Some(JoinLevelExpr::And(children))
-        };
     }
 
     // Handle BoolExpr

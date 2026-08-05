@@ -333,13 +333,18 @@ pub unsafe fn extract_aggregate_targetlist(
             let filter = if (*aggref).aggfilter.is_null() {
                 None
             } else {
-                FilterExpr::from_pg_node(
-                    (*aggref).aggfilter as *mut pg_sys::Node,
-                    &FilterExprBuildContext::Filter {
-                        sources,
-                        plan,
-                        outer_root_id,
-                    },
+                Some(
+                    FilterExpr::from_pg_node(
+                        (*aggref).aggfilter as *mut pg_sys::Node,
+                        &FilterExprBuildContext::Filter {
+                            sources,
+                            plan,
+                            outer_root_id,
+                        },
+                    )
+                    .ok_or_else(|| {
+                        "aggregate FILTER cannot be translated for aggregate-on-join".to_string()
+                    })?,
                 )
             };
 

@@ -1527,18 +1527,11 @@ unsafe fn contains_param_of_kind(root: *mut pg_sys::Node, kind: pg_sys::ParamKin
         node: *mut pg_sys::Node,
         data: *mut core::ffi::c_void,
     ) -> bool {
-<<<<<<< HEAD
+        let kind = &*data.cast::<pg_sys::ParamKind::Type>();
         if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+            if (*param).paramkind == *kind {
                 return true;
             }
-=======
-        let kind = &*data.cast::<pg_sys::ParamKind::Type>();
-        if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == *kind
-        {
-            return true;
->>>>>>> 06bc3c22f (fix: Normalize and validate AggregateScan join predicates (#5818))
         }
         pg_sys::expression_tree_walker(node, Some(walker), data)
     }
@@ -1589,14 +1582,14 @@ pub unsafe fn collect_implicit_and_conjuncts(
         return;
     }
 
-    if let Some(bool_expr) = nodecast!(BoolExpr, T_BoolExpr, node)
-        && (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR
-    {
-        let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-        for arg in args.iter_ptr() {
-            collect_implicit_and_conjuncts(arg, conjuncts);
+    if let Some(bool_expr) = nodecast!(BoolExpr, T_BoolExpr, node) {
+        if (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR {
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            for arg in args.iter_ptr() {
+                collect_implicit_and_conjuncts(arg, conjuncts);
+            }
+            return;
         }
-        return;
     }
 
     conjuncts.push(node);

@@ -34,24 +34,16 @@ use crate::postgres::customscan::joinscan::build::{
     MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::joinscan::planning::{
-<<<<<<< HEAD
-    classify_base_restrictinfo, wrap_with_semi_anti, ClassifiedBaseRestrictInfo,
-=======
-    ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
-    wrap_with_semi_anti,
->>>>>>> 06bc3c22f (fix: Normalize and validate AggregateScan join predicates (#5818))
+    classify_base_restrictinfo, transparent_path_subpath, wrap_with_semi_anti,
+    ClassifiedBaseRestrictInfo,
 };
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-<<<<<<< HEAD
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-=======
 use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, QualExtractState, collect_implicit_and_conjuncts, contains_extern_param,
-    extract_quals,
+    collect_implicit_and_conjuncts, contains_extern_param, extract_quals, PlannerContext,
+    QualExtractState,
 };
->>>>>>> 06bc3c22f (fix: Normalize and validate AggregateScan join predicates (#5818))
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
@@ -865,40 +857,29 @@ unsafe fn classify_path_restrictinfo(
         }
 
         // 1. Equi-join key?
-<<<<<<< HEAD
         if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
             if let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources) {
-                let dup = info.equi_keys.iter().any(|k| {
-=======
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr
-            && let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources)
-        {
-            let destination = match equi_key_source {
-                EquiKeySource::Ignore => None,
-                EquiKeySource::Direct => Some(&mut info.equi_keys),
-                EquiKeySource::BehindWrapper => Some(&mut info.wrapped_equi_keys),
-            };
-            if let Some(destination) = destination {
-                let dup = destination.iter().any(|k| {
->>>>>>> 06bc3c22f (fix: Normalize and validate AggregateScan join predicates (#5818))
-                    (k.outer_rti == key.outer_rti
-                        && k.outer_attno == key.outer_attno
-                        && k.inner_rti == key.inner_rti
-                        && k.inner_attno == key.inner_attno)
-                        || (k.outer_rti == key.inner_rti
-                            && k.outer_attno == key.inner_attno
-                            && k.inner_rti == key.outer_rti
-                            && k.inner_attno == key.outer_attno)
-                });
-                if !dup {
-<<<<<<< HEAD
-                    info.equi_keys.push(key);
+                let destination = match equi_key_source {
+                    EquiKeySource::Ignore => None,
+                    EquiKeySource::Direct => Some(&mut info.equi_keys),
+                    EquiKeySource::BehindWrapper => Some(&mut info.wrapped_equi_keys),
+                };
+                if let Some(destination) = destination {
+                    let dup = destination.iter().any(|k| {
+                        (k.outer_rti == key.outer_rti
+                            && k.outer_attno == key.outer_attno
+                            && k.inner_rti == key.inner_rti
+                            && k.inner_attno == key.inner_attno)
+                            || (k.outer_rti == key.inner_rti
+                                && k.outer_attno == key.inner_attno
+                                && k.inner_rti == key.outer_rti
+                                && k.inner_attno == key.outer_attno)
+                    });
+                    if !dup {
+                        destination.push(key);
+                    }
                 }
                 continue;
-=======
-                    destination.push(key);
-                }
->>>>>>> 06bc3c22f (fix: Normalize and validate AggregateScan join predicates (#5818))
             }
         }
 

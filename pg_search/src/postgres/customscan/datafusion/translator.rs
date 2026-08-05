@@ -776,8 +776,8 @@ mod unit_tests {
 #[pgrx::pg_schema]
 mod tests {
     use super::PredicateTranslator;
-    use pgrx::PgList;
     use pgrx::prelude::*;
+    use pgrx::PgList;
 
     #[pg_test]
     fn unnormalized_list_is_a_non_throwing_capability_miss() {

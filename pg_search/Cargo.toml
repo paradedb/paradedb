@@ -60,12 +60,9 @@ ordered-float = "5.3.0"
 uuid = "1.23.1"
 strum = { version = "0.28.0" }
 serde_path_to_error = "0.1.20"
-# Do not "upgrade" this. bincode is unmaintained: 3.0.0 is a tombstone release
-# whose lib.rs is a single compile_error!, published to signal that development
-# has ceased. 2.0.1 is the last usable version, and cargo-outdated will keep
-# offering 3.0.0 regardless. Note also that the `legacy()` config used by
-# postgres/storage encodes data that lands on disk, so the byte format is part
-# of the index format: any replacement has to be byte-compatible.
+# Do not "upgrade" this: bincode is unmaintained and 3.0.0 is a tombstone whose
+# lib.rs is a single compile_error!. `legacy()` also encodes to disk, so any
+# replacement must be byte-compatible.
 bincode = { version = "2.0.1", features = [
   "serde",
   "std",

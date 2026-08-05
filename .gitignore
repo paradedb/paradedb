@@ -39,9 +39,6 @@ profile.json*
 *.rej
 
 # Node
-# The docs are previewed with a global mintlify install (see docs/README.md), so
-# a package.json here is a local artifact of running npm install, not something
-# the repository carries.
 node_modules/
 package.json
 package-lock.json

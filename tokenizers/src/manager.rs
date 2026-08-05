@@ -349,12 +349,9 @@ pub enum SearchTokenizer {
     #[strum(serialize = "default")]
     Simple(SearchTokenizerFilters),
     Keyword,
-    // These two are deprecated for new code, but they cannot simply be deleted.
-    // `from_json_value` still accepts "raw", so indexes created before the
-    // switch to `Keyword` keep deserializing their stored configuration, and
-    // `postgres::options` deliberately constructs `Raw` for the default text
-    // field configuration. Removing either is a user-visible change that needs
-    // a migration, not a cleanup.
+    // Not removable: `from_json_value` still accepts "raw" for indexes built
+    // before the switch, and `postgres::options` constructs `Raw` for the
+    // default text field. Removing either needs a migration.
     #[deprecated(
         since = "0.19.0",
         note = "use the `SearchTokenizer::Keyword` variant instead"

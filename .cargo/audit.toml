@@ -1,16 +1,11 @@
-# Configuration for cargo-audit, run by .github/workflows/check-rust-advisories.yml.
+# cargo-audit config, run by .github/workflows/lint-rust.yml.
 
 [advisories]
 ignore = [
-  # rkyv 0.7 is an optional dependency of rust_decimal that we never enable: it
-  # appears in Cargo.lock but `cargo tree -i rkyv@0.7` cannot reach it on any
-  # target, so the vulnerable code is never compiled. rust_decimal is already at
-  # its latest release, and it reaches us only through stressgres. Revisit if
-  # rust_decimal moves to rkyv 0.8, at which point this entry can go.
+  # Optional dependency of rust_decimal that we never enable, so it is in
+  # Cargo.lock but unreachable from `cargo tree -i` on any target.
   "RUSTSEC-2026-0235",
 ]
 
-# Unmaintained and yanked crates are reported as warnings rather than failures.
-# They are worth seeing in the log, but they are not a reason to fail a build:
-# the tree currently carries nine, all transitive.
+# Unmaintained crates are warnings, not failures. The tree carries nine.
 informational_warnings = ["unmaintained", "unsound", "notice"]

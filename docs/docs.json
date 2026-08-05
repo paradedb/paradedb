@@ -325,7 +325,7 @@
                       "deploy/cloud-platforms/railway",
                       "deploy/cloud-platforms/render",
                       "deploy/cloud-platforms/digitalocean",
-                      "deploy/cloud-platforms/fly"
+                      "deploy/cloud-platforms/fly",
                       "deploy/cloud-platforms/dokku"
                     ]
                   },

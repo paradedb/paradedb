@@ -1,0 +1,63 @@
+# workflows/check-rust-advisories.yml
+#
+# Check Rust Advisories
+# Audit Cargo.lock against the RustSec advisory database.
+
+name: Check Rust Advisories
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # daily 08:00 UTC (~3am ET)
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/check-rust-advisories.yml"
+      - ".cargo/audit.toml"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: check-rust-advisories-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-rust-advisories:
+    name: Check Rust Advisories
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      - name: Install cargo-audit
+        run: cargo install -j $(nproc) cargo-audit --locked --debug
+
+      # Reads .cargo/audit.toml, which documents the one ignored advisory.
+      # Fails on vulnerabilities; unmaintained crates are reported as warnings.
+      - name: Run cargo-audit
+        run: cargo audit
+
+  # The schedule is the point of this workflow: an advisory can land against a
+  # dependency we have not touched, on a day nobody opens a pull request.
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [check-rust-advisories]
+    if: always() && github.event_name == 'schedule' && needs.check-rust-advisories.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on Failure
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "Rust Advisory Check Failed"

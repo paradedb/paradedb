@@ -35,6 +35,22 @@ jobs:
             false
           fi
 
+      # Nothing else parses the tracked JSON: prettier ignores **/*.json and the
+      # check-json pre-commit hook only runs on machines that run the hooks. A
+      # missing comma in docs/docs.json reached main that way, dropping a page
+      # from the documentation navigation.
+      - name: Check JSON Validity
+        run: |
+          FAILED=""
+          while IFS= read -r file; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$file" || FAILED="${FAILED}${file}"$'\n'
+          done < <(git ls-files '*.json')
+          if [[ ! -z "$FAILED" ]]; then
+            echo "The following files are not valid JSON:"
+            echo "$FAILED"
+            exit 1
+          fi
+
       - name: Check for Trailing Whitespaces
         run: |
           FILES=$(git grep -Ilr '[[:blank:]]$' -- \

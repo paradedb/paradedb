@@ -10,10 +10,15 @@
 # Cargo
 target/
 
-# SSH
+# Credentials
+# This used to ignore *.json wholesale, which silently swallowed every JSON file
+# added to the repo: docs/docs.json needed a negation and context7.json had to be
+# force-added. Credentials are matched by name instead, and the detect-private-key
+# and detect-aws-credentials pre-commit hooks are the real backstop.
 *.pem
-*.json
-!docs/docs.json
+*credentials*.json
+*service-account*.json
+*-key.json
 
 # Code coverage
 *.profraw
@@ -38,7 +43,12 @@ profile.json*
 *.rej
 
 # Node
+# The docs are previewed with a global mintlify install (see docs/README.md), so
+# a package.json here is a local artifact of running npm install, not something
+# the repository carries.
 node_modules/
+package.json
+package-lock.json
 
 # Nix artifacts
 result*

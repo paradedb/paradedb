@@ -17,7 +17,9 @@ repos:
       - id: check-case-conflict
       - id: check-docstring-first
       - id: check-symlinks
+      # The Kubernetes manifests under docker/ are multi-document.
       - id: check-yaml
+        args: ["--allow-multiple-documents"]
       - id: check-json
       - id: check-xml
       - id: check-ast

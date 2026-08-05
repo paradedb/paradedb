@@ -12,6 +12,7 @@ on:
       - ".github/workflows/lint-rust.yml"
       - "**/*.rs"
       - "**/*.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 concurrency:
@@ -95,11 +96,18 @@ jobs:
       - name: Install cargo-machete
         run: cargo install -j $(nproc) cargo-machete --locked --debug
 
+      - name: Install cargo-audit
+        run: cargo install -j $(nproc) cargo-audit --locked --debug
+
       - name: Install taplo
         run: cargo install -j $(nproc) taplo-cli --version ^0.9 --locked --debug
 
       - name: Run cargo-machete
         run: cargo machete
+
+      # Ignores are documented in .cargo/audit.toml.
+      - name: Run cargo-audit
+        run: cargo audit
 
       # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
       - name: Check Cargo.toml Formatting

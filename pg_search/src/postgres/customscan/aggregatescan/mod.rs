@@ -136,11 +136,10 @@ enum AggregatePathDecline {
     Warn(AggregateDeclineReason),
 }
 
-/// Specific reason a `Warn` decline was raised. Each variant maps 1:1 to a
-/// planner-warning string the inline code used to emit.
+/// Specific reason a `Warn` decline was raised.
 enum AggregateDeclineReason {
     NotAllBm25,
-    NonEquiJoinQuals,
+    JoinPredicate(datafusion_build::PathPredicateDeclineReason),
     CrossJoin,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
@@ -156,10 +155,27 @@ impl AggregateDeclineReason {
                 "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
                 alias,
             ),
-            AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                alias,
-            ),
+            AggregateDeclineReason::JoinPredicate(reason) => {
+                let message = match reason {
+                    datafusion_build::PathPredicateDeclineReason::ExternParam => {
+                        "generic prepared-plan parameters in join predicates are not supported"
+                    }
+                    #[cfg(feature = "pg15")]
+                    datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
+                        "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15"
+                    }
+                    datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
+                        "outer-join ON residual predicates are not supported"
+                    }
+                    datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
+                        "the selected lower join path contains a predicate that AggregateScan cannot classify"
+                    }
+                };
+                AggregateScan::add_planner_warning(
+                    format!("Aggregate Scan (DataFusion) not used: {message}"),
+                    alias,
+                )
+            }
             AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 alias,
@@ -1199,17 +1215,26 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). Check both the cheapest path's
-        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
-        // references that our DataFusion backend can't apply.
-        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
-        }
+        let path_info = match unsafe {
+            datafusion_build::check_join_path_predicates(input_rel, &sources)
+        } {
+            datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
+            datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
+                return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
+            }
+            datafusion_build::JoinPathPredicateCheck::IncompletePath(tag) => {
+                pgrx::debug1!(
+                    "AggregateScan declined because the selected lower join path contains an opaque node: {tag:?}"
+                );
+                return Err(warn(AggregateDeclineReason::Other(
+                    "the selected lower join path cannot be inspected completely".into(),
+                )));
+            }
+        };
 
         // Extract the join tree from the parse tree
         let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
-            unsafe { extract_join_tree_from_parse(root, &sources, builder.args().input_rel()) }
+            unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
@@ -1254,13 +1279,20 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::FilterExpr::from_pg_node(
-                    (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext::Having {
-                        targetlist: &targetlist,
-                        plan: &plan,
-                        outer_root_id,
-                    },
+                Some(
+                    privdat::FilterExpr::from_pg_node(
+                        (*parse).havingQual,
+                        &datafusion_build::FilterExprBuildContext::Having {
+                            targetlist: &targetlist,
+                            plan: &plan,
+                            outer_root_id,
+                        },
+                    )
+                    .ok_or_else(|| {
+                        warn(AggregateDeclineReason::Other(
+                            "HAVING clause cannot be translated for aggregate-on-join".into(),
+                        ))
+                    })?,
                 )
             } else {
                 None

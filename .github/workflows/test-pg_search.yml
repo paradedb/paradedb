@@ -40,7 +40,14 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
-      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
+      # Default runner ships with 30GB — see https://runs-on.com/runners/linux/.
+      # 120GB rather than 80GB because lindera >= 4 embeds its CJK dictionaries
+      # uncompressed: 192MB of `include_bytes!` data per linked artifact (up from
+      # 39MB), ~1GB of dictionary rlibs per cargo profile, and ~830MB of crate
+      # metadata on top of that, since the data is a `const` rather than a `static`.
+      # Building the workspace debug and release both filled the 80GB volume, which
+      # surfaced as `insufficient disk space to complete the index build` mid-test.
+      - volume=120gb
       - extras=s3-cache
     if: ${{ !cancelled() }}
     strategy:
@@ -270,6 +277,15 @@ jobs:
           cat ~/.pgrx/${{ matrix.pg_version }}.log 2>/dev/null || echo "(log file not present)"
 
       # ---------- Tests ----------
+      # The index build aborts when its tablespace runs out of room, so a full
+      # volume shows up as a test assertion rather than as a build failure. Record
+      # the headroom we start the tests with, and what is consuming the volume, so
+      # the next time it happens we don't have to guess.
+      - name: Report disk usage
+        run: |
+          df -h /
+          du -xh -d1 ~/work ~/.cargo ~/.pgrx /usr/lib/postgresql 2>/dev/null | sort -h | tail -20
+
       - name: Run pg_search Integration Tests (system)
         if: matrix.pg_impl == 'system'
         run: |
@@ -337,6 +353,10 @@ jobs:
       - name: Print the Postgres Logs
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
+
+      - name: Report disk usage after tests
+        if: failure()
+        run: df -h /
 
   upload-coverage:
     name: Upload Combined Coverage to Codecov

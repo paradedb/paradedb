@@ -283,8 +283,8 @@ jobs:
       # the next time it happens we don't have to guess.
       - name: Report disk usage
         run: |
-          df -h /
-          du -xh -d1 ~/work ~/.cargo ~/.pgrx /usr/lib/postgresql 2>/dev/null | sort -h | tail -20
+          df -h
+          du -hL -d1 "$GITHUB_WORKSPACE" ~/.cargo ~/.pgrx /usr/lib/postgresql 2>/dev/null | sort -h | tail -25
 
       - name: Run pg_search Integration Tests (system)
         if: matrix.pg_impl == 'system'

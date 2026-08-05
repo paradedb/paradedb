@@ -19,6 +19,7 @@ use crate::api::version::Version;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
 use tantivy::query::{
     BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
@@ -192,6 +193,9 @@ impl MoreLikeThisQueryBuilder {
                         continue;
                     }
 
+                    let is_vector =
+                        matches!(search_field.field_type(), SearchFieldType::Vector(..));
+
                     if let Some(ref fields) = fields {
                         if !fields.contains(&search_field.field_name().clone().into_inner()) {
                             continue;
@@ -200,9 +204,13 @@ impl MoreLikeThisQueryBuilder {
                         if search_field.is_json() {
                             panic!("json fields are not supported for more_like_this");
                         }
+
+                        if is_vector {
+                            panic!("vector fields are not supported for more_like_this");
+                        }
                     }
 
-                    if categorized.is_json {
+                    if categorized.is_json || is_vector {
                         continue;
                     }
 

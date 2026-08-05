@@ -105,7 +105,10 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v3-rust-cache"
+          # v4 on 0.25.x: restoring the v3 entries wedges runs-on instances
+          # (runner dies mid-restore with "lost communication"); a cache miss
+          # cold-builds instead.
+          prefix-key: "v4-rust-cache"
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true

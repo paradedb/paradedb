@@ -13,6 +13,7 @@ FROM rust:1.97-slim
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install build and runtime dependencies. `jq` is used during build to extract
+# the test binary path from cargo's JSON output.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     lld \

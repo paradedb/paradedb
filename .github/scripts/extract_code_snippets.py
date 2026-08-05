@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Extract verification snippets from docs CodeGroups."""
 
-from pathlib import Path
 import re
 import shutil
 import sys
+from pathlib import Path
 
-
-CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.S)
-FENCE_PATTERN = re.compile(r"^```([^\n]*)\n(.*?)^```[ \t]*$", re.M | re.S)
+CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.DOTALL)
+FENCE_PATTERN = re.compile(r"^```([^\n]*)\n(.*?)^```[ \t]*$", re.MULTILINE | re.DOTALL)
 TARGET_SUFFIXES = {
     "sql": "sql",
     "django": "py",

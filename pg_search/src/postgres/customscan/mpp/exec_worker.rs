@@ -38,6 +38,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
     DistributedConfig, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
 };
+use futures::StreamExt;
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
@@ -233,11 +234,15 @@ pub(crate) fn run_mpp_worker(
         n_workers,
     ) {
         Ok(v) => v,
-        Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
+        Err(e) => {
+            worker_mesh.clear_keep_alive_senders();
+            pgrx::error!("mpp worker: build fragment assignments failed: {e}");
+        }
     };
     if fragments.is_empty() {
         // The launch spawns `producer_count <= max_tasks` producers, so the widest stage's
         // round-robin assigns every proc at least one fragment.
+        worker_mesh.clear_keep_alive_senders();
         pgrx::error!("mpp worker: no fragments assigned (proc={this_proc})");
     }
 
@@ -262,7 +267,10 @@ pub(crate) fn run_mpp_worker(
         });
         match collected {
             Ok(frames) => frames,
-            Err(e) => pgrx::error!("mpp worker: plan frames did not arrive: {e}"),
+            Err(e) => {
+                worker_mesh.clear_keep_alive_senders();
+                pgrx::error!("mpp worker: plan frames did not arrive: {e}");
+            }
         }
     };
     let decode_ctx = session.task_ctx();
@@ -273,6 +281,7 @@ pub(crate) fn run_mpp_worker(
     // allocations aggressively; decode builds the plan graph and can spike memory.
     for (fragment, frame) in fragments.iter().zip(frames) {
         let Some(set_plan) = frame.set_plan else {
+            worker_mesh.clear_keep_alive_senders();
             pgrx::error!(
                 "mpp worker: SetPlan frame without a request (stage_id={}, task_idx={})",
                 fragment.stage_id,
@@ -290,11 +299,14 @@ pub(crate) fn run_mpp_worker(
             &DeduplicatingProtoConverter {},
         ) {
             Ok(plan) => plans.push(plan),
-            Err(e) => pgrx::error!(
-                "mpp worker: decode dispatched plan failed (stage_id={}, task_idx={}): {e}",
-                fragment.stage_id,
-                fragment.task_idx
-            ),
+            Err(e) => {
+                worker_mesh.clear_keep_alive_senders();
+                pgrx::error!(
+                    "mpp worker: decode dispatched plan failed (stage_id={}, task_idx={}): {e}",
+                    fragment.stage_id,
+                    fragment.task_idx
+                );
+            }
         }
     }
 
@@ -314,6 +326,7 @@ pub(crate) fn run_mpp_worker(
     // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
     // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
     let held = HeldInterrupts::hold();
+    let mesh_for_block = Arc::clone(&worker_mesh);
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
@@ -374,10 +387,10 @@ pub(crate) fn run_mpp_worker(
                     base.clone_with_header(MppFrameHeader::batch(
                         fragment.stage_id,
                         q_u32,
-                        worker_mesh.this_proc,
+                        mesh_for_block.this_proc,
                     ))
                     .with_cooperative_drain(
-                        Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
+                        Arc::clone(&mesh_for_block) as Arc<dyn CooperativeDrainSet>
                     ),
                 )));
             }
@@ -402,7 +415,7 @@ pub(crate) fn run_mpp_worker(
 
             // The fragment arrives ready-to-run: the leader serialized it with nested stages
             // already `Remote`, so its boundary leaves read the mesh through the session's
-            // `ShmChannelResolver`. Nothing here converts or dispatches.
+            // `ShmChannelResolver`.
             let plan = Arc::clone(frag_plan);
             // Kept for the post-run metrics frame: the executed nodes (and their metrics)
             // live in this plan.
@@ -412,11 +425,93 @@ pub(crate) fn run_mpp_worker(
                 fragment.task_count,
                 Arc::clone(&plan),
             ));
-            futures.push(Box::pin(run_worker_fragment(
-                plan,
-                per_partition_sinks,
-                task_ctx,
-            )));
+
+            let mesh = Arc::clone(&mesh_for_block);
+            let stage_id = fragment.stage_id;
+            let task_idx = fragment.task_idx as u32;
+            let n_out = per_partition_sinks.len();
+            let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
+
+            // Defer execution until an ExecuteTask RPC request arrives for a target partition range.
+            futures.push(Box::pin(async move {
+                let mut rx = mesh.take_execute_task_rx(stage_id, task_idx).await?;
+                let mut sub_futures = futures::stream::FuturesUnordered::new();
+                let mut partitions_requested = 0;
+
+                if n_out == 0 {
+                    return Ok::<_, datafusion::common::DataFusionError>(());
+                }
+
+                loop {
+                    if partitions_requested >= n_out && sub_futures.is_empty() {
+                        break;
+                    }
+                    tokio::select! {
+                        frame_res = rx.recv(), if partitions_requested < n_out => {
+                            match frame_res {
+                                Some(Ok(frame)) => {
+                                    let (request, _headers) = frame.into_parts()?;
+                                    let start = request.target_partition_start as usize;
+                                    let end = request.target_partition_end as usize;
+                                    let len = end - start;
+
+                                    if end > sinks_opt.len() || start > end {
+                                        return Err(datafusion::common::DataFusionError::Internal(format!(
+                                            "mpp worker dispatch: requested partition range {start}..{end} \
+                                             out of bounds for sink count {} (stage_id={stage_id}, task_idx={task_idx})",
+                                            sinks_opt.len()
+                                        )));
+                                    }
+
+                                    let mut task_sinks = Vec::with_capacity(len);
+                                    for (i, sink) in sinks_opt.iter_mut().enumerate().take(end).skip(start) {
+                                        let Some(s) = sink.take() else {
+                                            return Err(datafusion::common::DataFusionError::Internal(format!(
+                                                "mpp worker dispatch: sink for partition {i} already taken \
+                                                 (stage_id={stage_id}, task_idx={task_idx})",
+                                            )));
+                                        };
+                                        task_sinks.push(s);
+                                    }
+
+                                    sub_futures.push(run_worker_fragment(
+                                        Arc::clone(&plan),
+                                        task_sinks,
+                                        Arc::clone(&task_ctx),
+                                        start..end,
+                                    ));
+                                    partitions_requested += len;
+                                }
+                                Some(Err(e)) => {
+                                    return Err(datafusion::common::DataFusionError::Execution(format!(
+                                        "mpp worker rx error: {e}, stage: {stage_id}, task: {task_idx}, \
+                                         requested: {partitions_requested}/{n_out}"
+                                    )));
+                                }
+                                None => {
+                                    partitions_requested = n_out;
+                                }
+                            }
+                        }
+                        next_res = sub_futures.next(), if !sub_futures.is_empty() => {
+                            match next_res {
+                                Some(Ok(_)) => {}
+                                Some(Err(e)) => return Err(e),
+                                None => unreachable!(),
+                            }
+                        }
+                        _ = tokio::task::yield_now() => {
+                            if let Err(e) = mesh.inbound_receiver().try_drain_pass() {
+                                return Err(datafusion::common::DataFusionError::Execution(format!(
+                                    "mpp worker drain error: {e}, stage: {stage_id}, task: {task_idx}, \
+                                     requested: {partitions_requested}/{n_out}"
+                                )));
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }));
         }
         // The metrics frames go to the leader after the fragments finish; the clone keeps one
         // sender on the leader's inbox alive past the drop below, which only delays that ring's
@@ -443,29 +538,28 @@ pub(crate) fn run_mpp_worker(
         // Deadlock detector. Under `paradedb.mpp_debug`, if any fragment hasn't completed
         // within 30 s the dispatcher surfaces an error instead of letting the backend spin
         // forever.
-        let join_fut = futures::future::join_all(futures);
+        let mut frag_stream: futures::stream::FuturesUnordered<_> = futures.into_iter().collect();
+        let join_fut = async {
+            while let Some(res) = frag_stream.next().await {
+                res?;
+            }
+            Ok::<(), datafusion::common::DataFusionError>(())
+        };
         let outcome: Result<(), datafusion::common::DataFusionError> = if crate::gucs::mpp_debug() {
             match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
-                Ok(results) => results
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(|_| ()),
+                Ok(res) => res,
                 Err(_) => {
                     crate::mpp_log!(
-                        "mpp worker dispatch this_proc={this_proc} HANG: join_all exceeded 30s"
+                        "mpp worker dispatch this_proc={this_proc} HANG: fragment execution exceeded 30s"
                     );
                     Err(datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch (proc={this_proc}): join_all exceeded 30s; \
+                        "mpp worker dispatch (proc={this_proc}): fragment execution exceeded 30s; \
                          deadlock detector triggered"
                     )))
                 }
             }
         } else {
-            join_fut
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()
-                .map(|_| ())
+            join_fut.await
         };
 
         // Report each fragment's metrics to the leader, even after a fragment error: partial
@@ -491,6 +585,7 @@ pub(crate) fn run_mpp_worker(
     drop(held);
     check_for_interrupts();
     if let Err(e) = result {
+        worker_mesh.clear_keep_alive_senders();
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }
 }

@@ -142,7 +142,7 @@ pub type ControlSenders = std::sync::Mutex<Vec<Option<MppSender>>>;
 /// State retained by PostgreSQL until DSM detach. The callback marks the shared mesh dead before
 /// clearing stored senders, so escaped sender clones can later drop without touching unmapped DSM.
 struct DsmDetachState {
-    alive: shm::AliveFlag,
+    mesh: Arc<MppMesh>,
     control_senders: Arc<ControlSenders>,
 }
 
@@ -277,9 +277,7 @@ unsafe extern "C-unwind" fn release_control_senders_on_detach(
 fn release_control_senders_on_detach_impl(state: &DsmDetachState) {
     // `send_set_plan` can retain a sender clone after releasing the vector lock. Invalidate every
     // handle before clearing the known senders so escaped clones no-op if dropped after DSM unmaps.
-    state
-        .alive
-        .store(false, std::sync::atomic::Ordering::Release);
+    state.mesh.mark_detached();
 
     // Tolerate a poisoned mutex rather than panic across the C boundary; the Vec data is still
     // valid to clear.
@@ -304,7 +302,7 @@ impl MppLeaderState {
     /// `self.control_senders`.
     pub unsafe fn register_control_senders_on_detach(&self, seg: *mut pg_sys::dsm_segment) {
         let state = Arc::new(DsmDetachState {
-            alive: self.mesh.detached_flag(),
+            mesh: Arc::clone(&self.mesh),
             control_senders: Arc::clone(&self.control_senders),
         });
         unsafe {
@@ -369,7 +367,7 @@ mod tests {
             .clone_with_header(MppFrameHeader::set_plan(0, 0, 0));
         let mesh = attach.mesh;
         let state = DsmDetachState {
-            alive: mesh.detached_flag(),
+            mesh: Arc::clone(&mesh),
             control_senders: Arc::new(std::sync::Mutex::new(attach.outbound_senders)),
         };
 

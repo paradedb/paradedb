@@ -881,11 +881,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        // TODO: The datafusion-distributed fork currently calls `execute` for ALL partitions in
-        // `run_worker_fragment`, even though this variant was only assigned to process a single
-        // partition. We should triage whether `run_worker_fragment` should be accessing all
-        // partitions, or only assigned partitions for a task. Until then, returning an empty
-        // stream for non-assigned partitions satisfies the fragment execution without crashing.
+        // Under DataFusion Distributed execution, upstream stage operators (such as `RepartitionExec`)
+        // call `execute(p)` for all partition indices `p` in the stage's requested partition range.
+        // For partitions where `p != assigned`, we return an empty stream so multi-partition
+        // stage pipelines can pull and repartition data without failing.
         if let Some(assigned) = self.assigned_partition
             && partition != assigned
         {
@@ -1225,14 +1224,14 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
 /// available workers.
 pub(crate) fn pg_search_scan_desired_task_count(
     ev: DesiredTaskCountEvent,
-) -> Option<DesiredTaskCountEventResponse> {
+) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {
     let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
     let partition_count = ev.plan.properties().output_partitioning().partition_count();
     // `maximum` rather than `desired`: `partition_count` is already clamped to the number
     // of physical index segments (when range sampling is disabled). A single segment cannot
     // be concurrently scanned by multiple workers, so scaling the stage past it would just
     // starve tasks with useless setup work (like building empty hash tables) for zero rows.
-    Some(DesiredTaskCountEventResponse::maximum(partition_count))
+    Some(Ok(DesiredTaskCountEventResponse::maximum(partition_count)))
 }
 
 /// Replaces a `PgSearchScanPlan` leaf with per-task variants once its stage's task

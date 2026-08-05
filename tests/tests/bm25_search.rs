@@ -766,10 +766,6 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 }
 
-// TODO: This test is currently ignored because hybrid plans did not reliably trigger the custom
-// scan on a partial BM25 index. The issue this pointed at (#2747) has since been closed, so the
-// test should be re-run and un-ignored if it now passes.
-#[ignore]
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     r#"

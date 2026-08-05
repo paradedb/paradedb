@@ -114,7 +114,7 @@ jobs:
       - name: Install required system tools
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            lsof build-essential clang flex bison pkg-config ca-certificates git \
+            lsof build-essential clang lld flex bison pkg-config ca-certificates git \
             libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
             libcurl4-openssl-dev libopenblas-dev
 
@@ -175,7 +175,7 @@ jobs:
       - name: Build & install Citus 13 (PG 15)
         if: matrix.pg_version == 15
         env:
-          CITUS_VERSION: v13.0.1
+          CITUS_VERSION: v13.3.0
         run: |
           set -euxo pipefail
 
@@ -195,7 +195,7 @@ jobs:
       - name: Build & install Citus 14 (PG 16-18)
         if: matrix.pg_version >= 16
         env:
-          CITUS_VERSION: v14.0.0
+          CITUS_VERSION: v14.1.0
         run: |
           set -euxo pipefail
 

@@ -484,6 +484,67 @@ mod tests {
         );
     }
 
+    // An unknown word's details come from `unk.def`, where every field past the
+    // part of speech is the placeholder `*`. Substituting that into the surface
+    // form indexes every out-of-vocabulary token as an asterisk. 1.5.1 is
+    // correct, 4.0.1 is not: lindera/lindera#853.
+    #[rstest]
+    fn test_lindera_japanese_reading_form_keeps_unknown_words() {
+        let input = "ParadeDB は Postgres 用の検索エンジンです。";
+
+        let mut tokenizer = LinderaJapaneseTokenizer::with_options(false, false, true);
+        let tokens = token_texts(&mut tokenizer, input);
+
+        // Known words read as katakana; the three IPADIC does not know survive.
+        assert_eq!(
+            tokens,
+            vec![
+                "ParadeDB",
+                "ハ",
+                "Postgres",
+                "ヨウ",
+                "ノ",
+                "ケンサク",
+                "エンジン",
+                "デス",
+                "。"
+            ]
+        );
+        assert!(
+            !tokens.iter().any(|token| token == "*"),
+            "reading_form substituted the `*` placeholder: {tokens:?}"
+        );
+    }
+
+    // ko-dic has entries for some punctuation with no reading, so `,` and `!`
+    // already come out as `*`. Asserted as they are, so the bump shows it.
+    #[rstest]
+    fn test_lindera_korean_reading_form_keeps_unknown_words() {
+        let input = "한국어 검색 엔진 ParadeDB, 버전 0.25.1 출시!";
+
+        let mut tokenizer = LinderaKoreanTokenizer::with_options(false, false, true);
+        let tokens = token_texts(&mut tokenizer, input);
+
+        assert_eq!(
+            tokens,
+            vec![
+                "한국어",
+                "검색",
+                "엔진",
+                "ParadeDB",
+                "*", // ","
+                "버전",
+                "0",
+                ".",
+                "25",
+                ".",
+                "1",
+                "출시",
+                "*", // "!"
+            ]
+        );
+    }
+
     #[rstest]
     fn test_lindera_chinese_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaChineseTokenizer::default();

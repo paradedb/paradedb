@@ -246,66 +246,71 @@ values = [
   "2000",
 ]
 
-# pg_search: the distance-ratio gate. Runs past 1.0 because 1% at 10m was still climbing at 0.9.
+# pg_search: the work-budget ceiling (the bounds gate skips provably-useless
+# clusters within it, so the ceiling is the recall/latency knob). 1.0 allows
+# an exhaustive scan.
 [sweeps.pg_search.knn_top10_unfiltered]
-param = "pg_search_probe_epsilon_unfiltered"
+param = "pg_search_max_probe_unfiltered"
 values = [
-  "0.1",
-  "0.15",
+  "0.001",
+  "0.002",
+  "0.003",
+  "0.005",
+  "0.0075",
+  "0.01",
+  "0.015",
+  "0.02",
+  "0.03",
+  "0.05",
+  "0.08",
+  "0.12",
   "0.2",
-  "0.25",
-  "0.3",
   "0.35",
-  "0.4",
-  "0.45",
   "0.5",
-  "0.55",
-  "0.6",
-  "0.7",
-  "0.8",
-  "0.9",
+  "0.75",
   "1.0",
-  "1.2",
 ]
 
 [sweeps.pg_search.knn_top10_10pct]
-param = "pg_search_probe_epsilon_10pct"
+param = "pg_search_max_probe_10pct"
 values = [
-  "0.1",
-  "0.15",
+  "0.001",
+  "0.002",
+  "0.003",
+  "0.005",
+  "0.0075",
+  "0.01",
+  "0.015",
+  "0.02",
+  "0.03",
+  "0.05",
+  "0.08",
+  "0.12",
   "0.2",
-  "0.25",
-  "0.3",
   "0.35",
-  "0.4",
-  "0.45",
   "0.5",
-  "0.55",
-  "0.6",
-  "0.7",
-  "0.8",
-  "0.9",
+  "0.75",
   "1.0",
-  "1.2",
 ]
 
 [sweeps.pg_search.knn_top10_1pct]
-param = "pg_search_probe_epsilon_1pct"
+param = "pg_search_max_probe_1pct"
 values = [
-  "0.1",
-  "0.15",
+  "0.001",
+  "0.002",
+  "0.003",
+  "0.005",
+  "0.0075",
+  "0.01",
+  "0.015",
+  "0.02",
+  "0.03",
+  "0.05",
+  "0.08",
+  "0.12",
   "0.2",
-  "0.25",
-  "0.3",
   "0.35",
-  "0.4",
-  "0.45",
   "0.5",
-  "0.55",
-  "0.6",
-  "0.7",
-  "0.8",
-  "0.9",
+  "0.75",
   "1.0",
-  "1.2",
 ]

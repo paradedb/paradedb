@@ -87,9 +87,9 @@ class ArrayDemo(Base):
 engine = create_engine(DATABASE_URL, future=True)
 
 __all__ = [
-    "Base",
     "DATABASE_URL",
     "ArrayDemo",
+    "Base",
     "MockItem",
     "Order",
     "engine",

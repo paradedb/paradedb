@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use futures::future::join_all;
 use pretty_assertions::assert_eq;
-use rand::Rng;
+use rand::RngExt;
 use rstest::*;
 use sqlx::{AssertSqlSafe, Row};
 use tests::fixtures::*;
@@ -272,10 +272,14 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
     "CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined))"
         .execute(&mut conn);
 
-    // CRITICAL: Disable Custom Scan to force the use of Index Only Scan (Index AM path)
-    // Enable parallel workers and force parallel plans
+    // CRITICAL: Disable both custom-scan layers to force the native PostgreSQL
+    // parallel Index AM path. AggregateScan can otherwise satisfy COUNT over
+    // this join itself, which would bypass the parallel-hash behavior this test
+    // is specifically intended to exercise.
+    // Enable parallel workers and force parallel plans.
     r#"
     SET paradedb.enable_custom_scan = false;
+    SET paradedb.enable_aggregate_custom_scan = false;
     SET max_parallel_workers_per_gather = 2;
     SET parallel_tuple_cost = 0;
     SET parallel_setup_cost = 0;

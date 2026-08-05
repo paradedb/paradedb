@@ -201,6 +201,7 @@ impl EphemeralPostgres {
 
 // Test function to test the ephemeral PostgreSQL setup
 #[rstest]
+#[async_std::test]
 async fn test_logical_replication() -> Result<()> {
     let config = "
         wal_level = logical
@@ -387,6 +388,7 @@ async fn test_logical_replication() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let config = "
         wal_level = logical
@@ -485,6 +487,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_physical_streaming_replication() -> Result<()> {
     // Create a unique directory for WAL archiving
     let archive_dir = TempDir::new().expect("Failed to create archive dir for WALs");
@@ -643,6 +646,7 @@ async fn test_physical_streaming_replication() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "

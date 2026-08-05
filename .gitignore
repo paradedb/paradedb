@@ -10,10 +10,11 @@
 # Cargo
 target/
 
-# SSH
+# Credentials
 *.pem
-*.json
-!docs/docs.json
+*credentials*.json
+*service-account*.json
+*-key.json
 
 # Code coverage
 *.profraw
@@ -39,6 +40,8 @@ profile.json*
 
 # Node
 node_modules/
+package.json
+package-lock.json
 
 # Nix artifacts
 result*

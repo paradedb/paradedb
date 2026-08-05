@@ -4,6 +4,7 @@
   cargo-pgrx,
   fetchurl,
   lib,
+  lld,
   nix-update-script,
   pkg-config,
   postgresql,
@@ -64,7 +65,7 @@ buildPgrxExtension (finalAttrs: {
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-ndxGpgSuI8uL2FLGm6IYHnCfkScb0jCfqA1X1IbzNcg=";
+  cargoHash = "sha256-vW8NFEztktp2vE2Bt2d3MAQqMONsjy/rhkZUFB0yOoE=";
 
   inherit cargo-pgrx postgresql;
 
@@ -89,7 +90,9 @@ buildPgrxExtension (finalAttrs: {
     "pg_search"
   ];
 
+  # .cargo/config.toml links Linux builds with LLD.
   nativeBuildInputs = [
+    lld
     pkg-config
   ];
 

@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField, IntegerRangeField
 from django.db import models
 from paradedb.queryset import ParadeDBManager
+from paradedb.vector import VectorField
 
 DATABASES = {
     "default": {
@@ -58,6 +59,7 @@ class MockItem(models.Model):
     last_updated_date = models.DateField(null=True)
     latest_available_time = models.TimeField(null=True)
     weight_range = IntegerRangeField(null=True)
+    embedding = VectorField(dimensions=8, null=True)
 
     objects = ParadeDBManager()
 

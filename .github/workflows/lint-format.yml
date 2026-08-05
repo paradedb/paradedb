@@ -35,10 +35,6 @@ jobs:
             false
           fi
 
-      # Nothing else parses the tracked JSON: prettier ignores **/*.json and the
-      # check-json pre-commit hook only runs on machines that run the hooks. A
-      # missing comma in docs/docs.json reached main that way, dropping a page
-      # from the documentation navigation.
       - name: Check JSON Validity
         run: |
           FAILED=""

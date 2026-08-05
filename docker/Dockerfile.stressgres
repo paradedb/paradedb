@@ -18,8 +18,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install build and runtime dependencies. Upgrade existing OS packages first so
 # we pick up the latest Debian security fixes regardless of the base layer's age.
-# `lld` is required: .cargo/config.toml links Linux targets with `-fuse-ld=lld`,
-# and without it cc fails the link with "cannot find 'ld'".
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
     lld \

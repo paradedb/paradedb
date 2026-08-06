@@ -73,8 +73,6 @@ buildPgrxExtension (finalAttrs: {
   # LINDERA_BUILD_DICTIONARY_CACHE_DIR environment variable prevents the
   # build.rs files in the Lindera crates from downloading their dictionary
   # from an external URL, which doesn't work in the Nix sandbox.
-  # Lindera 5 renamed this variable; it was LINDERA_CACHE up to and
-  # including 1.5.1, and that name is no longer read at all.
   preConfigure = ''
     export LINDERA_BUILD_DICTIONARY_CACHE_DIR=$TMPDIR/lindera-cache
     mkdir -p $LINDERA_BUILD_DICTIONARY_CACHE_DIR/${linderaVersion}

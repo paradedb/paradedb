@@ -1,0 +1,176 @@
+# workflows/measure-lindera-footprint.yml
+#
+# Measure Lindera Footprint
+#
+# TEMPORARY — delete before merging. This exists to answer one question on the
+# lindera 5 upgrade: how much disk do the dictionary artifacts actually consume
+# relative to `main`, now that 5.0.1 binds the embedded dictionary bytes to a
+# `static` rather than a `const`?
+#
+# Builds the tokenizers crate three times on one runner, so the toolchain,
+# architecture, and filesystem are identical across the comparison:
+#
+#   main    lindera 1.5.1, `const`, `compress` feature  (the baseline)
+#   5.0.0   lindera 5.0.0, `const`, no compression      (what blew past 80GB)
+#   5.0.1   lindera 5.0.1, `static`, no compression     (this PR)
+#
+# The volume here is deliberately oversized. The point is to let every config
+# finish so we get its number — not to test whether it fits. Whether 80GB is
+# enough is what the unmodified test-pg_search workflow answers.
+
+name: Measure Lindera Footprint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/measure-lindera-footprint.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: measure-lindera-footprint-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  measure-lindera-footprint:
+    name: Measure Lindera Footprint
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-arm64
+      - volume=200gb
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      # .cargo/config.toml links Linux builds with LLD.
+      - name: Install required system tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            build-essential clang lld pkg-config ca-certificates git
+
+      - name: Measure each configuration
+        run: |
+          set -euo pipefail
+          RESULTS=$(mktemp)
+
+          # Sum the sizes of every artifact matching a glob, or 0 when none match.
+          sum_glob() {
+            local total=0 f
+            for f in $1; do
+              [ -e "$f" ] || continue
+              total=$((total + $(stat -c%s "$f")))
+            done
+            echo "$total"
+          }
+
+          measure() {
+            local label="$1" tgt="$RUNNER_TEMP/tgt-$1"
+            rm -rf "$tgt"
+
+            echo "::group::[$label] cargo build --release"
+            CARGO_TARGET_DIR="$tgt" cargo build -p tokenizers --release
+            echo "::endgroup::"
+
+            echo "::group::[$label] cargo test --release --no-run"
+            CARGO_TARGET_DIR="$tgt" cargo test -p tokenizers --release --no-run
+            echo "::endgroup::"
+
+            echo "::group::[$label] cargo build (dev)"
+            CARGO_TARGET_DIR="$tgt" cargo build -p tokenizers
+            echo "::endgroup::"
+
+            # The dictionary payload lives in the lindera-{ipadic,ko-dic,cc-cedict}
+            # rlibs and their metadata. Sum the family rather than any one crate.
+            local rel_rlib rel_rmeta dev_rlib dev_rmeta testbin rel_total dev_total grand
+            rel_rlib=$(sum_glob "$tgt/release/deps/liblindera*.rlib")
+            rel_rmeta=$(sum_glob "$tgt/release/deps/liblindera*.rmeta")
+            dev_rlib=$(sum_glob "$tgt/debug/deps/liblindera*.rlib")
+            dev_rmeta=$(sum_glob "$tgt/debug/deps/liblindera*.rmeta")
+
+            # The linked test binary is the closest stand-in for pg_search.so:
+            # it is what the embedded dictionaries actually cost per artifact.
+            testbin=$(find "$tgt/release/deps" -maxdepth 1 -type f -executable \
+              -name 'tokenizers-*' -printf '%s\n' | sort -rn | head -1)
+            testbin=${testbin:-0}
+
+            rel_total=$(du -sb "$tgt/release" | cut -f1)
+            dev_total=$(du -sb "$tgt/debug" | cut -f1)
+            grand=$(du -sb "$tgt" | cut -f1)
+
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+              "$label" "$rel_rlib" "$rel_rmeta" "$dev_rlib" "$dev_rmeta" \
+              "$testbin" "$rel_total" "$dev_total" "$grand" >> "$RESULTS"
+
+            # Reclaim the volume before the next configuration.
+            rm -rf "$tgt"
+          }
+
+          restore_pr_tree() {
+            git checkout -- Cargo.lock tokenizers tests
+          }
+
+          # --- main: lindera 1.5.1, const, compress ---
+          git checkout "origin/${{ github.base_ref || 'main' }}" -- Cargo.lock tokenizers tests
+          measure main
+          restore_pr_tree
+
+          # --- 5.0.0: const, uncompressed ---
+          sed -i 's/"5\.0\.1"/"5.0.0"/g' tokenizers/Cargo.toml
+          cargo update --precise 5.0.0 \
+            lindera lindera-analysis lindera-dictionary \
+            lindera-ipadic lindera-ko-dic lindera-cc-cedict
+          measure 5.0.0
+          restore_pr_tree
+
+          # --- 5.0.1: static, uncompressed (this PR) ---
+          measure 5.0.1
+
+          python3 - "$RESULTS" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import sys
+
+          rows = [line.split("\t") for line in open(sys.argv[1]).read().splitlines() if line]
+          cols = ["rel_rlib", "rel_rmeta", "dev_rlib", "dev_rmeta",
+                  "testbin", "rel_total", "dev_total", "grand"]
+          data = {r[0]: dict(zip(cols, (int(x) for x in r[1:]))) for r in rows}
+          order = [k for k in ("main", "5.0.0", "5.0.1") if k in data]
+          mb = lambda n: f"{n / (1 << 20):.0f} MB"
+
+          def ratio(label, key):
+              base = data.get("main", {}).get(key)
+              if not base or label == "main":
+                  return "—"
+              return f"{data[label][key] / base:.2f}x"
+
+          print("## Lindera dictionary footprint\n")
+          print("Same runner, same toolchain, `cargo build -p tokenizers`. "
+                "`liblindera*` sums the ipadic, ko-dic, and cc-cedict artifacts.\n")
+          print("| config | release rlib | release rmeta | dev rlib | dev rmeta | "
+                "linked test bin | target/ total | vs main |")
+          print("|---|---|---|---|---|---|---|---|")
+          for label in order:
+              d = data[label]
+              print(f"| `{label}` | {mb(d['rel_rlib'])} | {mb(d['rel_rmeta'])} | "
+                    f"{mb(d['dev_rlib'])} | {mb(d['dev_rmeta'])} | {mb(d['testbin'])} | "
+                    f"{mb(d['grand'])} | {ratio(label, 'grand')} |")
+
+          if {"5.0.0", "5.0.1"} <= data.keys():
+              saved = data["5.0.0"]["grand"] - data["5.0.1"]["grand"]
+              print(f"\n`static` over `const` gives back **{mb(saved)}** "
+                    "across the two profiles.")
+          PY
+
+          cat "$GITHUB_STEP_SUMMARY"

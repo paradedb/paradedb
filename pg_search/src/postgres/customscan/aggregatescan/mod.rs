@@ -660,14 +660,6 @@ impl CustomScan for AggregateScan {
         // query so blocked producers stop).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
-            // Release the DSM-backed control senders before `recv`. A producer's `work_mem`
-            // overflow (or any worker error) is re-raised in the leader from inside `recv`, which
-            // longjmps out of this hook; a release placed after it would never run, leaving the
-            // senders for the detach callback, which clears them while the mapping is still live.
-            // The query is done producing here, so the senders aren't needed.
-            if let Some(leader) = df_state.mpp.leader() {
-                leader.release_control_senders();
-            }
             // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
             // early-terminated query the rings still hold data the leader will never read; a
             // worker's bounded metrics send spins on the full ring until the leader frees slots.
@@ -678,7 +670,7 @@ impl CustomScan for AggregateScan {
                 if let Some(plan) = df_state.physical_plan.as_ref() {
                     crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                         plan,
-                        &leader.mesh,
+                        &leader.session.mesh,
                     );
                 }
             }
@@ -1599,7 +1591,7 @@ impl AggregateScan {
                         let source =
                             crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
                         let exec_ctx =
-                            Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                            Self::build_mpp_session_context(Some(Arc::clone(&leader.session.mesh)))
                                 .with_distributed_dispatch_plan_source(source);
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;

@@ -167,7 +167,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     let region_bytes = unsafe { region_total(region_ptr) };
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
     let worker = match unsafe { worker_setup(region_ptr, region_bytes, worker_number) } {
-        Ok(w) => w,
+        Ok(session) => session,
         Err(e) => pgrx::error!("mpp worker: worker_setup failed: {e}"),
     };
 
@@ -182,9 +182,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     let inputs = MppWorkerInputs {
         parallel_state: Some(scan_ptr),
         plan_sources_count,
-        plan_bytes: worker.plan_bytes,
-        worker_mesh: worker.mesh,
-        outbound_senders: worker.outbound_senders,
+        session: worker,
     };
 
     let runtime = match tokio::runtime::Builder::new_current_thread()

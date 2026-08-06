@@ -67,21 +67,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloc-no-stdlib"
-version = "2.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
-
-[[package]]
-name = "alloc-stdlib"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94fb8275041c72129eb51b7d0322c29b8387a0386127718b096429201a5d6ece"
-dependencies = [
- "alloc-no-stdlib",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1116,27 +1101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "brotli"
-version = "8.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
-dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
- "brotli-decompressor",
-]
-
-[[package]]
-name = "brotli-decompressor"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "874bb8112abecc98cbd6d81ea4fa7e94fb9449648c93cc89aa40c81c24d7de03"
-dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
-]
-
-[[package]]
 name = "built"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2034,13 +1998,11 @@ dependencies = [
  "datafusion-datasource-arrow",
  "datafusion-datasource-csv",
  "datafusion-datasource-json",
- "datafusion-datasource-parquet",
  "datafusion-execution",
  "datafusion-expr",
  "datafusion-expr-common",
  "datafusion-functions",
  "datafusion-functions-aggregate",
- "datafusion-functions-nested",
  "datafusion-functions-table",
  "datafusion-functions-window",
  "datafusion-optimizer",
@@ -2057,8 +2019,6 @@ dependencies = [
  "log",
  "object_store",
  "parking_lot",
- "parquet",
- "sqlparser",
  "tempfile",
  "tokio",
  "url",
@@ -2130,7 +2090,6 @@ dependencies = [
  "log",
  "num-traits",
  "object_store",
- "parquet",
  "sqlparser",
  "tokio",
  "uuid",
@@ -2244,40 +2203,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "datafusion-datasource-parquet"
-version = "54.0.0"
-source = "git+https://github.com/apache/datafusion?rev=8d680db14a9134837bbd3d53497dd58c985c51a7#8d680db14a9134837bbd3d53497dd58c985c51a7"
-dependencies = [
- "arrow 59.1.0",
- "arrow-schema 59.1.0",
- "async-trait",
- "bytes",
- "datafusion-common",
- "datafusion-common-runtime",
- "datafusion-datasource",
- "datafusion-execution",
- "datafusion-expr",
- "datafusion-functions",
- "datafusion-functions-aggregate-common",
- "datafusion-physical-expr",
- "datafusion-physical-expr-adapter",
- "datafusion-physical-expr-common",
- "datafusion-physical-plan",
- "datafusion-pruning",
- "datafusion-session",
- "futures",
- "itertools 0.15.0",
- "log",
- "object_store",
- "parking_lot",
- "parquet",
- "tokio",
-]
-
-[[package]]
 name = "datafusion-distributed"
 version = "2.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-07-30-083335#d0310831503abc905b8b312732602676a4a97fb9"
+source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-06-032638#8426f845f4fc0edbffdf9152c20840fe7e01ba5f"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2637,7 +2565,6 @@ dependencies = [
  "datafusion-datasource-arrow",
  "datafusion-datasource-csv",
  "datafusion-datasource-json",
- "datafusion-datasource-parquet",
  "datafusion-execution",
  "datafusion-expr",
  "datafusion-functions-table",
@@ -5598,41 +5525,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parquet"
-version = "59.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5302d4da74d6596a1f11f9928767995b53bca657cbeea1e4e8c5074f8a1157dd"
-dependencies = [
- "ahash 0.8.12",
- "arrow-array 59.1.0",
- "arrow-buffer 59.1.0",
- "arrow-data 59.1.0",
- "arrow-ipc",
- "arrow-schema 59.1.0",
- "arrow-select 59.1.0",
- "base64",
- "brotli",
- "bytes",
- "chrono",
- "flate2",
- "futures",
- "half 2.7.1",
- "hashbrown 0.17.1",
- "lz4_flex",
- "num-bigint",
- "num-integer",
- "num-traits",
- "object_store",
- "paste",
- "seq-macro",
- "simdutf8",
- "snap",
- "tokio",
- "twox-hash",
- "zstd",
-]
-
-[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7331,12 +7223,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "seq-macro"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
-
-[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7605,12 +7491,6 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 dependencies = [
  "serde",
 ]
-
-[[package]]
-name = "snap"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
 
 [[package]]
 name = "soa_derive"

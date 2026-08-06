@@ -8,7 +8,8 @@
 # https://www.paradedb.com/blog/benchmarker-iteration.
 #
 # How it works, end to end:
-#   1. Build pg_search from the checked-out source with cargo-pgrx.
+#   1. Compile pg_search from the checked-out source on the runner with
+#      cargo-pgrx (.github/actions/build-pg_search-source).
 #   2. Overlay those artifacts onto a released ParadeDB image (docker/
 #      Dockerfile.paradedb-source-18) so only the pg_search binary changes -> the
 #      Postgres version, tuning, and bootstrap match the published image.
@@ -127,68 +128,28 @@ jobs:
 
       # ---- Build the full ParadeDB image from source -----------------------
 
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v4
-
-      # Persist the Dockerfile's `RUN --mount=type=cache` dirs across runs: the
-      # cargo registry (avoids re-downloading crates) and the sccache dir (the
-      # actual compile cache). We deliberately do NOT persist target/: COPY . .
-      # rewrites source mtimes each build, so a cached target/ recompiles anyway;
-      # sccache keys on content instead and survives that. These BuildKit cache
-      # mounts aren't carried by the type=gha layer cache and the builder is fresh
-      # each run, so buildkit-cache-dance extracts them to host dirs that
-      # actions/cache stores (S3-backed here via extras=s3-cache).
-      - name: Restore Rust build cache (cargo registry + sccache)
-        id: rust-docker-cache
-        uses: actions/cache@v4
+      # Compile pg_search from the checked-out source on the runner. A native
+      # build (no Docker builder stage) keeps cargo's mtime fingerprinting intact,
+      # so the action's target/ cache gives real incremental compiles run-to-run.
+      - name: Build pg_search from source
+        id: build-pg_search
+        uses: ./.github/actions/build-pg_search-source
         with:
-          path: |
-            cache-cargo-registry
-            cache-sccache
-          # SHA suffix + prefix restore-keys => each run saves a fresh entry and
-          # warms from the most recent match, a rolling incremental cache.
-          key: benchmarker-rustcache-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'docker/Dockerfile.paradedb-source-18') }}-${{ github.sha }}
-          restore-keys: |
-            benchmarker-rustcache-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'docker/Dockerfile.paradedb-source-18') }}-
-            benchmarker-rustcache-
+          pg-version: ${{ env.pg_version }}
 
-      - name: Inject Rust build cache into BuildKit
-        uses: reproducible-containers/buildkit-cache-dance@v3.1.0
-        with:
-          builder: ${{ steps.buildx.outputs.name }}
-          # Keys are the host dirs above; values are the Dockerfile mount targets.
-          cache-map: |
-            {
-              "cache-cargo-registry": "/usr/local/cargo/registry",
-              "cache-sccache": "/sccache"
-            }
-          # Nothing changed since the last exact hit => skip re-extraction.
-          skip-extraction: ${{ steps.rust-docker-cache.outputs.cache-hit }}
-
-      - name: Build ParadeDB image (pg_search from source)
+      # Overlay the source-built pg_search onto the released base image. The
+      # Dockerfile is a single COPY, so this is a fast, cache-free image build.
+      - name: Assemble ParadeDB image (pg_search from source)
         run: |
           set -euo pipefail
-          # Pin the build to the repo's toolchain + pgrx version so the image
-          # matches how pg_search is really built (no drift).
-          RUST_TOOLCHAIN=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
-          PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
-          echo "rust=${RUST_TOOLCHAIN} cargo-pgrx=${PGRX_VERSION}"
-
-          # type=gha carries the base/apt/rust-install LAYERS (also S3-backed via
-          # extras=s3-cache); the cache-dance above carries the cargo registry +
-          # sccache MOUNTS. Together: warm layers AND warm (sccache) compile.
-          docker buildx build \
-            --file docker/Dockerfile.paradedb-source-18 \
+          ctx="$(mktemp -d)"
+          cp docker/Dockerfile.paradedb-source-18 "${ctx}/Dockerfile"
+          cp -R "${{ steps.build-pg_search.outputs.artifacts-dir }}" "${ctx}/artifacts"
+          docker build \
+            --file "${ctx}/Dockerfile" \
             --build-arg BASE_IMAGE="${{ inputs.base_paradedb_image || 'paradedb/paradedb:v0.25.0-pg18' }}" \
-            --build-arg PG_VERSION_MAJOR="${{ env.pg_version }}" \
-            --build-arg RUST_TOOLCHAIN="${RUST_TOOLCHAIN}" \
-            --build-arg CARGO_PGRX_VERSION="${PGRX_VERSION}" \
-            --cache-from type=gha,scope=benchmarker-paradedb \
-            --cache-to type=gha,mode=max,scope=benchmarker-paradedb \
             --tag "${IMAGE_TAG}" \
-            --load \
-            .
+            "${ctx}"
 
       # ---- Set up and run benchmarker --------------------------------------
 

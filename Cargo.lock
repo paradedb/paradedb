@@ -2199,7 +2199,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "2.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?branch=stuhood.rpc#819c5888492d5a727ec23d9ab7dbdf390ca89bb0"
+source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-06-032638#8426f845f4fc0edbffdf9152c20840fe7e01ba5f"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -6773,7 +6773,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8858,6 +8858,15 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets",
 ]

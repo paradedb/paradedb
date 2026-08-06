@@ -77,6 +77,29 @@ jobs:
             echo "$total"
           }
 
+          # The version cargo actually resolved for a package, from the lockfile.
+          lockfile_version() {
+            awk -v pkg="name = \"$1\"" '$0 == pkg {
+              getline; gsub(/version = |"/, ""); print; exit
+            }' Cargo.lock
+          }
+
+          # Fail loudly rather than measure the wrong tree. `lindera-dictionary`
+          # is the package that matters — the const/static change lives in its
+          # `embedded_dictionary!` macro, and it reaches us transitively, so
+          # pinning only `lindera` would leave it free to resolve elsewhere.
+          expect_version() {
+            local want="$1" pkg got
+            for pkg in lindera lindera-dictionary; do
+              got=$(lockfile_version "$pkg")
+              if [ "$got" != "$want" ]; then
+                echo "::error::expected $pkg $want in Cargo.lock, resolved $got"
+                exit 1
+              fi
+            done
+            echo "lindera and lindera-dictionary resolved to $want"
+          }
+
           measure() {
             local label="$1" tgt="$RUNNER_TEMP/tgt-$1"
             rm -rf "$tgt"
@@ -111,9 +134,16 @@ jobs:
             dev_total=$(du -sb "$tgt/debug" | cut -f1)
             grand=$(du -sb "$tgt" | cut -f1)
 
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            # Record the version actually resolved into the lockfile. Without
+            # this the table cannot tell you that a configuration silently
+            # measured the wrong lindera, which is exactly what happened when
+            # the 5.0.0 pin was a caret requirement that still admitted 5.0.1.
+            local resolved
+            resolved=$(lockfile_version lindera-dictionary)
+
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
               "$label" "$rel_rlib" "$rel_rmeta" "$dev_rlib" "$dev_rmeta" \
-              "$testbin" "$rel_total" "$dev_total" "$grand" >> "$RESULTS"
+              "$testbin" "$rel_total" "$dev_total" "$grand" "$resolved" >> "$RESULTS"
 
             # Reclaim the volume before the next configuration.
             rm -rf "$tgt"
@@ -132,18 +162,24 @@ jobs:
 
           # --- main: lindera 1.5.1, const, compress ---
           git checkout "origin/${{ github.base_ref || 'main' }}" -- Cargo.lock tokenizers tests
+          expect_version 1.5.1
           measure main
           restore_pr_tree
 
           # --- 5.0.0: const, uncompressed ---
-          sed -i 's/"5\.0\.1"/"5.0.0"/g' tokenizers/Cargo.toml
+          # `=5.0.0`, not `5.0.0`: a caret requirement still admits 5.0.1, which
+          # is how the first run of this workflow measured 5.0.1 twice and
+          # reported the const/static difference as zero.
+          sed -i 's/"5\.0\.1"/"=5.0.0"/g' tokenizers/Cargo.toml
           cargo update --precise 5.0.0 \
             lindera lindera-analysis lindera-dictionary \
             lindera-ipadic lindera-ko-dic lindera-cc-cedict
+          expect_version 5.0.0
           measure 5.0.0
           restore_pr_tree
 
           # --- 5.0.1: static, uncompressed (this PR) ---
+          expect_version 5.0.1
           measure 5.0.1
 
           python3 - "$RESULTS" <<'PY' >> "$GITHUB_STEP_SUMMARY"
@@ -152,7 +188,11 @@ jobs:
           rows = [line.split("\t") for line in open(sys.argv[1]).read().splitlines() if line]
           cols = ["rel_rlib", "rel_rmeta", "dev_rlib", "dev_rmeta",
                   "testbin", "rel_total", "dev_total", "grand"]
-          data = {r[0]: dict(zip(cols, (int(x) for x in r[1:]))) for r in rows}
+          data = {}
+          for r in rows:
+              d = dict(zip(cols, (int(x) for x in r[1:1 + len(cols)])))
+              d["resolved"] = r[1 + len(cols)]
+              data[r[0]] = d
           order = [k for k in ("main", "5.0.0", "5.0.1") if k in data]
           mb = lambda n: f"{n / (1 << 20):.0f} MB"
 
@@ -165,14 +205,14 @@ jobs:
           print("## Lindera dictionary footprint\n")
           print("Same runner, same toolchain, `cargo build -p tokenizers`. "
                 "`liblindera*` sums the ipadic, ko-dic, and cc-cedict artifacts.\n")
-          print("| config | release rlib | release rmeta | dev rlib | dev rmeta | "
-                "linked test bin | target/ total | vs main |")
-          print("|---|---|---|---|---|---|---|---|")
+          print("| config | lindera-dictionary | release rlib | release rmeta | dev rlib | "
+                "dev rmeta | linked test bin | target/ total | vs main |")
+          print("|---|---|---|---|---|---|---|---|---|")
           for label in order:
               d = data[label]
-              print(f"| `{label}` | {mb(d['rel_rlib'])} | {mb(d['rel_rmeta'])} | "
-                    f"{mb(d['dev_rlib'])} | {mb(d['dev_rmeta'])} | {mb(d['testbin'])} | "
-                    f"{mb(d['grand'])} | {ratio(label, 'grand')} |")
+              print(f"| `{label}` | `{d['resolved']}` | {mb(d['rel_rlib'])} | "
+                    f"{mb(d['rel_rmeta'])} | {mb(d['dev_rlib'])} | {mb(d['dev_rmeta'])} | "
+                    f"{mb(d['testbin'])} | {mb(d['grand'])} | {ratio(label, 'grand')} |")
 
           if {"5.0.0", "5.0.1"} <= data.keys():
               saved = data["5.0.0"]["grand"] - data["5.0.1"]["grand"]

@@ -567,7 +567,7 @@ pub fn merge_worker_metrics(
 
     plan.downcast_ref::<DistributedExec>()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
+        .enable_time()
         .build()
         .ok()?;
     runtime

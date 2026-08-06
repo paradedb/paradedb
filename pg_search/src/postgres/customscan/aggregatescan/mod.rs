@@ -840,7 +840,7 @@ impl AggregateScan {
         // builds it lazily on first `exec_custom_scan` call; MPP serializes
         // it at begin time so the launch can size the dispatch payload.
         let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
+            .enable_time()
             .build()
         {
             Ok(rt) => rt,
@@ -1546,7 +1546,7 @@ impl AggregateScan {
         // First call: build and execute the DataFusion plan
         if first_call {
             let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
+                .enable_time()
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 

@@ -188,7 +188,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
     };
 
     let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
+        .enable_time()
         .build()
     {
         Ok(rt) => rt,

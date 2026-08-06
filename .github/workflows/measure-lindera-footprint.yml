@@ -119,8 +119,15 @@ jobs:
             rm -rf "$tgt"
           }
 
+          # `git checkout -- <paths>` restores from the index, and checking main's
+          # files out above wrote them *into* the index — so it has to be HEAD
+          # here, or "restoring" just reinstates main's tree.
           restore_pr_tree() {
-            git checkout -- Cargo.lock tokenizers tests
+            git checkout HEAD -- Cargo.lock tokenizers tests
+            grep -q 'lindera-analysis = "5.0.1"' tokenizers/Cargo.toml || {
+              echo "::error::restore_pr_tree left the wrong tree in place"
+              exit 1
+            }
           }
 
           # --- main: lindera 1.5.1, const, compress ---

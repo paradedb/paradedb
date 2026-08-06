@@ -18,75 +18,46 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type, is_pdb_query_castable,
-    request_simplify, validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    build_pdb_query_funcexpr, build_text_funcexpr, classify_pdb_query_input, get_expr_result_type,
+    is_pdb_query_castable, request_simplify, validate_lhs_type_as_text_compatible, RHSValue,
+    ReturnedNodePointer,
 };
 use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::SearchQueryInput;
 use pgrx::{extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement, Internal};
 
-/// Runtime counterpart to the `===` const-folding path in `search_with_term_support`.
-///
-/// Called from a plan built by `search_with_term_support`'s `exec_rewrite` when the RHS is a
-/// `Param` (generic prepared plan) rather than a folded `Const`. Classifies the incoming
-/// `pdb.query` the same way the const path does: an `UnclassifiedString`/`UnclassifiedArray`
-/// becomes a `term`/`term_set`, with any `fuzzy_data` or `slop_data` re-applied. This is
-/// necessary because `to_search_query_input` alone leaves `UnclassifiedString` intact, which
-/// blows up at Tantivy conversion time (`pdb::Query::UnclassifiedString cannot be converted
-/// into a TantivyQuery`).
-#[pg_extern(immutable, parallel_safe)]
-pub fn term_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    let classified = match query {
-        pdb::Query::UnclassifiedString {
-            string,
-            fuzzy_data,
-            slop_data,
-        } => {
+/// Classify an `UnclassifiedString`/`UnclassifiedArray` into a `term`/`term_set` and apply any
+/// attached `fuzzy_data` / `slop_data`. Shared with `search_with_term_support`'s const-fold path
+/// via [`classify_pdb_query_input`].
+fn classify_for_eqeqeq(query: pdb::Query) -> pdb::Query {
+    classify_pdb_query_input(
+        query,
+        |string, fuzzy_data, slop_data| {
             let mut q = term_str(string);
             q.apply_fuzzy_data(fuzzy_data);
             q.apply_slop_data(slop_data);
             q
-        }
-        pdb::Query::UnclassifiedArray {
-            array,
-            fuzzy_data,
-            slop_data,
-        } => {
+        },
+        |array, fuzzy_data, slop_data| {
             let mut q = term_set_str(array);
             q.apply_fuzzy_data(fuzzy_data);
             q.apply_slop_data(slop_data);
             q
-        }
-        pdb::Query::ScoreAdjusted { query, score } => {
-            let mut inner = *query;
-            if let pdb::Query::UnclassifiedString {
-                string,
-                fuzzy_data,
-                slop_data,
-            } = inner
-            {
-                inner = term_str(string);
-                inner.apply_fuzzy_data(fuzzy_data);
-                inner.apply_slop_data(slop_data);
-            } else if let pdb::Query::UnclassifiedArray {
-                array,
-                fuzzy_data,
-                slop_data,
-            } = inner
-            {
-                inner = term_set_str(array);
-                inner.apply_fuzzy_data(fuzzy_data);
-                inner.apply_slop_data(slop_data);
-            }
-            pdb::Query::ScoreAdjusted {
-                query: Box::new(inner),
-                score,
-            }
-        }
-        other => other,
-    };
-    to_search_query_input(field, classified)
+        },
+    )
+}
+
+/// Runtime counterpart to the `===` const-folding path in `search_with_term_support`.
+///
+/// Called from a plan built by `search_with_term_support`'s `exec_rewrite` when the RHS is a
+/// `Param` (generic prepared plan) rather than a folded `Const`. `to_search_query_input` alone
+/// leaves `UnclassifiedString` intact, which blows up at Tantivy conversion time
+/// (`pdb::Query::UnclassifiedString cannot be converted into a TantivyQuery`); the classifier
+/// resolves those variants into `term`/`term_set` first.
+#[pg_extern(immutable, parallel_safe)]
+pub fn term_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    to_search_query_input(field, classify_for_eqeqeq(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
@@ -131,31 +102,7 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
             match term {
                 RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
                 RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
-                        query = term_str(string);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
-                        query = term_set_str(array);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score })
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data }) => {
-                    let mut query = term_str(string);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
-                    let mut query = term_set_str(array);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
+                RHSValue::PdbQuery(query) => to_search_query_input(field, classify_for_eqeqeq(query)),
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
         }, |field, lhs, rhs| {

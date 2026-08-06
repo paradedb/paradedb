@@ -19,6 +19,7 @@ use crate::api::version::Version;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
 use tantivy::query::{
     BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
@@ -168,29 +169,35 @@ impl MoreLikeThisQueryBuilder {
         let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =
             pgrx::Spi::connect(|client| {
                 let mut doc_fields = Vec::new();
-                let result =
-                    client
-                        .select(
-                            &format!(
-                                "SELECT * FROM {}.{} WHERE {} = $1",
-                                pgrx::spi::quote_identifier(heap_relation.namespace()),
-                                pgrx::spi::quote_identifier(heap_relation.name()),
-                                pgrx::spi::quote_identifier(key_field_name.root())
-                            ),
-                            None,
-                            unsafe {
-                                &[TantivyValue(key_value)
-                            .try_into_datum(key_field_type.typeoid())
-                            .expect("more_like_this: should be able to convert key value to datum")
-                            .into()]
-                            },
-                        )?
-                        .first();
+                // Bound to a local rather than built inline: in edition 2024 the temporary array
+                // produced by the `unsafe` block's tail expression is dropped at the end of that
+                // block instead of living until the end of the enclosing statement.
+                let key_args = unsafe {
+                    [TantivyValue(key_value)
+                        .try_into_datum(key_field_type.typeoid())
+                        .expect("more_like_this: should be able to convert key value to datum")
+                        .into()]
+                };
+                let result = client
+                    .select(
+                        &format!(
+                            "SELECT * FROM {}.{} WHERE {} = $1",
+                            pgrx::spi::quote_identifier(heap_relation.namespace()),
+                            pgrx::spi::quote_identifier(heap_relation.name()),
+                            pgrx::spi::quote_identifier(key_field_name.root())
+                        ),
+                        None,
+                        &key_args,
+                    )?
+                    .first();
 
                 for (search_field, categorized) in categorized_fields.iter() {
                     if search_field.is_ctid() {
                         continue;
                     }
+
+                    let is_vector =
+                        matches!(search_field.field_type(), SearchFieldType::Vector(..));
 
                     if let Some(ref fields) = fields {
                         if !fields.contains(&search_field.field_name().clone().into_inner()) {
@@ -200,9 +207,13 @@ impl MoreLikeThisQueryBuilder {
                         if search_field.is_json() {
                             panic!("json fields are not supported for more_like_this");
                         }
+
+                        if is_vector {
+                            panic!("vector fields are not supported for more_like_this");
+                        }
                     }
 
-                    if categorized.is_json {
+                    if categorized.is_json || is_vector {
                         continue;
                     }
 

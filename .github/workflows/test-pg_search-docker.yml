@@ -422,7 +422,7 @@ jobs:
       - cpu=4
       - ram=16
       - image=${{ matrix.runner_image }}
-      - volume=40gb
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       fail-fast: false
@@ -518,3 +518,43 @@ jobs:
             fi
           done
           echo "Extension payload built successfully and contains the expected library and control file."
+
+      # A build-only check cannot catch a payload that is missing the system libraries
+      # pg_search.so links. Mount the payload into the Postgres base image the way
+      # an operator does and prove the postmaster can load the module.
+      - name: Verify the Extension Payload Loads in the Postgres Runtime Image
+        if: steps.release_gate.outputs.skip != 'true'
+        run: |
+          cat > /tmp/load-test.sh <<'EOF'
+          set -euo pipefail
+
+          ldd /extensions/pg_search/lib/pg_search.so
+          if ldd /extensions/pg_search/lib/pg_search.so | grep -q "not found"; then
+            echo "Error: pg_search.so has unresolved shared-library dependencies"
+            exit 1
+          fi
+
+          export PGDATA=/tmp/pgdata
+          initdb -D "$PGDATA" -U postgres > /dev/null
+          cat >> "$PGDATA/postgresql.conf" <<'CONF'
+          listen_addresses = ''
+          unix_socket_directories = '/tmp'
+          extension_control_path = '$system:/extensions/pg_search/share'
+          dynamic_library_path = '$libdir:/extensions/pg_search/lib'
+          shared_preload_libraries = 'pg_search'
+          CONF
+          pg_ctl -D "$PGDATA" -w start
+          psql -h /tmp -U postgres -d postgres -c "SELECT 1;"
+          EOF
+
+          # BuildKit's local exporter creates the destination directory 0700, so the
+          # unprivileged Postgres user in the runtime image cannot traverse the mount.
+          chmod -R a+rX /tmp/extension-payload
+
+          docker run --rm --user 26 \
+            --volume /tmp/extension-payload:/extensions/pg_search:ro \
+            --volume /tmp/load-test.sh:/load-test.sh:ro \
+            --env LD_LIBRARY_PATH=/extensions/pg_search/system \
+            ghcr.io/cloudnative-pg/postgresql:${{ env.PG_VERSION }}-minimal-trixie \
+            bash /load-test.sh
+          echo "Extension payload loads in the Postgres runtime image."

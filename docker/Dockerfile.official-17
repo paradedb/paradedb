@@ -12,11 +12,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     arch="$(dpkg --print-architecture)" && \
     case "$arch" in \
-        amd64) checksum="e76a988e48518e6078a25596cf3033de5a1c82931f7cd99a46f3663b9109c257" ;; \
-        arm64) checksum="9dbec32601fc0d383bc689a4c67345496f26217e8a80517b21ac3cbff8d55adb" ;; \
+        amd64) checksum="a5479a1812fdb38490e73f493d7752ae1c06a033765acfbfa7f5ab28c5131be1" ;; \
+        arm64) checksum="bda87803bd4e00b223736eb3401587ca7c5b44d24c219be7cbae74a33601d0e0" ;; \
         *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.24.3/postgresql-17-pg-search_0.24.3-1PARADEDB-trixie_${arch}.deb" && \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.25.1/postgresql-17-pg-search_0.25.1-1PARADEDB-trixie_${arch}.deb" && \
     echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c - && \
     apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
     rm /tmp/pg_search.deb && \
@@ -31,8 +31,8 @@ RUN apt-get update \
     && echo "deb [ signed-by=/usr/local/share/keyrings/postgres.gpg.asc ] https://apt-archive.postgresql.org/pub/repos/apt trixie-pgdg-archive main" > /etc/apt/sources.list.d/pgdg-archive.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-    postgresql-17-pgvector=0.8.4-1.pgdg13+1 \
-    postgresql-17-cron=1.6.7-2.pgdg13+1 \
+    postgresql-17-pgvector=0.8.5-1.pgdg13+1 \
+    postgresql-17-cron=1.6.7-3.pgdg13+1 \
     postgresql-17-pg-ivm=1.13-1.pgdg13+1 \
     postgresql-17-postgis-$POSTGIS_VERSION_MAJOR \
     postgresql-17-postgis-$POSTGIS_VERSION_MAJOR-scripts \

@@ -182,9 +182,10 @@ fn single_queries(mut conn: PgConnection) {
         ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)
     {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("required to have strictly more than one term")),
+        Err(err) => assert!(
+            err.to_string()
+                .contains("required to have strictly more than one term")
+        ),
         _ => panic!("phrase prefix query should require multiple terms"),
     }
 
@@ -343,9 +344,10 @@ fn single_queries_jsonb_build_object(mut conn: PgConnection) {
         'phrases', jsonb_build_array('robot'))) ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)
     {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("required to have strictly more than one term")),
+        Err(err) => assert!(
+            err.to_string()
+                .contains("required to have strictly more than one term")
+        ),
         _ => panic!("phrase prefix query should require multiple terms"),
     }
 
@@ -482,9 +484,10 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .fetch_result::<()>(&mut conn)
     {
         Err(err) => {
-            assert_eq!(err
-            .to_string()
-            , "error returned from database: more_like_this must be called with either key_value or document")
+            assert_eq!(
+                db_error_message(&err),
+                "error returned from database: more_like_this must be called with either key_value or document"
+            )
         }
         _ => panic!("key_value or document validation failed"),
     }
@@ -500,9 +503,10 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .fetch_result::<()>(&mut conn)
     {
         Err(err) => {
-            assert_eq!(err
-            .to_string()
-            , "error returned from database: more_like_this must be called with either key_value or document")
+            assert_eq!(
+                db_error_message(&err),
+                "error returned from database: more_like_this must be called with either key_value or document"
+            )
         }
         _ => panic!("key_value or document validation failed"),
     }
@@ -564,9 +568,10 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .fetch_result::<()>(&mut conn)
     {
         Err(err) => {
-            assert_eq!(err
-            .to_string()
-            , "error returned from database: more_like_this must be called with either key_value or document")
+            assert_eq!(
+                db_error_message(&err),
+                "error returned from database: more_like_this must be called with either key_value or document"
+            )
         }
         _ => panic!("key_value or document validation failed"),
     }
@@ -1232,7 +1237,7 @@ fn parse_error(mut conn: PgConnection) {
 
     match result {
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             r#"error returned from database: error parsing search query input json at ".": data did not match any variant of untagged enum SearchQueryInput"#
         ),
         _ => {

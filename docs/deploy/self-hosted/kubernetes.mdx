@@ -9,14 +9,15 @@ can be deployed on Kubernetes.
 
 <Note>
   We recommend running ParadeDB Enterprise, not Community, with Kubernetes in
-  production to maximize uptime. See [overview](/deploy/overview#self-hosted).
+  production to maximize uptime. See
+  [overview](/deploy/overview#self-hosted-paradedb).
 </Note>
 
 This guide uses the [ParadeDB Helm Chart](https://github.com/paradedb/charts). The chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
 ## Prerequisites
 
-This guide assumes you have installed [Helm](https://helm.sh/docs/intro/install/) and have a Kubernetes cluster running v1.25+.
+This guide assumes you have installed [Helm](https://helm.sh/docs/intro/install/) and have a Kubernetes cluster running v1.29+.
 For local testing, we recommend [Minikube](https://minikube.sigs.k8s.io/docs/start/).
 
 ## Install the Prometheus Stack
@@ -136,7 +137,7 @@ spec:
     extensions:
       - name: pg_search
         image:
-          reference: docker.io/paradedb/paradedb-extension:0.24.1-18-trixie
+          reference: docker.io/paradedb/paradedb-extension:0.25.0-18-trixie
         extension_control_path:
           - /share
         dynamic_library_path:
@@ -157,11 +158,11 @@ spec:
     name: paradedb
   extensions:
     - name: pg_search
-      version: "0.24.1"
+      version: "0.25.0"
 ```
 
 The extension image tag format is `<paradedb-version>-<postgres-major>-trixie`.
-For example, use `0.24.1-18-trixie` for ParadeDB `0.24.1` on Postgres 18.
+For example, use `0.25.0-18-trixie` for ParadeDB `0.25.0` on Postgres 18.
 
 ## Connect to the Cluster
 
@@ -188,4 +189,4 @@ kubectl --namespace prometheus-community port-forward svc/prometheus-community-g
 You can then access the Grafana dashboard at `localhost:3000` using `admin` as the username
 and `prom-operator` as the password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
 file used as the `values.yaml` file in [Installing the Prometheus CRDs](#installing-the-prometheus-stack) and can be modified by providing
-your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.28/monitoring).
+your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.30/monitoring).

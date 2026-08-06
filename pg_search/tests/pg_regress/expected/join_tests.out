@@ -150,7 +150,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.5552412 |          0
@@ -166,7 +166,7 @@ FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -489,7 +489,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id, b.id;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |   0.66167223 | 0.27030534
@@ -588,7 +588,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
-WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: the selected lower join path contains a predicate that AggregateScan cannot classify (table: join)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 

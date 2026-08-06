@@ -30,7 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
@@ -159,9 +159,6 @@ impl From<*mut pg_sys::PlannerInfo> for PlannerRootId {
 }
 
 /// Represents the join type for serialization.
-///
-/// Note: Currently only Inner join is supported, but other variants are
-/// defined for future extensibility and to match PostgreSQL's JoinType enum.
 ///
 /// The serde JSON shape of this enum (in particular, struct variant `Anti`)
 /// is **intra-process only** - it flows leader -> worker via `custom_private`
@@ -893,6 +890,9 @@ impl RelNode {
                 if !matches!(
                     j.join_type,
                     JoinType::Inner
+                        | JoinType::Left
+                        | JoinType::Right
+                        | JoinType::Full
                         | JoinType::Semi
                         | JoinType::Anti { .. }
                         | JoinType::LeftMark
@@ -1155,7 +1155,7 @@ impl RelNode {
     /// Returns `true` if the key was successfully placed.
     fn inject_single_equi_key(&mut self, key: JoinKeyPair) -> bool {
         match self {
-            RelNode::Join(ref mut join_node) => {
+            RelNode::Join(join_node) => {
                 let outer_in_left = join_node.left.contains_rti(key.outer_rti);
                 let outer_in_right = join_node.right.contains_rti(key.outer_rti);
                 let inner_in_left = join_node.left.contains_rti(key.inner_rti);
@@ -1191,7 +1191,7 @@ impl RelNode {
 
                 false
             }
-            RelNode::Filter(ref mut filter) => filter.input.inject_single_equi_key(key),
+            RelNode::Filter(filter) => filter.input.inject_single_equi_key(key),
             RelNode::Scan(_) => false,
         }
     }
@@ -1309,12 +1309,10 @@ unsafe fn substitute_pruned_key_side(
             }
         }
 
-        if contains_pruned {
-            if let Some((rti, attno)) = replacement {
-                *out_rti = rti;
-                *out_attno = attno;
-                return true;
-            }
+        if contains_pruned && let Some((rti, attno)) = replacement {
+            *out_rti = rti;
+            *out_attno = attno;
+            return true;
         }
     }
 

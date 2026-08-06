@@ -129,6 +129,9 @@ VALUES (10, 'cloe', 'red', '53');
 INSERT INTO orders
 VALUES (11, 'brandy', 'green', '92');
 ANALYZE;
+-- This regression covers a known aggregate-planning failure, not MPP behavior.
+-- Keep MPP disabled so it does not emit the duplicate diagnostic tracked by #5783.
+SET max_parallel_workers_per_gather = 0;
 -- TODO: See https://github.com/paradedb/paradedb/issues/5266.
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT (SELECT COUNT(*)
@@ -302,7 +305,7 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: orders, users)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: orders, users)
  count | count 
 -------+-------
     13 |    13

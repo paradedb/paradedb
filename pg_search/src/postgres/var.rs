@@ -21,9 +21,9 @@ use crate::customscan::operator_oid;
 use crate::nodecast;
 use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
-use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
-use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
+use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var, expression_tree_walker};
 use pgrx::{AnyNumeric, PgOid};
+use pgrx::{FromDatum, PgList, PgRelation, is_a, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
@@ -292,12 +292,12 @@ impl VarContext {
                     if !subquery.is_null() {
                         let targetlist =
                             PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
-                        if varattno > 0 && (varattno as usize) <= targetlist.len() {
-                            if let Some(te) = targetlist.get_ptr(varattno as usize - 1) {
-                                if (*te).resorigtbl != pg_sys::InvalidOid {
-                                    return ((*te).resorigtbl, (*te).resorigcol);
-                                }
-                            }
+                        if varattno > 0
+                            && (varattno as usize) <= targetlist.len()
+                            && let Some(te) = targetlist.get_ptr(varattno as usize - 1)
+                            && (*te).resorigtbl != pg_sys::InvalidOid
+                        {
+                            return ((*te).resorigtbl, (*te).resorigcol);
                         }
                     }
                 }

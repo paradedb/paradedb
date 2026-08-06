@@ -17,15 +17,15 @@
 
 use crate::api::{AsCStr, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
-use crate::postgres::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ pub struct PrivateData {
 mod var_attname_lookup_serializer {
     use super::*;
 
-    use serde::{de::Error, Deserializer, Serializer};
+    use serde::{Deserializer, Serializer, de::Error};
 
     fn key_to_string(key: &(Varno, i16)) -> String {
         format!("{},{}", key.0, key.1)

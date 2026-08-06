@@ -34,7 +34,6 @@ use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
-use datafusion::config::ConfigOptions;
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -48,7 +47,13 @@ use datafusion::physical_plan::metrics::{
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
-use datafusion_distributed::{TaskEstimation, TaskEstimator};
+use datafusion_distributed::{
+    DesiredTaskCountEvent, DesiredTaskCountEventResponse, ScaleUpLeafNodeEvent,
+    ScaleUpLeafNodeEventResponse,
+};
+use datafusion_proto::physical_plan::{
+    DefaultPhysicalExtensionCodec, PhysicalPlanDecodeContext, PhysicalProtoConverterExtension,
+};
 use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
@@ -57,17 +62,18 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
-use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningSample};
 use crate::scan::Scanner;
+use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
+use crate::scan::late_materialization::DeferredField;
+use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
+use crate::scan::range_partitioning::{RangePartitioning, RangePartitioningSample};
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -108,33 +114,29 @@ pub struct ScanState {
 
 /// Execution state for a single `PgSearchScanPlan`.
 ///
-/// In multi-partition distributed execution, operators like `NestedLoopJoinExec` or `datafusion-distributed`'s
-/// worker fragment runner execute all partitions of a plan concurrently across tasks.
-/// For plans initialized with a `ScanState`, the first `execute()` takes the reader. If the plan has multiple
-/// partitions (`partition_count > 1`), subsequent calls up to `partition_count` yield an empty stream (`Empty`).
-/// Once all budget calls are spent, the state transitions to `Consumed`.
+/// Under multi-partition distributed or parallel execution, a plan variant's `assigned_partition` indicates
+/// which partition should consume the state and yield data. Calling `execute()` on that assigned partition
+/// consumes the state exactly once and transitions it to `Consumed`.
 ///
-/// Because all tasks/variants in a single process share the exact same `ExecutionState` instance (cloned via `Arc`),
-/// this state machine is essential for correctness when a process hosts multiple tasks for the same scan stage.
-/// The first task to poll `execute()` takes the `Ready` state and returns a stream that dynamically claims segments
-/// from the `ParallelScanState`. The subsequent tasks encounter the `Empty` state and return empty streams, safely
-/// allowing the first stream to do all the work for that process's portion of segments.
-#[derive(Default)]
+/// Any calls to `execute()` for a partition that does not match `assigned_partition` will yield an
+/// empty stream and leave the state untouched. This ensures each plan variant only yields data for its
+/// explicitly assigned slice of the workload.
+#[derive(Default, Clone)]
 pub enum ExecutionState {
     /// In Shared mode, we optionally load-balance via ParallelScanState.
-    /// The state is consumed by the first partition.
+    /// The state is consumed by the assigned partition.
     Shared {
         parallel_state: Option<UnsafeSendSync<*mut crate::postgres::ParallelScanState>>,
-        scan_state: Option<Box<UnsafeSendSync<ScanState>>>,
-        spent_partitions: Vec<bool>,
+        scan_state: Box<UnsafeSendSync<ScanState>>,
     },
     /// In RangePartitioned mode, we static-partition using RangePartitioning.
-    /// The state is cloned for each partition.
+    /// The state is consumed by the assigned partition.
     RangePartitioned {
         range_boundaries: RangePartitioning,
         scan_state: Box<UnsafeSendSync<ScanState>>,
-        spent_partitions: Vec<bool>,
     },
+    /// The state has been consumed by a call to execute().
+    Consumed,
     /// Uninitialized placeholder state.
     #[default]
     Uninitialized,
@@ -142,11 +144,11 @@ pub enum ExecutionState {
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// Under multi-partition distributed execution, this plan's `output_partitioning` declares
-/// a *capacity* (`min(segments, target_partitions)`). The partitions do not statically map
-/// to data; instead, tasks dynamically claim segments from the shared `ParallelScanState` as
-/// they process the stream returned by `execute()`. See `ExecutionState` for details on how
-/// multiple tasks safely share state within a single process.
+/// Under multi-partition parallel or distributed execution, this plan's `output_partitioning` declares
+/// a *capacity* (`min(segments, target_partitions)`). The plan is then cloned into multiple variants,
+/// where each variant has its `assigned_partition` explicitly set. When `execute()` is called, only
+/// the assigned partition actually consumes the scan state to produce a stream, guaranteeing exactly-once
+/// processing of the underlying data.
 pub struct PgSearchScanPlan {
     /// State for this single-partition scan.
     ///
@@ -198,6 +200,35 @@ pub struct PgSearchScanPlan {
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
     range_sample: Option<RangePartitioningSample>,
+    /// When executing in a multi-task distributed or parallel environment, this
+    /// indicates the specific execution partition this plan variant is responsible for.
+    /// It guarantees that the `ExecutionState` is consumed exactly once by the designated worker.
+    pub(crate) assigned_partition: Option<usize>,
+}
+
+impl Clone for PgSearchScanPlan {
+    fn clone(&self) -> Self {
+        let state_guard = self.state.lock().unwrap();
+        let new_state = state_guard.clone();
+        Self {
+            state: Mutex::new(new_state),
+            planner_estimated_rows: self.planner_estimated_rows,
+            segment_count: self.segment_count,
+            properties: Arc::clone(&self.properties),
+            resolved_query: self.resolved_query.clone(),
+            dynamic_filters: self.dynamic_filters.clone(),
+            metrics: self.metrics.clone(),
+            deferred_fields: self.deferred_fields.clone(),
+            ffhelper: self.ffhelper.clone(),
+            indexrelid: self.indexrelid,
+            deferred_ctid_plan_position: self.deferred_ctid_plan_position,
+            dynamic_filter_pushdown: Arc::clone(&self.dynamic_filter_pushdown),
+            sort_order: self.sort_order.clone(),
+            dynamic_filter_strategy: Arc::clone(&self.dynamic_filter_strategy),
+            range_sample: self.range_sample.clone(),
+            assigned_partition: self.assigned_partition,
+        }
+    }
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -240,11 +271,14 @@ impl PgSearchScanPlan {
         }
         // Output partitioning tells datafusion-distributed how many tasks this leaf can naturally split into.
         // If state is None, execute() will return an EmptyStream for this single partition.
+        let range_boundaries = range_sample.as_ref().map(|s| s.build(partition_count));
+        let partitioning =
+            declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
-            Partitioning::UnknownPartitioning(partition_count),
+            partitioning,
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
@@ -262,6 +296,9 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
 
         if range_sample.is_none() {
+            // A partition count exceeding the segment count indicates a bug in
+            // pg_search_scan_desired_task_count, which should cap the tasks
+            // to the segment count when range sampling is disabled.
             assert!(
                 partition_count <= segment_count.max(1),
                 "partition_count {} exceeds segment_count {}",
@@ -272,17 +309,15 @@ impl PgSearchScanPlan {
 
         let exec_state = match state {
             Some(s) => {
-                if let Some(sample) = &range_sample {
+                if let Some(boundaries) = range_boundaries {
                     ExecutionState::RangePartitioned {
-                        range_boundaries: sample.build(partition_count),
+                        range_boundaries: boundaries,
                         scan_state: Box::new(UnsafeSendSync(s)),
-                        spent_partitions: vec![false; partition_count],
                     }
                 } else {
                     ExecutionState::Shared {
                         parallel_state: parallel_state.map(UnsafeSendSync),
-                        scan_state: Some(Box::new(UnsafeSendSync(s))),
-                        spent_partitions: vec![false; partition_count],
+                        scan_state: Box::new(UnsafeSendSync(s)),
                     }
                 }
             }
@@ -305,6 +340,7 @@ impl PgSearchScanPlan {
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
             range_sample,
+            assigned_partition: None,
         }
     }
 
@@ -328,29 +364,37 @@ impl PgSearchScanPlan {
             ExecutionState::Shared {
                 parallel_state,
                 scan_state,
-                ..
             } => ExecutionState::Shared {
                 parallel_state: parallel_state.clone(),
                 scan_state: scan_state.clone(),
-                spent_partitions: vec![false; target_partitions],
             },
             ExecutionState::RangePartitioned { scan_state, .. } => {
                 ExecutionState::RangePartitioned {
                     range_boundaries: self.range_sample.as_ref().unwrap().build(target_partitions),
                     scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
-                    spent_partitions: vec![false; target_partitions],
                 }
             }
             _ => {
                 return Err(DataFusionError::Internal(
-                    "Cannot repartition uninitialized plan".into(),
-                ))
+                    "Cannot repartition uninitialized or consumed plan".into(),
+                ));
             }
         };
 
+        let range_boundaries = match &new_state {
+            ExecutionState::RangePartitioned {
+                range_boundaries, ..
+            } => Some(range_boundaries),
+            _ => None,
+        };
+        let partitioning = declared_partitioning(
+            self.properties.eq_properties.schema(),
+            target_partitions,
+            range_boundaries,
+        );
         let new_properties = Arc::new(PlanProperties::new(
             self.properties.eq_properties.clone(),
-            Partitioning::UnknownPartitioning(target_partitions),
+            partitioning,
             self.properties.emission_type,
             self.properties.boundedness,
         ));
@@ -384,7 +428,25 @@ impl PgSearchScanPlan {
                 self.dynamic_filter_strategy.load(Ordering::Relaxed),
             )),
             range_sample: self.range_sample.clone(),
+            assigned_partition: self.assigned_partition,
         })
+    }
+
+    /// Late-bind the shared `ParallelScanState` into this scan's execution state (#5667).
+    ///
+    /// Under the plan-first MPP launch the leader builds its plan before the DSM exists, so
+    /// `Shared` scans start with `parallel_state: None`. Once the DSM is created and populated,
+    /// the launch stamps the leader's pointer in here — before the first `execute()`, which is
+    /// the only reader of the field. `RangePartitioned` and `Uninitialized` scans never consult
+    /// the pointer, so they are left untouched.
+    pub(crate) fn set_parallel_state(&self, ps: *mut ParallelScanState) {
+        let mut state_guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let ExecutionState::Shared { parallel_state, .. } = &mut *state_guard {
+            *parallel_state = Some(UnsafeSendSync(ps));
+        }
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -405,16 +467,21 @@ impl PgSearchScanPlan {
     /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
     /// from its own `ParallelScanState`. `resolved_query` is the filter-combined,
     /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
-    pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
+    ///
+    /// Installed dynamic filters travel as proto expression nodes stamped with their
+    /// `expression_id`; decoding the fragment with a deduplicating proto converter re-shares
+    /// each filter's inner state with the operator that updates it (see
+    /// `deserialize_physical_plan_with_runtime`).
+    pub(crate) fn encode_for_dispatch(
+        &self,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<Vec<u8>> {
         let state_guard = self
             .state
             .lock()
             .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
         let state = match &*state_guard {
-            ExecutionState::Shared {
-                scan_state: Some(scan_state),
-                ..
-            } => scan_state,
+            ExecutionState::Shared { scan_state, .. } => scan_state,
             ExecutionState::RangePartitioned { scan_state, .. } => scan_state,
             _ => {
                 return Err(DataFusionError::Internal(
@@ -434,8 +501,21 @@ impl PgSearchScanPlan {
                 DataFusionError::Internal(format!("PgSearchScan dispatch: schema encode: {e}"))
             })?;
 
+        // Dynamic filters self-serialize (columns/literals/comparisons only — no pg_search
+        // extension exprs), so the default codec suffices.
+        let codec = DefaultPhysicalExtensionCodec {};
+        let dynamic_filters = self
+            .dynamic_filters
+            .iter()
+            .map(|f| {
+                let node = proto_converter.physical_expr_to_proto(f, &codec)?;
+                Ok(prost::Message::encode_to_vec(&node))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
+            dynamic_filters,
             query: self.resolved_query.clone(),
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
@@ -449,6 +529,7 @@ impl PgSearchScanPlan {
             planner_estimated_rows,
             partition_count: self.properties.output_partitioning().partition_count(),
             range_sample: self.range_sample.clone(),
+            assigned_partition: self.assigned_partition,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -459,10 +540,16 @@ impl PgSearchScanPlan {
     /// state. Mirrors the tail of `PgSearchTableProvider::scan_inner`: open the index reader
     /// under the worker's MVCC view, build the fast-field helper + visibility checker, and wrap
     /// a single lazy partition that claims segments at runtime from `parallel_state`.
+    ///
+    /// Dynamic filters decode through `proto_converter` — the fragment-wide deduplicating
+    /// deserializer — so the rebuilt instances share inner state with the copies decoded
+    /// inside the operators that update them (hash-join bounds, aggregate group filters).
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         parallel_state: Option<*mut ParallelScanState>,
         expr_context: Option<*mut pg_sys::ExprContext>,
+        ctx: &TaskContext,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
@@ -477,6 +564,25 @@ impl PgSearchScanPlan {
         let schema: SchemaRef = Arc::new((&schema_proto).try_into().map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: schema parse: {e}"))
         })?);
+
+        let codec = DefaultPhysicalExtensionCodec {};
+        let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
+        let dynamic_filters = descriptor
+            .dynamic_filters
+            .iter()
+            .map(|bytes| {
+                let node =
+                    <datafusion_proto::protobuf::PhysicalExprNode as prost::Message>::decode(
+                        bytes.as_slice(),
+                    )
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!(
+                            "PgSearchScan dispatch: dynamic filter decode: {e}"
+                        ))
+                    })?;
+                proto_converter.proto_to_physical_expr(&node, schema.as_ref(), &decode_ctx)
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let index_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.indexrelid));
         let heap_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.heap_relid));
@@ -539,7 +645,7 @@ impl PgSearchScanPlan {
             Some(ffhelper)
         };
 
-        Ok(Arc::new(PgSearchScanPlan::new(
+        let mut plan = PgSearchScanPlan::new(
             Some(state),
             schema,
             query,
@@ -547,11 +653,14 @@ impl PgSearchScanPlan {
             deferred,
             ffhelper_arg,
             descriptor.indexrelid,
-            deferred_ctid_plan_position,
+            descriptor.deferred_ctid_plan_position,
             descriptor.partition_count,
             parallel_state,
             descriptor.range_sample,
-        )))
+        );
+        plan.assigned_partition = descriptor.assigned_partition;
+        plan.dynamic_filters = dynamic_filters;
+        Ok(Arc::new(plan))
     }
 }
 
@@ -562,6 +671,10 @@ impl PgSearchScanPlan {
 struct ScanDispatchDescriptor {
     /// Arrow schema, `datafusion_proto::protobuf::Schema`-encoded (arrow schema isn't serde).
     schema_proto: Vec<u8>,
+    /// Installed dynamic filters (join-key bounds, top-k thresholds), each a prost-encoded
+    /// `PhysicalExprNode`. Their `expr_id` lets a deduplicating decode re-share one instance
+    /// with the operator that updates it.
+    dynamic_filters: Vec<Vec<u8>>,
     query: SearchQueryInput,
     score_needed: bool,
     sort_order: Option<SortByField>,
@@ -577,6 +690,29 @@ struct ScanDispatchDescriptor {
     planner_estimated_rows: u64,
     partition_count: usize,
     range_sample: Option<RangePartitioningSample>,
+    assigned_partition: Option<usize>,
+}
+
+/// The output partitioning a scan declares to DataFusion.
+///
+/// `Partitioning::Range` is declared only when the boundaries cover exactly
+/// `partition_count` partitions and translate faithfully to DataFusion's model.
+/// Otherwise `UnknownPartitioning` preserves the requested count, where any
+/// partitions beyond the boundaries execute as empty streams (e.g. when the
+/// sample is smaller than the requested count).
+fn declared_partitioning(
+    schema: &SchemaRef,
+    partition_count: usize,
+    range_boundaries: Option<&RangePartitioning>,
+) -> Partitioning {
+    if partition_count > 1
+        && let Some(boundaries) = range_boundaries
+        && boundaries.split_points.len() + 1 == partition_count
+        && let Some(partitioning) = boundaries.to_datafusion(schema)
+    {
+        return partitioning;
+    }
+    Partitioning::UnknownPartitioning(partition_count)
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.
@@ -632,6 +768,36 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "PgSearchScan: segments={}", self.segment_count)?;
+        if let Some(range_sample) = &self.range_sample {
+            if let Some(assigned) = self.assigned_partition {
+                let partitioning =
+                    range_sample.build(self.properties.output_partitioning().partition_count());
+
+                let lower = if assigned > 0 {
+                    let val = &partitioning.split_points[assigned - 1];
+                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                } else {
+                    "-∞".to_string()
+                };
+
+                let upper = if assigned < partitioning.split_points.len() {
+                    let val = &partitioning.split_points[assigned];
+                    serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+                } else {
+                    "∞".to_string()
+                };
+
+                write!(
+                    f,
+                    ", partition={}[{}..{})",
+                    range_sample.partition_by.as_ref(),
+                    lower,
+                    upper
+                )?;
+            } else {
+                write!(f, ", partition_by={}", range_sample.partition_by.as_ref())?;
+            }
+        }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
@@ -679,7 +845,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 return Err(DataFusionError::Internal(format!(
                     "Partition {} out of range (have {} partitions)",
                     p, partition_count
-                )))
+                )));
             }
         };
 
@@ -715,6 +881,20 @@ impl ExecutionPlan for PgSearchScanPlan {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
+        // TODO: The datafusion-distributed fork currently calls `execute` for ALL partitions in
+        // `run_worker_fragment`, even though this variant was only assigned to process a single
+        // partition. We should triage whether `run_worker_fragment` should be accessing all
+        // partitions, or only assigned partitions for a task. Until then, returning an empty
+        // stream for non-assigned partitions satisfies the fragment execution without crashing.
+        if let Some(assigned) = self.assigned_partition
+            && partition != assigned
+        {
+            let schema = self.properties.eq_properties.schema().clone();
+            return Ok(Box::pin(unsafe {
+                UnsafeSendStream::new(futures::stream::empty(), schema)
+            }));
+        }
+
         let mut state_guard = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
         })?;
@@ -727,45 +907,18 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
+        let state = std::mem::replace(&mut *state_guard, ExecutionState::Consumed);
+
         // Handle state transitions for execution.
-        let (scan_state, parallel_state, range_boundaries) = match &mut *state_guard {
+        let (scan_state, parallel_state, range_boundaries) = match state {
             ExecutionState::Shared {
                 parallel_state,
                 scan_state,
-                spent_partitions,
-            } => {
-                if spent_partitions.get(partition).copied().unwrap_or(false) {
-                    return Err(DataFusionError::Internal(format!(
-                        "PgSearchScanPlan partition {partition} executed more than once"
-                    )));
-                }
-                if partition < spent_partitions.len() {
-                    spent_partitions[partition] = true;
-                }
-
-                if let Some(state) = scan_state.take() {
-                    (state.0, parallel_state.as_ref().map(|p| p.0), None)
-                } else {
-                    let schema = self.properties.eq_properties.schema().clone();
-                    return Ok(Box::pin(unsafe {
-                        UnsafeSendStream::new(futures::stream::empty(), schema)
-                    }));
-                }
-            }
+            } => (scan_state.0, parallel_state.map(|p| p.0), None),
             ExecutionState::RangePartitioned {
                 range_boundaries,
                 scan_state,
-                spent_partitions,
             } => {
-                if spent_partitions.get(partition).copied().unwrap_or(false) {
-                    return Err(DataFusionError::Internal(format!(
-                        "PgSearchScanPlan partition {partition} executed more than once"
-                    )));
-                }
-                if partition < spent_partitions.len() {
-                    spent_partitions[partition] = true;
-                }
-
                 // If target_partitions scaled past the available sample boundaries, we
                 // just return empty streams for the extra partitions.
                 if partition > range_boundaries.split_points.len() {
@@ -775,7 +928,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }));
                 }
 
-                (scan_state.0.clone(), None, Some(range_boundaries.clone()))
+                (scan_state.0, None, Some(range_boundaries))
+            }
+            ExecutionState::Consumed => {
+                return Err(DataFusionError::Internal(format!(
+                    "PgSearchScanPlan partition {partition} executed more than once"
+                )));
             }
             ExecutionState::Uninitialized => {
                 let schema = self.properties.eq_properties.schema().clone();
@@ -918,19 +1076,45 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
         // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
         // join-key bounds from HashJoinExec). We accept and apply all of them.
-        let mut dynamic_filters = Vec::new();
+        //
+        // The pushdown pass can potentially run more than once. Producers assume
+        // pushed-down filters remain installed between passes and may not re-push
+        // already-pushed filters on subsequent passes. To handle this, we merge and
+        // dedupe the filter list on each pass.
+        //
+        // Dedupe by `expression_id`, not pointer identity: remapping a filter's
+        // columns on its way down the tree (`DynamicFilterPhysicalExpr::
+        // with_new_children`) mints a fresh wrapper per pass, but wrappers of the
+        // same logical filter share an id. On a match, keep the incoming wrapper —
+        // its column remap reflects the current tree shape.
+        let mut dynamic_filters = self.dynamic_filters.clone();
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+        let mut saw_dynamic = false;
+        let mut changed = false;
 
         for filter_result in &child_pushdown_result.parent_filters {
             if filter_result.filter.is::<DynamicFilterPhysicalExpr>() {
-                dynamic_filters.push(Arc::clone(&filter_result.filter));
+                saw_dynamic = true;
+                let incoming = &filter_result.filter;
+                let id = incoming.expression_id();
+                match dynamic_filters.iter_mut().find(|f| f.expression_id() == id) {
+                    Some(slot) if !Arc::ptr_eq(incoming, slot) => {
+                        *slot = Arc::clone(incoming);
+                        changed = true;
+                    }
+                    Some(_) => {}
+                    None => {
+                        dynamic_filters.push(Arc::clone(incoming));
+                        changed = true;
+                    }
+                };
                 filters.push(PushedDown::Yes);
             } else {
                 filters.push(filter_result.any());
             }
         }
 
-        if !dynamic_filters.is_empty() {
+        if changed {
             // Transfer state from the old plan to the new one.
             let state = std::mem::take(&mut *self.state.lock().map_err(|e| {
                 DataFusionError::Internal(format!(
@@ -943,6 +1127,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
             )
+        } else if saw_dynamic {
+            // Every delivered dynamic filter was already installed by an earlier
+            // pass; acknowledge them without rebuilding the node.
+            Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                filters,
+            ))
         } else {
             Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
         }
@@ -1027,57 +1217,110 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
     }
 }
 
-/// `PgSearchScanTaskEstimator` intercepts `PgSearchScanPlan` during distributed planning
-/// and requests a number of tasks equal to the plan's `partition_count`.
+/// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks.
 ///
 /// This correctly maps PostgreSQL parallel workers to tasks, ensuring that tables with 1 segment
 /// do not force MPP planning and fall back to local serial execution (under `Shared` partitioning),
 /// whereas large tables or tables utilizing `Range` partitioning scale out efficiently across
-/// available workers. When scaled up via `scale_up_leaf_node`, the plan internally repartitions
-/// itself to exactly match the requested task count.
-#[derive(Debug)]
-pub(crate) struct PgSearchScanTaskEstimator;
+/// available workers.
+pub(crate) fn pg_search_scan_desired_task_count(
+    ev: DesiredTaskCountEvent,
+) -> Option<DesiredTaskCountEventResponse> {
+    let _ = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
+    let partition_count = ev.plan.properties().output_partitioning().partition_count();
+    // `maximum` rather than `desired`: `partition_count` is already clamped to the number
+    // of physical index segments (when range sampling is disabled). A single segment cannot
+    // be concurrently scanned by multiple workers, so scaling the stage past it would just
+    // starve tasks with useless setup work (like building empty hash tables) for zero rows.
+    Some(DesiredTaskCountEventResponse::maximum(partition_count))
+}
 
-impl TaskEstimator for PgSearchScanTaskEstimator {
-    fn task_estimation(
-        &self,
-        plan: &Arc<dyn ExecutionPlan>,
-        _cfg: &ConfigOptions,
-    ) -> Option<TaskEstimation> {
-        let _ = plan.downcast_ref::<PgSearchScanPlan>()?;
+/// Replaces a `PgSearchScanPlan` leaf with per-task variants once its stage's task
+/// count is final. One partition per task is the distributed contract: the plan is
+/// repartitioned so the counts match, and each variant consumes exactly its own
+/// partition; partitions past a short range sample bound empty ranges rather than
+/// re-chunking tasks.
+pub(crate) fn pg_search_scan_scale_up_leaf_node(
+    ev: ScaleUpLeafNodeEvent,
+) -> Option<datafusion::error::Result<ScaleUpLeafNodeEventResponse>> {
+    let scan_plan = ev.plan.downcast_ref::<PgSearchScanPlan>()?;
 
-        let partition_count = plan.properties().output_partitioning().partition_count();
-
-        Some(TaskEstimation::desired(partition_count))
-    }
-
-    fn scale_up_leaf_node(
-        &self,
-        plan: &Arc<dyn ExecutionPlan>,
-        task_count: usize,
-        _cfg: &ConfigOptions,
-    ) -> datafusion::error::Result<Option<Arc<dyn ExecutionPlan>>> {
-        let Some(scan_plan) = plan.downcast_ref::<PgSearchScanPlan>() else {
-            return Ok(None);
-        };
-
-        let current_partitions = plan.properties().output_partitioning().partition_count();
-        let final_plan = if task_count != current_partitions {
-            scan_plan.repartition(task_count)?
+    let scale = || -> datafusion::error::Result<ScaleUpLeafNodeEventResponse> {
+        let current_partitions = ev.plan.properties().output_partitioning().partition_count();
+        let final_plan = if ev.task_count != current_partitions {
+            scan_plan.repartition(ev.task_count)?
         } else {
-            Arc::clone(plan)
+            Arc::clone(ev.plan)
         };
 
-        // Each worker decodes its own copy, and `execute()` dynamically claims segments from the
-        // parallel state. Variants in the same process share state: see `ExecutionState` for why
-        // this is safe.
-        let variants = (0..task_count)
-            .map(|_| Arc::clone(&final_plan))
+        // Downcast back because repartition returns `Arc<dyn ExecutionPlan>`
+        let final_scan_plan = final_plan.downcast_ref::<PgSearchScanPlan>().unwrap();
+
+        // Assign each task its explicit execution partition to ensure it is the only one
+        // executing it.
+        let variants = (0..ev.task_count)
+            .map(|i| {
+                let mut variant = final_scan_plan.clone();
+                variant.assigned_partition = Some(i);
+                Arc::new(variant) as Arc<dyn ExecutionPlan>
+            })
             .collect::<Vec<_>>();
 
-        Ok(Some(Arc::new(
+        Ok(ScaleUpLeafNodeEventResponse::new(Arc::new(
             datafusion_distributed::DistributedLeafExec::try_new(final_plan, variants)?,
         )))
+    };
+    Some(scale())
+}
+
+/// Stamp the leader's `ParallelScanState` pointer into every `PgSearchScanPlan` reachable from
+/// `plan` (#5667).
+///
+/// The plan-first MPP launch builds the leader's plan before the DSM exists; this walk binds the
+/// pointer afterwards, mirroring core PG's `ExecParallelInitializeDSM` (plans are address-free,
+/// execution state binds late). Network boundaries expose their stage plan through `children()`,
+/// so the walk reaches nested stages too — stamping worker-bound stage plans is inert: dispatch
+/// encodes are context-free recipes and workers inject their own pointer at decode.
+///
+/// `DistributedLeafExec` needs explicit descent: its `children()` is empty, and when
+/// `scale_up_leaf_node` repartitioned the scan, the wrapper's `original`/`variants` are a *new*
+/// `PgSearchScanPlan` instance — the wrapper is the only live path to it. The leader executes
+/// `original` (its `DistributedTaskContext` is `task_count = 1`), but stamp the variants too:
+/// they are usually clones of the same instance, and a future divergence must not silently
+/// un-stamp them.
+pub(crate) fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut ParallelScanState) {
+    visit_scan_nodes(plan, &mut |scan| scan.set_parallel_state(ps));
+}
+
+/// Visit every [`PgSearchScanPlan`] reachable from `plan`, including scans wrapped in
+/// [`DistributedLeafExec`] — whose `children()` is empty, and whose `original`/`variants` may be
+/// a repartitioned instance not present anywhere else in the tree. Split from
+/// [`stamp_parallel_state`] so the traversal is unit-testable without a live
+/// `ParallelScanState`.
+///
+/// [`DistributedLeafExec`]: datafusion_distributed::DistributedLeafExec
+fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&PgSearchScanPlan)) {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+        visit(scan);
+    }
+    if let Some(leaf) = plan.downcast_ref::<datafusion_distributed::DistributedLeafExec>() {
+        visit_scan_nodes(leaf.original(), visit);
+        for variant in leaf.variants() {
+            visit_scan_nodes(variant, visit);
+        }
+        return;
+    }
+    // `FilterPassthroughExec::children()` forwards to its inner node's children, skipping the
+    // inner node itself. Today it only ever wraps `SortPreservingMergeExec` (never a scan), so
+    // the plain walk would still reach every scan — but that invariant lives in
+    // `segmented_topk_rule`, not here. Descend through `inner()` explicitly so a future
+    // wrapping of a scan cannot silently escape the stamp.
+    if let Some(fp) = plan.downcast_ref::<FilterPassthroughExec>() {
+        visit_scan_nodes(fp.inner(), visit);
+        return;
+    }
+    for child in plan.children() {
+        visit_scan_nodes(child, visit);
     }
 }
 
@@ -1095,6 +1338,47 @@ mod tests {
 
     fn empty_schema() -> SchemaRef {
         Arc::new(Schema::empty())
+    }
+
+    /// #5667: `DistributedLeafExec::children()` is empty, and after `repartition()` its
+    /// `original`/`variants` can be a scan instance not present anywhere else in the tree — so
+    /// a `children()`-only walk silently misses it and the leader would execute an unstamped
+    /// scan. This pins the explicit descent.
+    #[pg_test]
+    fn visit_scan_nodes_descends_through_distributed_leaf_exec() {
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion_distributed::DistributedLeafExec;
+
+        fn make_scan() -> Arc<dyn ExecutionPlan> {
+            Arc::new(PgSearchScanPlan::new(
+                None,
+                empty_schema(),
+                SearchQueryInput::All,
+                None,
+                Vec::new(),
+                None,
+                0,
+                None,
+                1,
+                None,
+                None,
+            ))
+        }
+
+        // Distinct instances on purpose: `repartition()` gives the wrapper a scan that exists
+        // nowhere else in the tree, so the visitor must reach `original` and each variant
+        // independently — not merely alias the same node twice.
+        let leaf: Arc<dyn ExecutionPlan> = Arc::new(
+            DistributedLeafExec::try_new(make_scan(), [make_scan()]).expect("leaf construction"),
+        );
+
+        let mut visited = 0usize;
+        super::visit_scan_nodes(&leaf, &mut |_| visited += 1);
+        assert_eq!(
+            visited, 2,
+            "visit_scan_nodes must descend through DistributedLeafExec \
+             (original + 1 distinct variant); its children() is empty"
+        );
     }
 
     #[pg_test]

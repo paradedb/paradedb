@@ -1,5 +1,6 @@
 -- Tests for Semi and Anti Joins with Join Custom Scan
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
 DROP TABLE IF EXISTS table_a CASCADE;
 CREATE TABLE table_a (
     id bigint NOT NULL PRIMARY KEY,
@@ -169,7 +170,6 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, table_b)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -220,7 +220,6 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, table_b)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category
@@ -326,7 +325,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 SELECT *

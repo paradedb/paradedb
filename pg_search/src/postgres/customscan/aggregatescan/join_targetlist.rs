@@ -26,7 +26,8 @@ use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{find_one_aggref, find_one_var_and_fieldname, VarContext};
+use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
+use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -36,7 +37,6 @@ use pgrx::pg_sys::{
     F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
-use pgrx::PgList;
 
 /// Look up a join source by RTI, returning a uniform error message that
 /// names the calling context (e.g. "GROUP BY column", "aggregate argument").
@@ -333,13 +333,18 @@ pub unsafe fn extract_aggregate_targetlist(
             let filter = if (*aggref).aggfilter.is_null() {
                 None
             } else {
-                FilterExpr::from_pg_node(
-                    (*aggref).aggfilter as *mut pg_sys::Node,
-                    &FilterExprBuildContext::Filter {
-                        sources,
-                        plan,
-                        outer_root_id,
-                    },
+                Some(
+                    FilterExpr::from_pg_node(
+                        (*aggref).aggfilter as *mut pg_sys::Node,
+                        &FilterExprBuildContext::Filter {
+                            sources,
+                            plan,
+                            outer_root_id,
+                        },
+                    )
+                    .ok_or_else(|| {
+                        "aggregate FILTER cannot be translated for aggregate-on-join".to_string()
+                    })?,
                 )
             };
 

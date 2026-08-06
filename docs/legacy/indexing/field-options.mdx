@@ -143,7 +143,7 @@ The nested configuration JSON for `json_fields` accepts the following keys.
 
 ## Advanced Options
 
-In addition to text and JSON, ParadeDB exposes options for numeric, datetime, boolean, range, and enum fields.
+In addition to text and JSON, ParadeDB exposes options for numeric, boolean, range, and enum fields.
 For most use cases, it is not necessary to change these options.
 
 ### Numeric Fields
@@ -174,6 +174,17 @@ WITH (
   </ParamField>
 </Accordion>
 
+### Datetime Fields
+
+<Note>
+  As of `0.24.1`, `datetime_fields` is deprecated. The performance improvements
+  it used to enable are now on by default, so the option should be removed from
+  your `CREATE INDEX` statement.
+</Note>
+
+Columns of type `DATE`, `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE`, `TIME`, `TIME WITH TIME ZONE`, and their
+corresponding array types are indexed and made fast automatically — no configuration is required.
+
 ### Boolean Fields
 
 Options for columns of type `BOOLEAN` and `BOOLEAN[]` should be passed to `boolean_fields`.
@@ -189,13 +200,37 @@ WITH (
 );
 ```
 
-`CREATE_INDEX` accepts several configuration options for `boolean_fields`:
+`CREATE INDEX` accepts several configuration options for `boolean_fields`:
 
 <Accordion title="Advanced Options">
   <ParamField body="indexed" default={true}>
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
+  <ParamField body="fast" default={true}>
+    Fast fields can be random-accessed rapidly. Fields used for aggregation must
+    have `fast` set to `true`. Fast fields are also useful for accelerated
+    scoring and filtering.
+  </ParamField>
+</Accordion>
+
+### Range Fields
+
+Options for columns of type `int4range`, `int8range`, `numrange`, `daterange`, `tsrange`, and `tstzrange` should be
+passed to `range_fields`. Range fields should be queried with [range term queries](/legacy/advanced/term/range-term).
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, weight_range)
+WITH (
+  key_field = 'id',
+  range_fields = '{
+      "weight_range": {"fast": true}
+  }'
+);
+```
+
+<Accordion title="Advanced Options">
   <ParamField body="fast" default={true}>
     Fast fields can be random-accessed rapidly. Fields used for aggregation must
     have `fast` set to `true`. Fast fields are also useful for accelerated

@@ -25,9 +25,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::ops::Bound;
 use tantivy::{
+    Term,
     query::{RangeQuery, RegexQuery, TermQuery},
     schema::Field,
-    Term,
 };
 
 const EMPTY_KEY: &str = "empty";

@@ -13,7 +13,7 @@ To generate grams of a single fixed length, set the minimum and maximum gram siz
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.ngram(3,3)))
+USING paradedb (id, (description::pdb.ngram(3,3)))
 WITH (key_field='id');
 ```
 
@@ -75,7 +75,7 @@ INSERT INTO books (titles) VALUES
     (ARRAY['Dragon Slayer', 'Hatchling Care']);
 
 CREATE INDEX ON books
-USING bm25 (id, (titles::pdb.ngram(4,4,'positions=true')))
+USING paradedb (id, (titles::pdb.ngram(4,4,'positions=true')))
 WITH (key_field='id');
 
 -- Phrase: matches exact substring "Dragon Hatchling" — only row 1

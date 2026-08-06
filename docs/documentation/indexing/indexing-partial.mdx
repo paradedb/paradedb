@@ -1,6 +1,6 @@
 ---
 title: Partial Indexes
-description: Add row filters to the BM25 index
+description: Add row filters to the ParadeDB index
 canonical: https://docs.paradedb.com/documentation/indexing/indexing-partial
 ---
 
@@ -8,12 +8,12 @@ A partial index is an index that only includes rows that satisfy a `WHERE` condi
 Instead of indexing every row in a table, Postgres evaluates the predicate and only indexes rows that match it.
 This can reduce index size and improve performance when you only query a subset of a table.
 
-The BM25 index supports partial indexes using the same syntax as PostgreSQL.
+The ParadeDB index supports partial indexes using the same syntax as Postgres.
 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category)
+USING paradedb (id, description, category)
 WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
@@ -23,7 +23,7 @@ import { isNotNull } from "drizzle-orm";
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .bm25Index("search_idx")
+  .paradedbIndex("search_idx")
   .on(mockItems.id, mockItems.description, mockItems.category)
   .where(isNotNull(mockItems.description));
 ```
@@ -31,12 +31,12 @@ indexing
 ```python Django
 from django.db import connection
 from django.db.models import Q
-from paradedb.indexes import BM25Index
+from paradedb.indexes import ParadeDBIndex
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
         MockItem,
-        BM25Index(
+        ParadeDBIndex(
             fields={
                 "id": {},
                 "description": {},
@@ -55,10 +55,10 @@ from paradedb.sqlalchemy import indexing
 
 idx = Index(
     "search_idx",
-    indexing.BM25Field(MockItem.id),
-    indexing.BM25Field(MockItem.description),
-    indexing.BM25Field(MockItem.category),
-    postgresql_using="bm25",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(MockItem.category),
+    postgresql_using="paradedb",
     postgresql_with={"key_field": "id"},
     postgresql_where=MockItem.description.is_not(None),
 )
@@ -68,7 +68,7 @@ with engine.begin() as conn:
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_bm25_index(
+ActiveRecord::Base.connection.add_paradedb_index(
   :mock_items,
   fields: {
     id: {},
@@ -83,7 +83,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 ```cs EF Core
 modelBuilder.Entity<MockItem>()
-    .HasBm25Index("search_idx", e => e.Id)
+    .HasParadeDbIndex("search_idx", e => e.Id)
     .HasField(e => e.Description)
     .HasField(e => e.Category)
     .HasFilter("description IS NOT NULL");
@@ -91,11 +91,11 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
-An important note: if the BM25 index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.
+An important note: if the ParadeDB index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.
 A query that does not contain the `WHERE` condition will fall back to a sequential scan, which does not support all of
 ParadeDB's query types and has poor performance.
 
-For example, the following query will not use the partial BM25 index defined above because it does not contain the
+For example, the following query will not use the partial ParadeDB index defined above because it does not contain the
 `description IS NOT NULL` predicate:
 
 ```sql
@@ -103,7 +103,7 @@ SELECT * FROM mock_items
 WHERE description ||| 'running shoes';
 ```
 
-However, this query will use the BM25 index because it contains the predicate:
+However, this query will use the ParadeDB index because it contains the predicate:
 
 ```sql
 SELECT * FROM mock_items

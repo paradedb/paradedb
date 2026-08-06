@@ -40,6 +40,9 @@ jobs:
       - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
@@ -183,7 +186,7 @@ jobs:
           echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install dependencies
-          dnf install -y sudo wget git ca-certificates gcc llvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel gettext
+          dnf install -y sudo wget git ca-certificates gcc llvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel gettext lld
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -250,6 +253,13 @@ jobs:
             VERSION=${{ github.event.inputs.version }}
           fi
           echo "GitHub Tag Version: $VERSION"
+
+          # A tag push must never fall through to the 0.0.0 test default, or the assets get built
+          # with the wrong version and uploaded to the v0.0.0 release instead of the real one.
+          if [[ "$VERSION" == "0.0.0" && "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "Refusing to publish 0.0.0 assets for tag $GITHUB_REF"
+            exit 1
+          fi
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
           OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
@@ -311,7 +321,7 @@ jobs:
           Name:           pg_search_${{ matrix.pg_version }}
           Version:        ${{ steps.version.outputs.tag_version }}
           Release:        1%{?dist}
-          Summary:        Full-text search for PostgreSQL using BM25
+          Summary:        One Postgres for your application data, full-text search, vector retrieval, and aggregations
           License:        GNU Affero General Public License v3.0
           URL:            ${{ github.server_url }}/${{ github.repository }}
 
@@ -321,9 +331,9 @@ jobs:
           Requires:       openblas
 
           %description
-          pg_search is a Postgres extension that enables full-text search over
-          PostgreSQL tables using the BM25 algorithm. It is built on top of Tantivy,
-          the Rust-based alternative to Apache Lucene, using pgrx.
+          pg_search is a Postgres extension that brings full-text search, vector
+          retrieval, and aggregations to PostgreSQL tables. It is built on top of
+          Tantivy, the Rust-based alternative to Apache Lucene, using pgrx.
 
           %install
           %{__rm} -rf %{buildroot}
@@ -400,7 +410,8 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`publish-pg_search-rhel\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

@@ -127,7 +127,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev lld
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
@@ -158,7 +158,7 @@ jobs:
 
           # Install PostgreSQL + build tooling
           DEBIAN_FRONTEND=noninteractive sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ env.PG_VERSION }} postgresql-server-dev-${{ env.PG_VERSION }} debhelper devscripts dput gnupg binutils
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ env.PG_VERSION }} postgresql-server-dev-${{ env.PG_VERSION }} debhelper devscripts dput gnupg binutils libopenblas-dev
 
           # Add Postgres bin dir to PATH for subsequent steps
           echo "/usr/lib/postgresql/${{ env.PG_VERSION }}/bin" >> "$GITHUB_PATH"
@@ -250,7 +250,7 @@ jobs:
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE
           echo 'Architecture: amd64' >> $CONTROL_FILE
-          echo 'Depends: postgresql-${{ env.PG_VERSION }}' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ env.PG_VERSION }}, libopenblas0' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 
@@ -440,47 +440,10 @@ jobs:
           || needs.build-antithesis-pg_search-deb.result == 'failure'
           || needs.antithesis-trigger-test-run.result == 'failure')
     runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
     steps:
-      - name: Determine failed jobs
-        id: failed-jobs
-        run: |
-          FAILED_JOBS=""
-          if [ "${{ needs.setup.result }}" == "failure" ]; then
-            FAILED_JOBS="Resolve Workloads, $FAILED_JOBS"
-          fi
-          if [ "${{ needs.build-antithesis-pg_search-deb.result }}" == "failure" ]; then
-            FAILED_JOBS="Build Antithesis pg_search .deb, $FAILED_JOBS"
-          fi
-          if [ "${{ needs.antithesis-trigger-test-run.result }}" == "failure" ]; then
-            FAILED_JOBS="Test pg_search via Antithesis, $FAILED_JOBS"
-          fi
-          FAILED_JOBS="${FAILED_JOBS%, }"
-          echo "failed_jobs=$FAILED_JOBS" >> "$GITHUB_OUTPUT"
-
-      - name: Send Slack notification
-        run: |
-          if [ -n "$SLACK_WEBHOOK_URL" ]; then
-            JSON_DATA="{
-              \"text\": \"🚨 Nightly Antithesis Run Failed - <!here>\",
-              \"attachments\": [
-                {
-                  \"color\": \"danger\",
-                  \"fields\": [
-                    {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
-                    {\"title\": \"Workflow\", \"value\": \"${{ github.workflow }}\", \"short\": true},
-                    {\"title\": \"Run ID\", \"value\": \"${{ github.run_id }}\", \"short\": true},
-                    {\"title\": \"View Logs\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>\", \"short\": true},
-                    {\"title\": \"Failed Jobs\", \"value\": \"${{ steps.failed-jobs.outputs.failed_jobs }}\", \"short\": false}
-                  ]
-                }
-              ]
-            }"
-
-            curl -X POST -H 'Content-type: application/json' \
-              --data "$JSON_DATA" \
-              "$SLACK_WEBHOOK_URL"
-          else
-            echo "Slack webhook not configured, skipping notification"
-          fi
+      - name: Notify Slack on Failure
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "Nightly Antithesis Run Failed"

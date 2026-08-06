@@ -23,8 +23,8 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    directory::RamDirectory, Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment,
-    SegmentMeta, TantivyDocument,
+    Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
+    directory::RamDirectory,
 };
 use thiserror::Error;
 
@@ -35,7 +35,7 @@ use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::vector::clusterer::set_ivf_clusterer;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{direct_function_call, function_name, IntoDatum, PgLogLevel, PgSqlErrorCode};
+use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 
 struct PendingSegment {
     segment: Segment,
@@ -380,19 +380,19 @@ impl SerialIndexWriter {
             return self.finalize_segment(on_finalize);
         }
 
-        if let Some(max_docs_per_segment) = self.config.max_docs_per_segment {
-            if max_doc >= max_docs_per_segment as usize {
-                if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
-                    pgrx::debug1!(
-                        "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
-                        self.id,
-                        pending_segment.segment.id(),
-                        max_doc,
-                        self.new_metas.len()
-                    );
-                }
-                return self.finalize_segment(on_finalize);
+        if let Some(max_docs_per_segment) = self.config.max_docs_per_segment
+            && max_doc >= max_docs_per_segment as usize
+        {
+            if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+                pgrx::debug1!(
+                    "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
+                    self.id,
+                    pending_segment.segment.id(),
+                    max_doc,
+                    self.new_metas.len()
+                );
             }
+            return self.finalize_segment(on_finalize);
         }
 
         Ok(None)
@@ -575,6 +575,50 @@ impl Mergeable for SearchIndexMerger {
                 .build(),
         )?;
         let new_segment = writer.merge_foreground(segment_ids, true)?;
+
+        if let Some(new_segment) = new_segment.as_ref() {
+            // Merge doc-count conservation: the merged output segment's live doc count must equal
+            // the sum of the input segments' live doc counts (live = max_doc - num_deleted).
+            //
+            // This is an exact equality, not a bound: tantivy's `merge()` sets the merged segment's
+            // `max_doc` to `sum(input.num_docs())` computed from the SAME frozen `all_entries`
+            // snapshot that this merger loaded (`load_metas` populates it once, under a OnceLock),
+            // and the merged segment carries no deletes of its own (`num_deleted == 0`, so its
+            // `max_doc == num_docs`). Concurrent deletes append to a NEW metas list and cannot
+            // mutate this already-loaded directory's snapshot, so there is no accounting slack here.
+            // A violation would mean the merge silently lost or duplicated rows — top-tier data loss.
+            //
+            // We read each input's live count from the same frozen snapshot via
+            // `segment_meta_entry` (a single-entry lock+read, no whole-map clone, no I/O). Every
+            // input id is present because `merge_foreground` succeeded (it resolved their files
+            // from this snapshot); `all_found` guards against a spurious fire if that ever weren't so.
+            dst::observe!(|| {
+                let mut sum_input_live: u64 = 0;
+                let mut all_found = true;
+                for segment_id in segment_ids {
+                    match self.directory.segment_meta_entry(segment_id) {
+                        Some(entry) => sum_input_live += entry.num_docs() as u64,
+                        None => {
+                            all_found = false;
+                            break;
+                        }
+                    }
+                }
+                let output_live = new_segment.max_doc() as u64;
+                // [dst correctness] merge conserves live docs: output live == sum of input live docs
+                dst::assert_always!(
+                    !all_found || output_live == sum_input_live,
+                    "pg_search: merge live-doc conservation (output == sum of inputs)",
+                    &::serde_json::json!({
+                        "all_inputs_found": all_found,
+                        "input_segment_count": segment_ids.len(),
+                        "sum_input_live_docs": sum_input_live,
+                        "output_live_docs": output_live,
+                    })
+                );
+            });
+        }
+
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that

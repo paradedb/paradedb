@@ -34,16 +34,16 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{
@@ -54,7 +54,7 @@ use crate::query::SearchQueryInput;
 
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
@@ -82,13 +82,13 @@ pub(super) unsafe fn expr_uses_scores_from_source(
             let data = context.cast::<Data>();
             if (*data).funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if args.len() == 1 {
-                    if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                        let varno = (*var).varno as pg_sys::Index;
-                        if (*data).source.contains_rti(varno) {
-                            (*data).found = true;
-                            return true; // Abort traversal, found it
-                        }
+                if args.len() == 1
+                    && let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                {
+                    let varno = (*var).varno as pg_sys::Index;
+                    if (*data).source.contains_rti(varno) {
+                        (*data).found = true;
+                        return true; // Abort traversal, found it
                     }
                 }
             }
@@ -766,25 +766,47 @@ unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path
         if path.is_null() {
             return path;
         }
-        let next = match (*path).type_ {
-            // Parallel-to-serial bridge: same row set, same schema.
-            pg_sys::NodeTag::T_GatherPath => (*(path as *mut pg_sys::GatherPath)).subpath,
-            // Sorted parallel-to-serial bridge: same rows, preserves order.
-            pg_sys::NodeTag::T_GatherMergePath => (*(path as *mut pg_sys::GatherMergePath)).subpath,
-            // Required below GatherMerge when PG sorts each worker's partial
-            // path before merging: same rows, only adds ordering.
-            pg_sys::NodeTag::T_SortPath => (*(path as *mut pg_sys::SortPath)).subpath,
-            // Cached materialisation for inner-side replay: same rows, same schema.
-            pg_sys::NodeTag::T_MaterialPath => (*(path as *mut pg_sys::MaterialPath)).subpath,
-            // Adjusts the target list above the underlying path; the join
-            // structure (RTIs, equi-keys, jointype) we read below is unchanged.
-            pg_sys::NodeTag::T_ProjectionPath => (*(path as *mut pg_sys::ProjectionPath)).subpath,
-            _ => return path,
+        let Some(next) = transparent_path_subpath(path) else {
+            return path;
         };
         if next.is_null() || next == path {
             return path;
         }
         path = next;
+    }
+}
+
+/// Return the child of a PostgreSQL path wrapper that preserves the same row
+/// set and join-predicate semantics.
+///
+/// This is shared by JoinScan reconstruction and AggregateScan predicate
+/// coverage. Keep the list deliberately narrow: a caller may inspect the
+/// returned subpath as the semantic source of join predicates, so wrappers
+/// that filter, deduplicate, limit, or otherwise change rows do not belong
+/// here.
+pub(crate) unsafe fn transparent_path_subpath(
+    path: *mut pg_sys::Path,
+) -> Option<*mut pg_sys::Path> {
+    if path.is_null() {
+        return None;
+    }
+
+    match (*path).type_ {
+        // Parallel-to-serial bridge: same row set, same schema.
+        pg_sys::NodeTag::T_GatherPath => Some((*(path as *mut pg_sys::GatherPath)).subpath),
+        // Sorted parallel-to-serial bridge: same rows, preserves order.
+        pg_sys::NodeTag::T_GatherMergePath => {
+            Some((*(path as *mut pg_sys::GatherMergePath)).subpath)
+        }
+        // Required below GatherMerge when PG sorts each worker's partial
+        // path before merging: same rows, only adds ordering.
+        pg_sys::NodeTag::T_SortPath => Some((*(path as *mut pg_sys::SortPath)).subpath),
+        // Cached materialisation for inner-side replay: same rows, same schema.
+        pg_sys::NodeTag::T_MaterialPath => Some((*(path as *mut pg_sys::MaterialPath)).subpath),
+        // Adjusts the target list above the underlying path; the join
+        // structure (RTIs, equi-keys, jointype) remains unchanged.
+        pg_sys::NodeTag::T_ProjectionPath => Some((*(path as *mut pg_sys::ProjectionPath)).subpath),
+        _ => None,
     }
 }
 
@@ -1201,10 +1223,9 @@ pub(super) unsafe fn collect_required_fields(
                     original_attno,
                     ..
                 }) = output_columns.get(idx)
+                    && *original_attno > 0
                 {
-                    if *original_attno > 0 {
-                        ensure_column_in_all_sources(&mut plan_sources, *rti, *original_attno);
-                    }
+                    ensure_column_in_all_sources(&mut plan_sources, *rti, *original_attno);
                 }
             } else {
                 ensure_column_in_all_sources(&mut plan_sources, var.rti, var.attno);
@@ -1269,10 +1290,10 @@ pub(super) unsafe fn collect_required_fields(
                                         .then_some(())
                                 })
                                 .is_some();
-                            if !added {
-                                if let Err(e) = ensure_expression_field(source, name) {
-                                    pgrx::warning!("JoinScan: failed to project expression field '{name}': {e}");
-                                }
+                            if !added && let Err(e) = ensure_expression_field(source, name) {
+                                pgrx::warning!(
+                                    "JoinScan: failed to project expression field '{name}': {e}"
+                                );
                             }
                             break;
                         }
@@ -1645,11 +1666,12 @@ unsafe fn column_name_for_var(
         if source.contains_rti(varno) {
             let hr = PgSearchRelation::open(source.scan_info.heaprelid);
             let td = hr.tuple_desc();
-            if varattno > 0 && (varattno as usize) <= td.len() {
-                if let Some(attr) = td.get((varattno - 1) as usize) {
-                    let tbl = source_table_name(source);
-                    return format!("{}.{}", tbl, attr.name());
-                }
+            if varattno > 0
+                && (varattno as usize) <= td.len()
+                && let Some(attr) = td.get((varattno - 1) as usize)
+            {
+                let tbl = source_table_name(source);
+                return format!("{}.{}", tbl, attr.name());
             }
         }
     }
@@ -1898,14 +1920,14 @@ pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sy
     let stripped_expr = strip_wrappers(expr.cast());
     if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, stripped_expr) {
         let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-        if !args.is_empty() {
-            if let Some(arg) = args.get_ptr(0) {
-                let stripped_arg = strip_wrappers(arg);
-                if let Some(var) = nodecast!(Var, T_Var, stripped_arg) {
-                    let varno = (*var).varno as pg_sys::Index;
-                    if is_score_func(stripped_expr.cast(), varno) {
-                        return Some(varno);
-                    }
+        if !args.is_empty()
+            && let Some(arg) = args.get_ptr(0)
+        {
+            let stripped_arg = strip_wrappers(arg);
+            if let Some(var) = nodecast!(Var, T_Var, stripped_arg) {
+                let varno = (*var).varno as pg_sys::Index;
+                if is_score_func(stripped_expr.cast(), varno) {
+                    return Some(varno);
                 }
             }
         }
@@ -1928,14 +1950,13 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
     }
     if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
         let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-        if !args.is_empty() {
-            if let Some(arg) = args.get_ptr(0) {
-                if let Some(var) = nodecast!(Var, T_Var, arg) {
-                    let varno = (*var).varno as pg_sys::Index;
-                    if source.contains_rti(varno) {
-                        return is_score_func(expr.cast(), varno);
-                    }
-                }
+        if !args.is_empty()
+            && let Some(arg) = args.get_ptr(0)
+            && let Some(var) = nodecast!(Var, T_Var, arg)
+        {
+            let varno = (*var).varno as pg_sys::Index;
+            if source.contains_rti(varno) {
+                return is_score_func(expr.cast(), varno);
             }
         }
     }

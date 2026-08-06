@@ -11,7 +11,7 @@ canonical: https://docs.paradedb.com/deploy/logical-replication/getting-started
 
 In production, ParadeDB is commonly deployed as a logical subscriber to your
 primary Postgres. Your application continues to write to the source database,
-while ParadeDB receives the same row changes and maintains local BM25 indexes
+while ParadeDB receives the same row changes and maintains local ParadeDB indexes
 for search and analytics.
 
 This deployment model is useful when:
@@ -129,7 +129,7 @@ INSERT INTO mock_items (description, category, in_stock, latest_available_time, 
 VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1);
 ```
 
-PostgreSQL's default replica identity uses the primary key. Because
+Postgres's default replica identity uses the primary key. Because
 `mock_items` has a primary key, it already has a valid replica identity
 for `INSERT`, `UPDATE`, and `DELETE`, so no additional replica identity
 configuration is needed here.
@@ -159,6 +159,14 @@ initial copy behavior of `CREATE SUBSCRIPTION`.
 CREATE EXTENSION pg_search CASCADE;
 ```
 
+<Note>
+  As of `0.25.0`, `pg_search` requires the
+  [`pgvector`](https://github.com/pgvector/pgvector) extension because it relies
+  on `pgvector`'s `vector` type. `pgvector` must be installed on the server
+  before `pg_search` is created — `CASCADE` then runs `CREATE EXTENSION vector`
+  automatically if it has not already been created.
+</Note>
+
 ### 5. Create a Publication on the Publisher
 
 ```sql
@@ -179,7 +187,7 @@ CONNECTION 'host=192.168.0.30 port=5432 dbname=marketplace user=replicator passw
 PUBLICATION marketplace_pub;
 ```
 
-By default, PostgreSQL copies existing rows from the publisher and then keeps
+By default, Postgres copies existing rows from the publisher and then keeps
 streaming new changes. If you do not want the initial copy, create the
 subscription with `WITH (copy_data = false)` and backfill the tables by another
 method.
@@ -209,7 +217,7 @@ FROM mock_items
 WHERE description = 'Blue running shoes';
 ```
 
-At this point, the base table is replicating correctly and you can create BM25
+At this point, the base table is replicating correctly and you can create ParadeDB
 indexes locally on ParadeDB. Continue to the [Logical Replication Operational
-Guide](/deploy/logical-replication/operational-guide) for BM25
+Guide](/deploy/logical-replication/operational-guide) for ParadeDB
 index build timing, monitoring, WAL retention, and troubleshooting.

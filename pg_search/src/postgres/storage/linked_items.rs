@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::buffer::{init_new_buffer, Buffer, BufferManager, BufferMut};
+use super::buffer::{Buffer, BufferManager, BufferMut, init_new_buffer};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
@@ -182,10 +182,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
-                if let Some(many) = many {
-                    if found >= many {
-                        break 'outer;
-                    }
+                if let Some(many) = many
+                    && found >= many
+                {
+                    break 'outer;
                 }
 
                 if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
@@ -484,7 +484,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
                     update(&mut item);
 
                     let PgItem(pg_item, size) = item.into();
-                    assert_eq!(old_size, size, "`update_item` does not support updating items in ways which change their sizes.");
+                    assert_eq!(
+                        old_size, size,
+                        "`update_item` does not support updating items in ways which change their sizes."
+                    );
                     let replaced = page.replace_item(offsetno, pg_item, size);
                     // This should not be possible because we checked that the size did not change,
                     // but confirm it anyway.
@@ -528,10 +531,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
-                    if cmp(&deserialized) {
-                        return Ok((deserialized, blockno, offsetno));
-                    }
+                if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno)
+                    && cmp(&deserialized)
+                {
+                    return Ok((deserialized, blockno, offsetno));
                 }
                 offsetno += 1;
             }
@@ -669,6 +672,25 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
                 .page()
                 .contents::<LinkedListData>();
 
+            // [dst correctness] the header published atomically to all readers must point at a
+            // valid start block: `atomically()` always builds at least one cloned block and links it
+            // as the cloned header's start_blockno, so committing a header with an InvalidBlockNumber
+            // start would make the list unreadable/empty for every reader (data loss / wrong results).
+            dst::observe!(|| {
+                // Copy out of the #[repr(C, packed)] struct before passing it to `json!`.
+                let cloned_start_blockno = { cloned_header_metadata.start_blockno };
+                dst::assert_always!(
+                    cloned_start_blockno != pg_sys::InvalidBlockNumber,
+                    "pg_search: atomic commit publishes a header with a valid start block",
+                    &::serde_json::json!({
+                        "cloned_header_blockno": self.cloned.header_blockno,
+                        "original_header_blockno": original.header_blockno,
+                        "cloned_start_blockno": cloned_start_blockno,
+                        "invalid_blockno": pg_sys::InvalidBlockNumber,
+                    })
+                );
+            });
+
             // Capture our old start page, then overwrite our metadata.
             let mut original_header_page = original_header_lock.page_mut();
             let original_metadata = original_header_page.contents_mut::<LinkedListData>();
@@ -779,12 +801,14 @@ mod tests {
             value: delete_xid.into_inner() as u64,
         });
 
-        assert!(list
-            .lookup(|entry| entry.segment_id() == entries_to_delete[0].segment_id())
-            .is_err());
-        assert!(list
-            .lookup(|entry| entry.segment_id() == entries_to_keep[0].segment_id())
-            .is_ok());
+        assert!(
+            list.lookup(|entry| entry.segment_id() == entries_to_delete[0].segment_id())
+                .is_err()
+        );
+        assert!(
+            list.lookup(|entry| entry.segment_id() == entries_to_keep[0].segment_id())
+                .is_ok()
+        );
     }
 
     #[pg_test]
@@ -823,13 +847,15 @@ mod tests {
 
             for entry in entries {
                 if entry.xmax() == not_deleted_xid {
-                    assert!(list
-                        .lookup(|el| el.segment_id() == entry.segment_id())
-                        .is_ok());
+                    assert!(
+                        list.lookup(|el| el.segment_id() == entry.segment_id())
+                            .is_ok()
+                    );
                 } else {
-                    assert!(list
-                        .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
-                        .is_err());
+                    assert!(
+                        list.lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
+                            .is_err()
+                    );
                 }
             }
         }
@@ -890,13 +916,15 @@ mod tests {
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
                     if entry.xmax() == not_deleted_xid {
-                        assert!(list
-                            .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
-                            .is_ok());
+                        assert!(
+                            list.lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
+                                .is_ok()
+                        );
                     } else {
-                        assert!(list
-                            .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
-                            .is_err());
+                        assert!(
+                            list.lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
+                                .is_err()
+                        );
                     }
                 }
             }

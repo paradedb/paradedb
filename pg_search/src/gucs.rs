@@ -17,8 +17,8 @@
 
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    function_name, pg_sys, GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel,
-    PgSqlErrorCode,
+    GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
+    pg_sys,
 };
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
@@ -41,11 +41,6 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-/// When `true`, a vector (IVF) ORDER BY scan emits one `probe_stats …` NOTICE
-/// per query with the aggregated probe-loop counters. Off by default and
-/// zero-cost when off (no `ProbeStats` is collected).
-static LOG_PROBE_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
@@ -147,25 +142,20 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Total number of MPP participants (leader + workers). Default 4 splits
-/// scan + shuffle + partial-aggregate work across 4 processes. PG's
-/// `max_parallel_workers_per_gather` still caps the actual worker count
-/// at exec time, so users in constrained environments see fewer.
-static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
-
-/// Per-edge shm_mq queue size in bytes. Each MPP query allocates
-/// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory: at
-/// N=4 with 3 meshes (group-by aggregate's worst case) the default 64 MiB
-/// produces ~2.3 GiB per query, sized so a ~100 MiB Partial-aggregate burst
-/// on the post-agg mesh fits without backpressure. Operators on memory-
-/// constrained boxes will want to dial this down; that's the explicit
-/// reason it's exposed instead of held as a `pub const`.
+/// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
+/// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
+/// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
+/// DSM path, to avoid a later SIGBUS under overcommit), so the region size is a
+/// fixed per-query launch cost. The default keeps that cost inside Docker's
+/// default 64 MiB `/dev/shm` with room to spare: at N=4 it reserves ~32 MiB per
+/// query. Frames larger than a ring stream through it in chunks, so the size
+/// bounds backpressure granularity and launch cost, not what a query can carry.
+/// The runtime tuning reach is the reason it's a GUC instead of a `pub const`.
 ///
-/// This is a foundation-era knob and may be replaced once mesh
-/// multiplexing lands (one queue carrying tagged messages from N stages
-/// instead of N meshes), at which point the right user knob is more
-/// likely a per-query DSM cap than a raw per-edge byte count.
-static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+/// The inboxes already multiplex tagged frames from every stage; if this knob
+/// changes shape, the right user knob is more likely a per-query DSM cap than
+/// a raw per-inbox byte count.
+static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -226,14 +216,21 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
-/// Query-time pruning factor for tantivy's `AdaptiveProbeParams`: how far
-/// past the best centroid the IVF probe loop keeps probing clusters. Lower
-/// epsilon probes fewer clusters, decreasing latency at the expense of
-/// recall. Default `0.5`.
-static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+/// Doc-count boundary at which a merged segment's vector storage switches
+/// from flat (exact scan) to IVF (clustered). Captured into the index's
+/// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
+/// of that index for its lifetime.
+///
+/// Default 500, overriding tantivy's 10,000: a single-segment flat-vs-IVF
+/// sweep (dim 768, default probe settings) put the latency crossover between
+/// 500 and 1,000 docs — IVF roughly ties flat at 500 docs, is 1.6x faster at
+/// 1,000, and 7x+ faster from 2,000 up, at recall@10 >= 0.99. 10,000 left
+/// mid-size segments (e.g. 100k rows split across CPU-count segments)
+/// brute-forcing their vectors.
+static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
 
-pub fn vector_cluster_probe_epsilon() -> f32 {
-    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
+pub fn vector_clustering_threshold() -> usize {
+    VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
 pub fn init() {
@@ -271,20 +268,9 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_join_custom_scan",
-        c"Enable ParadeDB's experimental join custom scan",
-        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        c"Enable ParadeDB's join custom scan",
+        c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.log_probe_stats",
-        c"Emit a NOTICE with IVF probe-loop counters per vector query",
-        c"When on, a vector (IVF) ORDER BY scan emits one `probe_stats ...` NOTICE per query \
-          with the aggregated probe counters (visited/pruned/scored/clusters/termination). \
-          Off by default and zero-cost when off.",
-        &LOG_PROBE_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -454,13 +440,13 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_cluster_probe_epsilon",
-        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
-        c"How far past the best centroid the IVF probe loop keeps probing clusters. Lower epsilon probes fewer clusters, decreasing latency at the expense of recall.",
-        &VECTOR_CLUSTER_PROBE_EPSILON,
-        0.0,
-        100.0,
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_clustering_threshold",
+        c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
+        c"A merge whose target segment has at least this many docs writes clustered (IVF) vector storage; below it, flat. Captured into the index's stored settings at CREATE INDEX time.",
+        &VECTOR_CLUSTERING_THRESHOLD,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -624,27 +610,15 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.mpp_worker_count",
-        c"Total MPP participants (leader + parallel workers)",
-        c"Sets the number of MPP participants per query when parallel execution is enabled. \
-          The queue mesh and drain thread are general over N. Setting this below 3 disables MPP.",
-        &MPP_WORKER_COUNT,
-        1,
-        64,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
-        c"Per-edge shm_mq queue size for MPP shuffles",
-        c"Sets the per-edge shm_mq queue size for MPP shuffles. Accepts standard \
-          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Total DSM per query is \
-          `num_meshes × N×(N-1) × mpp_queue_size`; at the default 64MB and N=4 with \
-          3 meshes that is ~2.3GB per query. Lower this on memory-constrained boxes; \
-          raise it only if a single shuffle batch routinely backs up the queue. \
-          Foundation-era knob — likely to be replaced by a per-query DSM cap once \
-          mesh multiplexing lands.",
+        c"Per-inbox ring size for MPP shuffles",
+        c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
+          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Each query lays out \
+          one inbox per proc, so total DSM per query is about `N x mpp_queue_size`; \
+          at the default 8MB and N=4 that is ~32MB per query, within Docker's \
+          default 64MB /dev/shm. Frames larger than a ring stream through it in \
+          chunks. Lower this on memory-constrained boxes; raise it when shuffle \
+          batches routinely back up the ring.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,
@@ -659,10 +633,6 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
-}
-
-pub fn log_probe_stats() -> bool {
-    LOG_PROBE_STATS.get()
 }
 
 pub fn check_aggregate_scan() -> bool {
@@ -856,10 +826,6 @@ pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
 }
 
-pub fn mpp_worker_count() -> i32 {
-    MPP_WORKER_COUNT.get()
-}
-
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
 }
@@ -980,14 +946,16 @@ mod tests {
         assert_eq!(global_mutable_segment_rows(), None);
 
         // invalid options
-        assert!(std::panic::catch_unwind(|| Spi::run(
-            "SET paradedb.global_mutable_segment_rows = 10001;"
-        ))
-        .is_err());
-        assert!(std::panic::catch_unwind(|| Spi::run(
-            "SET paradedb.global_mutable_segment_rows = -2;"
-        ))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| Spi::run(
+                "SET paradedb.global_mutable_segment_rows = 10001;"
+            ))
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| Spi::run("SET paradedb.global_mutable_segment_rows = -2;"))
+                .is_err()
+        );
 
         // global override
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();

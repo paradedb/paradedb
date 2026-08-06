@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
+    FFHelper, FFType, WhichFastField, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
@@ -285,13 +285,16 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
-        let mut lazy_score_array: Option<ArrayRef> = None;
-        for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(ff, WhichFastField::Score) {
-                let score_array = lazy_score_array.get_or_insert_with(|| {
-                    Arc::new(Float32Array::from(scores.clone())) as ArrayRef
-                });
-                memoized_columns[idx] = Some(score_array.clone());
+        if self
+            .which_fast_fields
+            .iter()
+            .any(|ff| matches!(ff, WhichFastField::Score))
+        {
+            let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
+            for (idx, ff) in self.which_fast_fields.iter().enumerate() {
+                if matches!(ff, WhichFastField::Score) {
+                    memoized_columns[idx] = Some(scores_array.clone());
+                }
             }
         }
 

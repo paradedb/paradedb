@@ -24,7 +24,7 @@
 //! - Unpack composite values during indexing
 
 use crate::api::HashMap;
-use pgrx::{heap_tuple::PgHeapTuple, pg_sys, PgTupleDesc};
+use pgrx::{PgTupleDesc, heap_tuple::PgHeapTuple, pg_sys};
 
 /// Metadata for a field within a composite type
 #[derive(Debug, Clone)]
@@ -51,10 +51,14 @@ pub struct CompositeFieldInfo {
 /// Errors that can occur during composite type handling
 #[derive(Debug, thiserror::Error)]
 pub enum CompositeError {
-    #[error("Anonymous ROW expressions are not supported for BM25 indexes. Create a named composite type: CREATE TYPE my_type AS (...); then use ROW(...)::my_type")]
+    #[error(
+        "Anonymous ROW expressions are not supported for BM25 indexes. Create a named composite type: CREATE TYPE my_type AS (...); then use ROW(...)::my_type"
+    )]
     AnonymousRowNotSupported,
 
-    #[error("Domain over composite type is not supported for BM25 indexes. Use the base composite type directly instead of the domain.")]
+    #[error(
+        "Domain over composite type is not supported for BM25 indexes. Use the base composite type directly instead of the domain."
+    )]
     DomainOverCompositeNotSupported,
 
     #[error("Type OID {0} is not a composite type")]

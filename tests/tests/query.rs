@@ -255,9 +255,10 @@ fn single_queries(mut conn: PgConnection) {
         ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)
     {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("required to have strictly more than one term")),
+        Err(err) => assert!(
+            err.to_string()
+                .contains("required to have strictly more than one term")
+        ),
         _ => panic!("phrase prefix query should require multiple terms"),
     }
 
@@ -381,9 +382,10 @@ fn single_queries(mut conn: PgConnection) {
     ) ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)
     {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("only term queries can be passed to term_set")),
+        Err(err) => assert!(
+            err.to_string()
+                .contains("only term queries can be passed to term_set")
+        ),
         _ => panic!("term set query should only accept terms"),
     }
 
@@ -469,9 +471,10 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .fetch_result::<()>(&mut conn)
     {
         Err(err) => {
-            assert_eq!(err
-            .to_string()
-            , "error returned from database: more_like_this must be called with either key_value or document")
+            assert_eq!(
+                db_error_message(&err),
+                "error returned from database: more_like_this must be called with either key_value or document"
+            )
         }
         _ => panic!("key_value or document validation failed"),
     }
@@ -529,9 +532,10 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .fetch_result::<()>(&mut conn)
     {
         Err(err) => {
-            assert_eq!(err
-            .to_string()
-            , "error returned from database: more_like_this must be called with either key_value or document")
+            assert_eq!(
+                db_error_message(&err),
+                "error returned from database: more_like_this must be called with either key_value or document"
+            )
         }
         _ => panic!("key_value or document validation failed"),
     }
@@ -1199,6 +1203,7 @@ fn range_term(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn prepared_statement_replanning(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -1216,6 +1221,7 @@ async fn prepared_statement_replanning(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn direct_prepared_statement_replanning(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -1229,6 +1235,7 @@ async fn direct_prepared_statement_replanning(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn direct_prepared_statement_replanning_custom_scan(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -1288,6 +1295,7 @@ fn verify_prepared_stmt_matches_literal(conn: &mut PgConnection, tc: PreparedStm
 }
 
 #[rstest]
+#[async_std::test]
 async fn generic_plan_text_and_text_array_params_issue_3900(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "SET plan_cache_mode = force_generic_plan".execute(&mut conn);

@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use icu_properties::props::GeneralCategory;
 use icu_properties::CodePointMapData;
+use icu_properties::props::GeneralCategory;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,7 +38,9 @@ impl std::str::FromStr for TokenCharClass {
             "whitespace" => Ok(Self::Whitespace),
             "punctuation" => Ok(Self::Punctuation),
             "symbol" => Ok(Self::Symbol),
-            other => Err(format!("unknown token_chars class: '{other}'. expected one of: letter, digit, whitespace, punctuation, symbol")),
+            other => Err(format!(
+                "unknown token_chars class: '{other}'. expected one of: letter, digit, whitespace, punctuation, symbol"
+            )),
         }
     }
 }

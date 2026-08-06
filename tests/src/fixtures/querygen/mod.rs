@@ -30,11 +30,11 @@ use std::sync::OnceLock;
 use futures::executor::block_on;
 use proptest::prelude::*;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use sqlx::{Connection, PgConnection};
 
-use crate::fixtures::db::Query;
 use crate::fixtures::ConnExt;
+use crate::fixtures::db::Query;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
@@ -346,11 +346,15 @@ ANALYZE {tname};
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
-pub fn arb_joins_and_wheres(
-    join_types: impl Strategy<Value = JoinType> + Clone,
-    tables: Vec<impl AsRef<str>>,
+pub fn arb_joins_and_wheres<J, S>(
+    join_types: J,
+    tables: Vec<S>,
     columns: &[Column],
-) -> impl Strategy<Value = (JoinExpr, Expr)> {
+) -> impl Strategy<Value = (JoinExpr, Expr)> + use<J, S>
+where
+    J: Strategy<Value = JoinType> + Clone,
+    S: AsRef<str>,
+{
     let table_names = tables
         .into_iter()
         .map(|tn| tn.as_ref().to_string())
@@ -438,7 +442,7 @@ fn qgen_seed() -> Option<u64> {
 /// back to a coin flip on the supplied RNG. One call per
 /// `generated_queries_setup`; every table built in the same call gets the
 /// same count, different `#[test]` functions roll independently.
-fn pick_bulk_inserts(rng: &mut impl Rng) -> NonZeroUsize {
+fn pick_bulk_inserts(rng: &mut impl RngExt) -> NonZeroUsize {
     let mode = std::env::var("PARADEDB_QGEN_SEGMENTATION")
         .ok()
         .unwrap_or_default();

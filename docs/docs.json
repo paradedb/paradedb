@@ -9,13 +9,13 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy/indexing/create-index).",
+    "content": "ParadeDB Cloud is coming soon. [Request access here](https://www.paradedb.com/cloud).",
     "dismissible": false
   },
   "navigation": {
     "versions": [
       {
-        "version": "v0.24.3",
+        "version": "v0.25.1",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -57,6 +57,7 @@
                         "group": "Indexing",
                         "pages": [
                           "documentation/indexing/create-index",
+                          "documentation/indexing/indexing-vectors",
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
@@ -114,18 +115,41 @@
                           "documentation/full-text/phrase",
                           "documentation/full-text/term",
                           "documentation/full-text/fuzzy",
+                          "documentation/sorting/score",
+                          "documentation/sorting/boost",
                           "documentation/full-text/highlight",
-                          "documentation/full-text/proximity"
+                          "documentation/full-text/proximity",
+                          {
+                            "group": "Advanced Query Functions",
+                            "pages": [
+                              "documentation/query-builder/overview",
+                              "documentation/query-builder/compound/all",
+                              "documentation/query-builder/specialized/more-like-this",
+                              "documentation/query-builder/phrase/phrase-prefix",
+                              "documentation/query-builder/compound/query-parser",
+                              "documentation/query-builder/term/range-term",
+                              "documentation/query-builder/term/regex",
+                              "documentation/query-builder/phrase/regex-phrase"
+                            ]
+                          }
                         ]
                       },
                       {
-                        "group": "Sorting",
+                        "group": "Vector Search",
                         "pages": [
-                          "documentation/sorting/score",
-                          "documentation/sorting/boost",
-                          "documentation/sorting/topk"
+                          "documentation/vector/overview",
+                          "documentation/vector/querying",
+                          "documentation/vector/tuning"
                         ]
                       },
+                      {
+                        "group": "Hybrid Search",
+                        "pages": [
+                          "documentation/hybrid/overview",
+                          "documentation/hybrid/rrf"
+                        ]
+                      },
+                      "documentation/sorting/topk",
                       "documentation/filtering",
                       {
                         "group": "Aggregates",
@@ -163,19 +187,6 @@
                         "group": "Joins",
                         "pages": [
                           "documentation/joins/overview"
-                        ]
-                      },
-                      {
-                        "group": "Advanced Query Functions",
-                        "pages": [
-                          "documentation/query-builder/overview",
-                          "documentation/query-builder/compound/all",
-                          "documentation/query-builder/specialized/more-like-this",
-                          "documentation/query-builder/phrase/phrase-prefix",
-                          "documentation/query-builder/compound/query-parser",
-                          "documentation/query-builder/term/range-term",
-                          "documentation/query-builder/term/regex",
-                          "documentation/query-builder/phrase/regex-phrase"
                         ]
                       },
                       {
@@ -313,7 +324,9 @@
                     "pages": [
                       "deploy/cloud-platforms/railway",
                       "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean"
+                      "deploy/cloud-platforms/digitalocean",
+                      "deploy/cloud-platforms/fly",
+                      "deploy/cloud-platforms/dokku"
                     ]
                   },
                   {
@@ -345,6 +358,8 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.25.1",
+                  "changelog/0.25.0",
                   "changelog/0.24.3",
                   "changelog/0.24.2",
                   "changelog/0.24.1",

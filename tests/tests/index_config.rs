@@ -40,7 +40,7 @@ fn invalid_create_index(mut conn: PgConnection) {
     {
         Ok(_) => panic!("should fail with no key_field"),
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             "error returned from database: index should have a `WITH (key_field='...')` option"
         ),
     };
@@ -69,6 +69,7 @@ fn prevent_duplicate(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[async_std::test]
 async fn drop_column(mut conn: PgConnection) {
     r#"
     CREATE TABLE f_table (
@@ -346,9 +347,10 @@ fn multiple_fields(mut conn: PgConnection) {
 fn missing_schema_index(mut conn: PgConnection) {
     match "SELECT paradedb.schema('paradedb.missing_bm25_index')".fetch_result::<(i64,)>(&mut conn)
     {
-        Err(err) => assert!(err
-            .to_string()
-            .contains(r#"relation "paradedb.missing_bm25_index" does not exist"#)),
+        Err(err) => assert!(
+            err.to_string()
+                .contains(r#"relation "paradedb.missing_bm25_index" does not exist"#)
+        ),
         _ => panic!("non-existing index should throw an error"),
     }
 }
@@ -394,7 +396,7 @@ fn null_key_field_build(mut conn: PgConnection) {
     {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             "error returned from database: key_field column 'id' cannot be NULL"
         ),
     };
@@ -414,7 +416,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
     {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
-            err.to_string(),
+            db_error_message(&err),
             "error returned from database: key_field column 'id' cannot be NULL"
         ),
     };

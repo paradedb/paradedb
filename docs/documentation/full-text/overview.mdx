@@ -28,9 +28,6 @@ Token matching is a much more versatile and powerful technique. It enables relev
 Text search is different from similarity search, also known as vector search. Whereas text search matches based on token matches, similarity search
 matches based on semantic meaning.
 
-Today, most ParadeDB users install [pgvector](https://github.com/pgvector/pgvector) alongside ParadeDB for vector search and hybrid search.
-That remains our recommended setup when you need embeddings in Postgres right now.
+As of `0.25.0`, ParadeDB natively supports vector search inside its indexes. See [Vector Search](/documentation/vector/overview) to learn more.
 
-We are also actively working on a native vector search experience inside ParadeDB indexes that is intended to improve on the current `pgvector`
-workflow, especially for filtered and hybrid search. You can follow that work in our [roadmap](/welcome/roadmap#vector-search-improvements) or
-[reach out](mailto:support@paradedb.com) if it is important for your use case.
+The two are complementary, and can be combined into a single ranking. See [Hybrid Search](/documentation/hybrid/overview).

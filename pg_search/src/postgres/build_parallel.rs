@@ -24,15 +24,15 @@ use crate::index::writer::index::{
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
-    chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
-    ParallelWorker, WorkerStyle,
+    ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
+    WorkerStyle, chunk_range,
 };
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{
-    set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
-    GARBAGE_COLLECTING, INDEXING, MERGING,
+    COMMITTING, FINALIZING, GARBAGE_COLLECTING, INDEXING, MERGING, set_ps_display_remove_suffix,
+    set_ps_display_suffix,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
@@ -43,11 +43,11 @@ use crate::postgres::utils::{
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    check_for_interrupts, function_name, pg_guard, pg_sys, PgLogLevel, PgMemoryContexts,
-    PgSqlErrorCode,
+    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, check_for_interrupts, function_name, pg_guard,
+    pg_sys,
 };
 use std::num::NonZeroUsize;
-use std::ptr::{addr_of_mut, NonNull};
+use std::ptr::{NonNull, addr_of_mut};
 use std::sync::OnceLock;
 use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -274,7 +274,9 @@ impl<'a> BuildWorker<'a> {
             let (_, worker_segment_target) =
                 chunk_range(target_segment_count, nlaunched, worker_number as usize);
 
-            pgrx::debug1!("build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}");
+            pgrx::debug1!(
+                "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
+            );
 
             let mut build_state = WorkerBuildState::new(
                 &self.heaprel,
@@ -485,7 +487,9 @@ impl<'a> WorkerBuildState<'a> {
                 }
 
                 if self.nmerges == self.worker_segment_target - 1 {
-                    pgrx::debug1!("try_merge: skipping merge because this is not the last merge, and we can only do one more");
+                    pgrx::debug1!(
+                        "try_merge: skipping merge because this is not the last merge, and we can only do one more"
+                    );
                     return Ok(());
                 }
 
@@ -771,6 +775,8 @@ pub(super) fn build_index(
 mod plan {
     use super::*;
 
+    pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
+
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
@@ -808,6 +814,19 @@ mod plan {
         let maintenance_workers = maintenance_workers
             .min(unsafe { pg_sys::max_parallel_workers as usize })
             .min(unsafe { pg_sys::max_worker_processes as usize });
+
+        // For vector builds, beyond 4 workers there's no improvement to index build time:
+        // clustering dominates and parallelizes internally (rayon + BLAS threads), so
+        // parallelizing the heap scan/segment flushing isn't the bottleneck. Constrain to 4
+        // because fewer concurrent merges means less memory.
+        let maintenance_workers = if indexrel
+            .schema()
+            .is_ok_and(|schema| schema.has_vector_field())
+        {
+            maintenance_workers.min(MAX_VECTOR_BUILD_WORKERS)
+        } else {
+            maintenance_workers
+        };
 
         if maintenance_workers < 3 {
             ErrorReport::new(
@@ -854,7 +873,9 @@ mod plan {
         let reltuples = plan::estimate_heap_reltuples(heaprel);
         let target_segment_count = indexrel.options().target_segment_count();
         if reltuples <= target_segment_count as f64 {
-            pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
+            pgrx::debug1!(
+                "number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment"
+            );
             return 1;
         }
 
@@ -1008,7 +1029,11 @@ mod tests {
                             assert!(
                                 (28..=33).contains(&count),
                                 "Expected 28-33 segments with workers={}, leader={}, mem={}, segments={}, got {}",
-                                mw, lp, mwm, ts, count
+                                mw,
+                                lp,
+                                mwm,
+                                ts,
+                                count
                             );
                         }
 

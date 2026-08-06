@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use rstest::*;
-use sqlx::{Executor, PgConnection};
+use sqlx::{AssertSqlSafe, Executor, PgConnection};
 use std::time::{Duration, Instant};
 use tests::fixtures::*;
 use tokio::time::sleep;
@@ -82,11 +82,11 @@ ANALYZE mpp_orders;
 "#;
 
 // Forces the join through MPP and zeroes the parallel costs so the planner always picks it.
+// MPP width comes from PG's own parallelism GUCs (#5667): per_gather = 2 caps the launch at
+// 2 producers, matching this test's 2-segment tables.
 const MPP_GUCS: &str = r#"
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_mpp TO on;
-SET paradedb.mpp_worker_count TO 3;
-SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers_per_gather TO 2;
 SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
@@ -117,9 +117,11 @@ const VICTIM_LOOP_TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn assert_query_plans_as_mpp(conn: &mut PgConnection) -> Result<()> {
     conn.execute(MPP_GUCS).await?;
-    let rows: Vec<(String,)> = sqlx::query_as(&format!("EXPLAIN (COSTS OFF, VERBOSE) {MPP_QUERY}"))
-        .fetch_all(&mut *conn)
-        .await?;
+    let rows: Vec<(String,)> = sqlx::query_as(AssertSqlSafe(format!(
+        "EXPLAIN (COSTS OFF, VERBOSE) {MPP_QUERY}"
+    )))
+    .fetch_all(&mut *conn)
+    .await?;
     let explain = rows
         .into_iter()
         .map(|(line,)| line)
@@ -155,7 +157,7 @@ async fn signal_running_mpp_backend(
         if let Some(pid) = pid {
             // Let execution get well inside the MPP join (senders live) before signalling.
             sleep(SIGNAL_DELAY).await;
-            sqlx::query(&format!("SELECT {signal_fn}($1)"))
+            sqlx::query(AssertSqlSafe(format!("SELECT {signal_fn}($1)")))
                 .bind(pid)
                 .execute(&mut *killer)
                 .await?;
@@ -172,7 +174,9 @@ async fn signal_running_mpp_backend(
 /// the backend busy so the killer has a wide window to land the signal mid-query.
 async fn run_until_signalled(mut victim: PgConnection, app_name: String) -> Result<()> {
     if victim
-        .execute(format!("SET application_name = '{app_name}';").as_str())
+        .execute(AssertSqlSafe(format!(
+            "SET application_name = '{app_name}';"
+        )))
         .await
         .is_err()
     {

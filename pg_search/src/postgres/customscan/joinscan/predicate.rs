@@ -35,13 +35,13 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 
 /// Extract join-level conditions from the restrict list and transform them into
 /// a `JoinLevelExpr` tree.
@@ -187,57 +187,10 @@ pub unsafe fn transform_to_search_expr(
         return None;
     }
 
-    let search_op = anyelement_query_input_opoid();
-    let has_search_op = expr_contains_any_operator(node, &[search_op]);
-
-    // Check which tables this expression references
-    let rtis = expr_collect_rtis(node);
-    let mut referenced_source_indices = Vec::new();
-
-    for (i, source) in sources.iter().enumerate() {
-        if rtis.iter().any(|&rti| source.contains_rti(rti)) {
-            referenced_source_indices.push(i);
-        }
-    }
-
-    // If this is a single-table expression with search predicate, extract as Predicate
-    if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
-        let rti = *rtis.iter().next().unwrap();
-        let source = &sources[referenced_source_indices[0]];
-        let plan_position = source.plan_position;
-
-        // Extract the Tantivy query for this expression
-        if let Some(base_info) = find_base_info_recursive(source, rti) {
-            if let Some(predicate_idx) =
-                extract_single_table_predicate(root, rti, &base_info, node, join_clause)
-            {
-                return Some(JoinLevelExpr::SingleTablePredicate {
-                    plan_position,
-                    predicate_idx,
-                });
-            }
-        }
-        return None;
-    }
-
-    // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
-    if !has_search_op && referenced_source_indices.len() > 1 {
-        if !all_vars_are_fast_fields_recursive(node, sources) {
-            return None;
-        }
-
-        let translator = PredicateTranslator::new(sources);
-        translator.translate(node)?;
-
-        let description = format_expr_for_explain(node);
-        let predicate_idx =
-            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
-        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
-        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
-    }
-
-    // Handle List nodes: Postgres may wrap quals in a List (common on PG18).
-    // Treat as an implicit AND of the list elements.
+    // A List is an implicit conjunction container, not one expression. It
+    // must be decomposed before relation classification: collecting RTIs from
+    // the container can otherwise group unrelated single-table predicates into
+    // one apparent cross-table predicate.
     let node_type = (*node).type_;
     if node_type == pg_sys::NodeTag::T_List {
         let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
@@ -259,6 +212,54 @@ pub unsafe fn transform_to_search_expr(
         } else {
             Some(JoinLevelExpr::And(children))
         };
+    }
+
+    let search_op = anyelement_query_input_opoid();
+    let has_search_op = expr_contains_any_operator(node, &[search_op]);
+
+    // Check which tables this expression references
+    let rtis = expr_collect_rtis(node);
+    let mut referenced_source_indices = Vec::new();
+
+    for (i, source) in sources.iter().enumerate() {
+        if rtis.iter().any(|&rti| source.contains_rti(rti)) {
+            referenced_source_indices.push(i);
+        }
+    }
+
+    // If this is a single-table expression with search predicate, extract as Predicate
+    if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
+        let rti = *rtis.iter().next().unwrap();
+        let source = &sources[referenced_source_indices[0]];
+        let plan_position = source.plan_position;
+
+        // Extract the Tantivy query for this expression
+        if let Some(base_info) = find_base_info_recursive(source, rti)
+            && let Some(predicate_idx) =
+                extract_single_table_predicate(root, rti, &base_info, node, join_clause)
+        {
+            return Some(JoinLevelExpr::SingleTablePredicate {
+                plan_position,
+                predicate_idx,
+            });
+        }
+        return None;
+    }
+
+    // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
+    if !has_search_op && referenced_source_indices.len() > 1 {
+        if !all_vars_are_fast_fields_recursive(node, sources) {
+            return None;
+        }
+
+        let translator = PredicateTranslator::new(sources);
+        translator.translate(node)?;
+
+        let description = format_expr_for_explain(node);
+        let predicate_idx =
+            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
+        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
 
     // Handle BoolExpr
@@ -291,16 +292,16 @@ pub unsafe fn transform_to_search_expr(
                 }
             }
             pg_sys::BoolExprType::NOT_EXPR => {
-                if let Some(arg) = args.iter_ptr().next() {
-                    if let Some(child_expr) = transform_to_search_expr(
+                if let Some(arg) = args.iter_ptr().next()
+                    && let Some(child_expr) = transform_to_search_expr(
                         root,
                         arg,
                         sources,
                         join_clause,
                         multi_table_predicate_clauses,
-                    ) {
-                        return Some(JoinLevelExpr::Not(Box::new(child_expr)));
-                    }
+                    )
+                {
+                    return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                 }
                 None
             }

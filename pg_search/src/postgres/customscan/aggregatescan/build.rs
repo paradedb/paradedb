@@ -15,16 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::version::Version;
 use crate::api::SortDirection;
+use crate::api::version::Version;
 use crate::api::{FieldName, HashSet, OrderByFeature};
 use crate::gucs;
+use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::CreateUpperPathsHookArgs;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
+use crate::postgres::customscan::aggregatescan::filterquery::{FilterQuery, new_filter_query};
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::{
-    find_single_aggref_in_expr, TargetList, TargetListEntry,
+    TargetList, TargetListEntry, find_single_aggref_in_expr,
 };
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
@@ -32,17 +35,14 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
-use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
-use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use anyhow::Result;
-use pgrx::pg_sys;
 use pgrx::PgList;
+use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
@@ -421,7 +421,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             ))
         };
 
-        let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
+        let topk_output: Vec<(String, String)> = if let (true, Some(agg_order)) =
             (self.limit_offset.is_some(), &self.aggregate_orderby)
         {
             let dir = match agg_order.direction {

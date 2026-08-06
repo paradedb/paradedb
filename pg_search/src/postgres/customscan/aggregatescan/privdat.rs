@@ -21,9 +21,9 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTa
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode, RelationAlias,
 };
+use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
-use pgrx::PgList;
 
 /// Serializable boolean expression IR used for both HAVING clauses and
 /// per-aggregate FILTER clauses.

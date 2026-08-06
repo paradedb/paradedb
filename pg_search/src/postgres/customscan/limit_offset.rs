@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
+use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 

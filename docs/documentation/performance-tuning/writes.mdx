@@ -4,11 +4,11 @@ description: Settings to improve write performance
 canonical: https://docs.paradedb.com/documentation/performance-tuning/writes
 ---
 
-These actions can improve the throughput of `INSERT`/`UPDATE`/`COPY` statements to the BM25 index.
+These actions can improve the throughput of `INSERT`/`UPDATE`/`COPY` statements to the ParadeDB index.
 
 ## Ensure Merging Happens in the Background
 
-During every `INSERT`/`UPDATE`/`COPY`/`VACUUM`, the BM25 index runs a compaction process that looks for opportunities to merge segments
+During every `INSERT`/`UPDATE`/`COPY`/`VACUUM`, the ParadeDB index runs a compaction process that looks for opportunities to merge segments
 together. The goal is to consolidate smaller segments into larger ones, reducing the total number of segments and improving query performance.
 
 Segments become candidates for merging if their combined size meets or exceeds one of several **configurable layer thresholds**. These thresholds define target
@@ -32,7 +32,7 @@ Setting `layer_sizes` to `0` disables foreground merging, and setting `backgroun
 
 ## Increase Work Memory for Bulk Updates
 
-`work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement that writes to a BM25 index is required to have at least `15MB` memory. If
+`work_mem` controls how much memory to allocate to a single `INSERT`/`UPDATE`/`COPY` statement. Each statement that writes to a ParadeDB index is required to have at least `15MB` memory. If
 `work_mem` is below `15MB`, it will be ignored and `15MB` will be used.
 
 A good starting point for `work_mem` is `(RAM - shared_buffers) / (3 * max_connections)`. If your typical update patterns are large, bulk updates (not single-row updates) a larger value may be better.

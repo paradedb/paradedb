@@ -8,17 +8,17 @@ canonical: https://docs.paradedb.com/welcome/limitations
 
 ParadeDB is designed to scale vertically on a single Postgres node with potentially many read replicas, and many production deployments comfortably operate in the 1–10TB range. The largest single ParadeDB database we’ve seen in production is 10TB.
 
-For datasets that significantly exceed this scale, ParadeDB supports partitioned tables and can be deployed in sharded Postgres configurations. ParadeDB is fully compatible with [Citus](https://github.com/citusdata/citus) for distributed search workloads — you can create BM25 indexes on distributed tables and run search queries across shards. See our [Citus deployment guide](/deploy/citus) for more details.
+For datasets that significantly exceed this scale, ParadeDB supports partitioned tables and can be deployed in sharded Postgres configurations. ParadeDB is fully compatible with [Citus](https://github.com/citusdata/citus) for distributed search workloads — you can create ParadeDB indexes on distributed tables and run search queries across shards. See our [Citus deployment guide](/deploy/citus) for more details.
 
 If you're working with very large datasets, please [reach out to us](mailto:support@paradedb.com). We'd be happy to provide guidance and share our roadmap for future distributed query support.
 
 ## Join Support
 
-ParadeDB supports all PostgreSQL `JOIN` types. As of v0.22.0, ParadeDB includes [join pushdown](/documentation/joins/overview) (beta) for `INNER`, `SEMI`, and `ANTI` joins, which pushes search predicates directly into the index for significantly better performance. Other join types work correctly but fall back to standard Postgres execution — pushdown support for these is coming soon. See the [joins guide](/documentation/joins/overview) for more details.
+ParadeDB supports all Postgres `JOIN` types. As of v0.22.0, ParadeDB includes [join pushdown](/documentation/joins/overview) (beta) for `INNER`, `SEMI`, and `ANTI` joins, which pushes search predicates directly into the index for significantly better performance. Other join types work correctly but fall back to standard Postgres execution — pushdown support for these is coming soon. See the [joins guide](/documentation/joins/overview) for more details.
 
 ## Covering Index
 
-The BM25 index in ParadeDB is a covering index, which means it stores all indexed columns inside a single index per table. This
+The ParadeDB index in ParadeDB is a covering index, which means it stores all indexed columns inside a single index per table. This
 decision is intentional -- by colocating all the relevant data, ParadeDB optimizes for fast reads and boolean conditions.
 
 However, this means that all columns must be defined up front at index creation time. Adding or removing columns requires a `REINDEX`.

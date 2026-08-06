@@ -23,8 +23,8 @@ use sqlx::{Connection, PgConnection};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -64,6 +64,14 @@ fn get_free_port() -> u16 {
     }
 }
 
+// Superuser created by `initdb` for every ephemeral instance.
+//
+// This is pinned rather than left to `initdb`'s default (the OS user) because sqlx
+// resolves an omitted username via `whoami`, which reports `anonymous` when neither
+// `USER` nor `LOGNAME` is set — as is the case in our CI containers. Naming the role on
+// both sides keeps the tests independent of the ambient environment.
+const SUPERUSER: &str = "postgres";
+
 // Struct to manage an ephemeral PostgreSQL instance
 struct EphemeralPostgres {
     pub tempdir_path: String,
@@ -92,7 +100,9 @@ impl EphemeralPostgres {
             "PG_CONFIG variable must be set to enable creating ephemeral Postgres instances",
         );
         if !PathBuf::from(&pg_config_path).exists() {
-            panic!("PG_CONFIG variable must be a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}");
+            panic!(
+                "PG_CONFIG variable must be a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}"
+            );
         }
         match run_fun!($pg_config_path --bindir) {
             Ok(path) => PathBuf::from(path.trim().to_string()),
@@ -173,7 +183,7 @@ impl EphemeralPostgres {
         let tempdir_path = tempdir.keep();
 
         // Initialize PostgreSQL data directory
-        run_cmd!($init_db_path -D $tempdir_path &> /dev/null)
+        run_cmd!($init_db_path -D $tempdir_path --username $SUPERUSER &> /dev/null)
             .expect("Failed to initialize Postgres data directory");
 
         Self::new_from_initialized(tempdir_path.as_path(), postgresql_conf, pg_hba_conf)
@@ -182,8 +192,8 @@ impl EphemeralPostgres {
     // Method to establish a connection to the PostgreSQL instance
     async fn connection(&self) -> Result<PgConnection> {
         Ok(PgConnection::connect(&format!(
-            "postgresql://{}:{}/{}",
-            self.host, self.port, self.dbname
+            "postgresql://{}@{}:{}/{}",
+            SUPERUSER, self.host, self.port, self.dbname
         ))
         .await?)
     }
@@ -191,6 +201,7 @@ impl EphemeralPostgres {
 
 // Test function to test the ephemeral PostgreSQL setup
 #[rstest]
+#[async_std::test]
 async fn test_logical_replication() -> Result<()> {
     let config = "
         wal_level = logical
@@ -254,9 +265,9 @@ async fn test_logical_replication() -> Result<()> {
     "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
     format!(
         "CREATE SUBSCRIPTION mock_items_sub
-         CONNECTION 'host={} port={} dbname={}'
+         CONNECTION 'host={} port={} dbname={} user={}'
          PUBLICATION mock_items_pub;",
-        source_postgres.host, source_postgres.port, source_postgres.dbname
+        source_postgres.host, source_postgres.port, source_postgres.dbname, SUPERUSER
     )
     .execute(&mut target_conn);
 
@@ -377,6 +388,7 @@ async fn test_logical_replication() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let config = "
         wal_level = logical
@@ -475,6 +487,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_physical_streaming_replication() -> Result<()> {
     // Create a unique directory for WAL archiving
     let archive_dir = TempDir::new().expect("Failed to create archive dir for WALs");
@@ -633,6 +646,7 @@ async fn test_physical_streaming_replication() -> Result<()> {
 }
 
 #[rstest]
+#[async_std::test]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "
@@ -737,11 +751,11 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     let mut tripwire_found = false;
     while std::time::Instant::now() < deadline {
-        if let Ok(log) = std::fs::read_to_string(&log_path) {
-            if log.contains(expected) {
-                tripwire_found = true;
-                break;
-            }
+        if let Ok(log) = std::fs::read_to_string(&log_path)
+            && log.contains(expected)
+        {
+            tripwire_found = true;
+            break;
         }
         thread::sleep(Duration::from_millis(200));
     }
@@ -752,8 +766,8 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 
     // The FATAL during recovery should also have brought the standby down: reconnects fail.
     let reconnect = PgConnection::connect(&format!(
-        "postgresql://{}:{}/{}",
-        standby_postgres.host, standby_postgres.port, standby_postgres.dbname
+        "postgresql://{}@{}:{}/{}",
+        SUPERUSER, standby_postgres.host, standby_postgres.port, standby_postgres.dbname
     ))
     .await;
     assert!(

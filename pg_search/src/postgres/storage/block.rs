@@ -20,18 +20,18 @@ use std::hash::Hash;
 use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::api::HashSet;
+use crate::postgres::PgSearchRelation;
 use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::postgres::PgSearchRelation;
 
 use pgrx::*;
 use serde::{Deserialize, Serialize};
-use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
+use tantivy::index::{SegmentComponent, SegmentId};
 
 /// Extensions of tantivy's per-segment vector files. These mirror tantivy's
 /// (`pub(crate)`) `vector::VEC_EXT` and `vector::ivf::CENTROIDS_EXT`: `.vec`
@@ -472,7 +472,7 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         ctids: Vec<u64>,
     ) -> Result<(), &str> {
-        let SegmentMetaEntryContent::Mutable(ref mut content) = &mut self.content else {
+        let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
             return Err("Cannot delete items from a non-mutable segment");
         };
 
@@ -492,7 +492,7 @@ impl SegmentMetaEntry {
 
     /// Return a snapshot of the ctids which were valid when this SegmentMetaEntry was opened.
     pub fn mutable_snapshot(&self, indexrel: &PgSearchRelation) -> Result<Vec<u64>, &str> {
-        let SegmentMetaEntryContent::Mutable(ref content) = &self.content else {
+        let SegmentMetaEntryContent::Mutable(content) = &self.content else {
             return Err("Cannot snapshot a non-mutable segment");
         };
 
@@ -551,7 +551,23 @@ impl SegmentMetaEntry {
     }
 
     pub fn num_docs(&self) -> usize {
-        self.max_doc() as usize - self.num_deleted_docs()
+        let max_doc = self.max_doc() as usize;
+        let num_deleted = self.num_deleted_docs();
+        // [dst correctness] a segment can never have more deleted docs than it has docs; a
+        // violation means count corruption (this subtraction would underflow, yielding a bogus
+        // live-doc count and wrong query results / OOM allocations downstream)
+        dst::observe!(|| {
+            dst::assert_always!(
+                num_deleted <= max_doc,
+                "pg_search: SegmentMetaEntry num_deleted_docs <= max_doc",
+                &::serde_json::json!({
+                    "segment_id": self.segment_id().to_string(),
+                    "num_deleted_docs": num_deleted,
+                    "max_doc": max_doc,
+                })
+            );
+        });
+        max_doc - num_deleted
     }
 
     pub fn num_deleted_docs(&self) -> usize {
@@ -882,10 +898,30 @@ impl MVCCEntry for SegmentMetaEntry {
 
     unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool {
         // recyclable if we've deleted it
-        self.is_deleted()
+        let is_recyclable = self.is_deleted()
 
         // and there's no pin on our pintest buffer, assuming we have a valid buffer
-        && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some())
+        && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some());
+
+        // [dst correctness] a recyclable segment must never be visible: recycling implies
+        // deleted (xmax == FrozenTransactionId), and visibility is exactly !deleted. Reclaiming the
+        // blocks of a still-visible segment would be a use-after-free / MVCC violation (a live
+        // snapshot could read freed/overwritten pages, returning wrong or corrupt results).
+        dst::observe!(|| {
+            let is_visible = self.visible();
+            dst::assert_always!(
+                !is_recyclable || !is_visible,
+                "pg_search: recyclable SegmentMetaEntry is not visible",
+                &::serde_json::json!({
+                    "segment_id": self.segment_id().to_string(),
+                    "is_recyclable": is_recyclable,
+                    "is_visible": is_visible,
+                    "xmax": self.xmax(),
+                    "pintest_blockno": self.pintest_blockno(),
+                })
+            );
+        });
+        is_recyclable
     }
 }
 

@@ -17,13 +17,13 @@
 
 use tests::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
 use tests::fixtures::querygen::groupbygen::arb_group_by;
-use tests::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
+use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
-use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
+use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
-    arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
+    Column, PgGucs, arb_joins_and_wheres, compare, generated_queries_setup,
 };
 
 use tests::fixtures::*;
@@ -199,13 +199,7 @@ impl GeneratedSubquery {
 #[tokio::test]
 async fn generated_joins_small(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -251,13 +245,7 @@ async fn generated_joins_small(database: Db) {
 #[tokio::test]
 async fn generated_joins_large_limit(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -304,13 +292,7 @@ async fn generated_joins_large_limit(database: Db) {
 #[tokio::test]
 async fn generated_single_relation(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -348,13 +330,7 @@ async fn generated_single_relation(database: Db) {
 #[tokio::test]
 async fn generated_group_by_aggregates(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -471,13 +447,7 @@ async fn generated_group_by_aggregates(database: Db) {
 #[tokio::test]
 async fn generated_paging_small(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -509,13 +479,7 @@ async fn generated_paging_small(database: Db) {
 #[tokio::test]
 async fn generated_paging_large(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -541,13 +505,7 @@ async fn generated_paging_large(database: Db) {
 #[tokio::test]
 async fn generated_subquery(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -630,13 +588,7 @@ async fn generated_subquery(database: Db) {
 #[tokio::test]
 async fn generated_joinscan(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -831,13 +783,7 @@ async fn generated_joinscan(database: Db) {
 #[tokio::test]
 async fn generated_aggregate_join(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -1081,13 +1027,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
 #[tokio::test]
 async fn generated_group_by_stddev(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -1194,13 +1134,7 @@ async fn generated_group_by_stddev(database: Db) {
 #[tokio::test]
 async fn generated_join_aggregates(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -1317,13 +1251,7 @@ async fn generated_join_aggregates(database: Db) {
 #[tokio::test]
 async fn generated_numeric_pushdown(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -1398,13 +1326,7 @@ async fn generated_numeric_pushdown(database: Db) {
 #[tokio::test]
 async fn generated_joinscan_semi_like(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -1548,13 +1470,7 @@ async fn generated_joinscan_semi_like(database: Db) {
 #[tokio::test]
 async fn generated_numeric_precision(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 
@@ -1627,13 +1543,7 @@ async fn generated_numeric_precision(database: Db) {
 #[tokio::test]
 async fn generated_numeric_range_precision(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || {
-            block_on(async {
-                {
-                    database.connection().await
-                }
-            })
-        },
+        move || block_on(async { database.connection().await }),
         |_| {},
     );
 

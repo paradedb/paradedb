@@ -55,7 +55,7 @@ mod sql_datum_support {
     use pgrx::pgrx_sql_entity_graph::metadata::{
         ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
-    use pgrx::{pg_sys, FromDatum, IntoDatum};
+    use pgrx::{FromDatum, IntoDatum, pg_sys};
 
     impl From<ConstType> for pdb::Query {
         fn from(value: ConstType) -> Self {
@@ -126,11 +126,11 @@ mod sql_datum_support {
 mod typedef {
     use crate::api::operator::const_score::ConstType;
     use crate::api::operator::f16_typmod::{
-        deserialize_i32_to_f32, serialize_f32_to_i32, TYPMOD_BOUNDS,
+        TYPMOD_BOUNDS, deserialize_i32_to_f32, serialize_f32_to_i32,
     };
     use crate::query::pdb_query::pdb;
-    use crate::query::pdb_query::pdb::{query_out, ScoreAdjustStyle};
-    use pgrx::{extension_sql, pg_extern, pg_sys, Array};
+    use crate::query::pdb_query::pdb::{ScoreAdjustStyle, query_out};
+    use pgrx::{Array, extension_sql, pg_extern, pg_sys};
     use std::ffi::{CStr, CString};
     use std::str::FromStr;
 

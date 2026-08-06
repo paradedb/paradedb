@@ -10,6 +10,7 @@ import {
   text as pgText,
   timestamp as pgTimestamp,
   varchar as pgVarchar,
+  vector as pgVector,
 } from "drizzle-orm/pg-core";
 
 const connectionString =
@@ -34,6 +35,7 @@ const mockItems = definePgTable("mock_items", {
   createdAt: pgTimestamp("created_at"),
   metadata: pgJsonb("metadata"),
   weightRange: int4range("weight_range"),
+  embedding: pgVector("embedding", { dimensions: 8 }),
 });
 
 const orders = definePgTable("orders", {

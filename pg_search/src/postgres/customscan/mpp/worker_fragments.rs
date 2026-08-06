@@ -19,11 +19,11 @@
 //! (one task of a producer stage), not the frame fragmentation the ring does for oversized
 //! messages.
 //!
-//! [`collect_dispatched_stages`] walks the distributed physical plan, visits every
-//! [`datafusion_distributed::NetworkBoundary`], and collects one [`StageEntry`]
-//! (`input_stage.num`, `task_count`, `routing`) per boundary. The stage plans travel separately,
-//! serialized by the coordinator's dispatch; each worker later expands a stage into one
-//! [`FragmentAssignment`] per `task_idx` it owns under `proc_for_task`.
+//! [`collect_stages`] walks the distributed physical plan and visits every
+//! [`datafusion_distributed::NetworkBoundary`]; [`classify_stages`] turns each into one
+//! [`StageEntry`] (`input_stage.num`, `task_count`, `routing`) once the worker count is known.
+//! The stage plans travel separately, serialized by the coordinator's dispatch; each worker later
+//! expands a stage into one [`FragmentAssignment`] per `task_idx` it owns under `proc_for_task`.
 //!
 //! The fork's coordinator has no equivalent of this walk: it dispatches one boundary at a time,
 //! when the consumer's `execute` opens connections, so routing is implicit in who pulls. These
@@ -108,28 +108,105 @@ pub struct StageEntry {
     pub routing: FragmentRouting,
 }
 
-/// Walk the distributed physical plan and collect every producer stage, once per boundary. The
-/// leader runs this (replacing the worker-side re-plan) to classify routing from the boundary
-/// type. Not filtered by proc; the blob is shared and each worker selects its own
-/// `(stage, task)` slots.
-pub fn collect_dispatched_stages(
-    root: &Arc<dyn ExecutionPlan>,
+/// One producer stage: everything derivable from the plan alone, before any worker count exists.
+pub(crate) struct DiscoveredStage {
+    boundary: Arc<dyn ExecutionPlan>,
+    stage_num: u32,
+    task_count: usize,
+    /// `false` for a boundary that emits into the leader, `true` for one nested under a parent
+    /// stage.
+    nested: bool,
+    /// Stages with no local plan are neither counted nor dispatched, but their routing is still
+    /// classified so unroutable shapes are rejected.
+    dispatchable: bool,
+}
+
+/// Every producer stage, once per boundary. The launch walks before forking and hands the result
+/// to both [`max_producer_task_count`] and [`classify_stages`], so the two cannot disagree about
+/// which stages exist (#5667). Routing is not derived here: it needs the worker count that sizing
+/// produces.
+pub(crate) fn collect_stages(root: &Arc<dyn ExecutionPlan>) -> Vec<DiscoveredStage> {
+    let mut out = Vec::new();
+    walk_stages(root, /* nested = */ false, &mut out);
+    out
+}
+
+fn walk_stages(plan: &Arc<dyn ExecutionPlan>, nested: bool, out: &mut Vec<DiscoveredStage>) {
+    if let Some(nb) = plan.as_ref().as_network_boundary() {
+        let stage = nb.input_stage();
+        let local_plan = stage.local_plan();
+        out.push(DiscoveredStage {
+            boundary: Arc::clone(plan),
+            stage_num: stage.num() as u32,
+            task_count: stage.task_count(),
+            nested,
+            dispatchable: local_plan.is_some(),
+        });
+        if let Some(stage_plan) = local_plan {
+            // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
+            // returns `[stage.plan]`, so descending through it would double-process every nested
+            // stage. Return here to keep visit counts exact.
+            walk_stages(stage_plan, true, out);
+        }
+        return;
+    }
+    // Non-boundary nodes recurse through plan children.
+    for child in plan.children() {
+        walk_stages(child, nested, out);
+    }
+}
+
+/// Largest producer-stage task count, or 0 when the plan has no network boundaries (#5667). The
+/// plan-first launch sizes the worker pool from this number before any DSM or process exists:
+/// `producers = clamp(max_tasks, 2, cap)`.
+pub(crate) fn max_producer_task_count(stages: &[DiscoveredStage]) -> usize {
+    stages
+        .iter()
+        .filter(|stage| stage.dispatchable)
+        .map(|stage| stage.task_count)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Classify each discovered stage's routing, once the worker count is known. The leader runs this
+/// (replacing the worker-side re-plan) to derive routing from the boundary type. Not filtered by
+/// proc; the blob is shared and each worker selects its own `(stage, task)` slots.
+pub(crate) fn classify_stages(
+    stages: &[DiscoveredStage],
     n_workers: u32,
 ) -> Result<Vec<StageEntry>, DataFusionError> {
     let mut out = Vec::new();
-    collect_stages(root, n_workers, /* nested = */ false, &mut out)?;
+    for stage in stages {
+        // Classified before the `dispatchable` check so an unroutable shape is rejected whether or
+        // not it carries a local plan.
+        let routing = classify_routing(stage, n_workers)?;
+        if stage.dispatchable {
+            out.push(StageEntry {
+                stage_num: stage.stage_num,
+                task_count: stage.task_count,
+                routing,
+            });
+        }
+    }
     Ok(out)
 }
 
-fn collect_stages(
-    plan: &Arc<dyn ExecutionPlan>,
+fn classify_routing(
+    discovered: &DiscoveredStage,
     n_workers: u32,
-    nested: bool,
-    out: &mut Vec<StageEntry>,
-) -> Result<(), DataFusionError> {
-    if let Some(nb) = plan.as_ref().as_network_boundary() {
+) -> Result<FragmentRouting, DataFusionError> {
+    let plan = &discovered.boundary;
+    let stage_id = discovered.stage_num;
+    let nested = discovered.nested;
+    let Some(nb) = plan.as_ref().as_network_boundary() else {
+        // `collect_stages` only records nodes that matched `as_network_boundary`.
+        crate::postgres::customscan::mpp::fail_loud(format!(
+            "mpp worker_fragments: {} is not a network boundary (stage_id={stage_id}).",
+            plan.name()
+        ))
+    };
+    {
         let stage = nb.input_stage();
-        let stage_id = stage.num() as u32;
         // Only the `mpp_log!` trace reads `p_c` (routing reads the crate's `route_partition`),
         // so it's gated to non-test builds to avoid the unused-variable warning.
         #[cfg(not(test))]
@@ -170,15 +247,11 @@ fn collect_stages(
                     consumer_task: route_consumer_tasks()?,
                 }
             } else {
-                // Top-level NetworkShuffleExec / NetworkBroadcastExec isn't a shape our customscan plans produce.
-                // They emit partitioned or broadcast output into a parent consumer stage, not directly
-                // into the leader.
-                crate::postgres::customscan::mpp::fail_loud(format!(
-                    "mpp worker_fragments: top-level {} is unsupported \
-                     (stage_id={stage_id}). They emit output into a \
-                     parent consumer stage; a top-level boundary of this type is a planner anomaly.",
-                    plan.name()
-                ))
+                // Top-level NetworkShuffleExec / NetworkBroadcastExec means the entire consumer
+                // pipeline collapsed to a single partition and remained on the leader instead of
+                // becoming a nested consumer stage. In this case, the single leader task is the
+                // only consumer, so it behaves identically to a Coalesce.
+                FragmentRouting::Coalesce { dest_proc: 0 }
             }
         } else {
             // `as_network_boundary()` matched, but the node isn't one of the three concrete
@@ -193,31 +266,14 @@ fn collect_stages(
         #[cfg(not(test))]
         {
             crate::mpp_log!(
-                "mpp worker_fragments::collect_stages boundary={} stage_id={stage_id} \
+                "mpp worker_fragments::classify_routing boundary={} stage_id={stage_id} \
                  p_c={p_c} nested={nested}",
                 plan.name()
             );
         }
 
-        let task_count = stage.task_count();
-        if let Some(stage_plan) = stage.local_plan() {
-            out.push(StageEntry {
-                stage_num: stage_id,
-                task_count,
-                routing,
-            });
-            // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
-            // returns `[stage.plan]`, so descending through it would double-process every nested
-            // stage. Return here to keep visit counts exact.
-            collect_stages(stage_plan, n_workers, true, out)?;
-        }
-        return Ok(());
+        Ok(routing)
     }
-    // Non-boundary nodes recurse through plan children.
-    for child in plan.children() {
-        collect_stages(child, n_workers, nested, out)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -230,8 +286,17 @@ mod tests {
     fn boundary_free_plan_yields_no_stages() {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
-        let out = collect_dispatched_stages(&plan, 3).unwrap();
+        let out = classify_stages(&collect_stages(&plan), 3).unwrap();
         assert!(out.is_empty());
+    }
+
+    /// #5667: sizing and dispatch read the same enumeration, so a boundary-free plan has nothing
+    /// to distribute and the launch spawns no workers at all.
+    #[test]
+    fn boundary_free_plan_has_zero_max_tasks() {
+        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
+        assert_eq!(max_producer_task_count(&collect_stages(&plan)), 0);
     }
 
     #[test]

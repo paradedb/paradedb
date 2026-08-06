@@ -21,7 +21,7 @@ INSERT INTO issue_join_pre_filter_posts SELECT i, 'how using get create', i % 10
 ANALYZE issue_join_pre_filter_users;
 ANALYZE issue_join_pre_filter_posts;
 
-SET max_parallel_workers_per_gather = 2;
+SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan TO on;
 SET work_mem TO '4GB';
 

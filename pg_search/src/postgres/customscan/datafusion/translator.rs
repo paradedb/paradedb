@@ -17,7 +17,7 @@
 
 use datafusion::common::{Column, JoinType, NullEquality, Result, TableReference};
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, LogicalPlanBuilder, Operator};
+use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlanBuilder, Operator, col, lit};
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
@@ -285,15 +285,27 @@ impl<'a> PredicateTranslator<'a> {
     ///
     /// IMPORTANT: This translator is used to check if a predicate CAN be translated,
     /// but the actual predicate evaluation happens via heap fetch + PostgreSQL evaluation.
-    /// Cross-type comparisons (e.g., INT < NUMERIC) involve type casts that change value
-    /// semantics - we cannot simply look through them because the underlying storage
-    /// representations differ (e.g., INT 95 vs Numeric64 5225 for 52.25).
+    /// Value-preserving casts are looked through: binary-compatible `RelabelType` nodes
+    /// (e.g. varchar → text) and `CoerceViaIO` within the text family.
     ///
-    /// For predicates involving type casts, we return None to indicate that the predicate
-    /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
+    /// Casts that change value representation are not. Cross-type comparisons
+    /// (e.g. INT < NUMERIC) involve casts whose underlying storage representations differ
+    /// (e.g. INT 95 vs Numeric64 5225 for 52.25), so we return None to indicate that the
+    /// predicate cannot be evaluated purely in DataFusion and must fall back to PostgreSQL
+    /// evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             pgrx::debug1!("PredicateTranslator: null node pointer");
+            return None;
+        }
+
+        // A List is an implicit conjunction container, so reaching here means a
+        // caller skipped normalization. `translate` doubles as a capability
+        // probe, so decline rather than abort an otherwise valid query.
+        if (*node).type_ == pg_sys::NodeTag::T_List {
+            pgrx::debug1!(
+                "PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"
+            );
             return None;
         }
 
@@ -674,10 +686,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
         if is_score {
-            if let Some(col_idx) = source.map_var(rti, 0) {
-                if let Some(name) = source.column_name(col_idx) {
-                    return Some(make_col(&alias, &name));
-                }
+            if let Some(col_idx) = source.map_var(rti, 0)
+                && let Some(name) = source.column_name(col_idx)
+            {
+                return Some(make_col(&alias, &name));
             }
             return Some(make_col(&alias, SCORE_COL_NAME));
         }
@@ -689,7 +701,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::build_null_aware_anti_join;
     use datafusion::arrow::array::Int64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -697,8 +709,8 @@ mod tests {
     use datafusion::common::{JoinType, NullEquality};
     use datafusion::datasource::MemTable;
     use datafusion::logical_expr::col;
-    use datafusion::physical_plan::joins::HashJoinExec;
     use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::physical_plan::joins::HashJoinExec;
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 
@@ -759,5 +771,26 @@ mod tests {
             JoinType::LeftAnti,
             "join type must remain LeftAnti after physical planning"
         );
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::PredicateTranslator;
+    use pgrx::PgList;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn unnormalized_list_is_a_non_throwing_capability_miss() {
+        unsafe {
+            let mut list = PgList::<pg_sys::Node>::new();
+            list.push(pg_sys::makeBoolConst(true, false).cast());
+
+            assert!(!PredicateTranslator::can_translate(
+                &[],
+                list.into_pg().cast()
+            ));
+        }
     }
 }

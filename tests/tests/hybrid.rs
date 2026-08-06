@@ -17,7 +17,7 @@
 
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::{types::BigDecimal, PgConnection};
+use sqlx::{PgConnection, types::BigDecimal};
 use tests::fixtures::*;
 
 #[rstest]

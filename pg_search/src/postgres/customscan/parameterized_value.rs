@@ -56,7 +56,7 @@
 //!    `nodecast!` is correct — document why.
 
 use crate::nodecast;
-use pgrx::{pg_sys, FromDatum, PgList};
+use pgrx::{FromDatum, PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};

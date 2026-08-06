@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use crate::api::{FieldName, HashMap};
 use crate::gucs;
-use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 
@@ -33,6 +33,7 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
+use tantivy::vector::BoundsScope;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 /* ADDING OPTIONS
@@ -74,7 +75,7 @@ pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
 pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
-pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 7;
+pub(crate) const DEFAULT_CLUSTER_REPLICATION: i32 = 1;
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
@@ -183,6 +184,23 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
+/// The only legal `bounds_scope`: the merge folds centroid bounds over a
+/// cluster's NATIVE (primary-assignment) members. Captured into the stored
+/// tantivy `IndexSettings` at CREATE INDEX, like the clustering threshold.
+pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
+
+#[pg_guard]
+extern "C-unwind" fn validate_bounds_scope(value: *const std::os::raw::c_char) {
+    if value.is_null() {
+        return;
+    }
+    let cstr = unsafe { core::ffi::CStr::from_ptr(value) };
+    let value = cstr.to_str().expect("`bounds_scope` must be valid UTF-8");
+    if value != BOUNDS_SCOPE_NATIVE {
+        panic!("invalid `bounds_scope`: {value:?}; the only supported value is 'native'");
+    }
+}
+
 #[pg_guard]
 extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
@@ -222,7 +240,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -325,6 +343,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "search_tokenizer".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, search_tokenizer_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "bounds_scope".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, bounds_scope_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -444,6 +469,10 @@ impl BM25IndexOptions {
 
     pub fn centroid_ratio(&self) -> f32 {
         self.options_data().centroid_ratio()
+    }
+
+    pub fn bounds_scope(&self) -> BoundsScope {
+        self.options_data().bounds_scope()
     }
 
     pub fn training_samples_per_centroid(&self) -> usize {
@@ -590,6 +619,17 @@ impl BM25IndexOptions {
                     .cloned()
             })
             .or_else(|| {
+                // `datetime_fields` only applies to fields stored as tantivy Date. Indexes
+                // created by v0.24.1+ store datetimes as i64, where the option is deprecated
+                // and must be discarded: its `SearchFieldConfig::Date` cannot be converted to
+                // the tantivy options of an i64 field. The available options (fast) are already on
+                // by default for i64 anyways.
+                if !matches!(
+                    self.get_field_type(field_name),
+                    Some(SearchFieldType::Date(_))
+                ) {
+                    return None;
+                }
                 self.datetime_config()
                     .as_ref()
                     .unwrap()
@@ -703,10 +743,10 @@ impl BM25IndexOptions {
             .into_iter()
             .chain(self.aliased_json_configs())
         {
-            if &aliased_field_name == field_name {
-                if let Some(alias) = config.alias() {
-                    return self.get_field_type(&FieldName::from(alias.to_string()));
-                }
+            if &aliased_field_name == field_name
+                && let Some(alias) = config.alias()
+            {
+                return self.get_field_type(&FieldName::from(alias.to_string()));
             }
         }
 
@@ -718,6 +758,47 @@ impl BM25IndexOptions {
             *self.lazy.attributes.borrow_mut() = unsafe { extract_field_attributes(self.indexrel) };
         }
         self.lazy.attributes.borrow()
+    }
+
+    pub fn is_multi_valued(&self, field_name: &FieldName) -> bool {
+        if field_name.is_ctid() {
+            return false;
+        }
+
+        let mut current_name = field_name.clone();
+        loop {
+            if let Some(attr) = self.attributes().get(&current_name) {
+                let (_, is_array) = crate::postgres::utils::resolve_base_type(
+                    PgOid::from_untagged(attr.inner_typoid),
+                )
+                .unwrap_or_else(|| panic!("failed to resolve base type for `{current_name}`"));
+
+                return is_array
+                    || matches!(
+                        attr.tantivy_type,
+                        SearchFieldType::Json(_) | SearchFieldType::Range(_)
+                    );
+            }
+
+            let mut found_alias = false;
+            for (aliased_name, config) in self
+                .aliased_text_configs()
+                .into_iter()
+                .chain(self.aliased_json_configs())
+            {
+                if aliased_name == current_name
+                    && let Some(alias) = config.alias()
+                {
+                    current_name = FieldName::from(alias.to_string());
+                    found_alias = true;
+                    break;
+                }
+            }
+
+            if !found_alias {
+                return false;
+            }
+        }
     }
 
     #[inline(always)]
@@ -753,6 +834,7 @@ struct BM25IndexOptionsData {
     training_samples_per_centroid: i32,
     cluster_replication: i32,
     partition_by_offset: i32,
+    bounds_scope_offset: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -794,6 +876,16 @@ impl BM25IndexOptionsData {
 
     pub fn centroid_ratio(&self) -> f32 {
         self.centroid_ratio as f32
+    }
+
+    /// The stored-bounds scope, validated at option-set time; anything but
+    /// the default reads as `Native` (the only variant).
+    pub fn bounds_scope(&self) -> BoundsScope {
+        let value = self.get_str(self.bounds_scope_offset, BOUNDS_SCOPE_NATIVE.to_string());
+        match value.as_str() {
+            BOUNDS_SCOPE_NATIVE => BoundsScope::Native,
+            other => panic!("invalid stored `bounds_scope`: {other:?}"),
+        }
     }
 
     pub fn training_samples_per_centroid(&self) -> usize {
@@ -1041,6 +1133,15 @@ pub unsafe fn init() {
         "Default search-time tokenizer for text/JSON fields".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_search_tokenizer),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "bounds_scope".as_pg_cstr(),
+        "Which rows a cluster's stored centroid bound covers; only 'native' is supported"
+            .as_pg_cstr(),
+        BOUNDS_SCOPE_NATIVE.as_pg_cstr(),
+        Some(validate_bounds_scope),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_real_reloption(

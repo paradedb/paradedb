@@ -19,7 +19,7 @@ use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::types::ConstNode;
-use pgrx::{pg_sys, PgList};
+use pgrx::{PgList, pg_sys};
 use std::sync::OnceLock;
 
 pub type PostgresOperatorOid = pg_sys::Oid;
@@ -284,11 +284,11 @@ where
         // Handle type coercion via single-arg function call (e.g., float4 -> float8)
         if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
             let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-            if args.len() == 1 {
-                if let Some(arg) = args.get_ptr(0) {
-                    expr = arg.cast();
-                    continue;
-                }
+            if args.len() == 1
+                && let Some(arg) = args.get_ptr(0)
+            {
+                expr = arg.cast();
+                continue;
             }
         }
 
@@ -539,13 +539,13 @@ pub unsafe fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::
             return opexpr_matches_funcexpr(
                 a as *const pg_sys::OpExpr,
                 b as *const pg_sys::FuncExpr,
-            )
+            );
         }
         (pg_sys::NodeTag::T_FuncExpr, pg_sys::NodeTag::T_OpExpr) => {
             return opexpr_matches_funcexpr(
                 b as *const pg_sys::OpExpr,
                 a as *const pg_sys::FuncExpr,
-            )
+            );
         }
         _ if tag_a != tag_b => return false,
         _ => {}
@@ -646,15 +646,15 @@ pub unsafe fn expr_matches_node(
 
         // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
         // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-            if type_is_alias((*func).funcresulttype) {
-                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                if args.len() == 1 {
-                    if let Some(arg) = args.get_ptr(0) {
-                        reduced_expression = arg.cast();
-                        continue;
-                    }
-                }
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression)
+            && type_is_alias((*func).funcresulttype)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if args.len() == 1
+                && let Some(arg) = args.get_ptr(0)
+            {
+                reduced_expression = arg.cast();
+                continue;
             }
         }
 

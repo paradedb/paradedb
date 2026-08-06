@@ -18,14 +18,14 @@ rustup install stable
 
 ### pgrx
 
-The `cargo-pgrx` version must match the `pgrx` dependency declared in [`pg_search/Cargo.toml`](Cargo.toml). On Linux, `pgrx` also requires `libclang`:
+The `cargo-pgrx` version must match the `pgrx` dependency declared in [`pg_search/Cargo.toml`](Cargo.toml). On Linux, `pgrx` also requires `libclang`, and [`.cargo/config.toml`](../.cargo/config.toml) links Linux builds with `lld`:
 
 ```bash
 # Ubuntu
-sudo apt install libclang-dev
+sudo apt install libclang-dev lld
 
 # Arch Linux
-sudo pacman -S extra/clang
+sudo pacman -S extra/clang extra/lld
 ```
 
 Then install `cargo-pgrx` and let it bootstrap a managed PostgreSQL installation under `~/.pgrx/`:

@@ -26,7 +26,7 @@ pub fn database_oid(conn: &mut PgConnection) -> String {
     format!("SELECT oid FROM pg_database WHERE datname='{db_name}'")
         .fetch_one::<(sqlx::postgres::types::Oid,)>(conn)
         .0
-         .0
+        .0
         .to_string()
 }
 
@@ -35,7 +35,7 @@ pub fn schema_oid(conn: &mut PgConnection, schema_name: &str) -> String {
         .to_string()
         .fetch_one::<(sqlx::postgres::types::Oid,)>(conn)
         .0
-         .0
+        .0
         .to_string()
 }
 

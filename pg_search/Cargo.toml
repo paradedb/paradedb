@@ -1,6 +1,6 @@
 [package]
 name = "pg_search"
-description = "Full text search for PostgreSQL using BM25"
+description = "One Postgres for your application data, full-text search, vector retrieval, and aggregations"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
@@ -33,13 +33,13 @@ dst = { path = "../dst" }
 antithesis-instrumentation = { version = "0.1", optional = true } # coverage shim; see lib.rs
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
-arrow-array = "58.1.0"
-arrow-buffer = "58.1.0"
-arrow-schema = "58.1.0"
-arrow-select = "58.1.0"
+arrow-array = "59.1.0"
+arrow-buffer = "59.1.0"
+arrow-schema = "59.1.0"
+arrow-select = "59.1.0"
 base64 = "0.22.1"
 bitpacking = "0.9.3"
-chrono = "0.4.44"
+chrono = "0.4.45"
 time = "0.3.47"
 env_logger = { version = "0.11.10", optional = true }
 log = "0.4"
@@ -59,13 +59,16 @@ tantivy.workspace = true
 thiserror = "2.0.18"
 ordered-float = "5.3.0"
 uuid = "1.23.1"
-strum = { version = "0.27.2" }
+strum = { version = "0.28.0" }
 serde_path_to_error = "0.1.20"
+# Do not "upgrade" this: bincode is unmaintained and 3.0.0 is a tombstone whose
+# lib.rs is a single compile_error!. `legacy()` also encodes to disk, so any
+# replacement must be byte-compatible.
 bincode = { version = "2.0.1", features = [
   "serde",
   "std",
 ], default-features = false }
-rand = "0.9.4"
+rand = "0.10.2"
 proptest = { version = "1.11.0", optional = true }
 postcard = { version = "1.1.3", features = [
   "use-std",
@@ -86,9 +89,11 @@ paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
-datafusion = { version = "54", default-features = false }
-datafusion-proto = { version = "54", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-07-15-173408", default-features = false }
+# Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
+# both point to the same datafusion ref.
+datafusion = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
+datafusion-proto = { git = "https://github.com/apache/datafusion", rev = "8d680db14a9134837bbd3d53497dd58c985c51a7", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", tag = "snapshot-main-2026-07-30-083335", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"
@@ -96,19 +101,16 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "9cebcb426cc5236eaec4ce035001e1299bbd9cf2", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "9cebcb426cc5236eaec4ce035001e1299bbd9cf2", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b89e83196143acd518f1d8212ec1f53474e936d4", features = [
   "openblas",
 ] }
 
 [dev-dependencies]
 pgrx-tests.workspace = true
-rstest = "0.25.0"
+rstest = "0.26.1"
 proptest = "1.11.0"
-
-[package.metadata.cargo-machete]
-ignored = ["indexmap", "tantivy-common"]

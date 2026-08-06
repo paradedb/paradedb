@@ -472,7 +472,7 @@ fn leaky_file_handles(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         "error returned from database: error! 12 = 12",
-        &format!("{}", result.err().unwrap())
+        db_error_message(&result.err().unwrap())
     );
 
     fn tantivy_files_still_open(pid: i32) -> bool {
@@ -646,7 +646,9 @@ fn top_k_matches(mut conn: PgConnection) {
     .execute(&mut conn);
 
     for n in 1..=100 {
-        let sql = format!("select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;");
+        let sql = format!(
+            "select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;"
+        );
 
         let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
         assert_eq!((b, count), (true, n.min(8)));
@@ -660,7 +662,9 @@ fn top_k_matches(mut conn: PgConnection) {
     .execute(&mut conn);
 
     for n in 1..=100 {
-        let sql = format!("select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;");
+        let sql = format!(
+            "select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;"
+        );
 
         let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
         assert_eq!((b, count), (true, n.min(8)));

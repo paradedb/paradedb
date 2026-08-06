@@ -15,11 +15,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Extract pgrx Version
-      id: pgrx
-      shell: bash
-      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
-
     - name: Preserve SQL Files
       shell: bash
       run: |
@@ -112,6 +107,13 @@ runs:
           git checkout commit-${{ github.sha }}
         fi
 
+    # Must read the rev checked out above, not the `actions/checkout` merge ref
+    # at the top: they disagree whenever the base bumps pgrx after a PR is cut.
+    - name: Extract pgrx Version
+      id: pgrx
+      shell: bash
+      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
     - name: Install the pgrx version for ParadeDB
       shell: bash
       run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
@@ -198,7 +200,7 @@ runs:
       working-directory: tests/
       shell: bash
       run: |
-        export DATABASE_URL=postgresql://localhost:288${{ inputs.pg_version }}/postgres
+        export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ inputs.pg_version }}/postgres
         export PG_CONFIG=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config
         RUST_BACKTRACE=1 cargo test --jobs $(nproc)
 

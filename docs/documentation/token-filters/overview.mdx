@@ -15,6 +15,6 @@ To add a token filter to a tokenizer, append a configuration string to the argum
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple('stemmer=english', 'ascii_folding=true')))
+USING paradedb (id, (description::pdb.simple('stemmer=english', 'ascii_folding=true')))
 WITH (key_field='id');
 ```

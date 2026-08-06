@@ -2,7 +2,7 @@
 #
 # Benchmark pg_search (Stressgres)
 # Run our Stressgres stress testing tool against pg_search on the
-# testing suites specificed in stressgres/suites/.
+# testing suites specified in stressgres/suites/.
 
 name: Benchmark pg_search (Stressgres)
 
@@ -188,7 +188,7 @@ jobs:
 
       - name: Install required system tools
         run: |
-          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev
+          sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -334,7 +334,8 @@ jobs:
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

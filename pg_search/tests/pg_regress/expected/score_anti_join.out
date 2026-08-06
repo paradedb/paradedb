@@ -18,7 +18,6 @@ CREATE TABLE score_aj_entries (
     item_id INT NOT NULL REFERENCES score_aj_items(id),
     user_id TEXT NOT NULL
 );
-CREATE INDEX score_aj_entries_item_id_idx ON score_aj_entries(item_id);
 INSERT INTO score_aj_items (title, state)
 SELECT 'Item ' || i, 'active'
 FROM generate_series(1, 10000) i;
@@ -31,7 +30,6 @@ WITH (key_field = 'id');
 SET max_parallel_workers_per_gather = 4;
 SET enable_hashjoin = off;
 SET enable_mergejoin = off;
-SET enable_indexscan = off;
 -- Verify the plan uses an Anti Join
 EXPLAIN (COSTS OFF)
 SELECT id
@@ -210,7 +208,6 @@ LIMIT 5;
 RESET max_parallel_workers_per_gather;
 RESET enable_hashjoin;
 RESET enable_mergejoin;
-RESET enable_indexscan;
 -- Cleanup
 DROP TABLE IF EXISTS score_aj_entries CASCADE;
 DROP TABLE IF EXISTS score_aj_items CASCADE;

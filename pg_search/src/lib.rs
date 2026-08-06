@@ -15,6 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
+// Edition 2024 turns this lint on by default. This crate is a thin Rust layer over the Postgres C
+// API, so nearly every function here is `unsafe fn` whose body is unsafe end to end; wrapping each
+// body in a blanket `unsafe {}` would add noise without adding granularity. Left as follow-up work
+// to be tightened per-module, where the wrapped region can be narrowed to something meaningful.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 // Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
 // here to keep its `.init_array` constructor.
@@ -125,7 +130,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     }
 
     if !pg_sys::process_shared_preload_libraries_in_progress {
-        error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
+        error!(
+            "pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres."
+        );
     }
 
     // Register the DST assertion catalog for this process (a no-op outside `--features dst`)
@@ -163,7 +170,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
 #[pg_extern]
 fn random_words(num_words: i32) -> String {
-    use rand::Rng;
+    use rand::RngExt;
 
     let mut rng = rand::rng();
     let letters = "abcdefghijklmnopqrstuvwxyz";

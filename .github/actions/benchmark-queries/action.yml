@@ -30,6 +30,27 @@ inputs:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
     default: "true"
+  publish:
+    description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
+    required: false
+    default: "false"
+  alert_threshold:
+    description: >-
+      Ratio of current to baseline value above which github-action-benchmark alerts,
+      e.g. "115%". Callers using the paired-bootstrap strategy should loosen this into a
+      catastrophic-regression backstop, since the comparison script owns real alerting.
+    required: false
+    default: "115%"
+  alert_strategy:
+    description: >-
+      How regressions are detected. "point-ratio": only the alert_threshold point comparison.
+      "paired-bootstrap": percentile series whose runs published per-query samples alert when the
+      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x -- pairing cancels
+      cross-query latency variance, so this is both less noisy and more sensitive than a point
+      comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
+      p99 series stay charted but never alert; a single-run p99 cannot evidence a regression.
+    required: false
+    default: "point-ratio"
 
 runs:
   using: "composite"
@@ -38,7 +59,7 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
+        POSTGRES_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
 
         # The heap is assumed to already be restored from a snapshot; the benchmark builds the
         # index and runs queries against it.
@@ -64,7 +85,7 @@ runs:
       run: rm -rf ./benchmark-data-repository
 
     - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: paradedb/github-action-benchmark@v1
       with:
         name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}
@@ -73,12 +94,35 @@ runs:
         github-token: ${{ inputs.github_token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
-        auto-push: ${{ github.ref == 'refs/heads/main' }}
+        auto-push: ${{ inputs.publish }}
         benchmark-data-dir-path: benchmarks
-        alert-threshold: "115%"
+        alert-threshold: ${{ inputs.alert_threshold }}
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
+
+    # The publish step above appends the current run to its local gh-pages clone, so the script
+    # takes the second-to-last entry as the baseline.
+    - name: Compare Against Baseline (Paired Bootstrap)
+      if: inputs.alert_strategy == 'paired-bootstrap'
+      id: paired_bootstrap
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/compare_baseline.py" \
+          --results benchmarks/results.json \
+          --data-js benchmark-data-repository/benchmarks/data.js \
+          --suite "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)" \
+          --out benchmark-alert.md
+
+    - name: Comment on Alert (Paired Bootstrap)
+      if: inputs.alert_strategy == 'paired-bootstrap' && steps.paired_bootstrap.outputs.alert == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        printf '\ncc @%s\n' "${{ github.actor }}" >> benchmark-alert.md
+        gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+          -F body=@benchmark-alert.md
 
     - name: Upload Benchmark Results to Slack (push only)
       if: github.ref == 'refs/heads/main'

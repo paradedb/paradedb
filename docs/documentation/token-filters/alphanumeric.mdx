@@ -11,7 +11,7 @@ To enable, append `alpha_num_only=true` to the tokenizer's arguments.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple('alpha_num_only=true')))
+USING paradedb (id, (description::pdb.simple('alpha_num_only=true')))
 WITH (key_field='id');
 ```
 

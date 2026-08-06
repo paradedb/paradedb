@@ -197,11 +197,7 @@ impl SearchTokenizerFilters {
         let mut is_empty = true;
 
         fn sep(is_empty: bool) -> &'static str {
-            if is_empty {
-                ""
-            } else {
-                ","
-            }
+            if is_empty { "" } else { "," }
         }
 
         if let Some(value) = self.remove_short {
@@ -353,6 +349,9 @@ pub enum SearchTokenizer {
     #[strum(serialize = "default")]
     Simple(SearchTokenizerFilters),
     Keyword,
+    // Not removable: `from_json_value` still accepts "raw" for indexes built
+    // before the switch, and `postgres::options` constructs `Raw` for the
+    // default text field. Removing either needs a migration.
     #[deprecated(
         since = "0.19.0",
         note = "use the `SearchTokenizer::Keyword` variant instead"
@@ -1365,7 +1364,7 @@ mod tests {
         use tantivy::collector::TopDocs;
         use tantivy::directory::RamDirectory;
         use tantivy::query::TermQuery;
-        use tantivy::schema::{Schema, TextFieldIndexing, TextOptions, STORED};
+        use tantivy::schema::{STORED, Schema, TextFieldIndexing, TextOptions};
         use tantivy::{Index, Term};
 
         // create all tokenizer variants
@@ -1441,6 +1440,9 @@ mod tests {
             .unwrap();
 
         let found_space = !top_docs.is_empty();
-        assert_eq!(found_space, should_find_space, "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected");
+        assert_eq!(
+            found_space, should_find_space,
+            "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected"
+        );
     }
 }

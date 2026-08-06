@@ -33,12 +33,12 @@ use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::ParallelScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
-use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
+use crate::scan::filter_pushdown::{FilterAnalyzer, combine_with_and};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::range_partitioning::RangePartitioningSample;
@@ -70,8 +70,8 @@ impl VisibilityMode {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
-    scan_info: ScanInfo,
-    fields: Vec<WhichFastField>,
+    pub(crate) scan_info: ScanInfo,
+    pub(crate) fields: Vec<WhichFastField>,
     #[serde(skip)]
     schema: OnceLock<SchemaRef>,
     #[serde(skip)]
@@ -145,6 +145,27 @@ mod atomic_bool_serde {
     }
 }
 
+impl Clone for PgSearchTableProvider {
+    fn clone(&self) -> Self {
+        Self {
+            scan_info: self.scan_info.clone(),
+            fields: self.fields.clone(),
+            schema: self.schema.clone(),
+            late_materialization_schema: self.late_materialization_schema.clone(),
+            parallel_state: self.parallel_state,
+            expr_context: self.expr_context,
+            planstate: self.planstate,
+            visibility_mode: self.visibility_mode,
+            late_materialization_active: std::sync::atomic::AtomicBool::new(
+                self.late_materialization_active
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            source_idx: self.source_idx,
+            range_sample: self.range_sample.clone(),
+        }
+    }
+}
+
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
@@ -174,14 +195,12 @@ impl PgSearchTableProvider {
     /// When a sample is provided, the table provider will produce a plan that is
     /// statically partitioned by range bounds, overriding the default `Shared`
     /// (dynamic segment checkout) partitioning mode.
-    // TODO: Support for declaring range partitioning will be added via https://github.com/paradedb/paradedb/issues/5662
-    #[allow(dead_code)]
-    pub fn with_range_partitioning(
-        mut self,
-        range_sample: Option<RangePartitioningSample>,
-    ) -> Self {
+    pub fn with_range_partitioning(&mut self, range_sample: Option<RangePartitioningSample>) {
         self.range_sample = range_sample;
-        self
+    }
+
+    pub fn range_sample(&self) -> Option<&RangePartitioningSample> {
+        self.range_sample.as_ref()
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -654,9 +673,12 @@ impl PgSearchTableProvider {
         let target_partitions = state.config().target_partitions();
         // The output partitions of the scan default to min(segments, target_partitions),
         // or exactly `target_partitions` when range partitioning is enabled.
-        // During distributed planning, the `PgSearchScanTaskEstimator` reads this partition
+        // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
         let partition_count = if self.range_sample.is_some() {
+            // When using range partitioning, we target the session's target partitions.
+            // The actual number of bounds will be dynamically limited by the sample size
+            // when we create the plan.
             target_partitions
         } else {
             std::cmp::min(segment_count, target_partitions).max(1)

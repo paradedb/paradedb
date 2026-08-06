@@ -19,7 +19,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use pgrx::spi::Spi;
-use pgrx::{datum::RangeBound, prelude::*, JsonB};
+use pgrx::{JsonB, datum::RangeBound, prelude::*};
 use serde::Serialize;
 use serde_json::json;
 use std::fmt::{Display, Formatter};

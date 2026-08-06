@@ -57,7 +57,13 @@ impl Expr {
     }
 }
 
-pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Strategy<Value = Expr> {
+// `tables` is a named generic rather than `impl AsRef<str>` so the return type can use precise
+// capturing: the strategy copies `columns` into owned data, and `use<S>` keeps it from capturing
+// the `columns` lifetime, which edition 2024 would otherwise pull into the opaque type.
+pub fn arb_wheres<S: AsRef<str>>(
+    tables: Vec<S>,
+    columns: &[Column],
+) -> impl Strategy<Value = Expr> + use<S> {
     let tables = tables
         .into_iter()
         .map(|t| t.as_ref().to_owned())

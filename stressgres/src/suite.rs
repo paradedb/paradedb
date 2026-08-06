@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 
 // See https://users.rust-lang.org/t/concatenate-two-static-str/33993/4
 #[macro_export]

@@ -22,13 +22,13 @@ use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
-    SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable,
+    SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::schema::FieldSource;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -57,7 +57,7 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
-/// Describes how a `MvccDirectory` should resolve segment visibility.  Note that
+/// Describes how a `MVCCDirectory` should resolve segment visibility.  Note that
 /// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
 /// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
 /// an index has many (thousands!) of segments.
@@ -490,6 +490,28 @@ impl Directory for MVCCDirectory {
             ) {
                 Err(e) => Err(e),
                 Ok(mut loaded) => {
+                    // [dst correctness] the visible segment set contains no duplicate
+                    // SegmentId. A duplicate would make a segment double-counted/double-read for
+                    // this snapshot (wrong result counts) and corrupt the parallel-worker claim
+                    // accounting.
+                    dst::observe!(|| {
+                        let loaded_entry_count = loaded.entries.len();
+                        let unique_segment_count = loaded
+                            .entries
+                            .iter()
+                            .map(|entry| entry.segment_id())
+                            .collect::<HashSet<_>>()
+                            .len();
+                        dst::assert_always!(
+                            unique_segment_count == loaded_entry_count,
+                            "pg_search: load_metas visible segment set has unique segment ids",
+                            &::serde_json::json!({
+                                "loaded_entry_count": loaded_entry_count,
+                                "unique_segment_count": unique_segment_count,
+                            })
+                        );
+                    });
+
                     let all_entries: HashMap<_, _> = loaded
                         .entries
                         .into_iter()
@@ -647,11 +669,11 @@ pub fn index_memory_segment(
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
     use pgrx::{
-        pg_sys::{
-            heap_deform_tuple, GetOldestNonRemovableTransactionId, HTSV_Result,
-            HeapTupleSatisfiesVacuum,
-        },
         PgTupleDesc,
+        pg_sys::{
+            GetOldestNonRemovableTransactionId, HTSV_Result, HeapTupleSatisfiesVacuum,
+            heap_deform_tuple,
+        },
     };
 
     /// RAII guard that guarantees an active snapshot for the duration of the heap reads and

@@ -56,14 +56,16 @@ use crate::postgres::customscan::mpp::glue::mpp_is_active;
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 
-use crate::api::agg_funcoid;
 use crate::api::SortDirection;
+use crate::api::agg_funcoid;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::ParallelScanArgs;
+use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
@@ -72,7 +74,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::{
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::{
-    aggregation_results_iter, AggregateResult, AggregationResultsRow,
+    AggregateResult, AggregationResultsRow, aggregation_results_iter,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
@@ -95,18 +97,16 @@ use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, bui
 use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
+use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::{is_datetime_type, TantivyValue};
+use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
-    add_vars_to_tlist, is_unnest_func, make_text_const, ExprContextGuard,
+    ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
-use crate::postgres::ParallelScanArgs;
-use crate::postgres::PgSearchRelation;
 use crate::scan::codec::serialize_logical_plan;
-use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
+use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -136,11 +136,10 @@ enum AggregatePathDecline {
     Warn(AggregateDeclineReason),
 }
 
-/// Specific reason a `Warn` decline was raised. Each variant maps 1:1 to a
-/// planner-warning string the inline code used to emit.
+/// Specific reason a `Warn` decline was raised.
 enum AggregateDeclineReason {
     NotAllBm25,
-    NonEquiJoinQuals,
+    JoinPredicate(datafusion_build::PathPredicateDeclineReason),
     CrossJoin,
     /// Errors carrying a free-form message (parse-tree extraction, target-list
     /// extraction, fast-field population) — the underlying helper already
@@ -156,10 +155,27 @@ impl AggregateDeclineReason {
                 "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
                 alias,
             ),
-            AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                alias,
-            ),
+            AggregateDeclineReason::JoinPredicate(reason) => {
+                let message = match reason {
+                    datafusion_build::PathPredicateDeclineReason::ExternParam => {
+                        "generic prepared-plan parameters in join predicates are not supported"
+                    }
+                    #[cfg(feature = "pg15")]
+                    datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
+                        "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15"
+                    }
+                    datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
+                        "outer-join ON residual predicates are not supported"
+                    }
+                    datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
+                        "the selected lower join path contains a predicate that AggregateScan cannot classify"
+                    }
+                };
+                AggregateScan::add_planner_warning(
+                    format!("Aggregate Scan (DataFusion) not used: {message}"),
+                    alias,
+                )
+            }
             AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 alias,
@@ -421,6 +437,7 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: MppLifecycle::Inactive,
+                    launch_timing: None,
                 });
                 builder.build()
             }
@@ -520,6 +537,11 @@ impl CustomScan for AggregateScan {
                 // construction, not actual execute calls. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
                 Self::render_df_physical_plan(df_state, explainer);
+                if explainer.is_verbose()
+                    && let Some(t) = df_state.launch_timing
+                {
+                    explainer.add_text("MPP Launch", t.explain_text());
+                }
             }
             return;
         }
@@ -566,10 +588,10 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
-            // MPP: serialize the logical plan now, while the source manifests are alive, so
-            // the first-exec prepare can size the DSM payload region before the physical plan
-            // exists. Only the leader runs this branch (`ParallelWorkerNumber == -1` in the
-            // leader backend).
+            // MPP: serialize the logical plan now, while the source manifests are alive; the
+            // first exec call's launch sizes the DSM dispatch-payload region from its length.
+            // Only the leader runs this branch (`ParallelWorkerNumber == -1` in the leader
+            // backend).
             if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 Self::stash_mpp_plan_bytes(state);
             }
@@ -652,21 +674,18 @@ impl CustomScan for AggregateScan {
             // Draining here is what frees them, so the `recv` below returns immediately instead
             // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
             // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.leader() {
-                if let Some(plan) = df_state.physical_plan.as_ref() {
-                    crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                        plan,
-                        &leader.mesh,
-                    );
-                }
+            if let Some(leader) = df_state.mpp.leader()
+                && let Some(plan) = df_state.physical_plan.as_ref()
+            {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
             }
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
             // before end_custom_scan, where the context is finally destroyed). A worker error is
             // re-raised from inside `recv`.
-            if let Some(leader) = df_state.mpp.leader_mut() {
-                if let Some(finish) = leader.finish.as_mut() {
-                    let _ = finish.recv();
-                }
+            if let Some(leader) = df_state.mpp.leader_mut()
+                && let Some(finish) = leader.finish.as_mut()
+            {
+                let _ = finish.recv();
             }
         }
     }
@@ -804,9 +823,8 @@ impl AggregateScan {
     }
 
     /// Serialize the leader's logical plan (already on `df_state`) and move the MPP lifecycle
-    /// to `PlanBytes`. The first-exec prepare uses the byte length to size the DSM payload
-    /// region; the dispatched stage plans themselves are derived later, from the leader's
-    /// physical plan.
+    /// to `PlanBytes`. `launch_mpp` uses the byte length to size the DSM payload region; the
+    /// dispatched stage plans themselves are derived later, from the leader's physical plan.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
         // Capture source manifests BEFORE building the logical plan.
         // We pass `is_mpp: false` below because this plan is only serialized to compute `.len()`
@@ -819,8 +837,8 @@ impl AggregateScan {
             return;
         };
         // Build a logical plan eagerly. The DataFusion exec path normally
-        // builds it lazily on first `exec_custom_scan` call; for MPP we
-        // need it before estimate_dsm fires.
+        // builds it lazily on first `exec_custom_scan` call; MPP serializes
+        // it at begin time so the launch can size the dispatch payload.
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -867,22 +885,15 @@ impl AggregateScan {
         df_state.mpp = MppLifecycle::PlanBytes(bytes.to_vec());
     }
 
-    /// First-exec MPP launch. The leader spawns its producer workers through the builder and, on
-    /// success, installs the leader state so the consumer plan reads from the mesh. A short launch
-    /// (or any setup fallback) leaves the lifecycle `Inactive` and the query runs serially.
-    fn maybe_prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
-        if !mpp_is_active() {
-            return;
-        }
-        let Some(plan_bytes) = state
-            .custom_state_mut()
-            .datafusion_state
-            .as_mut()
-            .and_then(|d| d.mpp.take_plan_bytes())
-        else {
-            return;
-        };
-
+    /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
+    /// sizes the producer pool from the plan's widest stage, builds the DSM, and spawns exactly
+    /// the needed workers. `None` means run serially — the plan had nothing to distribute (no
+    /// workers were forked at all) or the launch fell back.
+    fn launch_mpp(
+        state: &mut CustomScanStateWrapper<Self>,
+        physical: &Arc<dyn ExecutionPlan>,
+        plan_bytes_len: usize,
+    ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
         // Manifests were captured in `stash_mpp_plan_bytes` (begin); `ensure`
         // is idempotent.
         Self::ensure_source_manifests(state);
@@ -899,13 +910,50 @@ impl AggregateScan {
             with_aggregates: false,
         };
 
-        let Some(prep) =
-            crate::postgres::customscan::mpp::launch::prepare_mpp_aggregate(plan_bytes.len(), args)
-        else {
-            return;
-        };
-        if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
-            df_state.mpp = MppLifecycle::Prepared(prep);
+        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(
+            physical,
+            plan_bytes_len,
+            args,
+        )
+    }
+
+    /// Build the aggregate's DataFusion physical plan under `ctx`. `is_mpp` marks that parallel
+    /// execution is being attempted and stamps each provider's per-source dispatch metadata
+    /// (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that metadata, so
+    /// it must be present on the plan the dispatch payload is derived from. The serial fallback
+    /// plans without it. An associated fn (not a closure) so the `df_state` borrow it takes
+    /// ends at each call site, freeing `state` for the MPP launch in between.
+    fn build_agg_physical_plan(
+        df_state: &mut scan_state::DataFusionAggState,
+        runtime: &tokio::runtime::Runtime,
+        ctx: &datafusion::prelude::SessionContext,
+        is_mpp: bool,
+        runtime_expr_context: Option<*mut pg_sys::ExprContext>,
+        runtime_planstate: Option<*mut pg_sys::PlanState>,
+    ) -> Arc<dyn ExecutionPlan> {
+        let custom_exprs = df_state.custom_exprs;
+        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let built = runtime.block_on(async {
+            let (logical, group_df_indices) = build_join_aggregate_plan(
+                &df_state.plan,
+                &df_state.targetlist,
+                df_state.topk.as_ref(),
+                &df_state.join_level_predicates,
+                custom_exprs,
+                custom_scan_tlist,
+                df_state.having_filter.as_ref(),
+                ctx,
+                runtime_expr_context,
+                runtime_planstate,
+                is_mpp,
+            )
+            .await?;
+            df_state.group_df_indices = group_df_indices;
+            build_physical_plan(ctx, logical).await
+        });
+        match built {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
         }
     }
 
@@ -960,7 +1008,7 @@ impl AggregateScan {
             let ctx = if mpp_is_active() {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // The shared session-context builder takes `mesh = None` and derives `n_workers`
-                // from `producer_worker_count()`, so the planner still emits a `DistributedExec`
+                // from `producer_worker_cap()`, so the planner still emits a `DistributedExec`
                 // root with the right stage sizing for display.
                 Self::build_mpp_session_context(None)
             } else {
@@ -1083,7 +1131,9 @@ impl AggregateScan {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
             Err(AggregatePathDecline::Warn(reason)) => {
-                reason.emit();
+                if gucs::check_aggregate_scan() {
+                    reason.emit();
+                }
                 Vec::new()
             }
         }
@@ -1164,17 +1214,26 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). Check both the cheapest path's
-        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
-        // references that our DataFusion backend can't apply.
-        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
-        }
+        let path_info = match unsafe {
+            datafusion_build::check_join_path_predicates(input_rel, &sources)
+        } {
+            datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
+            datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
+                return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
+            }
+            datafusion_build::JoinPathPredicateCheck::IncompletePath(tag) => {
+                pgrx::debug1!(
+                    "AggregateScan declined because the selected lower join path contains an opaque node: {tag:?}"
+                );
+                return Err(warn(AggregateDeclineReason::Other(
+                    "the selected lower join path cannot be inspected completely".into(),
+                )));
+            }
+        };
 
         // Extract the join tree from the parse tree
         let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
-            unsafe { extract_join_tree_from_parse(root, &sources, builder.args().input_rel()) }
+            unsafe { extract_join_tree_from_parse(root, &sources, path_info) }
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
@@ -1219,13 +1278,20 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::FilterExpr::from_pg_node(
-                    (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext::Having {
-                        targetlist: &targetlist,
-                        plan: &plan,
-                        outer_root_id,
-                    },
+                Some(
+                    privdat::FilterExpr::from_pg_node(
+                        (*parse).havingQual,
+                        &datafusion_build::FilterExprBuildContext::Having {
+                            targetlist: &targetlist,
+                            plan: &plan,
+                            outer_root_id,
+                        },
+                    )
+                    .ok_or_else(|| {
+                        warn(AggregateDeclineReason::Other(
+                            "HAVING clause cannot be translated for aggregate-on-join".into(),
+                        ))
+                    })?,
                 )
             } else {
                 None
@@ -1373,10 +1439,10 @@ impl AggregateScan {
                 // No Const node for this entry, skip the aggregate iterator if
                 // it's an aggregate that occupies a slot in `row.aggregates`
                 // (doc-count aggregates do not — see `uses_doc_count_path`).
-                if let TargetListEntry::Aggregate(agg_type) = entry {
-                    if !uses_doc_count_path(agg_type, aggregate_clause) {
-                        agg_iter.next();
-                    }
+                if let TargetListEntry::Aggregate(agg_type) = entry
+                    && !uses_doc_count_path(agg_type, aggregate_clause)
+                {
+                    agg_iter.next();
                 }
                 continue;
             };
@@ -1463,103 +1529,98 @@ impl AggregateScan {
         let ps = state.planstate();
         let runtime_planstate = (!ps.is_null()).then_some(ps);
 
-        // First exec call: build the MPP DSM before planning. The workers launch only after
-        // the leader's plan is built and its stages serialize (`launch_mpp_commit` below).
-        // Done before the df_state borrow below because it needs `state` for the source
-        // manifests.
         let first_call = state
             .custom_state()
             .datafusion_state
             .as_ref()
             .is_some_and(|d| d.runtime.is_none());
-        if first_call {
-            Self::maybe_prepare_mpp(state);
-        }
 
-        let df_state = state
+        // Taken up front (not inside the df_state borrow below) because the launch needs
+        // `state` for the source manifests.
+        let mpp_plan_bytes = state
             .custom_state_mut()
             .datafusion_state
             .as_mut()
-            .expect("DataFusion state must be initialized");
+            .and_then(|d| d.mpp.take_plan_bytes());
 
         // First call: build and execute the DataFusion plan
-        if df_state.runtime.is_none() {
+        if first_call {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            // When the MPP DSM is prepared, layer the DF-D fork's distributed planner over the
-            // aggregate profile so `create_physical_plan` produces a `DistributedExec`. The
-            // mesh and the dispatch source are execute-time concerns; the exec session below
-            // carries them once the workers are committed.
-            let prep = df_state.mpp.take_prep();
-            let plan_ctx = if prep.is_some() {
+            // On an MPP attempt, layer the DF-D fork's distributed planner over the aggregate
+            // profile so `create_physical_plan` produces a `DistributedExec`, with
+            // `producer_worker_cap()` acting as the planner's ceiling. The mesh and the
+            // dispatch source are execute-time concerns; the exec session below carries them
+            // once the workers are committed.
+            let is_mpp = mpp_plan_bytes.is_some();
+            let plan_ctx = if is_mpp {
                 Self::build_mpp_session_context(None)
             } else {
                 create_aggregate_session_context()
             };
 
-            let custom_exprs = df_state.custom_exprs;
-            let custom_scan_tlist = df_state.custom_scan_tlist;
-            // `is_mpp` marks that parallel execution is active and stamps each provider's
-            // per-source dispatch metadata (`is_parallel`, `mpp_source_idx`). The worker-bound
-            // stage encodes carry that metadata, so it must be present on the plan the
-            // dispatch payload is derived from; the serial fallback plans without it.
-            let mut build_plan = |ctx: &datafusion::prelude::SessionContext, is_mpp: bool| {
-                let built = runtime.block_on(async {
-                    let (logical, group_df_indices) = build_join_aggregate_plan(
-                        &df_state.plan,
-                        &df_state.targetlist,
-                        df_state.topk.as_ref(),
-                        &df_state.join_level_predicates,
-                        custom_exprs,
-                        custom_scan_tlist,
-                        df_state.having_filter.as_ref(),
-                        ctx,
-                        runtime_expr_context,
-                        runtime_planstate,
-                        is_mpp,
-                    )
-                    .await?;
-                    df_state.group_df_indices = group_df_indices;
-                    build_physical_plan(ctx, logical).await
-                });
-                match built {
-                    Ok(p) => p,
-                    Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
-                }
+            let t_plan = std::time::Instant::now();
+            let physical_plan = {
+                let df_state = state
+                    .custom_state_mut()
+                    .datafusion_state
+                    .as_mut()
+                    .expect("DataFusion state must be initialized");
+                Self::build_agg_physical_plan(
+                    df_state,
+                    &runtime,
+                    &plan_ctx,
+                    is_mpp,
+                    runtime_expr_context,
+                    runtime_planstate,
+                )
             };
-            let is_mpp = prep.is_some();
-            let physical_plan = build_plan(&plan_ctx, is_mpp);
+            let plan_us = t_plan.elapsed().as_micros() as u64;
 
-            // Commit the MPP launch against the built plan: serialize its producer stages,
-            // spawn the workers, and hand the coordinator the same stages to dispatch. On a
-            // short launch the workers are gone and the `DistributedExec` shape has no mesh to
-            // read from, so replan serially.
-            let (ctx, physical_plan) = match prep {
-                Some(prep) => {
-                    match crate::postgres::customscan::mpp::launch::launch_mpp_commit(
-                        prep,
-                        &physical_plan,
-                    ) {
-                        Some(leader) => {
-                            let source =
-                                crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx =
-                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
-                                    .with_distributed_dispatch_plan_source(source);
-                            df_state.mpp = MppLifecycle::Launched(leader);
-                            (exec_ctx, physical_plan)
-                        }
-                        None => {
-                            let serial_ctx = create_aggregate_session_context();
-                            let plan = build_plan(&serial_ctx, false);
-                            (serial_ctx, plan)
-                        }
+            // On a launch fallback (nothing to distribute, short launch) no workers remain and
+            // the `DistributedExec` shape has no mesh to read from, so replan serially below.
+            let leader = match &mpp_plan_bytes {
+                Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
+                None => None,
+            };
+
+            let df_state = state
+                .custom_state_mut()
+                .datafusion_state
+                .as_mut()
+                .expect("DataFusion state must be initialized");
+            let (ctx, physical_plan) = if is_mpp {
+                match leader {
+                    Some(leader) => {
+                        let source =
+                            crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
+                        let exec_ctx =
+                            Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
+                                .with_distributed_dispatch_plan_source(source);
+                        let mut timing = leader.timing;
+                        timing.plan_us = plan_us;
+                        df_state.launch_timing = Some(timing);
+                        df_state.mpp = MppLifecycle::Launched(leader);
+                        (exec_ctx, physical_plan)
+                    }
+                    None => {
+                        let serial_ctx = create_aggregate_session_context();
+                        let plan = Self::build_agg_physical_plan(
+                            df_state,
+                            &runtime,
+                            &serial_ctx,
+                            false,
+                            runtime_expr_context,
+                            runtime_planstate,
+                        );
+                        (serial_ctx, plan)
                     }
                 }
-                None => (plan_ctx, physical_plan),
+            } else {
+                (plan_ctx, physical_plan)
             };
 
             let task_ctx = build_task_context(
@@ -1597,6 +1658,12 @@ impl AggregateScan {
             df_state.physical_plan = Some(physical_plan);
             df_state.stream = Some(stream);
         }
+
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("DataFusion state must be initialized");
 
         // Consume batches row-by-row
         loop {

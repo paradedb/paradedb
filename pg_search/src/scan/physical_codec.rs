@@ -30,26 +30,28 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
-    AsExecutionPlan, ComposedPhysicalExtensionCodec, PhysicalExtensionCodec,
+    ComposedPhysicalExtensionCodec, PhysicalExtensionCodec, PhysicalPlanDecodeContext,
+    PhysicalPlanNodeExt, PhysicalProtoConverterExtension,
 };
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use tantivy::index::SegmentId;
 
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFHelper;
-use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
-use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::udf_codec::{
+    is_pg_search_udf, try_decode_pg_search_udf, try_encode_pg_search_udf,
+};
 
 /// Byte tags identifying each custom exec in the extension payload. The composed codec already
 /// records which codec decoded a node; the tag picks the exec within this codec.
@@ -84,6 +86,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         buf: &[u8],
         inputs: &[Arc<dyn ExecutionPlan>],
         ctx: &TaskContext,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let Some((&tag, payload)) = buf.split_first() else {
             return Err(DataFusionError::Internal(
@@ -95,6 +98,8 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 payload,
                 self.parallel_state,
                 self.expr_context,
+                ctx,
+                proto_converter,
             ),
             // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
             // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
@@ -143,10 +148,15 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         }
     }
 
-    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
+    fn try_encode(
+        &self,
+        node: Arc<dyn ExecutionPlan>,
+        buf: &mut Vec<u8>,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<()> {
         if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
             buf.push(TAG_PG_SEARCH_SCAN);
-            buf.extend_from_slice(&scan.encode_for_dispatch()?);
+            buf.extend_from_slice(&scan.encode_for_dispatch(proto_converter)?);
             return Ok(());
         }
         if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
@@ -171,70 +181,15 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        if name == "pdb_search_predicate" {
-            let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to deserialize SearchPredicateUDF: {e}"))
-            })?;
-            if let Some(plan_position) = udf.plan_position() {
-                if !self.index_segment_ids.is_empty() {
-                    let ids = self
-                        .index_segment_ids
-                        .get(plan_position)
-                        .cloned()
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(format!(
-                                "missing canonical segment IDs for plan_position {plan_position}"
-                            ))
-                        })?;
-                    udf.set_canonical_segment_ids(ids);
-                }
-            }
-            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
-        }
-
-        if name.starts_with(PG_EXPR_UDF_PREFIX) {
-            let mut udf: PgExprUdf = serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to deserialize PgExprUdf: {e}"))
-            })?;
-            udf.fixup_after_deserialize();
-            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
-        }
-
-        Err(DataFusionError::NotImplemented(format!(
-            "UDF '{name}' deserialization not implemented"
-        )))
+        try_decode_pg_search_udf(name, buf, &self.index_segment_ids)?.ok_or_else(|| {
+            DataFusionError::NotImplemented(format!("UDF '{name}' deserialization not implemented"))
+        })
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
-        let name = node.name();
-        if name == "pdb_search_predicate" {
-            let udf = node
-                .inner()
-                .downcast_ref::<SearchPredicateUDF>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
-                })?;
-            let bytes = serde_json::to_vec(udf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize SearchPredicateUDF: {e}"))
-            })?;
-            buf.extend_from_slice(&bytes);
-            return Ok(());
-        }
-
-        if name.starts_with(PG_EXPR_UDF_PREFIX) {
-            let udf = node
-                .inner()
-                .downcast_ref::<PgExprUdf>()
-                .ok_or_else(|| DataFusionError::Internal("UDF is not a PgExprUdf".into()))?;
-            let bytes = serde_json::to_vec(udf).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize PgExprUdf: {e}"))
-            })?;
-            buf.extend_from_slice(&bytes);
-            return Ok(());
-        }
-
         // Not ours: encode nothing so the expression travels by name and the decoding session
         // resolves it from its registry (DataFusion built-ins are registered there).
+        try_encode_pg_search_udf(node, buf)?;
         Ok(())
     }
 }
@@ -315,22 +270,24 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 #[derive(Debug)]
 struct DistributedCodecHostingPgSearchUdfs(DistributedCodec);
 
-fn is_pg_search_udf(name: &str) -> bool {
-    name == "pdb_search_predicate" || name.starts_with(PG_EXPR_UDF_PREFIX)
-}
-
 impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
     fn try_decode(
         &self,
         buf: &[u8],
         inputs: &[Arc<dyn ExecutionPlan>],
         ctx: &TaskContext,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        self.0.try_decode(buf, inputs, ctx)
+        self.0.try_decode(buf, inputs, ctx, proto_converter)
     }
 
-    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
-        self.0.try_encode(node, buf)
+    fn try_encode(
+        &self,
+        node: Arc<dyn ExecutionPlan>,
+        buf: &mut Vec<u8>,
+        proto_converter: &dyn PhysicalProtoConverterExtension,
+    ) -> Result<()> {
+        self.0.try_encode(node, buf, proto_converter)
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, _buf: &mut Vec<u8>) -> Result<()> {
@@ -360,9 +317,13 @@ fn combined_codec(user: PgSearchPhysicalExtensionCodec) -> ComposedPhysicalExten
     ])
 }
 
-/// Serialize one stage's physical subplan for dispatch. Context-free: only the recipe travels,
-/// the receiving worker injects its own runtime state on decode.
-pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> {
+/// Serialize one stage's physical subplan for dispatch. The recipe travels plus the scans'
+/// installed dynamic filters (identity-stamped proto exprs); the receiving worker injects its
+/// own runtime state on decode and re-shares the filters with the operators that update them.
+pub fn serialize_physical_plan(
+    plan: Arc<dyn ExecutionPlan>,
+    proto_converter: &dyn PhysicalProtoConverterExtension,
+) -> Result<Vec<u8>> {
     // FilterPassthroughExec only matters during filter-pushdown optimization; once the plan is
     // finalized it delegates to its inner node, so strip it and ship the inner directly.
     let plan = plan
@@ -375,7 +336,8 @@ pub fn serialize_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> 
         })?
         .data;
     let codec = combined_codec(PgSearchPhysicalExtensionCodec::default());
-    let proto = PhysicalPlanNode::try_from_physical_plan(plan, &codec)?;
+    let proto =
+        PhysicalPlanNode::try_from_physical_plan_with_converter(plan, &codec, proto_converter)?;
     Ok(prost::Message::encode_to_vec(&proto))
 }
 
@@ -387,6 +349,7 @@ pub fn deserialize_physical_plan_with_runtime(
     parallel_state: Option<*mut ParallelScanState>,
     index_segment_ids: Vec<HashSet<SegmentId>>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    proto_converter: &dyn PhysicalProtoConverterExtension,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let codec = combined_codec(PgSearchPhysicalExtensionCodec {
         parallel_state,
@@ -396,20 +359,21 @@ pub fn deserialize_physical_plan_with_runtime(
     let proto = <PhysicalPlanNode as prost::Message>::decode(bytes).map_err(|e| {
         DataFusionError::Internal(format!("Failed to decode dispatched PhysicalPlanNode: {e}"))
     })?;
-    let plan = proto.try_into_physical_plan(ctx, &codec)?;
-    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between a
-    // node and the scans below it; the proto layer snapshots them into static expressions, so
-    // the shared link can't ride the wire. Re-running the post-optimization pushdown pass on
-    // the decoded fragment re-creates the links, so this task's probe scans prune against its
-    // own build side instead of scanning every segment. The relink is possible only because a
-    // fragment keeps an operator and its probe scans in the same process; a link that crossed
-    // fragments would need the filter values shipped between processes.
+    let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
+    let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
+    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between an
+    // operator and the scans below it, and the two link mechanisms differ:
     //
-    // Prior art: the same pass was proposed for datafusion-distributed
-    // (https://github.com/datafusion-contrib/datafusion-distributed/pull/348) and closed in
-    // favor of fixing it in DataFusion proper, by serializing and deduping dynamic filters so
-    // decode re-shares one instance (https://github.com/apache/datafusion/pull/20416, design
-    // discussion in https://github.com/apache/datafusion/issues/21207). Once DataFusion
-    // round-trips the filters natively, this pass can go.
+    // - HashJoinExec/AggregateExec links ride the wire by identity: the scan ships its
+    //   installed filters (`ScanDispatchDescriptor::dynamic_filters`) and the deduplicating
+    //   converter re-shares each with the operator's own decoded copy via `expr_id` (the
+    //   apache/datafusion#20416 machinery; design discussion in
+    //   https://github.com/apache/datafusion/issues/21207). Those operators skip re-pushing
+    //   when they already carry a filter, so this pass cannot relink them.
+    // - SegmentedTopKExec recreates its filter fresh on decode and re-pushes it every Post
+    //   phase, so this pass is what wires the worker's top-k threshold into its scans.
+    //
+    // Both mechanisms are fragment-local; a link that crossed fragments would need the filter
+    // values shipped between processes.
     FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
 }

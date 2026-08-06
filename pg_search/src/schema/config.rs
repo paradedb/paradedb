@@ -19,11 +19,11 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt::{Display, Formatter};
+use tantivy::Bm25Params;
 use tantivy::schema::{
     BytesOptions, DateOptions, DateTimePrecision, FacetOptions, JsonObjectOptions, NumericOptions,
     TextFieldIndexing, TextOptions,
 };
-use tantivy::Bm25Params;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 // Eq intentionally omitted: f32 (k1/b) does not implement Eq.

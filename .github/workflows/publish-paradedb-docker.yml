@@ -26,6 +26,15 @@ on:
         description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [15] or [15, 16, 17, 18]). Beta (-rc.) releases always resolve to [18] regardless of this value."
         required: false
         default: "[15, 16, 17, 18]"
+      images:
+        description: "Which images to publish."
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - runnable
+          - extension
 
 concurrency:
   group: publish-paradedb-docker-${{ github.event.inputs.version || github.ref }}
@@ -169,6 +178,7 @@ jobs:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}
     secrets: inherit
 
+  # Skipping this job also skips `open-dockerfile-prs` and `notify-orm-repos`, which need it.
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
@@ -176,6 +186,7 @@ jobs:
       - set-matrix
       - generate-dockerfiles
       - test-generated-dockerfiles
+    if: ${{ (github.event.inputs.images || 'all') != 'extension' }}
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
@@ -293,7 +304,7 @@ jobs:
     needs:
       - generate-dockerfiles
       - test-generated-dockerfiles
-    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') }}
+    if: ${{ !contains(needs.generate-dockerfiles.outputs.version, '-rc.') && (github.event.inputs.images || 'all') != 'runnable' }}
     strategy:
       matrix:
         # Mounted extension images require PostgreSQL 18+ because
@@ -572,7 +583,8 @@ jobs:
     if: ${{ always() && (needs.set-matrix.result == 'failure' || needs.generate-dockerfiles.result == 'failure' || needs.test-generated-dockerfiles.result == 'failure' || needs.publish-paradedb-docker-image.result == 'failure' || needs.publish-extension-image.result == 'failure' || needs.open-dockerfile-prs.result == 'failure' || needs.notify-orm-repos.result == 'failure') }}
     steps:
       - name: Notify Slack on Failure
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`publish-paradedb-docker\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        uses: paradedb/actions/slack-alert@v10
+        with:
+          webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+          mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
+          title: "${{ github.workflow }} Failed"

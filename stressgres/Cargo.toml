@@ -8,6 +8,9 @@ license = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+dst = ["dst/enabled"]
+
 [dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6", features = ["derive"] }
@@ -21,7 +24,7 @@ humantime = "2.3.0"
 image = "0.25.9"
 libc = "0.2.186"
 parking_lot = "0.12.5"
-pgrx-pg-config = "=0.19.0"
+pgrx-pg-config = "=0.19.2"
 plotters = "0.3.7"
 postgres = "0.19.13"
 rust_decimal = { version = "1.41.0", features = ["db-postgres"] }
@@ -31,12 +34,12 @@ serde_json = { version = "1.0.149", features = [
   "arbitrary_precision",
 ] }
 shutdown_hooks = "0.1.0"
-sysinfo = "0.33.1"
-toml = "0.8.23"
+sysinfo = { version = "0.39.6", features = ["multithread"] }
+toml = "1.1"
 url = "2.5.8"
 postgres-openssl = "0.5.3"
 openssl = "0.10.78"
-dst = { path = "../dst", features = ["enabled"] }
+dst = { path = "../dst" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

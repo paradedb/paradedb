@@ -171,7 +171,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
+WITH (key_field='id', centroid_ratio=0.01, training_sample_ratio=0.32, cluster_replication=1);
 ```
 
 ```ts Drizzle
@@ -182,7 +182,7 @@ import { indexing } from "@paradedb/drizzle-paradedb";
   indexing
     .paradedbIndex("search_idx", {
       centroidRatio: 0.01,
-      trainingSamplesPerCentroid: 32,
+      trainingSampleRatio: 0.32,
       clusterReplication: 1,
     })
     .on(
@@ -211,7 +211,7 @@ with connection.schema_editor() as schema_editor:
             key_field="id",
             name="search_idx",
             centroid_ratio=0.01,
-            training_samples_per_centroid=32,
+            training_sample_ratio=0.32,
             cluster_replication=1,
         ),
     )
@@ -232,7 +232,7 @@ idx = Index(
         "key_field": "id",
         **indexing.VectorIndexOptions(
             centroid_ratio=0.01,
-            training_samples_per_centroid=32,
+            training_sample_ratio=0.32,
             cluster_replication=1,
         ),
     },
@@ -255,7 +255,7 @@ ActiveRecord::Base.connection.add_paradedb_index(
   name: :search_idx,
   index_options: {
     centroid_ratio: 0.01,
-    training_samples_per_centroid: 32,
+    training_sample_ratio: 0.32,
     cluster_replication: 1
   }
 )
@@ -268,24 +268,27 @@ modelBuilder.Entity<MockItem>()
     .HasField(e => e.Category)
     .HasField(e => e.Embedding, VectorMetric.Cosine)
     .HasCentroidRatio(0.01)
-    .HasTrainingSamplesPerCentroid(32)
+    .HasTrainingSampleRatio(0.32)
     .HasClusterReplication(1);
 ```
 
 </CodeGroup>
 
 <ParamField body="centroid_ratio" default={0.01}>
-  Vectors are clustered by proximity, and a centroid is a cluster's
-  representative vector. This setting controls the number of centroids to build,
-  as a fraction of the number of indexed vectors (`num_centroids =
-  centroid_ratio * num_vectors`). More centroids produce smaller clusters,
-  improving recall at the cost of a slower, more memory-intensive build. Must be
-  between `0.000001` and `1.0`.
+  Vectors are clustered by proximity. This setting controls target cluster
+  density: the hierarchical trainer stops splitting once a leaf has about
+  `1 / centroid_ratio` points, so the emergent leaf count lands near
+  `centroid_ratio * num_vectors`. More centroids (higher ratio) produce
+  smaller clusters, improving recall at the cost of a slower, more
+  memory-intensive build. Must be between `0.000001` and `1.0`.
 </ParamField>
-<ParamField body="training_samples_per_centroid" default={32}>
-  The number of vectors sampled per centroid to train the k-means clustering at
-  build time. Higher values yield better-quality centroids at the cost of a
-  slower build. Must be between `1` and `100000`.
+<ParamField body="training_sample_ratio" default={0.32}>
+  Fraction of indexed vectors sampled to train clustering at build time.
+  Higher values yield better-quality centroids at the cost of a slower
+  build. Combined with `centroid_ratio`, this also sets the leaf size
+  (`≈ training_sample_ratio / centroid_ratio`) so a subsample still
+  produces about `centroid_ratio * num_vectors` clusters. Must be between
+  `0.000001` and `1.0`.
 </ParamField>
 <ParamField body="cluster_replication" default={1}>
   The number of clusters each vector is written into: its primary cluster plus

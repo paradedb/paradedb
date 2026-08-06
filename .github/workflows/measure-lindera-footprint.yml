@@ -175,9 +175,30 @@ jobs:
           # is how the first run of this workflow measured 5.0.1 twice and
           # reported the const/static difference as zero.
           sed -i 's/"5\.0\.1"/"=5.0.0"/g' tokenizers/Cargo.toml
-          cargo update --precise 5.0.0 \
-            lindera lindera-analysis lindera-dictionary \
-            lindera-ipadic lindera-ko-dic lindera-cc-cedict
+
+          # Pinning `lindera` is not enough. Every requirement inside the lindera
+          # tree is caret (`5.0.0` means `^5.0.0`), so cargo is free to hold the
+          # transitive dictionary crates at 5.0.1 — and `lindera-dictionary` is
+          # precisely where the const/static change lives, so the thing under
+          # measurement would never be downgraded. `--precise` did not move them
+          # either. Exact *direct* requirements do, because a sibling's `^5.0.0`
+          # is satisfied by 5.0.0.
+          #
+          # These are version pins only: the crates are already in the graph via
+          # lindera, features are additive, and nothing about what gets compiled
+          # changes.
+          python3 - <<'PIN'
+          import pathlib
+          p = pathlib.Path("tokenizers/Cargo.toml")
+          lines = p.read_text().splitlines(keepends=True)
+          extra = [f'{c} = "=5.0.0"\n' for c in (
+              "lindera-dictionary", "lindera-ipadic",
+              "lindera-ko-dic", "lindera-cc-cedict")]
+          i = next(n for n, l in enumerate(lines)
+                   if l.startswith("lindera-analysis = "))
+          p.write_text("".join(lines[: i + 1] + extra + lines[i + 1 :]))
+          PIN
+          cargo update
           expect_version 5.0.0
           measure 5.0.0
           restore_pr_tree

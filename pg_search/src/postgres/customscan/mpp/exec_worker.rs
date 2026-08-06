@@ -188,6 +188,102 @@ async fn take_set_plan_draining(
     }
 }
 
+/// Dispatches execution of a worker fragment upon receiving partition-range RPC requests.
+///
+/// Waits for incoming `ExecuteTask` requests on `mesh` for `(stage_id, task_idx)`, slicing
+/// and assigning partition sinks to spawned `run_worker_fragment` sub-futures.
+/// Concurrently drains the inbound channel pass while yielding.
+async fn dispatch_fragment_requests(
+    mesh: Arc<MppMesh>,
+    stage_id: u32,
+    task_idx: u32,
+    per_partition_sinks: Vec<Box<dyn PartitionSink>>,
+    plan: Arc<dyn ExecutionPlan>,
+    task_ctx: Arc<TaskContext>,
+) -> Result<(), datafusion::common::DataFusionError> {
+    let mut rx = mesh.take_execute_task_rx(stage_id, task_idx).await?;
+    let mut sub_futures = futures::stream::FuturesUnordered::new();
+    let n_out = per_partition_sinks.len();
+    let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
+    let mut partitions_requested = 0;
+
+    if n_out == 0 {
+        return Ok(());
+    }
+
+    loop {
+        if partitions_requested >= n_out && sub_futures.is_empty() {
+            break;
+        }
+        tokio::select! {
+            frame_res = rx.recv(), if partitions_requested < n_out => {
+                match frame_res {
+                    Some(Ok(frame)) => {
+                        let (request, _headers) = frame.into_parts()?;
+                        let start = request.target_partition_start as usize;
+                        let end = request.target_partition_end as usize;
+
+                        if start > end || end > sinks_opt.len() {
+                            return Err(datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch: requested partition range {start}..{end} \
+                                 out of bounds for sink count {} (stage_id={stage_id}, task_idx={task_idx})",
+                                sinks_opt.len()
+                            )));
+                        }
+
+                        let len = end - start;
+
+                        let mut task_sinks = Vec::with_capacity(len);
+                        for (i, sink) in sinks_opt.iter_mut().enumerate().take(end).skip(start) {
+                            let Some(s) = sink.take() else {
+                                return Err(datafusion::common::DataFusionError::Internal(format!(
+                                    "mpp worker dispatch: sink for partition {i} already taken \
+                                     (stage_id={stage_id}, task_idx={task_idx})",
+                                )));
+                            };
+                            task_sinks.push(s);
+                        }
+
+                        sub_futures.push(run_worker_fragment(
+                            Arc::clone(&plan),
+                            task_sinks,
+                            Arc::clone(&task_ctx),
+                            start..end,
+                        ));
+                        partitions_requested += len;
+                    }
+                    Some(Err(e)) => {
+                        return Err(datafusion::common::DataFusionError::Execution(format!(
+                            "mpp worker rx error: {e} (stage_id={stage_id}, task_idx={task_idx}, \
+                             requested={partitions_requested}/{n_out})"
+                        )));
+                    }
+                    None => {
+                        // Closed feed: consumers are done requesting; unrequested partitions have no waiter.
+                        partitions_requested = n_out;
+                    }
+                }
+            }
+            next_res = sub_futures.next(), if !sub_futures.is_empty() => {
+                match next_res {
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => return Err(e),
+                    None => unreachable!(),
+                }
+            }
+            _ = tokio::task::yield_now() => {
+                if let Err(e) = mesh.inbound_receiver().try_drain_pass() {
+                    return Err(datafusion::common::DataFusionError::Execution(format!(
+                        "mpp worker drain error: {e} (stage_id={stage_id}, task_idx={task_idx}, \
+                         requested={partitions_requested}/{n_out})"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
 /// pgrx::error!s on fatal failures, returns normally on EOF (the customscan's
 /// `exec_custom_scan` then returns `null_mut()` to signal end-of-stream to PG).
@@ -426,92 +522,14 @@ pub(crate) fn run_mpp_worker(
                 Arc::clone(&plan),
             ));
 
-            let mesh = Arc::clone(&mesh_for_block);
-            let stage_id = fragment.stage_id;
-            let task_idx = fragment.task_idx as u32;
-            let n_out = per_partition_sinks.len();
-            let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
-
-            // Defer execution until an ExecuteTask RPC request arrives for a target partition range.
-            futures.push(Box::pin(async move {
-                let mut rx = mesh.take_execute_task_rx(stage_id, task_idx).await?;
-                let mut sub_futures = futures::stream::FuturesUnordered::new();
-                let mut partitions_requested = 0;
-
-                if n_out == 0 {
-                    return Ok::<_, datafusion::common::DataFusionError>(());
-                }
-
-                loop {
-                    if partitions_requested >= n_out && sub_futures.is_empty() {
-                        break;
-                    }
-                    tokio::select! {
-                        frame_res = rx.recv(), if partitions_requested < n_out => {
-                            match frame_res {
-                                Some(Ok(frame)) => {
-                                    let (request, _headers) = frame.into_parts()?;
-                                    let start = request.target_partition_start as usize;
-                                    let end = request.target_partition_end as usize;
-                                    let len = end - start;
-
-                                    if end > sinks_opt.len() || start > end {
-                                        return Err(datafusion::common::DataFusionError::Internal(format!(
-                                            "mpp worker dispatch: requested partition range {start}..{end} \
-                                             out of bounds for sink count {} (stage_id={stage_id}, task_idx={task_idx})",
-                                            sinks_opt.len()
-                                        )));
-                                    }
-
-                                    let mut task_sinks = Vec::with_capacity(len);
-                                    for (i, sink) in sinks_opt.iter_mut().enumerate().take(end).skip(start) {
-                                        let Some(s) = sink.take() else {
-                                            return Err(datafusion::common::DataFusionError::Internal(format!(
-                                                "mpp worker dispatch: sink for partition {i} already taken \
-                                                 (stage_id={stage_id}, task_idx={task_idx})",
-                                            )));
-                                        };
-                                        task_sinks.push(s);
-                                    }
-
-                                    sub_futures.push(run_worker_fragment(
-                                        Arc::clone(&plan),
-                                        task_sinks,
-                                        Arc::clone(&task_ctx),
-                                        start..end,
-                                    ));
-                                    partitions_requested += len;
-                                }
-                                Some(Err(e)) => {
-                                    return Err(datafusion::common::DataFusionError::Execution(format!(
-                                        "mpp worker rx error: {e}, stage: {stage_id}, task: {task_idx}, \
-                                         requested: {partitions_requested}/{n_out}"
-                                    )));
-                                }
-                                None => {
-                                    partitions_requested = n_out;
-                                }
-                            }
-                        }
-                        next_res = sub_futures.next(), if !sub_futures.is_empty() => {
-                            match next_res {
-                                Some(Ok(_)) => {}
-                                Some(Err(e)) => return Err(e),
-                                None => unreachable!(),
-                            }
-                        }
-                        _ = tokio::task::yield_now() => {
-                            if let Err(e) = mesh.inbound_receiver().try_drain_pass() {
-                                return Err(datafusion::common::DataFusionError::Execution(format!(
-                                    "mpp worker drain error: {e}, stage: {stage_id}, task: {task_idx}, \
-                                     requested: {partitions_requested}/{n_out}"
-                                )));
-                            }
-                        }
-                    }
-                }
-                Ok(())
-            }));
+            futures.push(Box::pin(dispatch_fragment_requests(
+                Arc::clone(&mesh_for_block),
+                fragment.stage_id,
+                fragment.task_idx as u32,
+                per_partition_sinks,
+                plan,
+                task_ctx,
+            )));
         }
         // The metrics frames go to the leader after the fragments finish; the clone keeps one
         // sender on the leader's inbox alive past the drop below, which only delays that ring's
@@ -529,11 +547,11 @@ pub(crate) fn run_mpp_worker(
             "mpp worker dispatch this_proc={this_proc} starting join_all on {} fragments",
             fragments.len()
         );
-        // `join_all`, not `try_join_all`. Fail-fast cancellation would drop sibling fragments
-        // mid-`await`, and a cancelled `run_worker_fragment` cancels its inner partition
-        // futures, leaving their `(stage_id, partition)` sub-buffers stuck at
-        // `sources_done == 0` on the consumer side. Per-channel EOF is load-bearing on the
-        // substrate alone (matching reasoning in `run_worker_fragment`).
+        // Fail-fast via FuturesUnordered. Under the pull model, an error in any fragment must
+        // surface immediately so that worker_mesh cleans up keep-alive senders and triggers
+        // pgrx::error! (causing peers to observe Detached status and fail pending buffers).
+        // Waiting for all fragments could cause a hang if a fragment blocks waiting for an RPC
+        // request that will never arrive due to a sibling failure.
         //
         // Deadlock detector. Under `paradedb.mpp_debug`, if any fragment hasn't completed
         // within 30 s the dispatcher surfaces an error instead of letting the backend spin

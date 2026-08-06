@@ -1032,6 +1032,9 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
+                // Testing knob: push the GUC's work-model open cost into
+                // tantivy so this search's probe budget reflects it.
+                tantivy::vector::set_rows_per_open(crate::gucs::vector_rows_per_open());
                 let collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)

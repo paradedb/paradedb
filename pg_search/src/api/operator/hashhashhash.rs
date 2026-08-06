@@ -18,61 +18,42 @@ use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
 use crate::api::operator::{
-    build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type, is_pdb_query_castable,
-    request_simplify, validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    build_pdb_query_funcexpr, build_text_funcexpr, classify_pdb_query_input, get_expr_result_type,
+    is_pdb_query_castable, request_simplify, validate_lhs_type_as_text_compatible, RHSValue,
+    ReturnedNodePointer,
 };
 use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::SearchQueryInput;
 use pgrx::{extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement, Internal};
 
-/// Runtime counterpart to the `###` const-folding path in `search_with_phrase_support`.
-/// Called from the plan built by that support function's `exec_rewrite` when the RHS is a
-/// `Param` (generic prepared plan) rather than a folded `Const`. Classifies
-/// `pdb::Query::UnclassifiedString` / `UnclassifiedArray` into a `phrase_string` /
-/// `phrase_array` with `slop_data` re-applied (phrase does not consume `fuzzy_data`),
-/// mirroring the const path so downstream Tantivy conversion does not hit the
-/// `UnclassifiedString` panic branch. Fixes #5779 for `###`.
-#[pg_extern(immutable, parallel_safe)]
-pub fn phrase_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    let classified = match query {
-        pdb::Query::UnclassifiedString {
-            string, slop_data, ..
-        } => {
+/// Classify an `UnclassifiedString`/`UnclassifiedArray` into a `phrase_string` / `phrase_array`
+/// with `slop_data` re-applied. `###` does not consume `fuzzy_data`, so it is dropped. Shared
+/// with `search_with_phrase_support`'s const-fold path via [`classify_pdb_query_input`].
+fn classify_for_hashhashhash(query: pdb::Query) -> pdb::Query {
+    classify_pdb_query_input(
+        query,
+        |string, _fuzzy_data, slop_data| {
             let mut q = phrase_string(string);
             q.apply_slop_data(slop_data);
             q
-        }
-        pdb::Query::UnclassifiedArray {
-            array, slop_data, ..
-        } => {
+        },
+        |array, _fuzzy_data, slop_data| {
             let mut q = phrase_array(array);
             q.apply_slop_data(slop_data);
             q
-        }
-        pdb::Query::ScoreAdjusted { query, score } => {
-            let mut inner = *query;
-            if let pdb::Query::UnclassifiedString {
-                string, slop_data, ..
-            } = inner
-            {
-                inner = phrase_string(string);
-                inner.apply_slop_data(slop_data);
-            } else if let pdb::Query::UnclassifiedArray {
-                array, slop_data, ..
-            } = inner
-            {
-                inner = phrase_array(array);
-                inner.apply_slop_data(slop_data);
-            }
-            pdb::Query::ScoreAdjusted {
-                query: Box::new(inner),
-                score,
-            }
-        }
-        other => other,
-    };
-    to_search_query_input(field, classified)
+        },
+    )
+}
+
+/// Runtime counterpart to the `###` const-folding path in `search_with_phrase_support`.
+/// Called from the plan built by that support function's `exec_rewrite` when the RHS is a
+/// `Param` (generic prepared plan) rather than a folded `Const`. `to_search_query_input` alone
+/// leaves `UnclassifiedString` intact and blows up at Tantivy conversion time; the classifier
+/// resolves those variants into a `TokenizedPhrase` / `PhraseArray` first. Fixes #5779 for `###`.
+#[pg_extern(immutable, parallel_safe)]
+pub fn phrase_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    to_search_query_input(field, classify_for_hashhashhash(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
@@ -127,26 +108,8 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, phrase_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score}) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, slop_data, ..} = query {
-                        query = phrase_string(string);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array,  slop_data, ..} = query {
-                        query = phrase_array(array);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score})
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, slop_data, ..}) => {
-                    let mut query = phrase_string(string);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, slop_data, .. }) => {
-                    let mut query = phrase_array(array);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
+                RHSValue::PdbQuery(query) => {
+                    to_search_query_input(field, classify_for_hashhashhash(query))
                 }
                 _ => panic!("The right-hand side of the `###(field, TEXT)` operator must be a text value."),
             }

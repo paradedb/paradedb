@@ -74,6 +74,29 @@ SELECT pg_sleep(5);
 
 CREATE INDEX idxtest ON test USING paradedb (id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
 
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+    full_plan text := '';
+BEGIN
+    -- Accumulate the EXPLAIN output as we go so we can show the plan we actually
+    -- got if the assertion fails (invaluable when a fault-injection run flips the plan).
+    FOR plan_line IN EXECUTE 'EXPLAIN (VERBOSE) ' || p_query LOOP
+        full_plan := full_plan || plan_line || chr(10);
+        -- Check if the current line contains the expected text
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: expected "%" not found in plan for query: %. Actual plan:%',
+        p_expected_text, p_query, chr(10) || full_plan;
+END;
+$$ LANGUAGE plpgsql;
+
 ALTER SYSTEM SET autovacuum_naptime TO '1s';
 SELECT pg_reload_conf();
 """
@@ -111,9 +134,19 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Custom Scan"
+# `paradedb.enable_aggregate_custom_scan` defaults to on and absorbs `count(*)`, which would
+# plan this job as a ParadeDB Aggregate Scan instead of the base custom scan it is named for.
+# Pinning `max_parallel_workers_per_gather = 0` keeps the serial shape out of the cost model's
+# hands, so this job stays distinct from "Parallel Custom Scan" below.
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET max_parallel_workers_per_gather = 0;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:beer' $q$,
+    'NormalScanExecState'
+);
 """
 sql = """
 SELECT count(*) FROM test WHERE id @@@ 'message:beer';
@@ -126,6 +159,10 @@ title = "Top K"
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
+SELECT assert_plan_contains(
+    $q$ SELECT * FROM test WHERE id @@@ 'message:wine' ORDER BY id DESC LIMIT 25 $q$,
+    'TopKScanExecState'
+);
 """
 sql = "SELECT * FROM test WHERE id @@@ 'message:wine' ORDER BY id DESC LIMIT 25"
 destinations = ["Subscriber"]
@@ -133,10 +170,20 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Parallel Custom Scan"
+# `debug_parallel_query` only forces a parallel plan when the planner is allowed workers, so pin
+# `max_parallel_workers_per_gather` rather than inheriting the cluster default. Both are plan-time
+# GUCs, so the plan shape does not depend on how many workers are actually free at execution time
+# -- a container kill/restart cannot flip it.
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
+SET paradedb.enable_aggregate_custom_scan = off;
 SET debug_parallel_query TO ON;
+SET max_parallel_workers_per_gather = 2;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:cheese' $q$,
+    'Parallel Custom Scan'
+);
 """
 sql = """
 SELECT count(*) FROM test WHERE id @@@ 'message:cheese';
@@ -146,9 +193,19 @@ destinations = ["Subscriber"]
 [[jobs]]
 refresh_ms = 5
 title = "Index Only Scan"
+# `paradedb.enable_custom_scan = off` does not disable the *aggregate* custom scan, so without
+# turning that off too this job never reached an Index Only Scan. `enable_seqscan = off` pins the
+# choice: `@@@` does have a (heavily penalised) seq scan fallback, and on a table this small the
+# margin between the two is not worth racing.
 on_connect = """
 SET max_parallel_workers = 0;
 SET paradedb.enable_custom_scan to off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_seqscan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test WHERE id @@@ 'message:bread' $q$,
+    'Index Only Scan'
+);
 """
 sql = """
 SELECT count(*) FROM test WHERE id @@@ 'message:bread';

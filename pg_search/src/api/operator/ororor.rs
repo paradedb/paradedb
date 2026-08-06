@@ -14,86 +14,53 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::builder_fns::{match_disjunction, match_disjunction_array, term_set_str};
+use crate::api::builder_fns::{match_disjunction, match_disjunction_array};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type, is_pdb_query_castable,
-    request_simplify, validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    build_pdb_query_funcexpr, build_text_funcexpr, classify_pdb_query_input, get_expr_result_type,
+    is_pdb_query_castable, request_simplify, validate_lhs_type_as_text_compatible, RHSValue,
+    ReturnedNodePointer,
 };
 use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::SearchQueryInput;
 use pgrx::{extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement, Internal};
 
+/// Classify an `UnclassifiedString`/`UnclassifiedArray` into a `match_disjunction` /
+/// `match_disjunction_array` (both carry `conjunction_mode = Some(false)`) with any
+/// `fuzzy_data` / `slop_data` re-applied. Shared with `search_with_match_disjunction_support`'s
+/// const-fold path via [`classify_pdb_query_input`].
+fn classify_for_ororor(query: pdb::Query) -> pdb::Query {
+    classify_pdb_query_input(
+        query,
+        |string, fuzzy_data, slop_data| {
+            let mut q = match_disjunction(string);
+            q.apply_fuzzy_data(fuzzy_data);
+            q.apply_slop_data(slop_data);
+            q
+        },
+        |array, fuzzy_data, slop_data| {
+            let mut q = match_disjunction_array(array);
+            q.apply_fuzzy_data(fuzzy_data);
+            q.apply_slop_data(slop_data);
+            q
+        },
+    )
+}
+
 /// Runtime counterpart to the `|||` const-folding path in
 /// `search_with_match_disjunction_support`. Called from the plan built by that support
 /// function's `exec_rewrite` when the RHS is a `Param` (generic prepared plan) rather than a
-/// folded `Const`. Classifies `pdb::Query::UnclassifiedString` / `UnclassifiedArray` into a
-/// `match_disjunction` / `term_set` (with `conjunction_mode = Some(false)`) with `fuzzy_data`
-/// and `slop_data` re-applied, mirroring the const path so downstream Tantivy conversion does
-/// not hit the `UnclassifiedString` panic branch. Fixes #5779 for `|||`.
+/// folded `Const`. `to_search_query_input` alone leaves `UnclassifiedString` intact and blows up
+/// at Tantivy conversion time; the classifier resolves those variants into a `MatchArray` /
+/// `Match` with `conjunction_mode = Some(false)` first. Fixes #5779 for `|||`.
 #[pg_extern(immutable, parallel_safe)]
 pub fn match_disjunction_search_query_input(
     field: FieldName,
     query: pdb::Query,
 ) -> SearchQueryInput {
-    let classified = match query {
-        pdb::Query::UnclassifiedString {
-            string,
-            fuzzy_data,
-            slop_data,
-        } => {
-            let mut q = match_disjunction(string);
-            q.apply_fuzzy_data(fuzzy_data);
-            q.apply_slop_data(slop_data);
-            q
-        }
-        pdb::Query::UnclassifiedArray {
-            array,
-            fuzzy_data,
-            slop_data,
-        } => {
-            let mut q = term_set_str(array);
-            q.apply_fuzzy_data(fuzzy_data);
-            q.apply_slop_data(slop_data);
-            if let pdb::Query::MatchArray {
-                conjunction_mode, ..
-            } = &mut q
-            {
-                *conjunction_mode = Some(false);
-            }
-            q
-        }
-        pdb::Query::ScoreAdjusted { query, score } => {
-            let mut inner = *query;
-            if let pdb::Query::UnclassifiedString {
-                string,
-                fuzzy_data,
-                slop_data,
-            } = inner
-            {
-                inner = match_disjunction(string);
-                inner.apply_fuzzy_data(fuzzy_data);
-                inner.apply_slop_data(slop_data);
-            } else if let pdb::Query::UnclassifiedArray {
-                array,
-                fuzzy_data,
-                slop_data,
-            } = inner
-            {
-                inner = match_disjunction_array(array);
-                inner.apply_fuzzy_data(fuzzy_data);
-                inner.apply_slop_data(slop_data);
-            }
-            pdb::Query::ScoreAdjusted {
-                query: Box::new(inner),
-                score,
-            }
-        }
-        other => other,
-    };
-    to_search_query_input(field, classified)
+    to_search_query_input(field, classify_for_ororor(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
@@ -150,37 +117,8 @@ fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, match_disjunction_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score}) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
-                        query = match_disjunction(string);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
-                        query = match_disjunction_array(array);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score})
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
-                    let mut query = match_disjunction(string);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
-                    let mut query = term_set_str(array);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-
-                    assert!(matches!(query, pdb::Query::MatchArray{..}));
-                    let pdb::Query::MatchArray { conjunction_mode, .. } = &mut query else {
-                        unreachable!()
-                    };
-                    *conjunction_mode = Some(false);
-
-                    to_search_query_input(field, query)
+                RHSValue::PdbQuery(query) => {
+                    to_search_query_input(field, classify_for_ororor(query))
                 }
                 _ => panic!("The right-hand side of the `|||(field, TEXT)` operator must be a text value."),
             }

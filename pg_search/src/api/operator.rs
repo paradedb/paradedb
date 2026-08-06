@@ -1109,6 +1109,42 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
     }
 }
 
+/// Resolve `UnclassifiedString` / `UnclassifiedArray` variants into a per-operator classified
+/// `pdb::Query`, using the caller-supplied builders. Recurses through `ScoreAdjusted` so wrapped
+/// unclassifieds are classified in place. Other variants pass through unchanged.
+///
+/// Each `===`, `&&&`, `|||`, `###` operator support-fn dispatches through the same shape but
+/// with a different concrete builder (`term_str`, `match_conjunction`, `match_disjunction`,
+/// `phrase_string`), and different rules for which of `fuzzy_data` / `slop_data` apply. The
+/// builders receive both, so a caller can ignore one (as `###` does for `fuzzy_data`).
+///
+/// Introduced to dedupe the six copies of this match that lived across the operator files (see
+/// PR #5799 review). Keeps the classification recursion and the `ScoreAdjusted` unwrap in one
+/// place so operators cannot drift.
+pub(crate) fn classify_pdb_query_input(
+    query: pdb::Query,
+    from_string: impl Fn(String, Option<pdb::FuzzyData>, Option<pdb::SlopData>) -> pdb::Query + Copy,
+    from_array: impl Fn(Vec<String>, Option<pdb::FuzzyData>, Option<pdb::SlopData>) -> pdb::Query + Copy,
+) -> pdb::Query {
+    match query {
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => from_string(string, fuzzy_data, slop_data),
+        pdb::Query::UnclassifiedArray {
+            array,
+            fuzzy_data,
+            slop_data,
+        } => from_array(array, fuzzy_data, slop_data),
+        pdb::Query::ScoreAdjusted { query, score } => pdb::Query::ScoreAdjusted {
+            query: Box::new(classify_pdb_query_input(*query, from_string, from_array)),
+            score,
+        },
+        other => other,
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// is referenced by the node.
 ///

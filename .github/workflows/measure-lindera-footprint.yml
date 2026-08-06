@@ -44,6 +44,10 @@ jobs:
       - ram=16
       - image=ubuntu24-full-arm64
       - volume=200gb
+      # Three full dictionary builds run close to an hour, and spot reclaim
+      # killed this job twice at ~57 minutes. On-demand for the duration.
+      - spot=false
+    timeout-minutes: 120
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v7

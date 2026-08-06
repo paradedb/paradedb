@@ -1367,9 +1367,10 @@ impl CustomScan for JoinScan {
                     Some(bytes) => match Self::launch_mpp(state, &plan, bytes.len()) {
                         Some(leader) => {
                             let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx =
-                                Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
-                                    .with_distributed_dispatch_plan_source(source);
+                            let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
+                                &leader.session.mesh,
+                            )))
+                            .with_distributed_dispatch_plan_source(source);
                             launch_us.prepare_us = leader.timing.prepare_us;
                             launch_us.payload_us = leader.timing.payload_us;
                             launch_us.attach_us = leader.timing.attach_us;
@@ -1474,14 +1475,7 @@ impl CustomScan for JoinScan {
         // leader-inbox detach, so producers blocked on full rings stop. Harmless when the gather
         // already reached EOF.
         state.custom_state_mut().datafusion_stream = None;
-        // Release the DSM-backed control senders before `recv`. A producer's `work_mem` overflow
-        // (or any worker error) is re-raised in the leader from inside `recv`, which `longjmp`s
-        // out of this hook; a release placed after it would never run, leaving the senders for the
-        // detach callback, which clears them while the mapping is still live. The query is done
-        // producing here, so the senders aren't needed, and the drop runs while DSM is mapped.
-        if let Some(leader) = state.custom_state().mpp.leader() {
-            leader.release_control_senders();
-        }
+
         // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
         // early-terminated query the rings still hold data the leader will never read; a worker's
         // bounded metrics send spins on the full ring until the leader frees slots. Draining here
@@ -1489,7 +1483,10 @@ impl CustomScan for JoinScan {
         // below returns immediately instead of waiting out the workers' full spin bound.
         if let Some(leader) = state.custom_state().mpp.leader() {
             if let Some(plan) = state.custom_state().physical_plan.as_ref() {
-                crate::postgres::customscan::mpp::glue::drain_worker_metrics(plan, &leader.mesh);
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
+                    plan,
+                    &leader.session.mesh,
+                );
             }
         }
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs

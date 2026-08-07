@@ -218,3 +218,22 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 
+
+-- The 0.25.1 -> 0.25.2 migration narrows PUBLIC on the extension's own schemas
+-- from ALL to USAGE. The schema-parity step above diffs pg_depend object lists,
+-- which says nothing about ACLs, so assert the upgraded end state here. This
+-- runs against a genuinely upgraded database; the tests/ integration suite only
+-- ever sees a fresh CREATE EXTENSION, so it cannot cover the migration path.
+DO $$
+BEGIN
+    IF has_schema_privilege('public', 'paradedb', 'CREATE')
+        OR has_schema_privilege('public', 'pdb', 'CREATE') THEN
+        RAISE EXCEPTION 'PUBLIC still holds CREATE on the extension schemas after upgrade';
+    END IF;
+
+    IF NOT has_schema_privilege('public', 'paradedb', 'USAGE')
+        OR NOT has_schema_privilege('public', 'pdb', 'USAGE') THEN
+        RAISE EXCEPTION 'PUBLIC lost USAGE on the extension schemas after upgrade';
+    END IF;
+END;
+$$;

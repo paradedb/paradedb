@@ -41,8 +41,7 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 1. **[`RangePartitioningRule`](range_partitioning_rule.rs)** — coordinates split points across joins for MPP range partitioning, sampling both sides of the join and injecting the merged sample into both `PgSearchTableProvider`s
 2. **`LateMaterializationRule`** — injects [`TantivyLookupExec`][lookup-exec] to defer string materialization
 3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` inner hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts, so MPP joins partition pairs task-locally instead of broadcasting the build side
-4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
-5. **FilterPushdown (Post)** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
+4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 
 If `max_parallel_workers_per_gather > 0` and PostgreSQL has planned parallel execution, `DistributedPlanner` converts the finalized physical plan into an MPP execution tree (`DistributedExec`), slicing it into isolated tasks.
 

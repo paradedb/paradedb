@@ -195,6 +195,20 @@ fn render_plan_with_metrics(
     }
 }
 
+fn strip_timing_metrics(plan_str: &str) -> String {
+    // Parts:
+    // - (,\s)?: matches 0 or 1 instances of ", "
+    // - elapsed_compute={.*?}: matches all elapsed_compute={} metrics, regardless of form
+    //   (aggregated or task-specific)
+    // - |: Or
+    // - (expr_\d+_eval|build|join)_time={.*?} : matches all expr_0_eval_time, build_time, join_time
+    //   style metrics
+    let pattern = regex::regex!(
+        r"((,\s)?elapsed_compute=\{.*?\})|((,\s)?(expr_\d+_eval|build|join)_time=\{.*?\})"
+    );
+    pattern.replace_all(plan_str, "").to_string()
+}
+
 /// Renders a physical plan for EXPLAIN.
 /// For EXPLAIN ANALYZE, renders with metrics. For plain EXPLAIN, renders with
 /// ASCII boxes for DistributedExec or a tree format for non-distributed plans.
@@ -205,7 +219,12 @@ pub fn explain_physical_plan(plan: &Arc<dyn ExecutionPlan>, explainer: &mut Expl
         // or other timing data, so MPP EXPLAIN ANALYZE will include timing metrics even when
         // `TIMING OFF` is requested. This makes regression tests flake. We should upstream
         // a feature to `datafusion-distributed` to optionally strip these metrics.
-        let rendered = display_plan_ascii(plan.as_ref(), explainer.is_analyze());
+        //
+        // In the meantime, we do it with regular expressions below.
+        let mut rendered = display_plan_ascii(plan.as_ref(), explainer.is_analyze());
+        if explainer.is_analyze() && !explainer.is_timing() {
+            rendered = strip_timing_metrics(&rendered);
+        }
         for line in rendered.lines() {
             explainer.add_text("  ", line);
         }
@@ -243,4 +262,25 @@ pub fn get_plan_with_merged_metrics(
         );
     }
     Arc::clone(plan)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_timing_metrics;
+
+    #[test]
+    fn test_strip_timing_metrics() {
+        // These are lines pulled from actual EXPLAIN ANALYZE output. They are not simplified
+        // because we want to test that the function strips the timing metrics but not anything else
+        // of similar shape.
+        let input = " │ ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows={0:5}, elapsed_compute={0:4.12µs}, output_bytes={0:100.0 B}, output_batches={0:1}, expr_0_eval_time={0:1.67µs}, expr_1_eval_time={0:167ns}, expr_2_eval_time={0:84ns}, expr_3_eval_time={0:83ns}, expr_4_eval_time={0:42ns}] \
+                            │   SortPreservingMergeExec: [score@1 DESC], fetch=5, metrics=[output_rows={0:5}, elapsed_compute={0:1.62µs}, output_bytes={0:100.0 B}, output_batches={0:1}] \
+                            │ HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3], metrics=[output_rows={0:9.00 K, 1:9.00 K, 2:9.00 K}, output_bytes={0:320.0 KB, 1:320.0 KB, 2:320.0 KB}, output_batches={0:2, 1:2, 2:2}, peak_memory_usage={0:5.1 KB, 1:5.1 KB, 2:5.1 KB}, array_map_created_count={0:1, 1:1, 2:1}, build_input_batches={0:1, 1:1, 2:1}, build_input_rows={0:250, 1:250, 2:250}, input_batches={0:10, 1:10, 2:10}, input_rows={0:9.00 K, 1:9.00 K, 2:9.00 K}, build_time={0:131.00µs, 1:451.05µs, 2:337.08µs}, join_time={0:626.25µs, 1:599.96µs, 2:593.42µs}, avg_fanout={0:100% (9.00 K/9.00 K), 1:100% (9.00 K/9.00 K), 2:100% (9.00 K/9.00 K)}, probe_hit_rate={0:100% (9.00 K/9.00 K), 1:100% (9.00 K/9.00 K), 2:100% (9.00 K/9.00 K)}]";
+        let expected = " │ ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows={0:5}, output_bytes={0:100.0 B}, output_batches={0:1}] \
+                               │   SortPreservingMergeExec: [score@1 DESC], fetch=5, metrics=[output_rows={0:5}, output_bytes={0:100.0 B}, output_batches={0:1}] \
+                               │ HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, owner_user_id@2)], projection=[ctid_0@0, score@2, ctid_1@3], metrics=[output_rows={0:9.00 K, 1:9.00 K, 2:9.00 K}, output_bytes={0:320.0 KB, 1:320.0 KB, 2:320.0 KB}, output_batches={0:2, 1:2, 2:2}, peak_memory_usage={0:5.1 KB, 1:5.1 KB, 2:5.1 KB}, array_map_created_count={0:1, 1:1, 2:1}, build_input_batches={0:1, 1:1, 2:1}, build_input_rows={0:250, 1:250, 2:250}, input_batches={0:10, 1:10, 2:10}, input_rows={0:9.00 K, 1:9.00 K, 2:9.00 K}, avg_fanout={0:100% (9.00 K/9.00 K), 1:100% (9.00 K/9.00 K), 2:100% (9.00 K/9.00 K)}, probe_hit_rate={0:100% (9.00 K/9.00 K), 1:100% (9.00 K/9.00 K), 2:100% (9.00 K/9.00 K)}]";
+
+        let actual = strip_timing_metrics(input);
+        assert_eq!(actual, expected);
+    }
 }

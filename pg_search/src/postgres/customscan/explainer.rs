@@ -46,6 +46,10 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).costs }
     }
 
+    pub fn is_timing(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).timing }
+    }
+
     pub fn add_query(&mut self, query: &SearchQueryInput) {
         self.add_explainable("Tantivy Query", query);
     }

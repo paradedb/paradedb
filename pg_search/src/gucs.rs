@@ -226,6 +226,16 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
+/// Beam width of each segment's FIRST routing round: the ranked cluster
+/// stream's head materializes after a narrow converged round and widens
+/// back to full ef when pulled deeper. Cuts the fixed routing floor for
+/// segments the scan barely consumes. 0 = full width.
+static VECTOR_ROUTING_BOOTSTRAP_EF: GucSetting<i32> = GucSetting::<i32>::new(8);
+
+pub fn vector_routing_bootstrap_ef() -> usize {
+    VECTOR_ROUTING_BOOTSTRAP_EF.get().max(0) as usize
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -457,6 +467,17 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_routing_bootstrap_ef",
+        c"First-round beam width for vector routing (0 = full ef)",
+        c"Each segment's first routing round runs at this beam width instead of the full ef, so the ranked cluster stream's head costs a narrow converged round; pulling deeper resumes at full width. Smaller values cut fixed routing cost per query at the price of a noisier first batch. 0 uses the full ef for every round.",
+        &VECTOR_ROUTING_BOOTSTRAP_EF,
+        0,
+        1024,
         GucContext::Userset,
         GucFlags::default(),
     );

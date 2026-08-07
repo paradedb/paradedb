@@ -65,3 +65,13 @@ $$ LANGUAGE plpgsql PARALLEL UNSAFE SECURITY DEFINER SET search_path TO 'pg_cata
 -- extension's own schemas.
 REVOKE CREATE ON SCHEMA paradedb FROM PUBLIC;
 REVOKE CREATE ON SCHEMA pdb FROM PUBLIC;
+
+-- pg_search/src/api/operator/eqeqeq.rs:38
+-- pg_search::api::operator::eqeqeq::term_search_query_input
+CREATE  FUNCTION "term_search_query_input"(
+	"field" FieldName, /* FieldName */
+	"query" pdb.Query /* pdb :: Query */
+) RETURNS SearchQueryInput /* SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'term_search_query_input_wrapper';

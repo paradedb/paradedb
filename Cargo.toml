@@ -16,8 +16,13 @@ members = [
 default-members = ["pg_search", "tokenizers"]
 
 [workspace.package]
+<<<<<<< HEAD
 version = "0.25.1"
 edition = "2021"
+=======
+version = "0.25.2"
+edition = "2024"
+>>>>>>> dbb354ed9 (fix(tokenizers): restrict typmod cache to SELECT for PUBLIC (#5896))
 license = "AGPL-3.0"
 
 [profile.dev]

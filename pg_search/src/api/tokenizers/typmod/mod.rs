@@ -611,11 +611,28 @@ extension_sql!(
 CREATE TABLE paradedb._typmod_cache(id SERIAL NOT NULL PRIMARY KEY, typmod text[] NOT NULL UNIQUE);
 SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache', '');
 SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache_id_seq', '');
-GRANT ALL ON TABLE paradedb._typmod_cache TO PUBLIC;
-GRANT ALL ON SEQUENCE paradedb._typmod_cache_id_seq TO PUBLIC;
 
+-- The typmod cache is shared extension state that every user's ParadeDB indexes
+-- resolve their tokenizer configuration through. Ordinary roles only ever read
+-- it (via SPI in load_typmod) and insert into it through the SECURITY DEFINER
+-- function paradedb._save_typmod below, so grant no more than SELECT to PUBLIC.
+-- Writes (INSERT/UPDATE/DELETE/TRUNCATE) stay with the table owner; letting
+-- PUBLIC mutate rows would let any role silently repoint or orphan the typmod
+-- IDs that other users' indexes depend on.
+--
+-- Both relations are registered with pg_extension_config_dump above, so pg_dump
+-- reads the sequence's last_value directly. SELECT on a sequence permits that
+-- but not nextval/setval, so PUBLIC keeps enough to dump and nothing more; the
+-- sequence is only ever advanced from inside _save_typmod, as its owner.
+GRANT SELECT ON TABLE paradedb._typmod_cache TO PUBLIC;
+GRANT SELECT ON SEQUENCE paradedb._typmod_cache_id_seq TO PUBLIC;
+
+-- search_path is pinned so this SECURITY DEFINER function's name resolution
+-- can't be redirected by a caller-controlled search_path. The body only touches
+-- the schema-qualified paradedb._typmod_cache plus pg_catalog operators.
 CREATE OR REPLACE FUNCTION paradedb._save_typmod(typmod_in text[])
 RETURNS integer SECURITY DEFINER STRICT VOLATILE PARALLEL UNSAFE
+SET search_path = pg_catalog, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_id integer;

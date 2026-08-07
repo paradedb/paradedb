@@ -57,3 +57,11 @@ BEGIN
     RETURN v_id;
 END;
 $$ LANGUAGE plpgsql PARALLEL UNSAFE SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp' STRICT VOLATILE;
+
+-- The paradedb and pdb schemas were created with GRANT ALL TO PUBLIC, which
+-- includes CREATE. PUBLIC only needs USAGE to reference the extension's objects;
+-- every object in these schemas is created by the extension owner, and nothing
+-- at runtime creates objects in them as the calling user. Revoke CREATE so no
+-- ordinary role can squat objects inside the extension's own schemas.
+REVOKE CREATE ON SCHEMA paradedb FROM PUBLIC;
+REVOKE CREATE ON SCHEMA pdb FROM PUBLIC;

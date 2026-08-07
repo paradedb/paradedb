@@ -245,6 +245,24 @@ pub fn vector_routing_ef() -> usize {
     VECTOR_ROUTING_EF.get().max(0) as usize
 }
 
+/// K-anchored early-stop factor for vector ORDER BY probing. Once a
+/// query holds k results at threshold t, a segment stops pulling ranked
+/// clusters at the first one whose centroid distance exceeds
+/// `factor * t` — every later cluster is farther. A heuristic that
+/// trades recall for work, priced by the factor; `0` (the default)
+/// disables it. Composes with the shared threshold: seeded segments can
+/// stop before probing anything.
+static VECTOR_ANCHOR_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(0.0);
+
+pub fn vector_anchor_factor() -> f32 {
+    let factor = VECTOR_ANCHOR_FACTOR.get();
+    if factor > 0.0 {
+        factor as f32
+    } else {
+        f32::INFINITY
+    }
+}
+
 /// Cross-segment kth-threshold sharing for vector ORDER BY queries. When
 /// on, segments publish their exact kth-best similarity into a per-query
 /// cell and IVF segments arm their centroid-bounds gate from it before
@@ -488,6 +506,17 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_anchor_factor",
+        c"K-anchored early-stop factor for vector ORDER BY probing (0 disables)",
+        c"Once a vector ORDER BY query holds k results at distance threshold t, each segment stops probing at the first ranked cluster whose centroid distance exceeds factor * t. Values just above 1.0 stop aggressively; larger values probe deeper. A recall/latency trade-off, unlike the exact bounds gate. 0 disables the stop.",
+        &VECTOR_ANCHOR_FACTOR,
+        0.0,
+        1000.0,
         GucContext::Userset,
         GucFlags::default(),
     );

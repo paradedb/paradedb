@@ -1056,6 +1056,7 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         routing_bootstrap_ef: crate::gucs::vector_routing_bootstrap_ef(),
                         routing_ef: crate::gucs::vector_routing_ef(),
+                        anchor_factor: crate::gucs::vector_anchor_factor(),
                         ..Default::default()
                     });
                 // Cross-segment kth sharing is on by default in the

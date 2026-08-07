@@ -2,7 +2,7 @@
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );

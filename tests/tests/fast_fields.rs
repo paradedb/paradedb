@@ -25,7 +25,7 @@ use tests::fixtures::*;
 #[rstest]
 fn plans_numeric_fast_field(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
@@ -52,7 +52,7 @@ WITH (
 #[rstest]
 fn plans_many_numeric_fast_fields(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
@@ -79,7 +79,7 @@ WITH (
 #[rstest]
 fn plans_many_numeric_fast_fields_with_score(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
@@ -107,7 +107,7 @@ WITH (
 #[rstest]
 fn plans_string_fast_field(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
@@ -135,7 +135,7 @@ SET paradedb.enable_aggregate_custom_scan = false;
 #[rstest]
 fn does_plan_string_fast_field(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
@@ -161,7 +161,7 @@ WITH (
 #[rstest]
 fn numeric_fast_field_in_window_func(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (

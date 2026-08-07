@@ -298,13 +298,13 @@ where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
 #[rstest]
 fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (key_field='id');
 
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'orders',
       table_type => 'Orders'
@@ -333,9 +333,9 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
 #[rstest]
 fn scores_survive_joins(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'a', schema_name => 'public');
-    CALL paradedb.create_bm25_test_table(table_name => 'b', schema_name => 'public');
-    CALL paradedb.create_bm25_test_table(table_name => 'c', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'a', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'b', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'c', schema_name => 'public');
 
     CREATE INDEX idxa ON a USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
     CREATE INDEX idxb ON b USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
@@ -366,7 +366,7 @@ fn scores_survive_joins(mut conn: PgConnection) {
 #[rstest]
 fn join_issue_1776(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
           table_name => 'mock_items'
         );
@@ -375,7 +375,7 @@ fn join_issue_1776(mut conn: PgConnection) {
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
     WITH (key_field='id');
 
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
           table_name => 'orders',
           table_type => 'Orders'
@@ -410,7 +410,7 @@ fn join_issue_1776(mut conn: PgConnection) {
 #[rstest]
 fn join_issue_1826(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
           table_name => 'mock_items'
         );
@@ -419,7 +419,7 @@ fn join_issue_1826(mut conn: PgConnection) {
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
     WITH (key_field='id');
 
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
           table_name => 'orders',
           table_type => 'Orders'
@@ -538,7 +538,7 @@ fn cte_issue_1951(mut conn: PgConnection) {
 #[rstest]
 fn without_operator_guc(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, rating)
@@ -1229,7 +1229,7 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
 #[rstest]
 fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)

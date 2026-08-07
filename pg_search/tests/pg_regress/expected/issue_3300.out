@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS issue3300;
 DROP TABLE IF EXISTS allowed_categories;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'issue3300'
      );

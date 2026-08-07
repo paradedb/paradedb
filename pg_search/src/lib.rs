@@ -98,12 +98,6 @@ extension_sql!(
         -- CREATE: every object in these schemas is created here at install time
         -- by the extension owner, so granting CREATE to PUBLIC would only let
         -- any role squat objects inside the extension's own schemas.
-        --
-        -- This does take away one thing callers could do before:
-        -- paradedb.create_bm25_test_table() defaults schema_name to 'paradedb'
-        -- and runs its CREATE TABLE as the caller, so a non-owner calling it
-        -- without arguments now gets "permission denied for schema paradedb".
-        -- Pass schema_name => 'public', as the docs do throughout.
         GRANT USAGE ON SCHEMA paradedb TO PUBLIC;
         GRANT USAGE ON SCHEMA pdb TO PUBLIC;
     "#,

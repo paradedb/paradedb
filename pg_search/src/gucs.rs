@@ -244,6 +244,19 @@ pub fn vector_anchor_factor() -> f32 {
     }
 }
 
+/// Merged-stream vector probing: non-parallel vector ORDER BY queries
+/// collect ALL segments through one probe loop — every segment's ranked
+/// cluster stream K-way-merged on the routing key, one global work
+/// budget instead of per-segment budgets and floors, one result heap.
+/// Exact: results are identical to the per-segment path; only the work
+/// distribution changes. Parallel scans keep the per-segment path
+/// (workers claim segments dynamically) knitted by the DSM threshold.
+static ENABLE_VECTOR_MERGED_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn enable_vector_merged_scan() -> bool {
+    ENABLE_VECTOR_MERGED_SCAN.get()
+}
+
 /// Cross-segment kth-threshold sharing for vector ORDER BY queries. When
 /// on, segments publish their exact kth-best similarity into a per-query
 /// cell and IVF segments arm their centroid-bounds gate from it before
@@ -487,6 +500,15 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_vector_merged_scan",
+        c"Probe all segments of a vector ORDER BY query through one merged cluster stream",
+        c"When on, non-parallel vector ORDER BY queries merge every segment's ranked cluster stream into one globally ordered probe loop with a single work budget, instead of probing each segment independently under per-segment budgets. Results are identical; the work spent per segment changes. Parallel scans always use the per-segment path.",
+        &ENABLE_VECTOR_MERGED_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );

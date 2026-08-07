@@ -878,6 +878,7 @@ impl SearchIndexReader {
     /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
     /// per-segment JSON in [`TopKSearch::segment_info`], not bolted onto
     /// [`TopKSearchResults`].
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -886,6 +887,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        parallel_scan_active: bool,
     ) -> TopKSearch {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
@@ -1075,33 +1077,46 @@ impl SearchIndexReader {
                 // we can zip them with per-segment ProbeStats from the Fruit.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
                 let segment_ids = segment_ids.inspect(|id| collected_ids.borrow_mut().push(*id));
+                // The merged stream needs its full segment set up front, so
+                // it is reserved for non-parallel scans — materializing a
+                // parallel claim iterator would steal every remaining
+                // segment from the other workers.
+                let use_merged = !parallel_scan_active
+                    && aux_collector.is_none()
+                    && crate::gucs::enable_vector_merged_scan();
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
+                macro_rules! collect_vector {
+                    ($collector:expr) => {{
+                        let collector = $collector;
+                        if use_merged {
+                            let ids: Vec<SegmentId> = segment_ids.collect();
+                            let segments: Vec<_> =
+                                self.segment_readers_in_segments(ids.into_iter()).collect();
+                            let query = self.query();
+                            let weight = query
+                                .weight(enable_scoring(self.need_scores, &self.searcher))
+                                .expect("creating a Weight from a Query should not fail");
+                            let fruit = collector
+                                .collect_segments_merged(weight.as_ref(), &segments)
+                                .expect("merged vector collection should not fail");
+                            (fruit, None)
+                        } else {
+                            self.collect_maybe_auxiliary(segment_ids, collector, aux_collector)
+                        }
+                    }};
+                }
                 let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(segment_ids, collector, aux_collector),
-                    1 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break(next()),
-                        aux_collector,
-                    ),
-                    2 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break((next(), next())),
-                        aux_collector,
-                    ),
-                    3 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break((next(), next(), next())),
-                        aux_collector,
-                    ),
-                    4 => self.collect_maybe_auxiliary(
-                        segment_ids,
-                        collector.with_tie_break((next(), next(), next(), next())),
-                        aux_collector,
-                    ),
+                    0 => collect_vector!(collector),
+                    1 => collect_vector!(collector.with_tie_break(next())),
+                    2 => collect_vector!(collector.with_tie_break((next(), next()))),
+                    3 => collect_vector!(collector.with_tie_break((next(), next(), next()))),
+                    4 => {
+                        collect_vector!(collector.with_tie_break((next(), next(), next(), next())))
+                    }
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1

@@ -437,6 +437,7 @@ impl ExecMethod for TopKScanExecState {
                     self.offset,
                     maybe_aux_collector,
                     maybe_parallel_state,
+                    state.parallel_state().is_some(),
                 );
             // Per-segment Fruit JSON → local ScanTelemetry. Workers publish into
             // DSM once at EndCustomScan; the leader merges at Shutdown.

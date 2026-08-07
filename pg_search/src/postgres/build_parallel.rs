@@ -20,6 +20,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+    format_bytes,
 };
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -41,6 +42,7 @@ use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
+use crate::vector::clusterer::{MergeMemoryEstimate, SuperKMeansIvfClusterer};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     PgLogLevel, PgMemoryContexts, PgSqlErrorCode, check_for_interrupts, function_name, pg_guard,
@@ -677,6 +679,7 @@ pub(super) fn build_index(
     );
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
+    plan::check_clustering_memory(&heaprel, &indexrel, nworkers);
 
     // This is updating `tuples_total` in the `pg_stat_progress_create_index` view - `tuples_done` is incremented in `build_callback`
     unsafe {
@@ -862,6 +865,68 @@ mod plan {
         }
 
         nworkers
+    }
+
+    /// Vector clustering during a merge materializes a training sample per vector field, and
+    /// every worker can be merging at once, so the build's projected peak clustering memory is
+    /// `nworkers × per-merge bytes`. Each merge combines segments down to roughly
+    /// `reltuples / target_segment_count` docs regardless of worker count, so this is knowable
+    /// before workers launch. Refuse to start a build projected to exceed
+    /// `maintenance_work_mem` rather than OOM mid-merge.
+    pub(super) fn check_clustering_memory(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+        nworkers: usize,
+    ) {
+        let Ok(schema) = indexrel.schema() else {
+            return;
+        };
+        let dims = schema
+            .fields()
+            .filter_map(|(_, field_entry)| {
+                schema
+                    .get_field_type(field_entry.name())
+                    .and_then(|field_type| field_type.vector_dims())
+            })
+            .collect::<Vec<_>>();
+        if dims.is_empty() {
+            return;
+        }
+
+        let mut nlaunched = nworkers.max(1);
+        if nworkers > 0 && unsafe { pg_sys::parallel_leader_participation } {
+            nlaunched += 1;
+        }
+
+        let reltuples = estimate_heap_reltuples(heaprel);
+        let target_segment_count = adjusted_target_segment_count(heaprel, indexrel);
+        let docs_per_merge = (reltuples / target_segment_count as f64).ceil() as usize;
+
+        let clusterer = SuperKMeansIvfClusterer::from_options(indexrel.options());
+        let per_merge: usize = dims
+            .iter()
+            .map(|&dim| clusterer.estimated_merge_bytes(docs_per_merge, dim))
+            .sum();
+        let total = per_merge.saturating_mul(nlaunched);
+
+        let mwm_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
+        if total > mwm_bytes {
+            // Round up in the unit pg_size_pretty will display, so that setting
+            // `maintenance_work_mem` to the printed value always passes this check.
+            let mut unit = 1024;
+            while total.div_ceil(unit) >= 10 * 1024 {
+                unit *= 1024;
+            }
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+                format!(
+                    "vector clustering during index build requires `maintenance_work_mem` of at least {}",
+                    format_bytes((total.div_ceil(unit) * unit) as u64)
+                ),
+                function_name!(),
+            )
+            .report(PgLogLevel::ERROR);
+        }
     }
 
     /// If we determine that the table is very small, we should just create a single segment

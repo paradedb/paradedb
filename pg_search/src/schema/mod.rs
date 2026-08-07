@@ -136,6 +136,13 @@ impl SearchFieldType {
         .into()
     }
 
+    pub fn vector_dims(&self) -> Option<usize> {
+        match self {
+            SearchFieldType::Vector(_, dims, _) => Some(*dims),
+            _ => None,
+        }
+    }
+
     pub fn typmod(&self) -> Typmod {
         match self {
             SearchFieldType::Tokenized(_, typmod, ..) => *typmod,

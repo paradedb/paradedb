@@ -314,3 +314,61 @@ values = [
   "0.75",
   "1.0",
 ]
+
+# pgvectorscale StreamingDiskANN on the default SBQ-compressed build. Each arm sweeps whichever GUC
+# is its binding lever, and every ladder ends at that GUC's hard maximum -- so when a target is out
+# of reach the sweep's fallback reports the best achievable point (flagged) rather than a fabricated
+# one. Both maxima are from the extension's own GUC registration in 0.9.0:
+#   diskann.query_rescore            default 50,  max 1000
+#   diskann.query_search_list_size   default 100, max 10000
+#
+# Unfiltered sweeps query_rescore: the graph is 1-bit quantized, so recall tracks how many
+# candidates get exact-distance rescoring, not beam width. It clears 95% well before the cap.
+#
+# The filtered arms cannot reach 90% on this build. Filtering is post-filter streaming, so only the
+# ~10%/1% of the beam that passes the predicate survives, and at most 1000 candidates are ever
+# exact-rescored. With rescore already pinned at that maximum in the query SQL, beam width is the
+# only lever left, so those two sweep query_search_list_size and report where they land.
+#
+# Their ladders stop short of the GUC's 10000 maximum on purpose. Recall plateaus far below it --
+# measured around 0.88 at 10% and 0.67 at 1% -- while cost keeps climbing, so the top few values are
+# the most expensive points in the whole run and buy no recall. They end just past the plateau,
+# which is enough to show the curve flattening. Uncompressed `storage_layout = plain` would lift
+# recall, but is far too slow to build in CI. This arm is therefore NOT iso-recall with the others
+# -- that is the property being surfaced.
+[sweeps.pgvectorscale.knn_top10_unfiltered]
+param = "pgvectorscale_rescore_unfiltered"
+values = [
+  "50",
+  "70",
+  "90",
+  "115",
+  "145",
+  "180",
+  "230",
+  "290",
+  "370",
+  "470",
+  "600",
+  "760",
+  "1000",
+]
+
+[sweeps.pgvectorscale.knn_top10_10pct]
+param = "pgvectorscale_search_list_size_10pct"
+values = [
+  "200",
+  "300",
+  "450",
+  "650",
+  "900",
+  "1300",
+  "1800",
+  "2500",
+  "3500",
+  "5000",
+]
+
+[sweeps.pgvectorscale.knn_top10_1pct]
+param = "pgvectorscale_search_list_size_1pct"
+values = ["500", "750", "1100", "1600", "2200", "3000", "4000", "5500"]

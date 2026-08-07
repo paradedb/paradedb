@@ -20,6 +20,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # we pick up the latest Debian security fixes regardless of the base layer's age.
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
+    lld \
     pkg-config \
     libpq-dev \
     libssl-dev \

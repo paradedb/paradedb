@@ -296,15 +296,14 @@ impl SolvePostgresExpressions for JoinScanState {
 /// Selects which physical optimizer rules to install on top of the shared
 /// base session for a given consumer.
 ///
-/// JoinScan needs `SegmentedTopKRule` and the trailing `FilterPushdown` passes
-/// that follow it; AggregateScan needs only a single `FilterPushdown` post-pass.
-/// Exposing the difference as an explicit profile keeps the choice grep-able
-/// from the call site.
+/// JoinScan needs `SegmentedTopKRule`; AggregateScan needs a single
+/// `FilterPushdown` post-pass. Exposing the difference as an explicit profile
+/// keeps the choice grep-able from the call site.
 #[derive(Copy, Clone, Debug)]
 pub enum SessionContextProfile {
-    /// JoinScan execution: enables `topk_dynamic_filter_pushdown`, includes
-    /// `SegmentedTopKRule`, and adds the trailing `FilterPushdown` passes that
-    /// `SegmentedTopKRule` requires.
+    /// JoinScan execution: enables `topk_dynamic_filter_pushdown` and installs
+    /// `SegmentedTopKRule`, which transfers ownership of the SortExec's already
+    /// pushed-down dynamic filter into the injected `SegmentedTopKExec`.
     Join,
     /// AggregateScan execution: single `FilterPushdown` post-pass, no
     /// SegmentedTopK, no topk dynamic filter pushdown.
@@ -353,8 +352,10 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 /// the physical optimizer rules each consumer needs:
 ///
 /// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
-///   then appends `SegmentedTopKRule` followed by a trailing `FilterPushdown`
-///   pass to pick up any filters `SegmentedTopKRule` injects.
+///   then appends `SegmentedTopKRule`. No trailing `FilterPushdown` pass is
+///   needed: `SegmentedTopKRule` transfers ownership of the SortExec's already
+///   pushed-down `DynamicFilterPhysicalExpr` into `SegmentedTopKExec`, so the
+///   scans stay wired to the same filter the SortExec would have driven.
 /// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
 ///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
 pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
@@ -399,8 +400,7 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
                 // VisibilityCtidResolverRule again here, *after* SegmentedTopKRule, so
                 // that it wires resolvers into the STK node rather than the (now-removed)
                 // VisibilityFilterExec node.
-                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
-                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+                .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
         }
         SessionContextProfile::Aggregate => {
             builder = builder

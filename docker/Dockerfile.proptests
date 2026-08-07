@@ -16,6 +16,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # the test binary path from cargo's JSON output.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    lld \
     pkg-config \
     libpq-dev \
     libssl-dev \

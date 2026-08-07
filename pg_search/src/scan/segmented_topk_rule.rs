@@ -122,10 +122,21 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 
     let sort_exprs = sort_exec.expr();
 
+    // Hand the SortExec's already pushed-down `DynamicFilterPhysicalExpr` to the
+    // injected `SegmentedTopKExec` so that ownership transfers cleanly when we
+    // unwrap the SortExec below. The scans have already been wired to this filter
+    // by the earlier standard `FilterPushdown` pass; updates from the STK heap
+    // therefore reach the same recipients the SortExec would have driven, and no
+    // trailing `FilterPushdown(Post)` pass is required to re-push a fresh filter.
+    // See #5635.
+    let parent_filter = sort_exec
+        .dynamic_filter_expr()
+        .map(|f| f as Arc<dyn PhysicalExpr>);
+
     // Walk down from SortExec to find TantivyLookupExec.
     // If injection succeeds, SegmentedTopKExec now handles the final sort + limit,
     // so we unwrap SortExec and return its child directly.
-    match try_inject_below_lookup(&plan, sort_exprs.clone(), k)? {
+    match try_inject_below_lookup(&plan, sort_exprs.clone(), k, parent_filter)? {
         Some(rewritten) => {
             let children = rewritten.children();
             Ok(Arc::clone(children[0]))
@@ -202,6 +213,7 @@ fn try_inject_below_lookup(
     plan: &Arc<dyn ExecutionPlan>,
     sort_exprs: LexOrdering,
     k: usize,
+    parent_filter: Option<Arc<dyn PhysicalExpr>>,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let children = plan.children();
 
@@ -246,9 +258,9 @@ fn try_inject_below_lookup(
                         (None, Arc::clone(lookup_child))
                     };
 
-                // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that
-                // the second FilterPushdown(Post) pass can push
-                // SegmentedTopKExec's DynamicFilterPhysicalExpr down to PgSearchScan.
+                // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that the
+                // shared `DynamicFilterPhysicalExpr` can traverse them during the
+                // pushdown pass that reached this scan subtree.
                 let lookup_child = &wrap_blocking_nodes(stk_input)?;
 
                 // Collect all deferred columns found in the sort expressions,
@@ -339,6 +351,7 @@ fn try_inject_below_lookup(
                     Arc::clone(&ffhelper),
                     k,
                     absorbed_visibility,
+                    parent_filter.clone(),
                 ));
 
                 // Rebuild TantivyLookupExec with the new child.
@@ -353,7 +366,9 @@ fn try_inject_below_lookup(
         }
 
         // Recurse into intermediate nodes (ProjectionExec, CoalescePartitionsExec, etc.)
-        if let Some(rewritten) = try_inject_below_lookup(child, sort_exprs.clone(), k)? {
+        if let Some(rewritten) =
+            try_inject_below_lookup(child, sort_exprs.clone(), k, parent_filter.clone())?
+        {
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> =
                 children.iter().map(|c| Arc::clone(c)).collect();
             new_children[child_idx] = rewritten;

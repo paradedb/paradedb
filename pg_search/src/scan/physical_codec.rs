@@ -30,11 +30,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
-<<<<<<< HEAD
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
-=======
->>>>>>> 7065032ff (fix: strip orphaned SortExec dynamic filter when SegmentedTopKExec is injected (#5721))
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{

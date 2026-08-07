@@ -1362,22 +1362,16 @@ impl SegmentedTopKState {
             None => true,
         };
 
-<<<<<<< HEAD
         if changed {
             if let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values) {
-                let _ = self.dynamic_filter.update(expr);
-                self.last_published_global = Some(best_row);
+                if let Some(df) = self
+                    .dynamic_filter
+                    .downcast_ref::<DynamicFilterPhysicalExpr>()
+                {
+                    let _ = df.update(expr);
+                    self.last_published_global = Some(best_row);
+                }
             }
-=======
-        if changed
-            && let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values)
-            && let Some(df) = self
-                .dynamic_filter
-                .downcast_ref::<DynamicFilterPhysicalExpr>()
-        {
-            let _ = df.update(expr);
-            self.last_published_global = Some(best_row);
->>>>>>> 7065032ff (fix: strip orphaned SortExec dynamic filter when SegmentedTopKExec is injected (#5721))
         }
 
         Ok(())

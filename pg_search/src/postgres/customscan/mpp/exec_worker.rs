@@ -55,7 +55,9 @@ use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_cap;
-use crate::postgres::customscan::mpp::interrupt::{HeldInterrupts, check_for_interrupts};
+use crate::postgres::customscan::mpp::interrupt::{
+    HeldInterrupts, cancel_pending, check_for_interrupts, interrupted,
+};
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
@@ -205,6 +207,14 @@ async fn dispatch_fragment_requests(
         return Ok(());
     }
 
+    // Consumers issue every request while building their streams, so a fragment with
+    // nothing running normally waits milliseconds for its next request. A stall this
+    // long means a consumer stopped requesting (a planning or routing bug), and
+    // without the bound this fragment and the leader waiting on it hang forever.
+    let stall_secs = crate::gucs::mpp_request_timeout_secs();
+    let stall_duration = std::time::Duration::from_secs(stall_secs.max(0) as u64);
+    let mut stall_deadline = tokio::time::Instant::now() + stall_duration;
+
     loop {
         if partitions_requested >= n_out && sub_futures.is_empty() {
             break;
@@ -245,6 +255,7 @@ async fn dispatch_fragment_requests(
                             start..end,
                         ));
                         partitions_requested += len;
+                        stall_deadline = tokio::time::Instant::now() + stall_duration;
                     }
                     Some(Err(e)) => {
                         return Err(datafusion::common::DataFusionError::Execution(format!(
@@ -264,8 +275,23 @@ async fn dispatch_fragment_requests(
                     Some(Err(e)) => return Err(e),
                     None => unreachable!(),
                 }
+                stall_deadline = tokio::time::Instant::now() + stall_duration;
+            }
+            _ = tokio::time::sleep_until(stall_deadline),
+                if stall_secs > 0 && partitions_requested < n_out && sub_futures.is_empty() => {
+                return Err(datafusion::common::DataFusionError::Execution(format!(
+                    "mpp worker dispatch: no ExecuteTask request for {stall_secs}s \
+                     (stage_id={stage_id}, task_idx={task_idx}, \
+                     requested={partitions_requested}/{n_out}); a consumer stopped \
+                     requesting this task's partitions"
+                )));
             }
             _ = tokio::task::yield_now() => {
+                // Interrupts are held for the whole dispatcher, so a cancel or a
+                // backend-die only ends this wait if the loop polls for it.
+                if cancel_pending() {
+                    return Err(interrupted());
+                }
                 if let Err(e) = mesh.inbound_receiver().try_drain_pass() {
                     return Err(datafusion::common::DataFusionError::Execution(format!(
                         "mpp worker drain error: {e} (stage_id={stage_id}, task_idx={task_idx}, \

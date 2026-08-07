@@ -1042,6 +1042,7 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        anchor_factor: crate::gucs::vector_anchor_factor(),
                         ..Default::default()
                     });
                 // Cross-segment kth sharing is on by default in the

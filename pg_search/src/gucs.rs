@@ -245,6 +245,18 @@ pub fn vector_routing_ef() -> usize {
     VECTOR_ROUTING_EF.get().max(0) as usize
 }
 
+/// Cross-segment kth-threshold sharing for vector ORDER BY queries. When
+/// on, segments publish their exact kth-best similarity into a per-query
+/// cell and IVF segments arm their centroid-bounds gate from it before
+/// their first probe, skipping clusters that provably cannot beat results
+/// earlier segments already found. Results are identical either way; only
+/// the work done changes. Off is an A/B knob for benchmarking.
+static ENABLE_VECTOR_SHARED_THRESHOLD: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn enable_vector_shared_threshold() -> bool {
+    ENABLE_VECTOR_SHARED_THRESHOLD.get()
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -476,6 +488,15 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_vector_shared_threshold",
+        c"Share the kth-best vector similarity across segments of a query",
+        c"When on, each vector ORDER BY query shares its running kth-best similarity across segments, letting later segments skip IVF clusters that provably cannot improve the result. Results are identical on or off; only the work performed differs. Intended as an A/B benchmarking knob.",
+        &ENABLE_VECTOR_SHARED_THRESHOLD,
         GucContext::Userset,
         GucFlags::default(),
     );

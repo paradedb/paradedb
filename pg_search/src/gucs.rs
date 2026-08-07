@@ -142,6 +142,13 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Minimum document count in the scan's largest source index for MPP to engage. The launch
+/// (worker spawn, plan dispatch, per-worker index opens) costs tens of milliseconds; below
+/// this size a serial plan finishes in the same order, so the query stays serial. The
+/// benchmark grid loses across the board at 100k documents and wins from 1m up; the default
+/// sits between.
+static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
+
 /// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
 /// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
 /// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
@@ -631,6 +638,19 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_rows",
+        c"Minimum source document count for MPP",
+        c"MPP engages only when the scan's largest source index holds at least this many \
+          documents; smaller queries run serially, where the launch cost would dominate. \
+          Set to 0 to always engage.",
+        &MPP_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Per-inbox ring size for MPP shuffles",
         c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
@@ -845,6 +865,10 @@ pub fn mpp_debug() -> bool {
 
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
+}
+
+pub fn mpp_min_rows() -> i32 {
+    MPP_MIN_ROWS.get()
 }
 
 pub fn mpp_queue_size() -> usize {

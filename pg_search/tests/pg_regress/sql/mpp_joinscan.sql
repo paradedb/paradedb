@@ -13,6 +13,8 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 
+-- Regress tables are tiny; disable the size gate so MPP engages.
+SET paradedb.mpp_min_rows TO 0;
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
@@ -229,6 +231,30 @@ FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
+
+-- =====================================================================
+-- Pass 7: the size gate falls back to a plain serial run. The plan was
+-- built while MPP was eligible, so the fallback must not carry per-source
+-- claim markers that have no shared scan state to draw from.
+-- =====================================================================
+
+SET max_parallel_workers_per_gather TO 3;
+SET paradedb.mpp_min_rows TO 1000000000;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SET paradedb.mpp_min_rows TO 0;
 
 -- =====================================================================
 -- Cleanup

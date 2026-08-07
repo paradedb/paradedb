@@ -25,4 +25,37 @@ GRANT SELECT ON SEQUENCE paradedb._typmod_cache_id_seq TO PUBLIC;
 -- redirected by a caller-controlled search_path. The body only touches the
 -- schema-qualified paradedb._typmod_cache plus pg_catalog operators, so pinning
 -- it leaves behaviour unchanged.
-ALTER FUNCTION paradedb._save_typmod(text[]) SET search_path = pg_catalog, pg_temp;
+--
+-- The body below is identical to the one in
+-- pg_search/src/api/tokenizers/typmod/mod.rs. Only the header is spelled
+-- differently (`pg_catalog.int4` rather than `integer`, and the options after
+-- the body rather than before it), to match what SchemaBot generates for this
+-- change so that check_migration_diff.py sees the same statements. The one
+-- place this deviates from SchemaBot's suggestion is `SECURITY DEFINER`, which
+-- it renders as `security = 1`, which does not parse.
+DROP FUNCTION IF EXISTS paradedb._save_typmod(typmod_in text[]);
+CREATE OR REPLACE FUNCTION paradedb._save_typmod(typmod_in text[]) RETURNS pg_catalog.int4 AS $$
+DECLARE
+    v_id integer;
+BEGIN
+    INSERT INTO paradedb._typmod_cache (typmod)
+    VALUES (typmod_in)
+    ON CONFLICT (typmod) DO NOTHING
+    RETURNING id INTO v_id;
+
+    IF v_id IS NOT NULL THEN
+        RETURN v_id;
+    END IF;
+
+    -- someone else inserted it concurrently, go read it again
+    SELECT id INTO v_id
+    FROM paradedb._typmod_cache
+    WHERE typmod = typmod_in;
+
+    IF v_id IS NULL THEN
+        RAISE EXCEPTION 'typmod "%" not found after upsert', typmod_in;
+    END IF;
+
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STRICT VOLATILE PARALLEL UNSAFE SET search_path TO 'pg_catalog', 'pg_temp';

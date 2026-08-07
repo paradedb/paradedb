@@ -611,11 +611,19 @@ extension_sql!(
 CREATE TABLE paradedb._typmod_cache(id SERIAL NOT NULL PRIMARY KEY, typmod text[] NOT NULL UNIQUE);
 SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache', '');
 SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache_id_seq', '');
-GRANT ALL ON TABLE paradedb._typmod_cache TO PUBLIC;
-GRANT ALL ON SEQUENCE paradedb._typmod_cache_id_seq TO PUBLIC;
+
+-- The typmod cache is shared extension state that every user's ParadeDB indexes
+-- resolve their tokenizer configuration through. Ordinary roles only ever read
+-- it (via SPI in load_typmod) and insert into it through the SECURITY DEFINER
+-- function paradedb._save_typmod below, so grant no more than SELECT to PUBLIC.
+-- Writes (INSERT/UPDATE/DELETE/TRUNCATE) and sequence access stay with the
+-- table owner; letting PUBLIC mutate rows would let any role silently repoint
+-- or orphan the typmod IDs that other users' indexes depend on.
+GRANT SELECT ON TABLE paradedb._typmod_cache TO PUBLIC;
 
 CREATE OR REPLACE FUNCTION paradedb._save_typmod(typmod_in text[])
 RETURNS integer SECURITY DEFINER STRICT VOLATILE PARALLEL UNSAFE
+SET search_path = pg_catalog, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_id integer;

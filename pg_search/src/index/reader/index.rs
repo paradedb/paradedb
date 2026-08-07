@@ -1044,6 +1044,13 @@ impl SearchIndexReader {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         ..Default::default()
                     });
+                // Cross-segment kth sharing is on by default in the
+                // collector; the GUC is the A/B off switch.
+                let collector = if crate::gucs::enable_vector_shared_threshold() {
+                    collector
+                } else {
+                    collector.with_shared_threshold(None)
+                };
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

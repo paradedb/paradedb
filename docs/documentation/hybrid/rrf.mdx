@@ -330,18 +330,6 @@ var results = text
 
 </CodeGroup>
 
-<Note>
-  The Django version depends on
-  [django-cte](https://pypi.org/project/django-cte/) `2.0` or above, installed
-  in [Configuring Your Environment](/documentation/getting-started/environment).
-  Rails' `paradedb_arel` returns the gem's Arel expression builder, so the same
-  score and distance nodes can be shared between each window and its `ORDER BY`.
-  The EF Core version runs the two branches as separate queries and fuses them
-  in application code, since LINQ cannot express CTEs or window functions — wrap
-  the two reads in a transaction if they must see the same snapshot, or execute
-  the SQL version in a single statement with `FromSql`.
-</Note>
-
 The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.
 
 The two `WHERE` clauses differ because each branch retrieves by its own method. `description ||| 'running shoes'` is the text branch's query. The vector branch's query is the query vector in its `ORDER BY`, so its `WHERE` is [`pdb.all()`](/documentation/vector/querying), meaning every row is eligible. To narrow either branch, add [filters](/documentation/filtering) to both, so that each is drawing from the same set of eligible rows.

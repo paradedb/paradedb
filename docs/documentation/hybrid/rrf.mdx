@@ -79,7 +79,7 @@ const text = db.$with("text").as(
   db
     .select({
       id: mockItems.id,
-      rank: sql<number>`rank() over (order by ${score} desc, ${mockItems.id})`.as(
+      rank: sql`rank() over (order by ${score} desc, ${mockItems.id})`.as(
         "rank",
       ),
     })
@@ -93,9 +93,7 @@ const vector = db.$with("vector").as(
   db
     .select({
       id: mockItems.id,
-      rank: sql<number>`rank() over (order by ${distance}, ${mockItems.id})`.as(
-        "rank",
-      ),
+      rank: sql`rank() over (order by ${distance}, ${mockItems.id})`.as("rank"),
     })
     .from(mockItems)
     .where(search.all(mockItems.id))
@@ -108,13 +106,13 @@ const weighted = db.$with("weighted").as(
     db
       .select({
         id: text.id,
-        weight: sql<number>`1.0 / (60 + ${text.rank})`.as("weight"),
+        weight: sql`1.0 / (60 + ${text.rank})`.as("weight"),
       })
       .from(text),
     db
       .select({
         id: vector.id,
-        weight: sql<number>`0.7 / (60 + ${vector.rank})`.as("weight"),
+        weight: sql`0.7 / (60 + ${vector.rank})`.as("weight"),
       })
       .from(vector),
   ),
@@ -124,7 +122,7 @@ const fused = db.$with("fused").as(
   db
     .select({
       id: weighted.id,
-      score: sql<number>`sum(${weighted.weight})`.as("score"),
+      score: sql`sum(${weighted.weight})`.as("score"),
     })
     .from(weighted)
     .groupBy(weighted.id),
@@ -331,6 +329,18 @@ var results = text
 ```
 
 </CodeGroup>
+
+<Note>
+  The Django version depends on
+  [django-cte](https://pypi.org/project/django-cte/) `2.0` or above, installed
+  in [Configuring Your Environment](/documentation/getting-started/environment).
+  Rails' `paradedb_arel` returns the gem's Arel expression builder, so the same
+  score and distance nodes can be shared between each window and its `ORDER BY`.
+  The EF Core version runs the two branches as separate queries and fuses them
+  in application code, since LINQ cannot express CTEs or window functions — wrap
+  the two reads in a transaction if they must see the same snapshot, or execute
+  the SQL version in a single statement with `FromSql`.
+</Note>
 
 The `1.0` and `0.7` are the per-branch weights, here valuing text matches over vector ones, and `60` is `k`.
 

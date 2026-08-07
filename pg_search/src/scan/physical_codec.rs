@@ -30,8 +30,6 @@ use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::ScalarUDF;
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedCodec;
 use datafusion_proto::physical_plan::{
@@ -140,6 +138,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     ctx,
                     &self.index_segment_ids,
                     self.parallel_state,
+                    proto_converter,
                 )
             }
             other => Err(DataFusionError::NotImplemented(format!(
@@ -171,7 +170,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         }
         if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
             buf.push(TAG_SEGMENTED_TOPK);
-            buf.extend_from_slice(&topk.encode_for_dispatch()?);
+            buf.extend_from_slice(&topk.encode_for_dispatch(proto_converter)?);
             return Ok(());
         }
         Err(DataFusionError::NotImplemented(format!(
@@ -361,19 +360,5 @@ pub fn deserialize_physical_plan_with_runtime(
     })?;
     let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
     let plan = proto_converter.proto_to_execution_plan(&proto, &decode_ctx)?;
-    // Dynamic filters (hash-join keys, top-k bounds) are process-local Arcs shared between an
-    // operator and the scans below it, and the two link mechanisms differ:
-    //
-    // - HashJoinExec/AggregateExec links ride the wire by identity: the scan ships its
-    //   installed filters (`ScanDispatchDescriptor::dynamic_filters`) and the deduplicating
-    //   converter re-shares each with the operator's own decoded copy via `expr_id` (the
-    //   apache/datafusion#20416 machinery; design discussion in
-    //   https://github.com/apache/datafusion/issues/21207). Those operators skip re-pushing
-    //   when they already carry a filter, so this pass cannot relink them.
-    // - SegmentedTopKExec recreates its filter fresh on decode and re-pushes it every Post
-    //   phase, so this pass is what wires the worker's top-k threshold into its scans.
-    //
-    // Both mechanisms are fragment-local; a link that crossed fragments would need the filter
-    // values shipped between processes.
-    FilterPushdown::new_post_optimization().optimize(plan, ctx.session_config().options())
+    Ok(plan)
 }

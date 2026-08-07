@@ -334,7 +334,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
 -- Cap the scanner batch size so Top K can tighten its threshold between batches.
@@ -363,7 +363,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=2, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=3, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=8.25 K, output_bytes=234.1 KB, output_batches=4, rows_pruned=11.75 K, rows_scanned=20.00 K]
+           :           PgSearchScan: segments=2, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=8.25 K, output_bytes=234.1 KB, output_batches=4, rows_pruned=11.75 K, rows_scanned=20.00 K]
 (15 rows)
 
 -- Verify results
@@ -449,7 +449,7 @@ LIMIT 25;
            :         CooperativeExec
            :           PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=3, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :           PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
 (17 rows)
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -475,7 +475,7 @@ LIMIT 25;
            :         CooperativeExec
            :           PgSearchScan: segments=2, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=3, dynamic_filter_pushdown=gallop, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=8.43 K, output_bytes=239.9 KB, output_batches=4, rows_pruned=11.57 K, rows_scanned=20.00 K]
+           :           PgSearchScan: segments=2, dynamic_filters=2, dynamic_filter_pushdown=gallop, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=8.43 K, output_bytes=239.9 KB, output_batches=4, rows_pruned=11.57 K, rows_scanned=20.00 K]
 (15 rows)
 
 SELECT t1.id, t1.val
@@ -544,7 +544,7 @@ LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: segments=2, query="all"
            :         CooperativeExec
-           :           PgSearchScan: segments=2, dynamic_filters=3, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :           PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
 (17 rows)
 
 SELECT t1.id, t1.val

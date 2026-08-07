@@ -213,6 +213,7 @@ mod tests {
             ffhelper,
             5,
             None,
+            None,
         );
 
         // No visibility data absorbed → plan_pos_oids must be empty.
@@ -255,6 +256,7 @@ mod tests {
             Arc::new(FFHelper::empty()),
             5,
             Some(vis_data),
+            None,
         );
 
         let pos_oids = stk.plan_pos_oids();

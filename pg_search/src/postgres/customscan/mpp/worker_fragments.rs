@@ -168,6 +168,19 @@ pub(crate) fn max_producer_task_count(stages: &[DiscoveredStage]) -> usize {
         .unwrap_or(0)
 }
 
+/// True when discovered stages have enough producer tasks for MPP to launch (#5784).
+/// Same `>= 2` gate as the plan-first path in [`crate::postgres::customscan::mpp::launch`]:
+/// below that there is no data parallelism, so execution runs serially and plain EXPLAIN
+/// must render the serial shape rather than a cap-sized distributed plan.
+pub(crate) fn stages_have_data_parallelism(stages: &[DiscoveredStage]) -> bool {
+    max_producer_task_count(stages) >= 2
+}
+
+/// Convenience wrapper over [`stages_have_data_parallelism`] for a finished physical plan.
+pub(crate) fn mpp_plan_has_data_parallelism(plan: &Arc<dyn ExecutionPlan>) -> bool {
+    stages_have_data_parallelism(&collect_stages(plan))
+}
+
 /// Classify each discovered stage's routing, once the worker count is known. The leader runs this
 /// (replacing the worker-side re-plan) to derive routing from the boundary type. Not filtered by
 /// proc; the blob is shared and each worker selects its own `(stage, task)` slots.
@@ -297,6 +310,7 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
         assert_eq!(max_producer_task_count(&collect_stages(&plan)), 0);
+        assert!(!mpp_plan_has_data_parallelism(&plan));
     }
 
     #[test]

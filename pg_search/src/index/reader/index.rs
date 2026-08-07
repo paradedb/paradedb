@@ -1059,11 +1059,18 @@ impl SearchIndexReader {
                         ..Default::default()
                     });
                 // Cross-segment kth sharing is on by default in the
-                // collector; the GUC is the A/B off switch.
-                let collector = if crate::gucs::enable_vector_shared_threshold() {
-                    collector
-                } else {
+                // collector; the GUC is the A/B off switch. Under a
+                // parallel scan, the DSM-backed cell replaces the
+                // collector's process-local default so the kth crosses
+                // worker processes, exactly like the score/field arms.
+                let collector = if !crate::gucs::enable_vector_shared_threshold() {
                     collector.with_shared_threshold(None)
+                } else if let Some(state) = parallel_state_holding_shared_threshold {
+                    collector.with_shared_threshold(Some(std::sync::Arc::new(
+                        crate::postgres::shared_threshold::new_score_threshold(state),
+                    )))
+                } else {
+                    collector
                 };
 
                 let mut erased_features = erased_features;

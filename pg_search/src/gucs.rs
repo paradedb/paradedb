@@ -134,6 +134,9 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
 static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+#[cfg(debug_assertions)]
+static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
 /// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
 /// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
@@ -617,6 +620,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    #[cfg(debug_assertions)]
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_test_panic_in_worker",
+        c"Trigger a panic in the MPP worker",
+        c"Used for testing error propagation.",
+        &MPP_TEST_PANIC_IN_WORKER,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.mpp_trace",
         c"Emit MPP setup timing at WARNING level",
@@ -841,6 +854,11 @@ pub fn enable_segmented_topk() -> bool {
 
 pub fn mpp_debug() -> bool {
     MPP_DEBUG.get()
+}
+
+#[cfg(debug_assertions)]
+pub fn mpp_test_panic_in_worker() -> bool {
+    MPP_TEST_PANIC_IN_WORKER.get()
 }
 
 pub fn mpp_trace() -> bool {

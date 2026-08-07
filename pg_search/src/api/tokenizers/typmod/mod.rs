@@ -623,7 +623,6 @@ GRANT SELECT ON TABLE paradedb._typmod_cache TO PUBLIC;
 
 CREATE OR REPLACE FUNCTION paradedb._save_typmod(typmod_in text[])
 RETURNS integer SECURITY DEFINER STRICT VOLATILE PARALLEL UNSAFE
-SET search_path = pg_catalog, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_id integer;
@@ -649,6 +648,13 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+
+-- Pin the SECURITY DEFINER function's search_path so its name resolution can't be
+-- redirected by a caller-controlled search_path. The body only touches the
+-- schema-qualified paradedb._typmod_cache plus pg_catalog operators. This is a
+-- separate ALTER rather than a SET clause on the CREATE above so that upgrades
+-- can apply the same one-line statement without recreating the function.
+ALTER FUNCTION paradedb._save_typmod(text[]) SET search_path = pg_catalog, pg_temp;
 "#,
     name = "typmod_cache"
 );

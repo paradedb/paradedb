@@ -216,6 +216,16 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+/// Fixed per-probe cost — the IVF cluster OPEN — in rows of full work.
+/// Testing knob for calibrating the probe-budget work model; defaults to
+/// the fitted value in tantivy.
+static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
+    GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
+
+pub fn vector_fixed_probe_cost_rows() -> f64 {
+    VECTOR_FIXED_PROBE_COST_ROWS.get()
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -436,6 +446,17 @@ pub fn init() {
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_fixed_probe_cost_rows",
+        c"Fixed per-probe cost (the cluster OPEN) in rows of full work, for the IVF probe budget (testing knob)",
+        c"How many rows of full work the fixed component of an IVF probe - opening the cluster - is modeled to cost in the probe-budget work model. Runtime-settable for testing and calibration only; the default is the value fitted on the reference fixture.",
+        &VECTOR_FIXED_PROBE_COST_ROWS,
+        0.001,
+        10_000.0,
         GucContext::Userset,
         GucFlags::default(),
     );

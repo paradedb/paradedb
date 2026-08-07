@@ -1,0 +1,227 @@
+# workflows/measure-lindera-coldstart.yml
+#
+# Measure Lindera Cold Start
+#
+# TEMPORARY — delete before merging. This answers whether the lindera 5.0.1
+# upgrade fixes issue #4840, where every ephemeral PostgreSQL parallel worker
+# repays the dictionary setup cost (163ms ko-dic, 76ms ipadic, 51ms cc-cedict)
+# on every parallel query.
+#
+# The mechanism under test:
+#
+#   main (1.5.1, `compress`)  the embedded bytes are compressed, so the macro
+#                             emits `static Lazy<Vec<u8>>` and every process
+#                             inflates the full dictionary into private heap.
+#   5.0.1 (no `compress`)     the bytes are `static &[u8]` in .rodata, handed
+#                             to the dictionary types as `Data::Static` and
+#                             read zero-copy via `DaTrust::Trusted`
+#                             (`deserialize_unchecked`, no validation pass).
+#
+# This measures the tokenizer directly rather than through SQL: it is the same
+# quantity as table 3 of #4840 ("raw paradedb.tokenize on a fresh backend"),
+# without needing a Postgres cluster. Each language runs in its own process, so
+# every reading is a genuine cold start.
+
+name: Measure Lindera Cold Start
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/measure-lindera-coldstart.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: measure-lindera-coldstart-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  measure-lindera-coldstart:
+    name: Measure Lindera Cold Start
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-arm64
+      - volume=120gb
+      # Two dictionary builds is long enough that spot reclaim is likely.
+      - spot=false
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      - name: Install required system tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            build-essential clang lld pkg-config ca-certificates git
+
+      # Untracked, so it survives the `git checkout` between configurations.
+      # The public API it uses is identical on main and on this branch.
+      - name: Write the cold-start harness
+        run: |
+          mkdir -p tokenizers/examples
+          cat > tokenizers/examples/coldstart.rs <<'RS'
+          use std::time::Instant;
+          use tantivy::tokenizer::{Tokenizer, TokenStream};
+          use tokenizers::lindera::{
+              LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
+          };
+
+          /// Times the first `token_stream()` call in a fresh process — the point at
+          /// which the dictionary is actually loaded — then a second call on the same
+          /// process to show the warm cost.
+          macro_rules! timed {
+              ($tokenizer:expr, $text:expr) => {{
+                  let mut tk = $tokenizer;
+                  let t0 = Instant::now();
+                  let mut n = 0usize;
+                  {
+                      let mut s = tk.token_stream($text);
+                      while s.advance() {
+                          n += 1;
+                      }
+                  }
+                  let cold = t0.elapsed();
+                  let t1 = Instant::now();
+                  {
+                      let mut s = tk.token_stream($text);
+                      while s.advance() {}
+                  }
+                  (cold, t1.elapsed(), n)
+              }};
+          }
+
+          fn main() {
+              let lang = std::env::args().nth(1).expect("usage: coldstart <ko|ja|zh>");
+              let (cold, warm, tokens) = match lang.as_str() {
+                  "ko" => timed!(
+                      LinderaKoreanTokenizer::new(true),
+                      "대한민국의 수도는 서울이며 인구가 밀집된 대도시입니다"
+                  ),
+                  "ja" => timed!(
+                      LinderaJapaneseTokenizer::new(true),
+                      "日本の首都は東京であり、世界的な経済の中心地です"
+                  ),
+                  "zh" => timed!(
+                      LinderaChineseTokenizer::new(true),
+                      "中国北京是亚洲的政治经济中心，也是文化中心"
+                  ),
+                  other => panic!("unknown language {other}"),
+              };
+              // A dictionary that failed to load still returns quickly, and a fast
+              // cold start that tokenized nothing is worse than no measurement at
+              // all — it looks like a result. Refuse to report one.
+              assert!(
+                  tokens > 0,
+                  "{lang}: tokenizer produced no tokens, dictionary did not load"
+              );
+              // tokens is printed so the work cannot be optimised away.
+              println!(
+                  "{lang}\t{:.1}\t{:.3}\t{tokens}",
+                  cold.as_secs_f64() * 1000.0,
+                  warm.as_secs_f64() * 1000.0
+              );
+          }
+          RS
+
+      - name: Measure both configurations
+        run: |
+          set -euo pipefail
+          RESULTS=$(mktemp)
+
+          lockfile_version() {
+            awk -v pkg="name = \"$1\"" '$0 == pkg {
+              getline; gsub(/version = |"/, ""); print; exit
+            }' Cargo.lock
+          }
+
+          measure() {
+            local label="$1"
+            echo "::group::[$label] build"
+            cargo build --release -p tokenizers --example coldstart
+            echo "::endgroup::"
+
+            local resolved lang line
+            resolved=$(lockfile_version lindera-dictionary)
+            echo "[$label] lindera-dictionary $resolved"
+
+            # A fresh process per language per repeat: every cold reading is real.
+            for lang in ko ja zh; do
+              for _ in 1 2 3; do
+                line=$(./target/release/examples/coldstart "$lang")
+                echo "  $label $line"
+                printf '%s\t%s\t%s\n' "$label" "$resolved" "$line" >> "$RESULTS"
+              done
+            done
+          }
+
+          # --- main: lindera 1.5.1, compressed embedded dictionaries ---
+          git checkout "origin/${{ github.base_ref || 'main' }}" -- Cargo.lock tokenizers tests
+          measure main
+
+          # --- this PR: lindera 5.0.1, uncompressed static embedded dictionaries ---
+          git checkout HEAD -- Cargo.lock tokenizers tests
+          grep -q 'lindera-analysis = "5.0.1"' tokenizers/Cargo.toml || {
+            echo "::error::restore left the wrong tree in place"; exit 1; }
+          measure 5.0.1
+
+          python3 - "$RESULTS" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import statistics as st
+          import sys
+          from collections import defaultdict
+
+          cold = defaultdict(list)
+          warm = defaultdict(list)
+          resolved = {}
+          for row in open(sys.argv[1]):
+              cfg, ver, lang, c, w, _n = row.split("\t")
+              cold[(cfg, lang)].append(float(c))
+              warm[(cfg, lang)].append(float(w))
+              resolved[cfg] = ver
+
+          names = {"ko": "korean_lindera (ko-dic)",
+                   "ja": "japanese_lindera (ipadic)",
+                   "zh": "chinese_lindera (cc-cedict)"}
+          cfgs = [c for c in ("main", "5.0.1") if any(k[0] == c for k in cold)]
+
+          print("## Lindera dictionary cold start\n")
+          print("Median of 3, one fresh process per reading. This is the "
+                "per-process cost that every PostgreSQL parallel worker repays "
+                "in [#4840](https://github.com/paradedb/paradedb/issues/4840).\n")
+          hdr = "| tokenizer | " + " | ".join(
+              f"`{c}` cold" for c in cfgs) + " | speedup | warm |"
+          print(hdr)
+          print("|---" * (len(cfgs) + 3) + "|")
+          for lang in ("ko", "ja", "zh"):
+              cells = []
+              for c in cfgs:
+                  v = cold.get((c, lang))
+                  cells.append(f"{st.median(v):.1f} ms" if v else "—")
+              speed = "—"
+              if len(cfgs) == 2:
+                  a, b = (cold.get((cfgs[0], lang)), cold.get((cfgs[1], lang)))
+                  if a and b and st.median(b) > 0:
+                      speed = f"**{st.median(a) / st.median(b):.0f}x**"
+              wv = warm.get((cfgs[-1], lang))
+              wcell = f"{st.median(wv):.2f} ms" if wv else "—"
+              print(f"| {names[lang]} | " + " | ".join(cells)
+                    + f" | {speed} | {wcell} |")
+          print()
+          for c in cfgs:
+              print(f"- `{c}` resolved lindera-dictionary `{resolved[c]}`")
+          PY
+
+          cat "$GITHUB_STEP_SUMMARY"

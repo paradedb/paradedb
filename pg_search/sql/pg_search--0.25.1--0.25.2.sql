@@ -29,10 +29,8 @@ GRANT SELECT ON SEQUENCE paradedb._typmod_cache_id_seq TO PUBLIC;
 -- The body below is identical to the one in
 -- pg_search/src/api/tokenizers/typmod/mod.rs. Only the header is spelled
 -- differently (`pg_catalog.int4` rather than `integer`, and the options after
--- the body rather than before it), to match what SchemaBot generates for this
--- change so that check_migration_diff.py sees the same statements. The one
--- place this deviates from SchemaBot's suggestion is `SECURITY DEFINER`, which
--- it renders as `security = 1`, which does not parse.
+-- the body rather than before it), matching what SchemaBot generates for this
+-- change so that check_migration_diff.py sees the same statements.
 DROP FUNCTION IF EXISTS paradedb._save_typmod(typmod_in text[]);
 CREATE OR REPLACE FUNCTION paradedb._save_typmod(typmod_in text[]) RETURNS pg_catalog.int4 AS $$
 DECLARE
@@ -58,4 +56,4 @@ BEGIN
 
     RETURN v_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STRICT VOLATILE PARALLEL UNSAFE SET search_path TO 'pg_catalog', 'pg_temp';
+$$ LANGUAGE plpgsql PARALLEL UNSAFE SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp' STRICT VOLATILE;

@@ -244,6 +244,16 @@ pub fn vector_anchor_factor() -> f32 {
     }
 }
 
+/// Beam width of each segment's FIRST routing round under the merged
+/// vector scan: stream heads materialize after a narrow converged round
+/// and widen back to full ef when pulled deeper. Cuts the fixed routing
+/// floor for segments the global order barely touches. 0 = full width.
+static VECTOR_ROUTING_BOOTSTRAP_EF: GucSetting<i32> = GucSetting::<i32>::new(8);
+
+pub fn vector_routing_bootstrap_ef() -> usize {
+    VECTOR_ROUTING_BOOTSTRAP_EF.get().max(0) as usize
+}
+
 /// Merged-stream vector probing: non-parallel vector ORDER BY queries
 /// collect ALL segments through one probe loop — every segment's ranked
 /// cluster stream K-way-merged on the routing key, one global work
@@ -500,6 +510,17 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_routing_bootstrap_ef",
+        c"First-round beam width for merged-scan vector routing (0 = full ef)",
+        c"Under the merged vector scan, each segment's first routing round runs at this beam width instead of the full ef, so stream heads cost a narrow converged round; pulling deeper resumes at full width. Smaller values cut fixed routing cost per query at the price of noisier first heads. 0 uses the full ef for every round.",
+        &VECTOR_ROUTING_BOOTSTRAP_EF,
+        0,
+        1024,
         GucContext::Userset,
         GucFlags::default(),
     );

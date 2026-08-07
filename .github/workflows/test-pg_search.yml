@@ -338,18 +338,6 @@ jobs:
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
-      # TEMPORARY (remove before merge): the regression diffs printed by the
-      # regress step above are buried under tens of thousands of lines of
-      # Postgres log, which makes them unreadable from the log tail. Re-print
-      # them last so they are the final thing in the job log.
-      - name: Re-print pg_regress diffs on failure
-        if: matrix.pg_impl == 'pgrx' && failure()
-        run: |
-          echo "=== changed expected files ==="
-          git diff --stat
-          echo "=== diffs ==="
-          git diff
-
   upload-coverage:
     name: Upload Combined Coverage to Codecov
     runs-on: ubuntu-latest

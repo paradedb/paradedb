@@ -13,7 +13,6 @@ SELECT 'hello, world'::pdb.ngram(66, 77)::text[];
  {}
 (1 row)
 
-
 -- An ordinary role may read the shared typmod cache but must not mutate it:
 -- the cache backs every user's ParadeDB index tokenizer configuration, so writes
 -- stay with the table owner (inserts go through SECURITY DEFINER _save_typmod).

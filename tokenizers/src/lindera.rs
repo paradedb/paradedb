@@ -24,17 +24,17 @@
  * By using this file, you agree to comply with the AGPL v3.0 terms.
  *
  */
-use lindera::character_filter::BoxCharacterFilter;
-use lindera::character_filter::unicode_normalize::{
-    UnicodeNormalizeCharacterFilter, UnicodeNormalizeKind,
-};
 use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
 use lindera::token::Token as LinderaToken;
-use lindera::token_filter::BoxTokenFilter;
-use lindera::token_filter::japanese_reading_form::JapaneseReadingFormTokenFilter;
-use lindera::token_filter::korean_reading_form::KoreanReadingFormTokenFilter;
-use lindera::tokenizer::Tokenizer as LinderaTokenizer;
+use lindera_analysis::character_filter::BoxCharacterFilter;
+use lindera_analysis::character_filter::unicode_normalize::{
+    UnicodeNormalizeCharacterFilter, UnicodeNormalizeKind,
+};
+use lindera_analysis::token_filter::BoxTokenFilter;
+use lindera_analysis::token_filter::japanese_reading_form::JapaneseReadingFormTokenFilter;
+use lindera_analysis::token_filter::korean_reading_form::KoreanReadingFormTokenFilter;
+use lindera_analysis::tokenizer::Tokenizer as LinderaTokenizer;
 use once_cell::sync::{Lazy, OnceCell};
 use std::sync::Arc;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
@@ -484,10 +484,10 @@ mod tests {
         );
     }
 
-    // An unknown word's details come from `unk.def`, where every field past the
-    // part of speech is the placeholder `*`. Substituting that into the surface
-    // form indexes every out-of-vocabulary token as an asterisk. 1.5.1 is
-    // correct, 4.0.1 is not: lindera/lindera#853.
+    // An unknown word has no reading to substitute: its details come from
+    // `unk.def`, where every field past the part of speech is the placeholder
+    // `*`. reading_form has to leave those tokens alone, or every
+    // out-of-vocabulary token indexes as an asterisk.
     #[rstest]
     fn test_lindera_japanese_reading_form_keeps_unknown_words() {
         let input = "ParadeDB は Postgres 用の検索エンジンです。";
@@ -516,8 +516,10 @@ mod tests {
         );
     }
 
-    // ko-dic has entries for some punctuation with no reading, so `,` and `!`
-    // already come out as `*`. Asserted as they are, so the bump shows it.
+    // The same placeholder reaches known words too: ko-dic has entries for
+    // punctuation like `,` and `!` that carry no reading, and `details` is
+    // padded to the schema width with `*`. An absent reading has to leave the
+    // surface form alone just as an unknown word does.
     #[rstest]
     fn test_lindera_korean_reading_form_keeps_unknown_words() {
         let input = "한국어 검색 엔진 ParadeDB, 버전 0.25.1 출시!";
@@ -532,7 +534,7 @@ mod tests {
                 "검색",
                 "엔진",
                 "ParadeDB",
-                "*", // ","
+                ",",
                 "버전",
                 "0",
                 ".",
@@ -540,8 +542,12 @@ mod tests {
                 ".",
                 "1",
                 "출시",
-                "*", // "!"
+                "!",
             ]
+        );
+        assert!(
+            !tokens.iter().any(|token| token == "*"),
+            "reading_form substituted the `*` placeholder: {tokens:?}"
         );
     }
 

@@ -23,7 +23,7 @@ use tests::fixtures::querygen::pagegen::arb_paging_exprs;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
-    Column, PgGucs, arb_joins_and_wheres, compare, generated_queries_setup,
+    Column, PgGucs, arb_joins_and_wheres, compare_outcome_retrying, generated_queries_setup,
 };
 
 use tests::fixtures::*;
@@ -34,6 +34,54 @@ use proptest::prelude::*;
 use rstest::*;
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
+
+/// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
+/// draws its randomness from the Antithesis SDK, so the platform controls and branches the
+/// entropy stream; otherwise this is just `Config::default()`.
+fn qgen_proptest_config() -> proptest::test_runner::Config {
+    #[allow(unused_mut)]
+    let mut config = proptest::test_runner::Config::default();
+    #[cfg(feature = "dst")]
+    {
+        config.rng_algorithm = proptest::test_runner::RngAlgorithm::Antithesis;
+        // No shrinking: Antithesis controls the entropy stream and fault schedule, so a replay
+        // sees a different history and the minimized input is meaningless.
+        config.max_shrink_iters = 0;
+    }
+    config
+}
+
+/// Report one case outcome as a per-test Antithesis property, then collapse it to a proptest
+/// result. The single `Always` assertion doubles as a reachability check: cataloged, it fails as
+/// unreached if the generator never produces a case. No-op under a plain `cargo test`.
+macro_rules! qgen_oracle {
+    ($prop:literal, $outcome:expr) => {{
+        let outcome = $outcome;
+        ensure_dst_init();
+        match &outcome {
+            tests::fixtures::querygen::CaseOutcome::Match => {
+                dst::assert_always!(true, $prop, &serde_json::json!({}));
+            }
+            tests::fixtures::querygen::CaseOutcome::Failure(e) => {
+                dst::assert_always!(
+                    false,
+                    $prop,
+                    &serde_json::json!({ "detail": e.to_string() })
+                );
+            }
+            // compare_outcome_retrying resolves every Transient by retrying, so this arm is
+            // defensive.
+            tests::fixtures::querygen::CaseOutcome::Transient(_, e) => {
+                dst::assert_always!(
+                    false,
+                    $prop,
+                    &serde_json::json!({ "detail": e.to_string() })
+                );
+            }
+        }
+        outcome.into_test_result()
+    }};
+}
 
 const COLUMNS: &[Column] = &[
     Column::new("id", "SERIAL8", "'4'")
@@ -208,9 +256,9 @@ async fn generated_joins_small(database: Db) {
         .iter()
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         (join, where_expr) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
@@ -222,14 +270,14 @@ async fn generated_joins_small(database: Db) {
 
         let from = format!("SELECT COUNT(*) {join_clause} ");
 
-        compare(
+        qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("{from} WHERE {}", where_expr.to_sql(" = ")),
             &format!("{from} WHERE {}", where_expr.to_sql("@@@")),
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch_one::<(i64,)>(conn).0,
-        )?;
+            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+        ))?;
     });
 }
 
@@ -254,9 +302,9 @@ async fn generated_joins_large_limit(database: Db) {
         .iter()
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         (join, where_expr) in arb_joins_and_wheres(
             Just(JoinType::Inner),
             tables,
@@ -277,14 +325,17 @@ async fn generated_joins_large_limit(database: Db) {
 
         let from = format!("SELECT {target_list} {join_clause} ");
 
-        compare(
+        // This test is #[ignore]d, so it never runs. Emit no Antithesis property for it: a cataloged
+        // `Always` that is never reached would otherwise show as a permanently-failing property.
+        compare_outcome_retrying(
             &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
             &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch_dynamic(conn).len(),
-        )?;
+            |query, conn| Ok(query.fetch_dynamic_result(conn)?.len()),
+        )
+        .into_test_result()?;
     });
 }
 
@@ -297,9 +348,9 @@ async fn generated_single_relation(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)], COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 10)], COLUMNS);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(
             vec![table_name],
             COLUMNS,
@@ -307,18 +358,18 @@ async fn generated_single_relation(database: Db) {
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
     )| {
-        compare(
+        qgen_oracle!("qgen: generated_single_relation - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
             &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
             |query, conn| {
-                let mut rows = query.fetch::<(i64,)>(conn);
+                let mut rows = query.fetch_result::<(i64,)>(conn)?;
                 rows.sort();
-                rows
+                Ok(rows)
             }
-        )?;
+        ))?;
     });
 }
 
@@ -335,7 +386,7 @@ async fn generated_group_by_aggregates(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
 
     // Columns that can be used for grouping (must have fast: true in index)
     let columns: Vec<_> = COLUMNS
@@ -346,7 +397,7 @@ async fn generated_group_by_aggregates(database: Db) {
 
     let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         text_where_expr in arb_wheres(
             vec![table_name],
             &columns,
@@ -406,9 +457,10 @@ async fn generated_group_by_aggregates(database: Db) {
         );
 
         // Custom result comparator for GROUP BY results
-        let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
+        let compare_results =
+            |query: &str, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
             // Fetch all rows as dynamic results and convert to string representation
-            let rows = query.fetch_dynamic(conn);
+            let rows = query.fetch_dynamic_result(conn)?;
             let string_rows: Vec<String> = rows
                 .into_iter()
                 .map(|row| {
@@ -436,10 +488,10 @@ async fn generated_group_by_aggregates(database: Db) {
                 })
                 .collect();
 
-            string_rows
+            Ok(string_rows)
         };
 
-        compare(&pg_query, &bm25_query, &gucs, &mut pool.pull(), &setup_sql, compare_results)?;
+        qgen_oracle!("qgen: generated_group_by_aggregates - ParadeDB result matches PostgreSQL", compare_outcome_retrying(&pg_query, &bm25_query, &gucs, &pool, &setup_sql, compare_results))?;
     });
 }
 
@@ -452,21 +504,21 @@ async fn generated_paging_small(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 1000)], COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 1000)], COLUMNS);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
         paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
-        compare(
+        qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
             &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch::<(i64,)>(conn),
-        )?;
+            |query, conn| query.fetch_result::<(i64,)>(conn),
+        ))?;
     });
 }
 
@@ -484,20 +536,20 @@ async fn generated_paging_large(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100000)], COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 100000)], COLUMNS);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
         gucs in any::<PgGucs>(),
     )| {
-        compare(
+        qgen_oracle!("qgen: generated_paging_large - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
             &format!("SELECT uuid::text FROM {table_name} WHERE name @@@ 'bob' {paging_exprs}"),
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch::<(String,)>(conn),
-        )?;
+            |query, conn| query.fetch_result::<(String,)>(conn),
+        ))?;
     });
 }
 
@@ -512,12 +564,12 @@ async fn generated_subquery(database: Db) {
     let outer_table_name = "products";
     let inner_table_name = "orders";
     let setup_sql = generated_queries_setup(
-        &mut pool.pull(),
+        &pool,
         &[(outer_table_name, 10), (inner_table_name, 10)],
         COLUMNS,
     );
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         outer_where_expr in arb_wheres(
             vec![outer_table_name],
             COLUMNS,
@@ -556,14 +608,14 @@ async fn generated_subquery(database: Db) {
             outer_where_expr.to_sql("@@@"),
         );
 
-        compare(
+        qgen_oracle!("qgen: generated_subquery - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg,
             &bm25,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch_one::<(i64,)>(conn),
-        )?;
+            |query, conn| query.fetch_one_result::<(i64,)>(conn),
+        ))?;
     });
 }
 
@@ -595,7 +647,7 @@ async fn generated_joinscan(database: Db) {
     // Three tables for 2-way and 3-way join testing
     let tables_and_sizes = [("users", 100), ("products", 100), ("orders", 100)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
@@ -608,7 +660,7 @@ async fn generated_joinscan(database: Db) {
     // NumericBytes fast field projection is tested separately in fast_fields.rs.
     let numeric_columns = ["age"];
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         num_tables in 2..=3usize,
         // Outer table BM25 predicate (always present)
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
@@ -644,7 +696,7 @@ async fn generated_joinscan(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::default();
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -727,29 +779,46 @@ async fn generated_joinscan(database: Db) {
             "{from} WHERE {bm25_where} ORDER BY {order_by} LIMIT {limit}"
         );
 
-        // Verify JoinScan was actually used
+        // Verify JoinScan was actually used, retrying transient faults like the case path.
         {
-            let conn = &mut pool.pull();
-            gucs.set().execute(conn);
-            let explain_query = format!("EXPLAIN (FORMAT JSON) {bm25_query}");
-            let (plan,): (Value,) = explain_query.fetch_one(conn);
-            let plan_str = format!("{plan:#?}");
+            use tests::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
+            let plan = match retry_transient(&pool, "qgen joinscan plan check", |conn| {
+                sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
+                    format!("EXPLAIN (FORMAT JSON) {bm25_query}").fetch_one_result::<(Value,)>(conn)
+                }))
+            }) {
+                Ok(Ok(plan)) => plan,
+                Ok(Err(e)) => {
+                    return Err(proptest::test_runner::TestCaseError::fail(format!(
+                        "{e}: EXPLAIN failed for '{bm25_query}'"
+                    )));
+                }
+                Err(RetryError::TimedOutUnderPause(e)) => {
+                    return Err(proptest::test_runner::TestCaseError::fail(format!(
+                        "EXPLAIN timed out while faults were paused, for '{bm25_query}': {e}"
+                    )));
+                }
+                Err(RetryError::GraceExpired(reason)) => {
+                    return Err(proptest::test_runner::TestCaseError::fail(reason));
+                }
+            };
+            let plan_str = format!("{:#?}", plan.0);
             prop_assert!(
                 plan_str.contains("ParadeDB Join Scan"),
                 "Query should use ParadeDB Join Scan but got plan: {plan_str}\nQuery: {bm25_query}",
             );
         }
 
-        compare(
+        qgen_oracle!("qgen: generated_joinscan - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
             |query, conn| {
-                "SET work_mem TO '16MB';".execute(conn);
+                "SET work_mem TO '16MB';".execute_result(conn)?;
                 // Use dynamic fetch since column count varies with HeapCondition
-                let rows = query.fetch_dynamic(conn);
+                let rows = query.fetch_dynamic_result(conn)?;
                 // Convert to sorted string representation for comparison
                 let mut row_strings: Vec<String> = rows
                     .into_iter()
@@ -761,9 +830,9 @@ async fn generated_joinscan(database: Db) {
                     })
                     .collect();
                 row_strings.sort();
-                row_strings
+                Ok(row_strings)
             },
-        )?;
+        ))?;
     });
 }
 
@@ -790,7 +859,7 @@ async fn generated_aggregate_join(database: Db) {
     // Three tables for 2-way and 3-way join testing
     let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
@@ -810,7 +879,7 @@ async fn generated_aggregate_join(database: Db) {
         format!("{}.metadata->'brand'", all_tables[0]),
     ]);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         num_tables in 2..=3usize,
         // Outer table BM25 predicate
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
@@ -840,7 +909,7 @@ async fn generated_aggregate_join(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::default();
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -868,14 +937,14 @@ async fn generated_aggregate_join(database: Db) {
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
 
-        compare(
+        qgen_oracle!("qgen: generated_aggregate_join - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
             |query, conn| {
-                let rows = query.fetch_dynamic(conn);
+                let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
                     .map(|row| {
@@ -901,9 +970,9 @@ async fn generated_aggregate_join(database: Db) {
                     })
                     .collect();
                 string_rows.sort();
-                string_rows
+                Ok(string_rows)
             },
-        )?;
+        ))?;
     });
 }
 
@@ -920,7 +989,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
 
     let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     let text_columns = columns_named(vec!["name"]);
     let join_key_columns = vec!["id", "age"];
@@ -930,7 +999,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
         .map(|col| col.name)
         .collect();
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         num_tables in 2..=3usize,
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         group_by_expr in arb_group_by(
@@ -954,7 +1023,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::default();
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -976,14 +1045,14 @@ async fn generated_aggregate_join_distinct(database: Db) {
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
 
-        compare(
+        qgen_oracle!("qgen: generated_aggregate_join_distinct - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
             |query, conn| {
-                let rows = query.fetch_dynamic(conn);
+                let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
                     .map(|row| {
@@ -1009,9 +1078,9 @@ async fn generated_aggregate_join_distinct(database: Db) {
                     })
                     .collect();
                 string_rows.sort();
-                string_rows
+                Ok(string_rows)
             },
-        )?;
+        ))?;
     });
 }
 
@@ -1032,7 +1101,7 @@ async fn generated_group_by_stddev(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
 
     // Columns that can be used for grouping (must have fast: true in index)
     let columns: Vec<_> = COLUMNS
@@ -1043,7 +1112,7 @@ async fn generated_group_by_stddev(database: Db) {
 
     let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         text_where_expr in arb_wheres(
             vec![table_name],
             &columns,
@@ -1081,8 +1150,9 @@ async fn generated_group_by_stddev(database: Db) {
         );
 
         // Custom result comparator that rounds f64 values to 6 decimal places
-        let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
-            let rows = query.fetch_dynamic(conn);
+        let compare_results =
+            |query: &str, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+            let rows = query.fetch_dynamic_result(conn)?;
             let mut string_rows: Vec<String> = rows
                 .into_iter()
                 .map(|row| {
@@ -1113,10 +1183,10 @@ async fn generated_group_by_stddev(database: Db) {
 
             // Sort for consistent comparison
             string_rows.sort();
-            string_rows
+            Ok(string_rows)
         };
 
-        compare(&pg_query, &bm25_query, &gucs, &mut pool.pull(), &setup_sql, compare_results)?;
+        qgen_oracle!("qgen: generated_group_by_stddev - ParadeDB result matches PostgreSQL", compare_outcome_retrying(&pg_query, &bm25_query, &gucs, &pool, &setup_sql, compare_results))?;
     });
 }
 
@@ -1141,7 +1211,7 @@ async fn generated_join_aggregates(database: Db) {
     // Two tables for join testing, small sizes to keep tests fast
     let tables_and_sizes = [("users", 30), ("products", 30)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
@@ -1154,7 +1224,7 @@ async fn generated_join_aggregates(database: Db) {
         .map(|col| format!("{}.{}", all_tables[0], col.name))
         .collect();
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         // Outer table BM25 predicate
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // GROUP BY + aggregates
@@ -1174,7 +1244,7 @@ async fn generated_join_aggregates(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::default();
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -1202,14 +1272,14 @@ async fn generated_join_aggregates(database: Db) {
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
 
-        compare(
+        qgen_oracle!("qgen: generated_join_aggregates - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
             |query, conn| {
-                let rows = query.fetch_dynamic(conn);
+                let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
                     .map(|row| {
@@ -1235,9 +1305,9 @@ async fn generated_join_aggregates(database: Db) {
                     })
                     .collect();
                 string_rows.sort();
-                string_rows
+                Ok(string_rows)
             },
-        )?;
+        ))?;
     });
 }
 
@@ -1257,7 +1327,7 @@ async fn generated_numeric_pushdown(database: Db) {
 
     let table_name = "users";
     // Use more rows to get better coverage of value ranges
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100)], COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 100)], COLUMNS);
 
     // Numeric columns for testing - includes both Numeric64 and NumericBytes storage types
     let numeric_columns = columns_named(vec![
@@ -1269,7 +1339,7 @@ async fn generated_numeric_pushdown(database: Db) {
         "age",           // INTEGER - for comparison
     ]);
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         numeric_expr in arb_numeric_expr(vec![table_name], &numeric_columns),
         gucs in any::<PgGucs>(),
     )| {
@@ -1293,18 +1363,18 @@ async fn generated_numeric_pushdown(database: Db) {
             "SELECT id FROM {table_name} WHERE {bm25_predicate} AND {where_clause} ORDER BY id"
         );
 
-        compare(
+        qgen_oracle!("qgen: generated_numeric_pushdown - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
             |query, conn| {
-                let mut rows = query.fetch::<(i64,)>(conn);
+                let mut rows = query.fetch_result::<(i64,)>(conn)?;
                 rows.sort();
-                rows
+                Ok(rows)
             },
-        )?;
+        ))?;
     });
 }
 
@@ -1339,7 +1409,7 @@ async fn generated_joinscan_semi_like(database: Db) {
         ("orders", 40),
         ("logs", 1000),
     ];
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     let all_tables = vec!["users", "products", "orders", "logs"];
     let join_key_columns = vec!["id", "age", "uuid"];
@@ -1347,7 +1417,7 @@ async fn generated_joinscan_semi_like(database: Db) {
         "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
     ];
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         semi_join in arb_semi_joins(all_tables.clone(), join_key_columns.clone()),
         inner_term in proptest::sample::select(search_terms.clone()),
         is_anti_join in proptest::bool::ANY,
@@ -1444,14 +1514,14 @@ async fn generated_joinscan_semi_like(database: Db) {
         for join_custom_scan in [false, true] {
             gucs.join_custom_scan = join_custom_scan;
 
-            compare(
+            qgen_oracle!("qgen: generated_joinscan_semi_like - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
                 &pg_query,
                 &bm25_query,
                 &gucs,
-                &mut pool.pull(),
+                &pool,
                 &setup_sql,
-                |query, conn| query.fetch::<(i64, String)>(conn),
-            )?;
+                |query, conn| query.fetch_result::<(i64, String)>(conn),
+            ))?;
         }
     });
 }
@@ -1495,8 +1565,7 @@ async fn generated_numeric_precision(database: Db) {
             ),
     ];
 
-    let setup_sql =
-        generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], precision_columns);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], precision_columns);
 
     // High-precision test values that would be indistinguishable in f64
     let precision_test_values = vec![
@@ -1507,7 +1576,7 @@ async fn generated_numeric_precision(database: Db) {
         "999999999999999999",
     ];
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         test_value in proptest::sample::select(precision_test_values),
         gucs in any::<PgGucs>(),
     )| {
@@ -1522,14 +1591,14 @@ async fn generated_numeric_precision(database: Db) {
             "SELECT COUNT(*) FROM {table_name} WHERE name @@@ 'test' AND big_int = {test_value}"
         );
 
-        compare(
+        qgen_oracle!("qgen: generated_numeric_precision - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch_one::<(i64,)>(conn).0,
-        )?;
+            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+        ))?;
     });
 }
 
@@ -1564,8 +1633,7 @@ async fn generated_numeric_range_precision(database: Db) {
             .random_generator_sql("(floor(random() * 100) + 123456789012345600)::numeric(18,0)"),
     ];
 
-    let setup_sql =
-        generated_queries_setup(&mut pool.pull(), &[(table_name, 100)], precision_columns);
+    let setup_sql = generated_queries_setup(&pool, &[(table_name, 100)], precision_columns);
 
     // Range boundaries that would collide in f64
     let range_bounds = vec![
@@ -1574,7 +1642,7 @@ async fn generated_numeric_range_precision(database: Db) {
         ("123456789012345690", "123456789012345700"),
     ];
 
-    proptest!(|(
+    proptest!(qgen_proptest_config(), |(
         (low, high) in proptest::sample::select(range_bounds),
         gucs in any::<PgGucs>(),
     )| {
@@ -1589,13 +1657,13 @@ async fn generated_numeric_range_precision(database: Db) {
             "SELECT COUNT(*) FROM {table_name} WHERE name @@@ 'test' AND big_int >= {low} AND big_int < {high}"
         );
 
-        compare(
+        qgen_oracle!("qgen: generated_numeric_range_precision - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
-            &mut pool.pull(),
+            &pool,
             &setup_sql,
-            |query, conn| query.fetch_one::<(i64,)>(conn).0,
-        )?;
+            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+        ))?;
     });
 }

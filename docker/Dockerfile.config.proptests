@@ -6,3 +6,4 @@ FROM scratch
 COPY docker/manifests/cnpg.yaml /manifests/
 COPY docker/manifests/antithesis-paradedb.yaml /manifests/
 COPY docker/manifests/antithesis-proptests.yaml /manifests/
+COPY docker/manifests/antithesis-bootstrap-gate.yaml /manifests/

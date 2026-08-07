@@ -19,6 +19,7 @@
 #![allow(unused_imports)]
 
 pub mod db;
+pub mod fault_grace;
 pub mod querygen;
 pub mod tables;
 pub mod utils;
@@ -26,14 +27,23 @@ pub mod utils;
 use async_std::task::block_on;
 use rstest::*;
 use sqlx::{self, PgConnection};
+use std::sync::Once;
 
 pub use crate::fixtures::db::*;
 pub use crate::fixtures::tables::*;
+
+/// Register the DST assertion catalog once, before any test work -- registered lazily, a
+/// run whose cases all fail during setup would report no properties. No-op unless `dst/enabled`.
+pub fn ensure_dst_init() {
+    static INIT: Once = Once::new();
+    INIT.call_once(dst::init);
+}
 
 #[fixture]
 pub fn database() -> Db {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .try_init();
+    ensure_dst_init();
     block_on(async { Db::new().await })
 }
 

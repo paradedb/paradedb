@@ -95,6 +95,34 @@ struct MppParallelProcess {
     go: u32,
 }
 
+/// The only launch outcomes that preserve the MPP mesh invariant.
+///
+/// PostgreSQL can attach fewer workers than requested, but the mesh needs at least two
+/// producers. More workers than requested would contradict the DSM allocation made for this
+/// launch and must not be treated as a valid width.
+#[derive(Debug, PartialEq, Eq)]
+enum MppAttachOutcome {
+    SerialFallback,
+    Parallel,
+}
+
+fn mpp_attach_outcome(
+    requested_producers: u32,
+    attached_producers: u32,
+) -> Result<MppAttachOutcome, String> {
+    if attached_producers > requested_producers {
+        return Err(format!(
+            "mpp: {attached_producers} workers attached after requesting {requested_producers}"
+        ));
+    }
+
+    if attached_producers < MIN_TOTAL_WORKER_COUNT - 1 {
+        Ok(MppAttachOutcome::SerialFallback)
+    } else {
+        Ok(MppAttachOutcome::Parallel)
+    }
+}
+
 impl ParallelProcess for MppParallelProcess {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
         vec![&self.mesh_region, &self.scan_state, &self.go]
@@ -357,17 +385,21 @@ fn launch_mpp(
 
     let go = unsafe { go_flag(finish.state_manager()) };
 
-    if launched < MIN_TOTAL_WORKER_COUNT - 1 {
-        // The machine could not give us the minimum two producers required for the MPP mesh.
-        // The launched workers are still on the go flag with no rings attached; release them
-        // and run serially. No `leader_setup` ran, so there are no DSM-backed senders to
-        // outlive the mapping.
-        go.store(GO_ABORT, Ordering::Release);
-        finish.wait_for_finish();
-        pgrx::warning!(
-            "mpp: launched {launched} of {producer_count} requested workers; running serially"
-        );
-        return None;
+    match mpp_attach_outcome(producer_count, launched) {
+        Ok(MppAttachOutcome::SerialFallback) => {
+            // The machine could not give us the minimum two producers required for the MPP mesh.
+            // The launched workers are still on the go flag with no rings attached; release them
+            // and run serially. No `leader_setup` ran, so there are no DSM-backed senders to
+            // outlive the mapping.
+            go.store(GO_ABORT, Ordering::Release);
+            finish.wait_for_finish();
+            pgrx::warning!(
+                "mpp: launched {launched} of {producer_count} requested workers; running serially"
+            );
+            return None;
+        }
+        Ok(MppAttachOutcome::Parallel) => {}
+        Err(e) => pgrx::error!("{e}"),
     }
 
     // PostgreSQL may attach fewer workers than requested. The plan, its task counts, and the
@@ -427,4 +459,25 @@ pub fn launch_mpp_join(
     args: ParallelScanArgs,
 ) -> Option<MppLeaderState> {
     launch_mpp(physical, plan_bytes_len, args, "mpp_launched_worker_join")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_launch_uses_the_attached_width_when_the_mesh_is_viable() {
+        assert_eq!(
+            mpp_attach_outcome(5, 0),
+            Ok(MppAttachOutcome::SerialFallback)
+        );
+        assert_eq!(
+            mpp_attach_outcome(5, 1),
+            Ok(MppAttachOutcome::SerialFallback)
+        );
+        assert_eq!(mpp_attach_outcome(5, 2), Ok(MppAttachOutcome::Parallel));
+        assert_eq!(mpp_attach_outcome(5, 3), Ok(MppAttachOutcome::Parallel));
+        assert_eq!(mpp_attach_outcome(5, 5), Ok(MppAttachOutcome::Parallel));
+        assert!(mpp_attach_outcome(5, 6).is_err());
+    }
 }

@@ -216,27 +216,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assigns_multiple_stage_tasks_to_one_proc_after_short_launch() {
-        let mut assignments = Vec::new();
-        push_owned_tasks(
-            &mut assignments,
-            7,
-            5,
-            &FragmentRouting::Coalesce { dest_proc: 0 },
-            1,
-            3,
-        );
+    fn assigns_every_logical_task_once_after_short_launch() {
+        let routing = FragmentRouting::Coalesce { dest_proc: 0 };
+        let assigned_by_proc = (1..=3)
+            .map(|proc_idx| {
+                let mut assignments = Vec::new();
+                push_owned_tasks(&mut assignments, 7, 5, &routing, proc_idx, 3);
+                assignments
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(
-            assignments
+            assigned_by_proc[0]
                 .iter()
                 .map(|assignment| assignment.task_idx)
                 .collect::<Vec<_>>(),
             vec![0, 3]
         );
-        assert!(
-            assignments
+        assert_eq!(
+            assigned_by_proc[1]
                 .iter()
+                .map(|assignment| assignment.task_idx)
+                .collect::<Vec<_>>(),
+            vec![1, 4]
+        );
+        assert_eq!(
+            assigned_by_proc[2]
+                .iter()
+                .map(|assignment| assignment.task_idx)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+
+        let mut all_tasks = assigned_by_proc
+            .iter()
+            .flatten()
+            .map(|assignment| assignment.task_idx)
+            .collect::<Vec<_>>();
+        all_tasks.sort_unstable();
+        assert_eq!(all_tasks, vec![0, 1, 2, 3, 4]);
+        assert!(
+            assigned_by_proc
+                .iter()
+                .flatten()
                 .all(|assignment| assignment.task_count == 5)
         );
     }

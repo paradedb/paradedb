@@ -151,9 +151,18 @@ fn push_owned_tasks(
     routing: &FragmentRouting,
     this_proc: u32,
     n_workers: u32,
-) {
-    for task_idx in 0..task_count {
-        if proc_for_task(n_workers, task_idx as u32) == this_proc {
+) -> Result<()> {
+    let Some(last_task_idx) = task_count.checked_sub(1) else {
+        return Ok(());
+    };
+    let last_task_idx = u32::try_from(last_task_idx).map_err(|_| {
+        DataFusionError::Internal(format!(
+            "mpp dispatch: task_count {task_count} exceeds transport u32 task IDs \
+             (stage_id={stage_num})"
+        ))
+    })?;
+    for task_idx in 0..=last_task_idx {
+        if proc_for_task(n_workers, task_idx) == this_proc {
             out.push(FragmentAssignment {
                 stage_id: stage_num,
                 task_idx,
@@ -162,6 +171,7 @@ fn push_owned_tasks(
             });
         }
     }
+    Ok(())
 }
 
 /// Expand the dispatch blob body into this worker's fragment assignments: the `(stage, task)`
@@ -182,7 +192,7 @@ fn expand_to_assignments(
             &stage.routing,
             this_proc,
             n_workers,
-        );
+        )?;
     }
     Ok(out)
 }
@@ -221,7 +231,7 @@ mod tests {
         let assigned_by_proc = (1..=3)
             .map(|proc_idx| {
                 let mut assignments = Vec::new();
-                push_owned_tasks(&mut assignments, 7, 5, &routing, proc_idx, 3);
+                push_owned_tasks(&mut assignments, 7, 5, &routing, proc_idx, 3).unwrap();
                 assignments
             })
             .collect::<Vec<_>>();
@@ -261,5 +271,23 @@ mod tests {
                 .flatten()
                 .all(|assignment| assignment.task_count == 5)
         );
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn rejects_task_counts_that_exceed_transport_task_ids() {
+        let mut assignments = Vec::new();
+        let err = push_owned_tasks(
+            &mut assignments,
+            7,
+            (u32::MAX as usize) + 2,
+            &FragmentRouting::Coalesce { dest_proc: 0 },
+            1,
+            1,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("exceeds transport u32 task IDs"));
+        assert!(assignments.is_empty());
     }
 }

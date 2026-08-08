@@ -65,8 +65,8 @@ pub struct FragmentAssignment {
     /// belongs to. Frames the fragment emits carry this in the
     /// `MppFrameHeader::stage_id` field.
     pub stage_id: u32,
-    /// Task index within the stage (0..task_count).
-    pub task_idx: usize,
+    /// Task index within the stage (0..task_count), validated for the shared-memory transport.
+    pub task_idx: u32,
     /// Total task count for this stage (= `input_stage.tasks.len()`).
     pub task_count: usize,
     /// How to route each output partition to a destination proc.
@@ -125,8 +125,8 @@ pub(crate) struct DiscoveredStage {
 
 /// Every producer stage, once per boundary. The launch walks before forking and hands the result
 /// to both [`max_producer_task_count`] and [`classify_stages`], so the two cannot disagree about
-/// which stages exist (#5667). Routing is not derived here: it needs the worker count that sizing
-/// produces.
+/// which stages exist (#5667). [`classify_stages`] derives logical task routing from this list;
+/// worker ownership remains deferred until each worker applies the actual attached width.
 pub(crate) fn collect_stages(root: &Arc<dyn ExecutionPlan>) -> Vec<DiscoveredStage> {
     let mut out = Vec::new();
     walk_stages(root, /* nested = */ false, &mut out);
@@ -278,6 +278,7 @@ mod tests {
     use super::*;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::physical_plan::empty::EmptyExec;
+    use datafusion_distributed::shm::proc_for_task;
 
     #[test]
     fn boundary_free_plan_yields_no_stages() {
@@ -325,10 +326,7 @@ mod tests {
         // This invariant is why the dispatch payload can be built while workers attach and reused
         // unchanged after a viable short launch.
         for worker_count in 1..=8 {
-            assert_eq!(
-                datafusion_distributed::shm::proc_for_task(worker_count, 0),
-                FIRST_WORKER_PROC
-            );
+            assert_eq!(proc_for_task(worker_count, 0), FIRST_WORKER_PROC);
         }
     }
 }

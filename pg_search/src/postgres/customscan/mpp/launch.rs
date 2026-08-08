@@ -424,6 +424,10 @@ fn launch_mpp(
         Ok(Some(s)) => s.as_mut_ptr() as *mut c_void,
         _ => pgrx::error!("mpp: mesh region missing"),
     };
+    // The narrow mesh depends on attached workers occupying `ParallelWorkerNumber`
+    // 0..launched-1 with no holes: PostgreSQL stops registering after the first failure,
+    // and `wait_for_attach` reports a worker that dies before attaching. Each worker maps
+    // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
     let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1, payload) } {
         Ok(l) => l,

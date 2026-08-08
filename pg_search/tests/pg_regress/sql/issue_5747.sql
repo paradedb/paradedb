@@ -2,7 +2,7 @@
 --
 -- The trigger is a join between two BM25-indexed tables whose indexes have
 -- DIFFERENT physical segment counts. Equal segment counts do not reproduce it.
--- It requires MPP to be enabled (max_parallel_workers_per_gather > 0).
+-- It requires an MPP-eligible worker configuration.
 --
 -- To get the asymmetry deterministically without needing much data:
 --   * pc_big   uses mutable_segment_rows='0', so every INSERT lands in its own

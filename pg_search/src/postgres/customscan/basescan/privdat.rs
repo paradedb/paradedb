@@ -265,6 +265,10 @@ impl PrivateData {
         &self.query
     }
 
+    pub fn query_mut(&mut self) -> &mut Option<SearchQueryInput> {
+        &mut self.query
+    }
+
     pub fn limit_offset(&self) -> &Option<LimitOffset> {
         &self.limit_offset
     }

@@ -35,6 +35,14 @@ are stored in the columnstore.
 
 In Tantivy these structures are referred to as [fast fields](https://docs.rs/tantivy/latest/tantivy/fastfield/index.html), but they are largely transparent in ParadeDB.
 
+### Vector Index
+
+Segments can also hold a vector index for any [indexed vector column](/documentation/indexing/indexing-vectors). Vectors are clustered with k-means and stored in a SPANN-style
+structure, which is similar to an IVF index but keeps per-cluster bounds that let the scan skip clusters that provably cannot improve the current top-K.
+
+Because the vectors sit in the same segment as the inverted and columnar indexes, a query that combines vector similarity with text predicates and filters resolves against one
+index, rather than intersecting the results of two separate ones. This is what makes [hybrid search](/documentation/hybrid/overview) and filtered vector search efficient.
+
 ### LSM Tree
 
 To support real-time updates, the ParadeDB index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).

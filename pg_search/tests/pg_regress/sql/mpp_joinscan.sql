@@ -231,6 +231,135 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 -- =====================================================================
+-- Pass 7: MPP with a parameterized search predicate (issue #5445)
+--
+-- length(f.title) > $1, with plan_cache_mode=force_generic_plan, keeps
+-- $1 unresolved in SearchQueryInput. Compared against the same query run
+-- serially (enable_mpp = off) so MPP-vs-serial divergence surfaces as a
+-- diff, not just a missing worker_metrics_shown flag (see #5167).
+-- =====================================================================
+
+SET paradedb.enable_mpp TO on;
+SET plan_cache_mode = force_generic_plan;
+PREPARE mpp_join_heapfilter_param(int) AS
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > $1
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE mpp_join_heapfilter_param(6);
+
+EXECUTE mpp_join_heapfilter_param(6);
+
+CREATE OR REPLACE FUNCTION mpp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  $$EXECUTE mpp_join_heapfilter_param(6)$$
+) AS line
+WHERE line LIKE '%output_rows%';
+
+DEALLOCATE mpp_join_heapfilter_param;
+
+-- Same query, run serially, to diff against the MPP result above.
+SET paradedb.enable_mpp TO off;
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > 6
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+SET paradedb.enable_mpp TO on;
+
+SET plan_cache_mode = auto;
+
+-- =====================================================================
+-- Pass 8: MPP with InitPlan/Subquery Parameter
+--
+-- Pulling from a table forces an InitPlan rather than a folded constant.
+-- The leader must evaluate and solve this before dispatching to workers.
+-- ORDER BY id in the subquery keeps the picked row stable across runs.
+-- =====================================================================
+
+SELECT count(*) > 0 AS worker_metrics_shown
+FROM mpp_explain_analyze_lines(
+  $$SELECT f.title, p.size_bytes
+    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+    WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+    ORDER BY f.title, p.size_bytes
+    LIMIT 10$$
+) AS line
+WHERE line LIKE '%output_rows%';
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+DROP FUNCTION mpp_explain_analyze_lines(text);
+
+-- =====================================================================
+-- Pass 9: MPP with two parameterized source queries (review: mithuncy)
+--
+-- Solving multiple parameterized source queries must preserve all
+-- rewritten PostgreSQL expression trees until rebaking is complete.
+-- Exercises both sources having a rewritten Param-to-Const tree, so it
+-- fails regardless of which source the JoinScan traversal visits first.
+-- =====================================================================
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE mpp_join_two_source_params(int, int) AS
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f
+JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+  AND length(f.title) > $1
+  AND p.page_text @@@ 'Page'
+  AND length(p.page_text) > $2
+ORDER BY f.id, p.id
+LIMIT 5;
+
+EXECUTE mpp_join_two_source_params(6, 6);
+
+DEALLOCATE mpp_join_two_source_params;
+SET plan_cache_mode = auto;
+
+-- =====================================================================
+-- Pass 10: MPP with a join-level parameterized predicate (review: mithuncy)
+--
+-- A cross-relation OR lives in join_level_predicates rather than either
+-- source's scan_info.query, so the clause-wide has_parameters()/
+-- has_postgres_expressions() traversal is required to catch $1 here.
+-- =====================================================================
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE mpp_join_level_param(text) AS
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f
+JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ $1
+   OR p.page_text @@@ 'Page'
+ORDER BY f.id, p.id
+LIMIT 5;
+
+EXECUTE mpp_join_level_param('does-not-match');
+
+DEALLOCATE mpp_join_level_param;
+SET plan_cache_mode = auto;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

@@ -151,11 +151,23 @@ fn probe_stats_to_segment_info(
         stats.len(),
         "vector Fruit must yield one ProbeStats per collected segment"
     );
+    // The map is keyed (and therefore ordered) by SegmentId, which loses
+    // the claim/visit order — so each entry is stamped with its position
+    // in this scan's visit sequence and the worker that scanned it
+    // (ParallelWorkerNumber; -1 = leader). Stamps ride inside the value
+    // through the DSM merge, letting consumers reconstruct per-worker
+    // visit-ordered views.
+    let worker = unsafe { pgrx::pg_sys::ParallelWorkerNumber };
     segment_ids
         .iter()
         .zip(stats.iter())
-        .map(|(id, s)| {
-            let value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+        .enumerate()
+        .map(|(visit_ordinal, (id, s))| {
+            let mut value = serde_json::to_value(s).expect("ProbeStats should serialize to JSON");
+            if let Some(map) = value.as_object_mut() {
+                map.insert("visit_ordinal".to_string(), visit_ordinal.into());
+                map.insert("worker".to_string(), worker.into());
+            }
             (*id, value)
         })
         .collect()

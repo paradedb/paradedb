@@ -61,7 +61,8 @@ ParadeDB accelerates standard SQL queries. That includes:
 - **Text**: relevance-ranked full-text queries like the one above.
 - **Aggregations**: the same index serves faceted search and aggregations, pushing filters and aggregates directly into the index instead
   of computing them afterward.
-- **Vectors**: the ParadeDB index is a high-performance, drop-in compatible version with `pgvector`.
+- **Vectors**: embeddings are indexed alongside your text and metadata, so filtered and [hybrid](/documentation/hybrid/overview) queries resolve against one index instead of
+  intersecting two.
 
 ### One Index Behind Every Query
 

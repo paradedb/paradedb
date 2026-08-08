@@ -1575,8 +1575,9 @@ impl AggregateScan {
             };
             let plan_us = t_plan.elapsed().as_micros() as u64;
 
-            // On a launch fallback (nothing to distribute, short launch) no workers remain and
-            // the `DistributedExec` shape has no mesh to read from, so replan serially below.
+            // On a launch fallback (nothing to distribute, or too few attached workers) no workers
+            // remain and the `DistributedExec` shape has no mesh to read from, so replan serially
+            // below.
             let leader = match &mpp_plan_bytes {
                 Some(bytes) => Self::launch_mpp(state, &physical_plan, bytes.len()),
                 None => None,

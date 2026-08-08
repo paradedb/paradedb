@@ -1220,10 +1220,8 @@ impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStre
 
 /// Caps a `PgSearchScanPlan`'s stage at its `partition_count` tasks.
 ///
-/// This correctly maps PostgreSQL parallel workers to tasks, ensuring that tables with 1 segment
-/// do not force MPP planning and fall back to local serial execution (under `Shared` partitioning),
-/// whereas large tables or tables utilizing `Range` partitioning scale out efficiently across
-/// available workers.
+/// This preserves useful scan parallelism: a single-segment scan has one task, while larger or
+/// range-partitioned scans expose their partitions to the distributed planner.
 pub(crate) fn pg_search_scan_desired_task_count(
     ev: DesiredTaskCountEvent,
 ) -> Option<datafusion::error::Result<DesiredTaskCountEventResponse>> {

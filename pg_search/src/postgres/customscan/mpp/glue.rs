@@ -72,7 +72,8 @@ pub(super) fn mpp_queue_size() -> usize {
 /// Total DSM bytes the leader will need for the mesh header, the worker plan, and one MPSC
 /// inbox per process. `n_procs` is the total proc count (leader + launched producers) the
 /// plan-first launch computed from the physical plan — the mesh grows as `n_procs²`, so this
-/// is sized from the plan's needs, not the GUC ceiling (#5667).
+/// is sized from the plan's needs, not the GUC ceiling (#5667). A short launch may initialize a
+/// narrower logical mesh in this allocation, but never a wider one.
 pub fn estimate_dsm_size(n_procs: u32, plan_bytes_len: usize) -> Result<usize, String> {
     shm::dsm_region_bytes(n_procs, mpp_queue_size(), plan_bytes_len).map_err(|e| e.to_string())
 }
@@ -167,8 +168,9 @@ unsafe fn self_receiver_token() -> u64 {
 /// # Safety
 /// - `coordinate` must be the MPP region pointer (a `ParallelState` byte blob the leader owns).
 /// - `n_procs` is the total mesh participant count including the leader: 1 (leader, proc 0)
-///   plus the launched producer workers. It must equal the count passed to
-///   [`estimate_dsm_size`] for this region, or the ring mesh won't fit.
+///   plus the launched producer workers. It must not exceed the count passed to
+///   [`estimate_dsm_size`] for this region. A short launch may use fewer processes than the
+///   preallocated region was sized for.
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the region.
 pub unsafe fn leader_setup(
@@ -253,6 +255,39 @@ mod tests {
 
     impl Wakeup for NoopWakeup {
         fn wake(&self, _token: u64) {}
+    }
+
+    #[test]
+    fn mesh_can_use_fewer_processes_than_its_reserved_region() {
+        // `launch_mpp` must allocate DSM before PostgreSQL tells it how many workers actually
+        // attached. Pin the transport contract that lets a short launch initialize its smaller
+        // logical mesh in the region reserved for the requested width.
+        let requested_procs = 6;
+        let launched_procs = 4;
+        let plan = [0_u8; 64];
+        let region_bytes = shm::dsm_region_bytes(requested_procs, 64 * 1024, plan.len()).unwrap();
+        let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+
+        let attach = unsafe {
+            shm::leader_setup(
+                region.as_mut_ptr().cast(),
+                launched_procs,
+                64 * 1024,
+                &plan,
+                Arc::new(NoopWakeup),
+                1,
+                Arc::new(NoInterrupt),
+                true,
+            )
+            .unwrap()
+        };
+
+        assert_eq!(attach.outbound_senders().len(), launched_procs as usize);
+        assert!(attach.outbound_senders()[0].is_none());
+        assert_eq!(
+            attach.outbound_senders().iter().flatten().count(),
+            (launched_procs - 1) as usize
+        );
     }
 
     #[test]

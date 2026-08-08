@@ -46,9 +46,15 @@ use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
+<<<<<<< HEAD
     collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
     InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, ShmChannelResolver,
     WorkerSession,
+=======
+    CooperativeDrainSet, InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh,
+    MppPartitionSink, ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task,
+    run_worker_fragment,
+>>>>>>> 5f2553993 (fix(mpp): multiplex tasks after short worker launch (#5809))
 };
 use datafusion_distributed::PartitionSink;
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
@@ -105,6 +111,10 @@ pub(crate) fn build_mpp_session_context(
         Some(m) => m.n_workers() as usize,
         None => producer_worker_cap() as usize,
     };
+    assert!(
+        n_workers >= 2,
+        "MPP session contexts require at least two producer workers"
+    );
     // Three knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
     //   1. target_partitions(N): without it, EnforceDistribution skips every
     //      RepartitionExec so the annotator never sees a Shuffle.
@@ -112,9 +122,7 @@ pub(crate) fn build_mpp_session_context(
     //      `_distribute_plan` elides every shuffle.
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
-    let cfg = seed
-        .copied_config()
-        .with_target_partitions(n_workers.max(2));
+    let cfg = seed.copied_config().with_target_partitions(n_workers);
 
     // Start from the seed's existing state so the customscan's query planner
     // (`PgSearchQueryPlanner`), optimizer rules, and registered extensions all carry over.
@@ -344,12 +352,8 @@ pub(crate) fn run_mpp_worker(
             let mut frames = Vec::with_capacity(fragments.len());
             for fragment in &fragments {
                 frames.push(
-                    take_set_plan_draining(
-                        worker_mesh,
-                        fragment.stage_id,
-                        fragment.task_idx as u32,
-                    )
-                    .await?,
+                    take_set_plan_draining(worker_mesh, fragment.stage_id, fragment.task_idx)
+                        .await?,
                 );
             }
             Ok::<_, datafusion::common::DataFusionError>(frames)
@@ -415,7 +419,7 @@ pub(crate) fn run_mpp_worker(
     let mesh_for_block = Arc::clone(worker_mesh);
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
-        let mut executed_fragments: Vec<(u32, usize, usize, Arc<dyn ExecutionPlan>)> =
+        let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> =
             Vec::with_capacity(fragments.len());
         for (fragment, frag_plan) in fragments.iter().zip(&plans) {
             let n_out = frag_plan
@@ -459,7 +463,13 @@ pub(crate) fn run_mpp_worker(
                         )));
                     }
                 };
-                let q_u32 = u32::try_from(q).unwrap_or(u32::MAX);
+                let q_u32 = u32::try_from(q).map_err(|_| {
+                    datafusion::common::DataFusionError::Internal(format!(
+                        "mpp worker dispatch: output partition {q} exceeds transport u32 \
+                         (stage_id={} task_idx={})",
+                        fragment.stage_id, fragment.task_idx,
+                    ))
+                })?;
                 crate::mpp_log!(
                     "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
                      task_idx={}) partition={q} → dest_proc={dest_proc}",
@@ -472,8 +482,7 @@ pub(crate) fn run_mpp_worker(
                 // pattern where every peer is blocked sending to a full peer.
                 per_partition_sinks.push(Box::new(MppPartitionSink::new(
                     base.clone_with_header(MppFrameHeader::batch(
-                        fragment.stage_id,
-                        q_u32,
+                        MppDataStreamKey::new(fragment.stage_id, fragment.task_idx, q_u32),
                         mesh_for_block.this_proc,
                     ))
                     .with_cooperative_drain(
@@ -489,7 +498,7 @@ pub(crate) fn run_mpp_worker(
                 .config()
                 .clone()
                 .with_extension(Arc::new(DistributedTaskContext {
-                    task_index: fragment.task_idx,
+                    task_index: fragment.task_idx as usize,
                     task_count: fragment.task_count,
                 }));
             let memory_pool =
@@ -516,7 +525,7 @@ pub(crate) fn run_mpp_worker(
             futures.push(Box::pin(dispatch_fragment_requests(
                 Arc::clone(&mesh_for_block),
                 fragment.stage_id,
-                fragment.task_idx as u32,
+                fragment.task_idx,
                 per_partition_sinks,
                 plan,
                 task_ctx,
@@ -570,10 +579,10 @@ pub(crate) fn run_mpp_worker(
         // metrics path; the bounded send drops the frame if the leader already went away.
         if let Some(base) = metrics_sender_base {
             for (stage_id, task_idx, task_count, plan) in &executed_fragments {
-                let frame = collect_task_metrics(plan, *task_idx, *task_count);
+                let frame = collect_task_metrics(plan, *task_idx as usize, *task_count);
                 let sender = base.clone_with_header(MppFrameHeader::task_metrics(
                     *stage_id,
-                    *task_idx as u32,
+                    *task_idx,
                     this_proc,
                 ));
                 let _ = sender.send_task_metrics_best_effort(&frame).await;

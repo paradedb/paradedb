@@ -1017,6 +1017,98 @@ unsafe fn build_text_funcexpr(
     }
 }
 
+/// Return `true` if `oid` names a ParadeDB `pdb.*` type that participates as an operator RHS,
+/// either directly (`pdb.query`) or via an implicit cast to `pdb.query` (`pdb.fuzzy`,
+/// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator `exec_rewrite` paths to decide
+/// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
+/// rather than the text/text[] dispatch.
+pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
+    oid == pdb_query_typoid()
+        || oid == fuzzy_typoid()
+        || oid == boost_typoid()
+        || oid == slop_typoid()
+        || oid == const_typoid()
+}
+
+/// Build a [`pg_sys::FuncExpr`] that calls `outer_sig(fieldname, pdb.query)` on an RHS whose
+/// declared type is one of `pdb.query`, `pdb.fuzzy`, `pdb.boost`, `pdb.slop`, or `pdb.const`.
+/// This is the `exec_rewrite` counterpart to the const-folding path in
+/// [`rewrite_rhs_to_search_query_input`]: it is reached when a `Param` (generic prepared plan)
+/// keeps the RHS as a non-Const node so const folding does not apply.
+///
+/// For non-`pdb.query` inputs the RHS is first wrapped in the appropriate `*_to_query` cast so
+/// that `outer_sig` type-checks. Callers pass the SQL regprocedure signature of the outer
+/// function; different operators dispatch to different runtime constructors (for example, the
+/// `===` operator uses `paradedb.term_search_query_input` to match its const path, which
+/// classifies `UnclassifiedString`/`UnclassifiedArray` into `term`/`term_set`).
+pub(crate) unsafe fn build_pdb_query_funcexpr(
+    field: FieldName,
+    rhs: *mut pg_sys::Node,
+    rhs_type: pg_sys::Oid,
+    outer_sig: &std::ffi::CStr,
+) -> pg_sys::FuncExpr {
+    let coerced_rhs: *mut pg_sys::Node = if rhs_type == pdb_query_typoid() {
+        rhs
+    } else {
+        let cast_sig: &std::ffi::CStr = if rhs_type == fuzzy_typoid() {
+            c"paradedb.fuzzy_to_query(pdb.fuzzy)"
+        } else if rhs_type == boost_typoid() {
+            c"paradedb.boost_to_query(pdb.boost)"
+        } else if rhs_type == slop_typoid() {
+            c"paradedb.slop_to_query(pdb.slop)"
+        } else if rhs_type == const_typoid() {
+            c"paradedb.const_to_query(pdb.const)"
+        } else {
+            panic!("build_pdb_query_funcexpr called with unsupported rhs type oid {rhs_type}");
+        };
+        let cast_funcid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[cast_sig.into_datum()])
+                .unwrap_or_else(|| panic!("`{}` should exist", cast_sig.to_str().unwrap()));
+
+        let mut cast_args = PgList::<pg_sys::Node>::new();
+        cast_args.push(rhs);
+        pg_sys::FuncExpr {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_FuncExpr,
+            },
+            funcid: cast_funcid,
+            funcresulttype: pdb_query_typoid(),
+            funcretset: false,
+            funcvariadic: false,
+            funcformat: pg_sys::CoercionForm::COERCE_IMPLICIT_CAST,
+            funccollid: pg_sys::Oid::INVALID,
+            inputcollid: pg_sys::Oid::INVALID,
+            args: cast_args.into_pg(),
+            location: -1,
+        }
+        .palloc()
+        .cast()
+    };
+
+    let outer_funcid =
+        direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[outer_sig.into_datum()])
+            .unwrap_or_else(|| panic!("`{}` should exist", outer_sig.to_str().unwrap()));
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(field.into_const().cast());
+    args.push(coerced_rhs);
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid: outer_funcid,
+        funcresulttype: searchqueryinput_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// is referenced by the node.
 ///

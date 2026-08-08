@@ -111,7 +111,7 @@ impl GraceWindow {
 /// Substrings that identify a transient connectivity failure when all we have is a
 /// stringified error (e.g. one already flattened by `format_postgres_error`).
 ///
-/// The `(sqlstate: ...` needles must mirror the connection-class codes in
+/// The `(sqlstate: ...` needles must mirror [`dst::is_connection_lost_sqlstate`] via
 /// [`is_transient_connection_error`]; this is the fallback for errors that have lost
 /// their structured `postgres::Error`, so keep the two lists in sync.
 const TRANSIENT_ERROR_NEEDLES: &[&str] = &[
@@ -157,13 +157,7 @@ fn message_looks_transient(msg: &str) -> bool {
 /// SQLSTATE and no `is_closed()` signal, so needle matching alone would miss it).
 fn is_transient_connection_error(e: &postgres::Error) -> bool {
     match e.as_db_error() {
-        Some(db) => {
-            let code = db.code().code();
-            // Class 08 = connection exception; 57P0x = operator/crash shutdown,
-            // "cannot connect now" (server starting up / shutting down), and idle-session
-            // timeout — all cases where the connection is gone and reconnecting is right.
-            code.starts_with("08") || matches!(code, "57P01" | "57P02" | "57P03" | "57P05")
-        }
+        Some(db) => dst::is_connection_lost_sqlstate(db.code().code()),
         // Client-side/transport failure: no answer from the server, so it never got
         // far enough to be a logical bug. Treat it as transient.
         None => true,

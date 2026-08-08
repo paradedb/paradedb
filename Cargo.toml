@@ -16,7 +16,7 @@ members = [
 default-members = ["pg_search", "tokenizers"]
 
 [workspace.package]
-version = "0.25.1"
+version = "0.25.2"
 edition = "2024"
 license = "AGPL-3.0"
 
@@ -52,10 +52,16 @@ inherits = "release"
 debug = true
 debug-assertions = false
 
-# DST build profile — `dev`-like (debug assertions on) but isolated so it can be tuned
-# without affecting `dev`.
+# DST profile: opt-level 2 (unoptimized paradedb execution dominates qgen case time otherwise) but
+# fully debuggable -- DWARF, debug assertions and overflow checks on (the dst invariants need
+# them). LTO off: it mangles frames, and with sancov's codegen-units=1 it exhausts rustc memory.
 [profile.dst]
-inherits = "dev"
+inherits = "release"
+opt-level = 2
+lto = "off"
+debug = true
+debug-assertions = true
+overflow-checks = true
 
 [workspace.dependencies]
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "15cfa80854c21955e3994a5910e12e36c90a5983", features = [

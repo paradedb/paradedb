@@ -157,6 +157,13 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// a raw per-inbox byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
+/// Longest a worker fragment waits for its next partition-execution request with none
+/// of its partitions running. Consumers issue every request while building their
+/// streams, so the wait is normally over in milliseconds; a stall this long means a
+/// consumer stopped requesting and the fragment (and the leader waiting on it) would
+/// otherwise wait forever. `0` disables the guard.
+static MPP_REQUEST_TIMEOUT: GucSetting<i32> = GucSetting::<i32>::new(300);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
@@ -646,6 +653,22 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_request_timeout",
+        c"Longest an MPP worker fragment waits for its next partition request",
+        c"Bounds how long an MPP worker fragment waits for the next partition-execution \
+          request while none of its partitions are running. Consumers issue every \
+          request while building their streams, so the wait is normally over in \
+          milliseconds; a stall this long means a consumer stopped requesting and the \
+          query would otherwise hang. Accepts standard Postgres time units. 0 disables \
+          the guard.",
+        &MPP_REQUEST_TIMEOUT,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::UNIT_S,
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -849,6 +872,10 @@ pub fn mpp_trace() -> bool {
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn mpp_request_timeout_secs() -> i32 {
+    MPP_REQUEST_TIMEOUT.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

@@ -1,0 +1,31 @@
+# Holds the Antithesis bootstrap phase open until the ParadeDB cluster accepts connections.
+# Fault injection starts when `kapp deploy` succeeds, and kapp has no wait rule for CNPG's
+# `Cluster` CRD -- it treats the cluster as done at resource creation, so faults would land while
+# initdb is still running. kapp does wait for a Job, so this Job extends the fault-free phase over
+# cluster initialization. (A custom `setup_complete` cannot: the earliest ready signal wins.)
+# https://antithesis.com/docs/getting_started/setup_guide/setup_k8s/#optional-add-a-ready-signal-for-fuzzing
+# Reuses `postgres:18` so no per-commit image patching is needed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-gate
+  namespace: default
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: bootstrap-gate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: wait-for-paradedb
+          image: docker.io/postgres:18
+          command: ["/bin/bash", "-c"]
+          # pg_isready needs no credentials and returns 0 only after initdb + post-init SQL.
+          # The timeout turns a broken cluster into a failed deploy instead of a hung run.
+          args:
+            - |
+              set -Eeuo pipefail
+              timeout 600 bash -c 'until pg_isready -q -h paradedb-rw -p 5432 -U postgres -d paradedb; do sleep 2; done'
+              echo "bootstrap-gate: paradedb-rw is accepting connections"

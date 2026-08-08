@@ -66,6 +66,18 @@ repos:
           ["--workspace", "--all-targets", "--", "-D", "warnings", "--no-deps"]
       - id: cargo-check
 
+  - repo: local
+    hooks:
+      - id: cargo-doc
+        name: cargo doc
+        entry: cargo doc
+        args: ["--workspace", "--no-deps", "--document-private-items"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.1
     hooks:

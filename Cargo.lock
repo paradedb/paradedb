@@ -151,6 +151,7 @@ dependencies = [
  "linkme",
  "once_cell",
  "rand 0.8.7",
+ "rand_core 0.10.1",
  "rustc_version_runtime",
  "serde",
  "serde_json",
@@ -842,7 +843,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "benchmarks"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -2118,7 +2119,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "2.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-06-032638#8426f845f4fc0edbffdf9152c20840fe7e01ba5f"
+source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-08-100736#91667bfc003a3118abdec2b2c4358f93ca564b08"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2737,7 +2738,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "antithesis-instrumentation",
  "antithesis_sdk",
@@ -4432,7 +4433,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5036,7 +5037,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
@@ -5069,7 +5070,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "postcard",
- "proptest",
+ "proptest 1.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "prost",
  "rand 0.10.2",
  "regex",
@@ -5674,7 +5675,26 @@ dependencies = [
  "num-traits",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
- "rand_xorshift",
+ "rand_xorshift 0.4.0",
+ "regex-syntax",
+ "rusty-fork",
+ "tempfile",
+ "unarray",
+]
+
+[[package]]
+name = "proptest"
+version = "1.11.0"
+source = "git+https://github.com/antithesishq/proptest?rev=6061eb48d67ff76f882e709677308816d5791ce7#6061eb48d67ff76f882e709677308816d5791ce7"
+dependencies = [
+ "antithesis_sdk",
+ "bit-set",
+ "bit-vec",
+ "bitflags 2.13.1",
+ "num-traits",
+ "rand 0.10.2",
+ "rand_chacha 0.10.0",
+ "rand_xorshift 0.5.0",
  "regex-syntax",
  "rusty-fork",
  "tempfile",
@@ -5709,7 +5729,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -5894,6 +5914,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_chacha"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e6af7f3e25ded52c41df4e0b1af2d047e45896c2f3281792ed68a1c243daedb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5934,6 +5964,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
 dependencies = [
  "rand_core 0.9.5",
+]
+
+[[package]]
+name = "rand_xorshift"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60aa6af80be32871323012e02e6e65f8a7cc7890931ae421d217ad8fe0df2ccf"
+dependencies = [
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -6283,7 +6322,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6882,7 +6921,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -7279,7 +7318,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -7289,13 +7328,14 @@ dependencies = [
  "chrono",
  "cmd_lib",
  "dotenvy",
+ "dst",
  "env_logger",
  "futures",
  "lockfree-object-pool",
  "num-traits",
  "pgvector",
  "pretty_assertions",
- "proptest",
+ "proptest 1.11.0 (git+https://github.com/antithesishq/proptest?rev=6061eb48d67ff76f882e709677308816d5791ce7)",
  "proptest-derive",
  "rand 0.10.2",
  "rstest",
@@ -7442,7 +7482,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "emojis",
@@ -8197,15 +8237,6 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets",
 ]

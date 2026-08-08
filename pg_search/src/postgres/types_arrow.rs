@@ -17,6 +17,7 @@
 
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::inet::InetValue;
 
 use arrow_array::Array;
 use arrow_array::cast::AsArray;
@@ -159,6 +160,11 @@ pub fn arrow_array_to_datum(
                         .parse::<pgrx::AnyNumeric>()
                         .map_err(|e| format!("Failed to parse Decimal string as AnyNumeric: {e}"))?
                         .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::INETOID) => {
+                    let inet = InetValue::decode(bytes)
+                        .map_err(|e| format!("Failed to decode inet bytes: {e}"))?;
+                    datum::Inet::from(inet.to_string()).into_datum()
                 }
                 _ => {
                     return Err(format!(

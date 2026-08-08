@@ -36,6 +36,7 @@ use crate::api::version::{Version, VersionInfo};
 use crate::postgres::customscan::explain::{ExplainFormat, format_for_explain};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::types::TantivyValue;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -1680,7 +1681,17 @@ pub fn value_to_term(
             }
         }
         PdbOwnedValue::Facet(facet) => Term::from_facet(field, facet),
-        PdbOwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
+        PdbOwnedValue::Bytes(bytes) => {
+            if matches!(field_type, FieldType::IpAddr(_)) {
+                let legacy_value = TantivyValue::try_from_inet_bytes_ipaddr(bytes)?.0;
+                let PdbOwnedValue::IpAddr(ip) = legacy_value else {
+                    unreachable!("legacy inet conversion should produce an IpAddr")
+                };
+                Term::from_field_ip_addr(field, ip)
+            } else {
+                Term::from_field_bytes(field, bytes)
+            }
+        }
         PdbOwnedValue::Object(_) => panic!("json cannot be converted to term"),
         PdbOwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
         _ => panic!("Tantivy PdbOwnedValue type not supported"),

@@ -21,8 +21,8 @@ use serde_json::json;
 use std::fmt::{Display, Formatter};
 use tantivy::Bm25Params;
 use tantivy::schema::{
-    BytesOptions, DateOptions, DateTimePrecision, FacetOptions, IpAddrOptions, JsonObjectOptions,
-    NumericOptions, TextFieldIndexing, TextOptions,
+    BytesOptions, DateOptions, DateTimePrecision, FacetOptions, JsonObjectOptions, NumericOptions,
+    TextFieldIndexing, TextOptions,
 };
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
@@ -379,28 +379,6 @@ impl From<SearchFieldConfig> for TextOptions {
     }
 }
 
-impl From<SearchFieldConfig> for IpAddrOptions {
-    fn from(config: SearchFieldConfig) -> Self {
-        let mut inet_options = IpAddrOptions::default();
-        match config {
-            SearchFieldConfig::Inet { indexed, fast, .. } => {
-                if fast {
-                    inet_options = inet_options.set_fast();
-                }
-                if indexed {
-                    inet_options = inet_options.set_indexed();
-                }
-            }
-            _ => {
-                panic!(
-                    "attempted to convert non-numeric search field config to tantivy ip addr config"
-                )
-            }
-        }
-        inet_options
-    }
-}
-
 impl From<SearchFieldConfig> for NumericOptions {
     fn from(config: SearchFieldConfig) -> Self {
         let mut numeric_options = NumericOptions::default();
@@ -507,7 +485,8 @@ impl From<SearchFieldConfig> for BytesOptions {
                 indexed,
                 fast,
                 scale: _, // Scale is metadata for ParadeDB, not used by Tantivy's BytesOptions
-            } => {
+            }
+            | SearchFieldConfig::Inet { indexed, fast } => {
                 if fast {
                     bytes_options = bytes_options.set_fast();
                 }
@@ -517,7 +496,7 @@ impl From<SearchFieldConfig> for BytesOptions {
             }
             _ => {
                 panic!(
-                    "attempted to convert non-numeric search field config to tantivy bytes config"
+                    "attempted to convert unsupported search field config to tantivy bytes config"
                 )
             }
         }

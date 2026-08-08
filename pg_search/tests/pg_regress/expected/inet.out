@@ -2,24 +2,245 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS tbl_inet;
 CREATE TABLE tbl_inet (ip inet);
-CREATE INDEX idx_inet ON tbl_inet USING bm25 (ip) WITH (key_field = 'ip');
-INSERT INTO tbl_inet (ip) VALUES ('192.168.0.1');
-SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
+CREATE INDEX idx_inet
+    ON tbl_inet
+    USING bm25 (ip)
+    WITH (key_field = 'ip');
+INSERT INTO tbl_inet (ip) VALUES
+    ('192.168.1.5/24'),
+    ('192.168.1.5/32'),
+    ('1.2.3.4'),
+    ('::ffff:1.2.3.4'),
+    ('255.255.255.255'),
+    ('::1');
+SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.term('1.2.3.4'::inet);
  count 
 -------
      1
 (1 row)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.tbl_inet
-   Output: pdb.agg_fn('COUNT(*)'::text)
-   Index: idx_inet
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ip","query_string":"192.168.0.1","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(6 rows)
+SELECT count(*) FROM tbl_inet WHERE ip @@@ '1.2.3.4';
+ count 
+-------
+     1
+(1 row)
 
+SELECT count(*) FROM tbl_inet WHERE ip @@@ '1.2.3.4 OR 255.255.255.255';
+ count 
+-------
+     2
+(1 row)
+
+SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.parse('ip:1.2.3.4');
+ count 
+-------
+     1
+(1 row)
+
+SELECT count(*) FROM tbl_inet WHERE ip @@@ '[1.2.3.4 TO 255.255.255.255]';
+ count 
+-------
+     4
+(1 row)
+
+SELECT count(*) FROM tbl_inet WHERE ip @@@ 'IN [1.2.3.4 255.255.255.255]';
+ count 
+-------
+     2
+(1 row)
+
+SET paradedb.enable_custom_scan_without_operator TO on;
+SET enable_seqscan TO off;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip = '192.168.1.5/24'::inet;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"ip","value":{"$__pdb_bytes__":[4,165,85,153,149,85,86,21,89,128]}}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip = '192.168.1.5/24'::inet;
+       ip       
+----------------
+ 192.168.1.5/24
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip <> '1.2.3.4'::inet;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"ip"}}],"must_not":[{"term":{"field":"ip","value":{"$__pdb_bytes__":[4,85,86,85,89,85,90,85,101,0]}}}]}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip <> '1.2.3.4'::inet ORDER BY ip;
+       ip        
+-----------------
+ 192.168.1.5/24
+ 192.168.1.5
+ 255.255.255.255
+ ::1
+ ::ffff:1.2.3.4
+(5 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip < '::1'::inet;
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"ip","lower_bound":null,"upper_bound":{"excluded":{"$__pdb_bytes__":[6,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,86,0]}}}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip < '::1'::inet ORDER BY ip;
+       ip        
+-----------------
+ 1.2.3.4
+ 192.168.1.5/24
+ 192.168.1.5
+ 255.255.255.255
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip <= '::1'::inet;
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"ip","lower_bound":null,"upper_bound":{"included":{"$__pdb_bytes__":[6,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,86,0]}}}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip <= '::1'::inet ORDER BY ip;
+       ip        
+-----------------
+ 1.2.3.4
+ 192.168.1.5/24
+ 192.168.1.5
+ 255.255.255.255
+ ::1
+(5 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip > '::1'::inet;
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"ip","lower_bound":{"excluded":{"$__pdb_bytes__":[6,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,86,0]}},"upper_bound":null}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip > '::1'::inet ORDER BY ip;
+       ip       
+----------------
+ ::ffff:1.2.3.4
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip >= '::1'::inet;
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"ip","lower_bound":{"included":{"$__pdb_bytes__":[6,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,86,0]}},"upper_bound":null}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip >= '::1'::inet ORDER BY ip;
+       ip       
+----------------
+ ::1
+ ::ffff:1.2.3.4
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip BETWEEN '192.168.1.5/24'::inet AND '::1'::inet;
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+   Output: ip
+   Table: tbl_inet
+   Index: idx_inet
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Fast Fields: ip
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"ip","lower_bound":{"included":{"$__pdb_bytes__":[4,165,85,153,149,85,86,21,89,128]}},"upper_bound":null}},{"range":{"field":"ip","lower_bound":null,"upper_bound":{"included":{"$__pdb_bytes__":[6,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,85,86,0]}}}}]}}
+(9 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() AND ip BETWEEN '192.168.1.5/24'::inet AND '::1'::inet ORDER BY ip;
+       ip        
+-----------------
+ 192.168.1.5/24
+ 192.168.1.5
+ 255.255.255.255
+ ::1
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() ORDER BY ip ASC LIMIT 4;
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Limit
+   Output: ip
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
+         Output: ip
+         Table: tbl_inet
+         Index: idx_inet
+         Worker Selection: Row-capped
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: ip asc
+            TopK Limit: 4
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
+
+SELECT ip FROM tbl_inet WHERE ip @@@ paradedb.all() ORDER BY ip ASC LIMIT 4;
+       ip        
+-----------------
+ 1.2.3.4
+ 192.168.1.5/24
+ 192.168.1.5
+ 255.255.255.255
+(4 rows)
+
+RESET paradedb.enable_custom_scan_without_operator;
+RESET enable_seqscan;
 RESET paradedb.enable_aggregate_custom_scan;

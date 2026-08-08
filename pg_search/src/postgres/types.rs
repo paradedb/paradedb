@@ -20,6 +20,7 @@ use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::inet::InetValue;
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::range::RangeToTantivyValue;
@@ -37,7 +38,7 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::net::{AddrParseError, IpAddr};
+use std::net::IpAddr;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 use tantivy::schema::{Facet, IntoIpv6Addr};
@@ -59,6 +60,40 @@ impl Default for TantivyValue {
 }
 
 impl TantivyValue {
+    /// Convert a PostgreSQL INET value to Tantivy's IpAddr representation.
+    /// Used only for legacy indexes whose tantivy schema stored INET fields as IpAddr.
+    pub fn try_from_inet_ipaddr(val: pgrx::Inet) -> Result<Self, TantivyValueError> {
+        let addr = val
+            .parse::<IpAddr>()
+            .map_err(|error| TantivyValueError::InetError(error.to_string()))?;
+        Ok(TantivyValue(PdbOwnedValue::IpAddr(addr.into_ipv6_addr())))
+    }
+
+    /// Convert an encoded INET value to the IpAddr representation used by legacy indexes.
+    pub fn try_from_inet_bytes_ipaddr(encoded: &[u8]) -> Result<Self, TantivyValueError> {
+        let inet = InetValue::decode(encoded)
+            .map_err(|error| TantivyValueError::InetError(error.to_string()))?;
+        Self::try_from_inet_ipaddr(inet.to_string().into())
+    }
+
+    /// Convert a PostgreSQL INET datum for a legacy IpAddr-backed index.
+    pub unsafe fn try_from_inet_datum_ipaddr(datum: Datum) -> Result<Self, TantivyValueError> {
+        let val =
+            pgrx::datum::Inet::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+        Self::try_from_inet_ipaddr(val)
+    }
+
+    /// Convert a PostgreSQL INET[] datum for a legacy IpAddr-backed index.
+    pub unsafe fn try_from_inet_array_ipaddr(datum: Datum) -> Result<Vec<Self>, TantivyValueError> {
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| Self::try_from_inet_datum_ipaddr(element_datum))
+            .collect()
+    }
+
     pub fn into_tantivy_value(
         self,
         index_created_by_version: Option<crate::api::version::Version>,
@@ -1211,10 +1246,10 @@ impl TryFrom<pgrx::Inet> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Inet) -> Result<Self, Self::Error> {
-        match val.parse::<IpAddr>() {
-            Ok(addr) => Ok(TantivyValue(PdbOwnedValue::IpAddr(addr.into_ipv6_addr()))),
-            Err(err) => Err(TantivyValueError::InetError(err)),
-        }
+        let inet = val
+            .parse::<InetValue>()
+            .map_err(|error| TantivyValueError::InetError(error.to_string()))?;
+        Ok(TantivyValue(PdbOwnedValue::Bytes(inet.encode())))
     }
 }
 
@@ -1222,12 +1257,17 @@ impl TryFrom<TantivyValue> for pgrx::Inet {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let PdbOwnedValue::IpAddr(val) = value.0 {
-            Ok(val.to_string().into())
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            // Legacy indexes return IpAddr values; new indexes return encoded Bytes.
+            PdbOwnedValue::IpAddr(val) => Ok(val.to_string().into()),
+            PdbOwnedValue::Bytes(encoded) => {
+                let inet = InetValue::decode(&encoded)
+                    .map_err(|error| TantivyValueError::InetError(error.to_string()))?;
+                Ok(inet.to_string().into())
+            }
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "inet".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -1276,8 +1316,8 @@ pub enum TantivyValueError {
     #[error("Failed UUID conversion: {0}")]
     UuidConversionError(String),
 
-    #[error(transparent)]
-    InetError(#[from] AddrParseError),
+    #[error("inet conversion error: {0}")]
+    InetError(String),
 
     #[error("Could not dereference postgres datum")]
     DatumDeref,

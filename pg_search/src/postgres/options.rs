@@ -1391,6 +1391,9 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             indexed: true,
             fast: true,
         },
+        SearchFieldType::InetIpAddr(_) => {
+            unreachable!("InetIpAddr is only derived from an existing index schema")
+        }
         SearchFieldType::Json(_) => SearchFieldConfig::Json {
             indexed: true,
             fast: true,

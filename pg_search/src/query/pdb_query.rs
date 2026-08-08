@@ -18,6 +18,7 @@
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::inet::{InetValue, InetValueError};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::query::numeric::{
@@ -32,6 +33,7 @@ use crate::query::{
     QueryError, SearchQueryInput, check_range_bounds, coerce_bound_to_field_type, value_to_term,
 };
 use crate::schema::{IndexRecordOption, SearchField, SearchFieldType, SearchIndexSchema};
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use pgrx::PgOid;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::{InOutFuncs, StringInfo, pg_extern, pg_schema};
@@ -1868,13 +1870,14 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_type();
 
-    // Handle Numeric64 and NumericBytes fields specially
-    // Tantivy's QueryParser can't parse decimal strings directly for these types
+    // Handle field types whose indexed representation differs from their query string.
     if matches!(
         field_type,
-        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(..)
+        SearchFieldType::Numeric64(_, _)
+            | SearchFieldType::NumericBytes(..)
+            | SearchFieldType::Inet(_)
     ) {
-        // Convert the query string to the appropriate numeric format
+        // Convert the query string to the field's indexed representation.
         let value = PdbOwnedValue::Str(query_string.trim().to_string());
         if let Ok(converted) = convert_value_for_field(value, &field_type) {
             let tantivy_field_type = search_field.field_entry().field_type();
@@ -2128,6 +2131,7 @@ pub(super) fn parse_tantivy_query(
 ) -> anyhow::Result<Box<dyn Query>> {
     if lenient {
         let (mut ast, _) = query_grammar::parse_query_lenient(query_string);
+        rewrite_inet_literals(&mut ast, schema, true)?;
         if index_created_by_version.stores_datetimes_in_i64() {
             rewrite_timestamp_literals(&mut ast, schema);
         }
@@ -2136,6 +2140,7 @@ pub(super) fn parse_tantivy_query(
     } else {
         let mut ast = query_grammar::parse_query(query_string)
             .map_err(|_| QueryError::GrammarParseError(query_string.to_string()))?;
+        rewrite_inet_literals(&mut ast, schema, false)?;
         if index_created_by_version.stores_datetimes_in_i64() {
             rewrite_timestamp_literals(&mut ast, schema);
         }
@@ -2144,6 +2149,103 @@ pub(super) fn parse_tantivy_query(
             .map_err(|err| QueryError::ParseError(err, query_string.to_string()))?;
         Ok(parsed_query)
     }
+}
+
+/// Walks the parsed user query AST and rewrites textual inet literals as Base64-encoded
+/// bytes, which is the query-string representation Tantivy expects for bytes fields.
+fn rewrite_inet_literals(
+    ast: &mut UserInputAst,
+    schema: &SearchIndexSchema,
+    lenient: bool,
+) -> Result<(), InetValueError> {
+    match ast {
+        UserInputAst::Clause(children) => {
+            for (_, child) in children {
+                rewrite_inet_literals(child, schema, lenient)?;
+            }
+            Ok(())
+        }
+        UserInputAst::Boost(inner, _) => rewrite_inet_literals(inner, schema, lenient),
+        UserInputAst::Leaf(leaf) => {
+            if let Err(error) = rewrite_inet_leaf(leaf, schema) {
+                if lenient {
+                    *ast = UserInputAst::Clause(Vec::new());
+                    Ok(())
+                } else {
+                    Err(error)
+                }
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+fn rewrite_inet_leaf(
+    leaf: &mut UserInputLeaf,
+    schema: &SearchIndexSchema,
+) -> Result<(), InetValueError> {
+    match leaf {
+        UserInputLeaf::Literal(literal) => {
+            if let Some(field_name) = literal.field_name.as_deref() {
+                rewrite_inet_phrase(&mut literal.phrase, field_name, schema)?;
+            }
+        }
+        UserInputLeaf::Range {
+            field: Some(field_name),
+            lower,
+            upper,
+        } => {
+            rewrite_inet_bound(lower, field_name, schema)?;
+            rewrite_inet_bound(upper, field_name, schema)?;
+        }
+        UserInputLeaf::Set {
+            field: Some(field_name),
+            elements,
+        } => {
+            for element in elements {
+                rewrite_inet_phrase(element, field_name, schema)?;
+            }
+        }
+        // Tantivy resolves unfielded Literal/Range/Set leaves against default fields later,
+        // so their field type is unavailable during this rewrite pass.
+        _ => (),
+    }
+
+    Ok(())
+}
+
+fn rewrite_inet_bound(
+    bound: &mut UserInputBound,
+    field_name: &str,
+    schema: &SearchIndexSchema,
+) -> Result<(), InetValueError> {
+    match bound {
+        UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
+            rewrite_inet_phrase(phrase, field_name, schema)?;
+        }
+        UserInputBound::Unbounded => (),
+    }
+
+    Ok(())
+}
+
+fn rewrite_inet_phrase(
+    phrase: &mut String,
+    field_name: &str,
+    schema: &SearchIndexSchema,
+) -> Result<(), InetValueError> {
+    let Some(_) = schema
+        .search_field(field_name)
+        .map(|field| field.field_type())
+        .filter(|field_type| matches!(field_type, SearchFieldType::Inet(_)))
+    else {
+        return Ok(());
+    };
+
+    let inet = phrase.parse::<InetValue>()?;
+    *phrase = BASE64_STANDARD.encode(inet.encode());
+    Ok(())
 }
 
 /// Walks the parsed user query AST and rewrites date/timestamp-string phrases as i64s.

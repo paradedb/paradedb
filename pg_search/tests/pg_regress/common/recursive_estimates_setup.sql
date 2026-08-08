@@ -7,7 +7,7 @@
 -- Create dedicated schema and table for recursive estimates tests (isolated from other tests)
 CREATE SCHEMA IF NOT EXISTS recursive_test;
 DROP TABLE IF EXISTS recursive_test.estimate_items CASCADE;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
         schema_name => 'recursive_test',
         table_name => 'estimate_items'
      );

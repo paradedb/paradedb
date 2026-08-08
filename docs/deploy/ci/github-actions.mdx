@@ -53,7 +53,7 @@ jobs:
 
       - name: Run ParadeDB example queries
         run: |
-          psql -h localhost -U testuser -d testdb -c "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+          psql -h localhost -U testuser -d testdb -c "CALL paradedb.create_paradedb_test_table(schema_name => 'public', table_name => 'mock_items');"
           psql -h localhost -U testuser -d testdb -c "SELECT description, rating, category FROM mock_items LIMIT 3;"
           psql -h localhost -U testuser -d testdb -c "CREATE INDEX search_idx ON mock_items USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');"
           psql -h localhost -U testuser -d testdb -c "SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;"

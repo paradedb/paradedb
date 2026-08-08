@@ -56,10 +56,10 @@ type MockDeliveryRow = (
 );
 
 #[pg_extern(sql = "
-CREATE OR REPLACE PROCEDURE paradedb.create_bm25_test_table(table_name VARCHAR DEFAULT 'bm25_test_table', schema_name VARCHAR DEFAULT 'paradedb', table_type paradedb.TestTable DEFAULT 'Items')
+CREATE OR REPLACE PROCEDURE paradedb.create_paradedb_test_table(table_name VARCHAR DEFAULT 'bm25_test_table', schema_name VARCHAR DEFAULT 'paradedb', table_type paradedb.TestTable DEFAULT 'Items')
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ", requires = [ TestTable ])]
-fn create_bm25_test_table(
+fn create_paradedb_test_table(
     table_name: Option<&str>,
     schema_name: Option<&str>,
     table_type: Option<TestTable>,

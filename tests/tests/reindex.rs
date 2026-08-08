@@ -160,7 +160,7 @@ async fn reindex_schema_validation(mut conn: PgConnection) -> Result<()> {
 #[rstest]
 #[async_std::test]
 async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
 
     // Create a partial index

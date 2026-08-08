@@ -31,7 +31,7 @@ fn fmt_err<T: std::error::Error>(err: T) -> String {
 
 #[rstest]
 fn invalid_create_index(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
 
     match r#"CREATE INDEX index_config_index ON index_config
@@ -48,7 +48,7 @@ fn invalid_create_index(mut conn: PgConnection) {
 
 #[rstest]
 fn prevent_duplicate(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -109,7 +109,7 @@ async fn drop_column(mut conn: PgConnection) {
 
 #[rstest]
 fn default_text_field(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -127,7 +127,7 @@ fn default_text_field(mut conn: PgConnection) {
 
 #[rstest]
 fn text_field_with_options(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -147,7 +147,7 @@ fn text_field_with_options(mut conn: PgConnection) {
 
 #[rstest]
 fn multiple_text_fields(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -172,7 +172,7 @@ fn multiple_text_fields(mut conn: PgConnection) {
 
 #[rstest]
 fn default_numeric_field(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -190,7 +190,7 @@ fn default_numeric_field(mut conn: PgConnection) {
 
 #[rstest]
 fn numeric_field_with_options(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -208,7 +208,7 @@ fn numeric_field_with_options(mut conn: PgConnection) {
 
 #[rstest]
 fn default_boolean_field(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -226,7 +226,7 @@ fn default_boolean_field(mut conn: PgConnection) {
 
 #[rstest]
 fn boolean_field_with_options(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -244,7 +244,7 @@ fn boolean_field_with_options(mut conn: PgConnection) {
 
 #[rstest]
 fn default_json_field(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -262,7 +262,7 @@ fn default_json_field(mut conn: PgConnection) {
 
 #[rstest]
 fn json_field_with_options(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -284,7 +284,7 @@ fn json_field_with_options(mut conn: PgConnection) {
 
 #[rstest]
 fn default_datetime_field(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -303,7 +303,7 @@ fn default_datetime_field(mut conn: PgConnection) {
 
 #[rstest]
 fn datetime_field_with_options(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -323,7 +323,7 @@ fn datetime_field_with_options(mut conn: PgConnection) {
 
 #[rstest]
 fn multiple_fields(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
@@ -357,7 +357,7 @@ fn missing_schema_index(mut conn: PgConnection) {
 
 #[rstest]
 fn null_values(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     "INSERT INTO paradedb.index_config (description, category, rating) VALUES ('Null Item 1', NULL, NULL), ('Null Item 2', NULL, 2)"
@@ -1136,7 +1136,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
 
 #[rstest]
 fn expression_with_options(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config

@@ -22,7 +22,7 @@ use tests::fixtures::*;
 #[rstest]
 fn mvcc_heap_filter(mut conn: PgConnection) {
     r#"
-        CALL paradedb.create_bm25_test_table(table_name => 'heap_and_clauses_table', schema_name => 'public');
+        CALL paradedb.create_paradedb_test_table(table_name => 'heap_and_clauses_table', schema_name => 'public');
 
         CREATE INDEX heap_and_clauses_idx ON heap_and_clauses_table
         USING bm25 (id, description)
@@ -53,7 +53,7 @@ fn mvcc_heap_filter(mut conn: PgConnection) {
 #[rstest]
 fn mvcc_snippet(mut conn: PgConnection) {
     r#"
-        CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+        CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
         
         CREATE INDEX mock_items_idx ON mock_items
         USING bm25 (id, description)

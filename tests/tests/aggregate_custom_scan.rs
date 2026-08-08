@@ -155,7 +155,7 @@ fn test_group_by_null_bucket(mut conn: PgConnection) {
 
 #[rstest]
 fn test_no_bm25_index(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'no_bm25', schema_name => 'paradedb');"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'no_bm25', schema_name => 'paradedb');"
         .execute(&mut conn);
 
     "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);

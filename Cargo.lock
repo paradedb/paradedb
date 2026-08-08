@@ -2205,11 +2205,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "2.0.0"
-<<<<<<< HEAD
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-06-032638#8426f845f4fc0edbffdf9152c20840fe7e01ba5f"
-=======
 source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-08-100736#91667bfc003a3118abdec2b2c4358f93ca564b08"
->>>>>>> 5f2553993 (fix(mpp): multiplex tasks after short worker launch (#5809))
 dependencies = [
  "async-stream",
  "async-trait",

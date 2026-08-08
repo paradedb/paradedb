@@ -140,14 +140,9 @@ unsafe fn go_flag(sm: &ParallelStateManager) -> &'static AtomicU32 {
 }
 
 /// AggregateScan worker entry point. PG resolves this symbol by name (passed to
-<<<<<<< HEAD
-/// `ParallelProcessBuilder::build`), so the name must match the string in [`launch_mpp_aggregate`].
-#[no_mangle]
-=======
 /// `ParallelProcessBuilder::build`), so the name must match the string in
 /// [`launch_mpp_aggregate`].
 #[unsafe(no_mangle)]
->>>>>>> 5f2553993 (fix(mpp): multiplex tasks after short worker launch (#5809))
 #[pgrx::pg_guard]
 pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     seg: *mut pg_sys::dsm_segment,

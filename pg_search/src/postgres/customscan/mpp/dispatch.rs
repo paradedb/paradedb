@@ -265,12 +265,10 @@ mod tests {
             .collect::<Vec<_>>();
         all_tasks.sort_unstable();
         assert_eq!(all_tasks, vec![0, 1, 2, 3, 4]);
-        assert!(
-            assigned_by_proc
-                .iter()
-                .flatten()
-                .all(|assignment| assignment.task_count == 5)
-        );
+        assert!(assigned_by_proc
+            .iter()
+            .flatten()
+            .all(|assignment| assignment.task_count == 5));
     }
 
     #[test]

@@ -46,15 +46,9 @@ use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::shm::{
-<<<<<<< HEAD
     collect_task_metrics, proc_for_task, run_worker_fragment, CooperativeDrainSet,
-    InProcessWorkerResolver, MppFrameHeader, MppMesh, MppPartitionSink, ShmChannelResolver,
-    WorkerSession,
-=======
-    CooperativeDrainSet, InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh,
-    MppPartitionSink, ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task,
-    run_worker_fragment,
->>>>>>> 5f2553993 (fix(mpp): multiplex tasks after short worker launch (#5809))
+    InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh, MppPartitionSink,
+    ShmChannelResolver, WorkerSession,
 };
 use datafusion_distributed::PartitionSink;
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;

@@ -271,6 +271,10 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          # The snapshot image carries its own postgresql.auto.conf, so setting changes made
+          # after the snapshot was captured must be re-applied on every restore.
+          echo "max_parallel_workers = 12" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
+          echo "max_worker_processes = 16" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (100K)
@@ -303,6 +307,10 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          # The snapshot image carries its own postgresql.auto.conf, so setting changes made
+          # after the snapshot was captured must be re-applied on every restore.
+          echo "max_parallel_workers = 12" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
+          echo "max_worker_processes = 16" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (1M)
@@ -335,6 +343,10 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          # The snapshot image carries its own postgresql.auto.conf, so setting changes made
+          # after the snapshot was captured must be re-applied on every restore.
+          echo "max_parallel_workers = 12" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
+          echo "max_worker_processes = 16" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (20M)
@@ -367,6 +379,10 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          # The snapshot image carries its own postgresql.auto.conf, so setting changes made
+          # after the snapshot was captured must be re-applied on every restore.
+          echo "max_parallel_workers = 12" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
+          echo "max_worker_processes = 16" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       # vchord requires `shared_preload_libraries = ...,vchord`, but the restore above overwrote
@@ -418,6 +434,10 @@ jobs:
             --repo-region "${BACKREST_REPO_REGION}" \
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}")
+          # The snapshot image carries its own postgresql.auto.conf, so setting changes made
+          # after the snapshot was captured must be re-applied on every restore.
+          echo "max_parallel_workers = 12" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
+          echo "max_worker_processes = 16" >> "/home/runner/.pgrx/data-${{ env.pg_version }}/postgresql.auto.conf"
           (cd pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Preload vchord after restore (cohere/vchord, 10M)

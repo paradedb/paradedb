@@ -1248,9 +1248,27 @@ impl CustomScan for BaseScan {
                     .set_exec_method_type(ExecMethodType::Normal);
             }
 
+            // #5727: collect heap-filter and PostgresExpression nodes so we can
+            // hand them to `custom_exprs` below. `finalize_plan` walks that field
+            // for Param references; without it, `Gather.initParam` omits InitPlan
+            // outputs and parallel workers execute with empty param slots.
+            let expr_nodes = builder
+                .custom_private_mut()
+                .query_mut()
+                .as_mut()
+                .map(|q| q.collect_expression_nodes())
+                .unwrap_or_default();
+
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {
                 scan.scan.plan.qual = subplan_quals.into_pg();
+            }
+            if !expr_nodes.is_empty() {
+                let mut expr_list = PgList::<pg_sys::Node>::new();
+                for node in expr_nodes {
+                    expr_list.push(node);
+                }
+                scan.custom_exprs = expr_list.into_pg();
             }
             scan
         }

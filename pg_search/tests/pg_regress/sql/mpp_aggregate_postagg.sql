@@ -38,14 +38,14 @@ CREATE TABLE mpp_postagg_pages (
 );
 
 CREATE INDEX mpp_postagg_files_idx ON mpp_postagg_files
-USING bm25 (id, title, category, content)
+USING paradedb (id, title, category, content)
 WITH (
     key_field='id',
     text_fields='{"title": {"fast": true}, "category": {"fast": true}, "content": {}}'
 );
 
 CREATE INDEX mpp_postagg_pages_idx ON mpp_postagg_pages
-USING bm25 (id, file_id, page_text, size_bytes)
+USING paradedb (id, file_id, page_text, size_bytes)
 WITH (
     key_field='id',
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
@@ -225,7 +225,7 @@ CREATE TABLE mpp_postagg_categories (
 );
 
 CREATE INDEX mpp_postagg_categories_idx ON mpp_postagg_categories
-USING bm25 (id, name, description)
+USING paradedb (id, name, description)
 WITH (
     key_field='id',
     text_fields='{"name": {"fast": true}, "description": {}}'

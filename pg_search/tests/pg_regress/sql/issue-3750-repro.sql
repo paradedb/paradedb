@@ -18,7 +18,7 @@ CREATE TABLE places (
 );
 
 -- Create the BM25 index as specified in the issue
-CREATE INDEX places_parade_idx ON places USING bm25 (id, name, country_code) WITH (key_field='id');
+CREATE INDEX places_parade_idx ON places USING paradedb (id, name, country_code) WITH (key_field='id');
 
 -- Insert test data that matches the issue's scenario
 -- The issue mentions "assist wireless" matching rows

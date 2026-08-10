@@ -535,7 +535,7 @@ INSERT INTO json_pushdown_test (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_pushdown_test ON json_pushdown_test
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{json_fields_config}'

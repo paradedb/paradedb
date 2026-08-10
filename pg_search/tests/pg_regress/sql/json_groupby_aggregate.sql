@@ -28,7 +28,7 @@ INSERT INTO json_test_single (metadata, data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
-USING bm25 (id, metadata, data)
+USING paradedb (id, metadata, data)
 WITH (
     key_field = 'id',
     json_fields = '{
@@ -72,7 +72,7 @@ INSERT INTO json_test_multiple (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_multiple ON json_test_multiple
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -119,7 +119,7 @@ INSERT INTO json_test_aggregates (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_aggregates ON json_test_aggregates
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -243,7 +243,7 @@ INSERT INTO json_test_nulls (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_nulls ON json_test_nulls
-USING bm25 (id, metadata)
+USING paradedb (id, metadata)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -284,7 +284,7 @@ INSERT INTO ledger_transactions (metadata_json, amount) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_ledger_json ON ledger_transactions
-USING bm25 (id, metadata_json, amount)
+USING paradedb (id, metadata_json, amount)
 WITH (
     key_field = 'id',
     json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -327,7 +327,7 @@ INSERT INTO json_test_deep (config) VALUES
 
 -- Create BM25 index with nested JSON fields
 CREATE INDEX idx_json_deep ON json_test_deep
-USING bm25 (id, config)
+USING paradedb (id, config)
 WITH (
     key_field = 'id',
     json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -385,7 +385,7 @@ INSERT INTO json_test_mixed (data) VALUES
 
 -- Create BM25 index 
 CREATE INDEX idx_json_mixed ON json_test_mixed
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (
     key_field = 'id',
     json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -464,7 +464,7 @@ INSERT INTO json_test_operators (payload) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_operators ON json_test_operators
-USING bm25 (id, payload)
+USING paradedb (id, payload)
 WITH (
     key_field = 'id',
     json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -544,7 +544,7 @@ INSERT INTO json_test_complex (document) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_complex ON json_test_complex
-USING bm25 (id, document)
+USING paradedb (id, document)
 WITH (
     key_field = 'id',
     json_fields = '{"document": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -618,7 +618,7 @@ INSERT INTO json_test_reconstruction (config) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_reconstruction ON json_test_reconstruction
-USING bm25 (id, config)
+USING paradedb (id, config)
 WITH (
     key_field = 'id',
     json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
@@ -713,7 +713,7 @@ INSERT INTO json_test_multi_subfields (user_profile, order_details) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_multi_subfields ON json_test_multi_subfields
-USING bm25 (id, user_profile, order_details)
+USING paradedb (id, user_profile, order_details)
 WITH (
     key_field = 'id',
     json_fields = '{
@@ -849,7 +849,7 @@ INSERT INTO json_test_special (content) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_special ON json_test_special
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (
     key_field = 'id',
     json_fields = '{"content": {"indexed": true, "fast": true, "expand_dots": true}}'

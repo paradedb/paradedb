@@ -28,7 +28,7 @@ INSERT INTO test (message) VALUES ('wine cheese a');
 INSERT INTO test (message) VALUES ('wine a');
 INSERT INTO test (message) VALUES ('cheese a');
 
-CREATE INDEX idxtest ON test USING bm25(
+CREATE INDEX idxtest ON test USING paradedb (
     id,
     message,
     (category::pdb.literal)

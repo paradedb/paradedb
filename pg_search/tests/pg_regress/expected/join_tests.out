@@ -112,11 +112,11 @@ INSERT INTO bridge_table (author_id, book_id, relationship_type, strength) VALUE
 (1, 6, 'secondary', 5), (6, 8, 'primary', 8);
 ERROR:  relation "bridge_table" does not exist at character 13
 -- Create BM25 indexes
-CREATE INDEX authors_bm25_idx ON authors USING bm25 (id, name, bio, country) WITH (key_field = 'id');
-CREATE INDEX books_bm25_idx ON books USING bm25 (id, title, content) WITH (key_field = 'id');
-CREATE INDEX reviews_bm25_idx ON reviews USING bm25 (id, content) WITH (key_field = 'id');
-CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name, description) WITH (key_field = 'id');
-CREATE INDEX publishers_bm25_idx ON publishers USING bm25 (id, name, description) WITH (key_field = 'id');
+CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, country) WITH (key_field = 'id');
+CREATE INDEX books_bm25_idx ON books USING paradedb (id, title, content) WITH (key_field = 'id');
+CREATE INDEX reviews_bm25_idx ON reviews USING paradedb (id, content) WITH (key_field = 'id');
+CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name, description) WITH (key_field = 'id');
+CREATE INDEX publishers_bm25_idx ON publishers USING paradedb (id, name, description) WITH (key_field = 'id');
 -- =============================================================================
 -- SECTION 1: Equi-joins with various join types
 -- =============================================================================

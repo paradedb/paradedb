@@ -51,8 +51,8 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
 --    INSERT INTO a (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
 --    INSERT INTO b (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
         
-    CREATE INDEX idxa ON public.a USING bm25 (id, value) WITH (key_field=id, text_fields='{"value": {}}');
-    CREATE INDEX idxb ON public.b USING bm25 (id, value) WITH (key_field=id, text_fields='{"value": {}}');
+    CREATE INDEX idxa ON public.a USING paradedb (id, value) WITH (key_field=id, text_fields='{"value": {}}');
+    CREATE INDEX idxb ON public.b USING paradedb (id, value) WITH (key_field=id, text_fields='{"value": {}}');
     "#
         .execute(&mut conn);
 
@@ -110,8 +110,8 @@ fn snippet_from_join(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     INSERT INTO a (id, value) VALUES (1, 'beer'), (2, 'wine'), (3, 'cheese');
     INSERT INTO b (id, value) VALUES (1, 'beer'), (2, 'wine'), (3, 'cheese');
 
-    CREATE INDEX idxa ON a USING bm25 (id, value) WITH (key_field='id', text_fields='{"value": {}}');
-    CREATE INDEX idxb ON b USING bm25 (id, value) WITH (key_field='id', text_fields='{"value": {}}');
+    CREATE INDEX idxa ON a USING paradedb (id, value) WITH (key_field='id', text_fields='{"value": {}}');
+    CREATE INDEX idxb ON b USING paradedb (id, value) WITH (key_field='id', text_fields='{"value": {}}');
     "#
         .execute(&mut conn);
 
@@ -167,7 +167,7 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
         (4,   2, 'right token', 'b', 'a004'),
         (5,   2, 'right token', 'b', 'a005');
 
-    CREATE INDEX dup_items_idx ON dup_items USING bm25 (id, grp, body, ord, side)
+    CREATE INDEX dup_items_idx ON dup_items USING paradedb (id, grp, body, ord, side)
     WITH (
         key_field = 'id',
         numeric_fields = '{"grp": {"fast": true}}',
@@ -254,7 +254,7 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         (4,   2, 'right token', 'b', 'a004'),
         (5,   2, 'right token', 'b', 'a005');
 
-    CREATE INDEX dup_items_idx ON dup_items USING bm25 (id, grp, body, ord, side)
+    CREATE INDEX dup_items_idx ON dup_items USING paradedb (id, grp, body, ord, side)
     WITH (
         key_field = 'id',
         numeric_fields = '{"grp": {"fast": true}}',
@@ -375,7 +375,7 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
         (15, 'lll_sup', 'electronics supplier fifteen');
 
     CREATE INDEX misbind_products_bm25 ON misbind_products
-    USING bm25 (id, name, description, supplier_id)
+    USING paradedb (id, name, description, supplier_id)
     WITH (
         key_field = 'id',
         text_fields = '{"name": {"fast": true}, "description": {"fast": true}}',
@@ -383,7 +383,7 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
     );
 
     CREATE INDEX misbind_suppliers_bm25 ON misbind_suppliers
-    USING bm25 (id, name, info)
+    USING paradedb (id, name, info)
     WITH (
         key_field = 'id',
         text_fields = '{"name": {"fast": true}}'
@@ -466,9 +466,9 @@ fn joinscan_nullable_numeric_composite_sort_matches_fallback(
     INSERT INTO nn_child SELECT g, ((g * 7) % 2000) + 1 FROM generate_series(1, 400) g;
 
     CREATE TYPE nn_ps AS (kind pdb.literal_normalized, score_num numeric);
-    CREATE INDEX nn_parent_bm25 ON nn_parent USING bm25 (id, (ROW(kind, score_num)::nn_ps))
+    CREATE INDEX nn_parent_bm25 ON nn_parent USING paradedb (id, (ROW(kind, score_num)::nn_ps))
     WITH (key_field = 'id');
-    CREATE INDEX nn_child_bm25 ON nn_child USING bm25 (id, parent_id)
+    CREATE INDEX nn_child_bm25 ON nn_child USING paradedb (id, parent_id)
     WITH (key_field = 'id');
     ANALYZE nn_parent;
     ANALYZE nn_child;

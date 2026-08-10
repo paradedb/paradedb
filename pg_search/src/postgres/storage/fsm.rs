@@ -1199,7 +1199,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_basics() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1253,7 +1253,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_large_extend_drain() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1289,7 +1289,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_no_future_drain() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1323,7 +1323,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_many_xids() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1360,7 +1360,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_full() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1416,7 +1416,7 @@ pub mod v2 {
 
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_race_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_race_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_race_idx'::regclass::oid")?
@@ -1492,7 +1492,7 @@ pub mod v2 {
 
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_partial_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_partial_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_partial_idx'::regclass::oid")?
@@ -1556,7 +1556,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_extend_with_splice() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_sparse_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_sparse_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_sparse_idx'::regclass::oid")?
@@ -1605,7 +1605,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_with_holes() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1673,7 +1673,7 @@ pub mod v2 {
         unsafe fn test_create_index_slot_distribution() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
@@ -1719,7 +1719,7 @@ pub mod v2 {
         unsafe fn test_fsmv2_tolerates_corrupt_metadata() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run(
-                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')",
+                "CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING paradedb (id, data) WITH (key_field = 'id')",
             )?;
 
             let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?

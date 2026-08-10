@@ -47,7 +47,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     );
 
     CREATE INDEX concurrent_items_bm25 ON public.concurrent_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -117,7 +117,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_a_bm25 ON public.index_a
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -126,7 +126,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_b_bm25 ON public.index_b
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -235,11 +235,11 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
 
     -- Create BM25 indexes BEFORE inserting data
     CREATE INDEX idx_parade_core ON core
-    USING bm25 (dwf_doid, author)
+    USING paradedb (dwf_doid, author)
     WITH (key_field='dwf_doid');
 
     CREATE INDEX idx_parade_document_text ON document_text
-    USING bm25 (dwf_doid, full_text)
+    USING paradedb (dwf_doid, full_text)
     WITH (key_field='dwf_doid');
     "#
     .execute(&mut conn);
@@ -395,7 +395,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
     );
 
     CREATE INDEX idx_test ON test
-    USING bm25 (column_a, column_b)
+    USING paradedb (column_a, column_b)
     WITH (
         key_field='column_a',
         target_segment_count = 1

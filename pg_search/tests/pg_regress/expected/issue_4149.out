@@ -32,7 +32,7 @@ SELECT
 FROM generate_series(1, ceil(:rows / 8.0)::int) AS s(i);
 CREATE INDEX documents_bm25
 ON documents
-USING bm25 (row_id, file_id, file_title, doc_title, doc_parents)
+USING paradedb (row_id, file_id, file_title, doc_title, doc_parents)
 WITH (
   key_field = 'row_id',
   text_fields = '{

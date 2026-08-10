@@ -10,7 +10,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX idx_mock_items ON mock_items
-    USING bm25 (id, description, category, rating, in_stock)
+    USING paradedb (id, description, category, rating, in_stock)
     WITH (
         key_field='id',
         text_fields='{"description": {}, "category": {"fast": true}}',
@@ -185,7 +185,7 @@ CREATE TABLE agg_null_test (
 );
 
 CREATE INDEX idx_agg_null_test ON agg_null_test
-USING bm25 (id, category, score)
+USING paradedb (id, category, score)
 WITH (
     key_field='id',
     text_fields='{"category": {"fast": true}}',

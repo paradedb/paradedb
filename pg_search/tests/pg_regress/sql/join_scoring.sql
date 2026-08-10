@@ -53,9 +53,9 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country)
 WITH (key_field = 'id');
 
 -- Make sure the GUC is enabled

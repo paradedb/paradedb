@@ -44,7 +44,7 @@ FROM generate_series(1, 500) as i
 WHERE i % 3 = 0 AND i % 15 = 0;
 
 CREATE INDEX items_idx ON items
-USING bm25 (id, name, alt_name, category)
+USING paradedb (id, name, alt_name, category)
 WITH (
     key_field = id,
     text_fields = '{
@@ -55,7 +55,7 @@ WITH (
 );
 
 CREATE INDEX exclusions_idx ON exclusions
-USING bm25 (id, pattern, reason)
+USING paradedb (id, pattern, reason)
 WITH (
     key_field = id,
     text_fields = '{
@@ -486,7 +486,7 @@ FROM generate_series(1, 100) as i
 WHERE i % 5 = 0;
 
 CREATE INDEX items_vc_idx ON items_vc
-USING bm25 (id, name, alt_name, category)
+USING paradedb (id, name, alt_name, category)
 WITH (
     key_field = id,
     text_fields = '{
@@ -497,7 +497,7 @@ WITH (
 );
 
 CREATE INDEX exclusions_vc_idx ON exclusions_vc
-USING bm25 (id, pattern)
+USING paradedb (id, pattern)
 WITH (
     key_field = id,
     text_fields = '{
@@ -990,14 +990,14 @@ INSERT INTO coll_patterns (id, pattern) VALUES
     (3, 'gamma');
 
 CREATE INDEX coll_items_idx ON coll_items
-    USING bm25 (id, name, pattern_id)
+    USING paradedb (id, name, pattern_id)
     WITH (
         key_field = id,
         text_fields = '{"name": {"fast": true, "tokenizer": {"type": "keyword"}}}',
         numeric_fields = '{"pattern_id": {"fast": true}}'
     );
 CREATE INDEX coll_patterns_idx ON coll_patterns
-    USING bm25 (id, pattern)
+    USING paradedb (id, pattern)
     WITH (
         key_field = id,
         text_fields = '{"pattern": {"fast": true, "tokenizer": {"type": "keyword"}}}'

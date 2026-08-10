@@ -19,7 +19,7 @@ INSERT INTO citext_basic (id, name) VALUES
     (5, 'Open Source');
 
 CREATE INDEX ON citext_basic
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Basic search
@@ -63,7 +63,7 @@ INSERT INTO citext_nulls (id, content) VALUES
     (5, 'final content');
 
 CREATE INDEX ON citext_nulls
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (key_field = 'id');
 
 -- NULLs should not appear in search results
@@ -90,7 +90,7 @@ INSERT INTO citext_multi (id, title, description) VALUES
     (4, 'Dragonfruit','An exotic FRUIT');
 
 CREATE INDEX ON citext_multi
-USING bm25 (id, title, description)
+USING paradedb (id, title, description)
 WITH (key_field = 'id');
 
 -- Search each column
@@ -116,7 +116,7 @@ INSERT INTO citext_mixed (id, text_col, citext_col) VALUES
     (3, 'STRAWBERRY',   'Watermelon');
 
 CREATE INDEX ON citext_mixed
-USING bm25 (id, text_col, citext_col)
+USING paradedb (id, text_col, citext_col)
 WITH (key_field = 'id');
 
 -- Both TEXT and CITEXT columns benefit from default tokenizer lowercasing
@@ -142,7 +142,7 @@ INSERT INTO citext_queries (id, content) VALUES
     (4, 'lazy dog sleeps');
 
 CREATE INDEX ON citext_queries
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (key_field = 'id');
 
 -- ||| (match) with citext
@@ -186,7 +186,7 @@ INSERT INTO citext_unicode (id, name) VALUES
     (4, 'Café');
 
 CREATE INDEX ON citext_unicode
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 SELECT id, name FROM citext_unicode WHERE name ||| 'naïve'   ORDER BY id;
@@ -209,7 +209,7 @@ INSERT INTO citext_empty (id, content) VALUES
     (3, '');
 
 CREATE INDEX ON citext_empty
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (key_field = 'id');
 
 SELECT id, content FROM citext_empty WHERE content ||| 'content' ORDER BY id;
@@ -237,7 +237,7 @@ INSERT INTO citext_agg (id, category, value) VALUES
     (5, 'Beta',  50);
 
 CREATE INDEX ON citext_agg
-USING bm25 (id, category, value)
+USING paradedb (id, category, value)
 WITH (key_field = 'id');
 
 -- GROUP BY on citext column — aggregatescan calls try_into_datum with citext OID
@@ -267,7 +267,7 @@ INSERT INTO citext_rhs (id, name) VALUES
     (2, 'PostgreSQL');
 
 CREATE INDEX ON citext_rhs
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Case-insensitive match via v2 operator
@@ -291,7 +291,7 @@ INSERT INTO citext_term_op (id, name) VALUES
     (3, 'postgres');
 
 CREATE INDEX ON citext_term_op
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Passes a citext AnyElement to term_with_operator — hits the citext branch
@@ -316,7 +316,7 @@ INSERT INTO citext_columnar (id, name) VALUES
     (3, 'Gamma');
 
 CREATE INDEX ON citext_columnar
-USING bm25 (id, name)
+USING paradedb (id, name)
 WITH (key_field = 'id');
 
 -- Columnar exec projects the citext fast field directly from the index
@@ -346,7 +346,7 @@ INSERT INTO citext_topk (id, content) VALUES
     (6, 'brown fox');                     -- no 'quick' → not returned
 
 CREATE INDEX ON citext_topk
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (key_field = 'id');
 
 -- ||| (match): lowercase and UPPERCASE queries must return the same rows in the same Top-K order
@@ -391,7 +391,7 @@ INSERT INTO citext_prepared (id, content) VALUES
     (3, 'ParadeDB Search');
 
 CREATE INDEX ON citext_prepared
-USING bm25 (id, content)
+USING paradedb (id, content)
 WITH (key_field = 'id');
 
 SET plan_cache_mode = force_generic_plan;

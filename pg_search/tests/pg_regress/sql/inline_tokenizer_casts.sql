@@ -17,7 +17,7 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, rating, category, in_stock, metadata, created_at, weight_range)
+USING paradedb (id, description, rating, category, in_stock, metadata, created_at, weight_range)
 WITH (key_field='id');
 
 --

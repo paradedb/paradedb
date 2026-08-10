@@ -27,7 +27,7 @@ fn test_subselect(mut conn: PgConnection) {
         INSERT INTO test_subselect(t) VALUES ('this is a test');
 
         CREATE INDEX test_subselect_idx ON test_subselect
-        USING bm25 (id, t)
+        USING paradedb (id, t)
         WITH (key_field = 'id');
     "#
     .execute(&mut conn);
@@ -47,7 +47,7 @@ fn test_cte(mut conn: PgConnection) {
         INSERT INTO test_cte(t) VALUES ('beer cheese');
 
         CREATE INDEX test_cte_idx ON test_cte
-        USING bm25 (id, t)
+        USING paradedb (id, t)
         WITH (key_field = 'id');
     "#
     .execute(&mut conn);
@@ -68,7 +68,7 @@ fn test_cte2(mut conn: PgConnection) {
         INSERT INTO test_cte(t) VALUES ('beer cheese');
 
         CREATE INDEX test_cte_idx ON test_cte
-        USING bm25 (id, t)
+        USING paradedb (id, t)
         WITH (key_field = 'id');
     "#
     .execute(&mut conn);
@@ -87,7 +87,7 @@ fn test_plain_relation(mut conn: PgConnection) {
         INSERT INTO test_plain_relation(t) VALUES ('beer wine cheese');
 
         CREATE INDEX test_plain_relation_idx ON test_plain_relation
-        USING bm25 (id, t)
+        USING paradedb (id, t)
         WITH (key_field = 'id');
     "#
     .execute(&mut conn);

@@ -285,7 +285,7 @@ INSERT INTO test (message) VALUES ('cheese a');
 
 -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
 
-CREATE INDEX idxtest ON test USING bm25(id, message) WITH (key_field = 'id');
+CREATE INDEX idxtest ON test USING paradedb (id, message) WITH (key_field = 'id');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;

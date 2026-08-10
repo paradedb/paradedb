@@ -51,7 +51,7 @@ fn self_referencing_var(mut conn: PgConnection) {
     INSERT INTO test (id, value) SELECT x, md5(x::text) FROM generate_series(1, 100) x;
     UPDATE test SET value = 'value contains id = ' || id WHERE id BETWEEN 10 and 20;
 
-    CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
+    CREATE INDEX idxtest ON test USING paradedb (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -94,7 +94,7 @@ fn parallel_with_subselect(mut conn: PgConnection) {
     INSERT INTO test (id, value) SELECT x, md5(x::text) FROM generate_series(1, 100) x;
     UPDATE test SET value = 'value contains id = ' || id WHERE id BETWEEN 10 and 20;
 
-    CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
+    CREATE INDEX idxtest ON test USING paradedb (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -131,7 +131,7 @@ fn parallel_function_with_agg_subselect(mut conn: PgConnection) {
     INSERT INTO test (id, value) SELECT x, md5(x::text) FROM generate_series(1, 100) x;
     UPDATE test SET value = 'value contains id = ' || id WHERE id BETWEEN 10 and 20;
 
-    CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
+    CREATE INDEX idxtest ON test USING paradedb (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -175,7 +175,7 @@ fn test_issue2061(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -222,7 +222,7 @@ fn generic_plan_consistent_results_issue_4665(mut conn: PgConnection) {
     FROM generate_series(1, 200) AS i;
 
     CREATE INDEX issue_4665_idx ON issue_4665
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -287,7 +287,7 @@ fn generic_plan_parameterized_limit_issue_4665(mut conn: PgConnection) {
     FROM generate_series(1, 200) AS i;
 
     CREATE INDEX issue_4665_plim_idx ON issue_4665_plim
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -356,7 +356,7 @@ fn generic_plan_natural_transition_issue_4665(mut conn: PgConnection) {
     FROM generate_series(1, 200) AS i;
 
     CREATE INDEX issue_4665_nat_idx ON issue_4665_nat
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -419,7 +419,7 @@ fn generic_plan_parameterized_offset(
     SELECT 'document about technology number ' || i
     FROM generate_series(1, 200) AS i;
     CREATE INDEX param_offset_idx ON param_offset_test
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -489,9 +489,9 @@ fn joinscan_survives_parameterized_limit(
     SELECT 'product ' || i || ' in electronics', 1 + (i % 3)
     FROM generate_series(1, 100) AS i;
     CREATE INDEX js_prods_idx ON js_prods
-    USING bm25 (id, name, cat_id) WITH (key_field = 'id');
+    USING paradedb (id, name, cat_id) WITH (key_field = 'id');
     CREATE INDEX js_cats_idx ON js_cats
-    USING bm25 (id, label) WITH (key_field = 'id');
+    USING paradedb (id, label) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -560,7 +560,7 @@ fn snippet_with_parameterized_args(mut conn: PgConnection) {
     ('a technology document about computers and technology advances'),
     ('science is great for learning new things about the world');
     CREATE INDEX snippet_param_idx ON snippet_param_test
-    USING bm25 (id, content) WITH (key_field = 'id');
+    USING paradedb (id, content) WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -645,7 +645,7 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
     SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
     FROM generate_series(1, 100) AS i;
     CREATE INDEX agg_param_idx ON agg_param_test
-    USING bm25 (id, content, category) WITH (
+    USING paradedb (id, content, category) WITH (
         key_field = 'id',
         text_fields = '{"category": {"fast": true}}'
     );

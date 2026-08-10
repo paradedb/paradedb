@@ -33,21 +33,21 @@ INSERT INTO fb_tags (product_id, tag_name) VALUES
 INSERT INTO fb_reviews (product_id, rating) VALUES
     (1, 5), (1, 4), (2, 3), (3, 4);
 CREATE INDEX fb_products_idx ON fb_products
-USING bm25 (id, description, category, price)
+USING paradedb (id, description, category, price)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}}'
 );
 CREATE INDEX fb_tags_idx ON fb_tags
-USING bm25 (id, product_id, tag_name)
+USING paradedb (id, product_id, tag_name)
 WITH (
     key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );
 CREATE INDEX fb_reviews_idx ON fb_reviews
-USING bm25 (id, product_id, rating)
+USING paradedb (id, product_id, rating)
 WITH (
     key_field='id',
     numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'

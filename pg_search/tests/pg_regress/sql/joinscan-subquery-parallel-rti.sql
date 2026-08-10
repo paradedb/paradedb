@@ -48,15 +48,15 @@ CREATE TABLE js_rti_excluded (
 SET paradedb.global_mutable_segment_rows = 0;
 
 CREATE INDEX js_rti_items_bm25 ON js_rti_items
-USING bm25 (id, category_id, overview)
+USING paradedb (id, category_id, overview)
 WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
 
 CREATE INDEX js_rti_people_bm25 ON js_rti_people
-USING bm25 (id, company_id)
+USING paradedb (id, company_id)
 WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
 
 CREATE INDEX js_rti_excluded_bm25 ON js_rti_excluded
-USING bm25 (id, company_id, technology_name)
+USING paradedb (id, company_id, technology_name)
 WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
 
 -- Insert in batches to create multiple segments for parallel execution.

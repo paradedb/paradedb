@@ -22,7 +22,7 @@ INSERT INTO docs (body, category, has_attachment) VALUES
     ('architecture design doc',  'engineering', false);
 
 CREATE INDEX docs_idx ON docs
-USING bm25 (id, body, category, has_attachment)
+USING paradedb (id, body, category, has_attachment)
 WITH (key_field = 'id');
 
 -- Test 1: terms aggregation on a boolean field using single-argument pdb.agg(jsonb)
@@ -58,7 +58,7 @@ INSERT INTO docs_nullable (body, category, has_flag) VALUES
     ('another true',    'x', true);
 
 CREATE INDEX docs_nullable_idx ON docs_nullable
-USING bm25 (id, body, (category::pdb.unicode_words('columnar=true')), has_flag)
+USING paradedb (id, body, (category::pdb.unicode_words('columnar=true')), has_flag)
 WITH (key_field = 'id');
 
 -- 4a: EXPLAIN to confirm aggregate custom scan is used

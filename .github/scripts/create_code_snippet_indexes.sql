@@ -1,5 +1,5 @@
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   description,
   category,
@@ -18,5 +18,5 @@ WITH (
 );
 
 CREATE INDEX orders_idx ON orders
-USING bm25 (order_id, product_id, order_quantity, order_total, customer_name)
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
 WITH (key_field = 'order_id');

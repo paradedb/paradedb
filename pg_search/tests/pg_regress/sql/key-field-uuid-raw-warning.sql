@@ -6,7 +6,7 @@ CREATE TABLE public.key_field_uuid_raw
 );
 
 CREATE INDEX test_search_index on public.key_field_uuid_raw
-    USING bm25 (id, metadata_json)
+    USING paradedb (id, metadata_json)
     WITH (
     key_field = id,
     json_fields='{

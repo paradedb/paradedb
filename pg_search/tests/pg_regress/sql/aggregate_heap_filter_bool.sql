@@ -21,7 +21,7 @@ FROM generate_series(1, 500) g;
 
 -- `flag` is intentionally NOT indexed, so predicates on it become heap filters.
 CREATE INDEX agg_heap_bool_idx ON agg_heap_bool
-USING bm25 (id, category) WITH (key_field = 'id');
+USING paradedb (id, category) WITH (key_field = 'id');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 

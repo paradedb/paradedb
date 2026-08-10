@@ -38,13 +38,13 @@ INSERT INTO product_tags_op VALUES
     (3, 300, 'niche');
 
 CREATE INDEX companies_op_idx ON companies_op
-USING bm25 (id, name) WITH (key_field = 'id');
+USING paradedb (id, name) WITH (key_field = 'id');
 
 CREATE INDEX products_op_idx ON products_op
-USING bm25 (id, company_id, description) WITH (key_field = 'id');
+USING paradedb (id, company_id, description) WITH (key_field = 'id');
 
 CREATE INDEX product_tags_op_idx ON product_tags_op
-USING bm25 (id, product_id, tag) WITH (key_field = 'id');
+USING paradedb (id, product_id, tag) WITH (key_field = 'id');
 
 CREATE TABLE categories_op (
     id INTEGER PRIMARY KEY,

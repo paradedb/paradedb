@@ -6,14 +6,14 @@ CREATE TABLE issue_join_pre_filter_users (
     id integer PRIMARY KEY,
     reputation integer
 );
-CREATE INDEX ON issue_join_pre_filter_users USING bm25 (id, reputation) WITH (key_field=id, sort_by='id ASC NULLS FIRST');
+CREATE INDEX ON issue_join_pre_filter_users USING paradedb (id, reputation) WITH (key_field=id, sort_by='id ASC NULLS FIRST');
 
 CREATE TABLE issue_join_pre_filter_posts (
     id integer PRIMARY KEY,
     title text,
     owner_user_id integer
 );
-CREATE INDEX ON issue_join_pre_filter_posts USING bm25 (id, (title::pdb.unicode_words('columnar=true')), owner_user_id) WITH (key_field=id, sort_by='owner_user_id ASC NULLS FIRST');
+CREATE INDEX ON issue_join_pre_filter_posts USING paradedb (id, (title::pdb.unicode_words('columnar=true')), owner_user_id) WITH (key_field=id, sort_by='owner_user_id ASC NULLS FIRST');
 
 INSERT INTO issue_join_pre_filter_users SELECT i, 200 FROM generate_series(1, 10000) i;
 INSERT INTO issue_join_pre_filter_posts SELECT i, 'how using get create', i % 1000 + 1 FROM generate_series(1, 10000) i;

@@ -32,7 +32,7 @@ INSERT INTO numeric64_test (price, quantity, rate) VALUES
     (9999999.99, 999, 999999.999999),
     (123.45, 15, 1.500000);
 
-CREATE INDEX numeric64_idx ON numeric64_test USING bm25 (
+CREATE INDEX numeric64_idx ON numeric64_test USING paradedb (
     id, price, quantity, rate
 ) WITH (key_field = 'id');
 
@@ -142,7 +142,7 @@ INSERT INTO numeric_bytes_test (big_value, huge_precision) VALUES
     (-12345678901234567890.12345, -12345678901234567890.1234567890),
     (-1.0, -1.0000000000);
 
-CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING bm25 (
+CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING paradedb (
     id, big_value, huge_precision
 ) WITH (key_field = 'id');
 
@@ -224,7 +224,7 @@ INSERT INTO numeric_mixed_test (small_numeric, large_numeric, unlimited_numeric)
     (200.50, 98765432109876543210.54321, 888888888888888888888.8888),
     (50.25, 11111111111111111111.11111, 777777777777777777777.7777);
 
-CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING bm25 (
+CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING paradedb (
     id, small_numeric, large_numeric, unlimited_numeric
 ) WITH (key_field = 'id');
 
@@ -284,7 +284,7 @@ INSERT INTO numeric_edge_test (val) VALUES
     (99999999.99),
     (-99999999.99);
 
-CREATE INDEX numeric_edge_idx ON numeric_edge_test USING bm25 (
+CREATE INDEX numeric_edge_idx ON numeric_edge_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -359,7 +359,7 @@ INSERT INTO numeric_precision_test (big_int) VALUES
     (123456789012345679),
     (999999999999999999);
 
-CREATE INDEX numeric_precision_idx ON numeric_precision_test USING bm25 (
+CREATE INDEX numeric_precision_idx ON numeric_precision_test USING paradedb (
     id, big_int
 ) WITH (key_field = 'id');
 
@@ -410,7 +410,7 @@ INSERT INTO numeric_bytes_precision_test (precise_value) VALUES
     (12345678901234567890.123456789012345678901234567890),
     (12345678901234567890.123456789012345678901234567891);
 
-CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING bm25 (
+CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING paradedb (
     id, precise_value
 ) WITH (key_field = 'id');
 
@@ -451,7 +451,7 @@ INSERT INTO int8range_precision_test (val) VALUES
     ('[9007199254740994, 9007199254740996)'::int8range),  -- id=2: contains 9007199254740994, 9007199254740995
     ('[9007199254740996, 9007199254740998)'::int8range);  -- id=3: contains 9007199254740996, 9007199254740997
 
-CREATE INDEX int8range_precision_idx ON int8range_precision_test USING bm25 (
+CREATE INDEX int8range_precision_idx ON int8range_precision_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -490,7 +490,7 @@ INSERT INTO numrange_precision_test (val) VALUES
     ('[9007199254740994, 9007199254740996)'::numrange),  -- id=2: should contain 9007199254740994, 9007199254740995
     ('[9007199254740996, 9007199254740998)'::numrange);  -- id=3: should contain 9007199254740996, 9007199254740997
 
-CREATE INDEX numrange_precision_idx ON numrange_precision_test USING bm25 (
+CREATE INDEX numrange_precision_idx ON numrange_precision_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -531,7 +531,7 @@ INSERT INTO numeric_array_test (vals) VALUES
     ('{10, 20, 30}'::numeric[]),
     ('{100.123, 200.456, 300.789}'::numeric[]);
 
-CREATE INDEX numeric_array_idx ON numeric_array_test USING bm25 (
+CREATE INDEX numeric_array_idx ON numeric_array_test USING paradedb (
     id, vals
 ) WITH (key_field = 'id');
 
@@ -563,7 +563,7 @@ INSERT INTO numeric_array_precision_test (small_precision, large_precision) VALU
     ('{1.23, 4.56}'::numeric(10,2)[], '{12345678901234567890.123456789}'::numeric[]),
     ('{7.89, 10.11}'::numeric(10,2)[], '{98765432109876543210.987654321}'::numeric[]);
 
-CREATE INDEX numeric_array_precision_idx ON numeric_array_precision_test USING bm25 (
+CREATE INDEX numeric_array_precision_idx ON numeric_array_precision_test USING paradedb (
     id, small_precision, large_precision
 ) WITH (key_field = 'id');
 
@@ -593,7 +593,7 @@ INSERT INTO large_decimal_test (val) VALUES
     (12345678901234567890.12345678901234567890),   -- id=4 (large integer + decimal)
     (0.000000000000000000000000000000000000001);   -- id=5 (very small)
 
-CREATE INDEX large_decimal_idx ON large_decimal_test USING bm25 (
+CREATE INDEX large_decimal_idx ON large_decimal_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -637,7 +637,7 @@ INSERT INTO large_decimal_range_test (val) VALUES
     (1.000000000000000000000000000000000000004),   -- id=4
     (1.000000000000000000000000000000000000005);   -- id=5
 
-CREATE INDEX large_decimal_range_idx ON large_decimal_range_test USING bm25 (
+CREATE INDEX large_decimal_range_idx ON large_decimal_range_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -676,7 +676,7 @@ INSERT INTO numrange_large_decimal_test (val) VALUES
     ('[1.111111111111111111111111111112, 1.111111111111111111111111111113)'::numrange),  -- id=2
     ('[1.111111111111111111111111111113, 1.111111111111111111111111111114)'::numrange);  -- id=3
 
-CREATE INDEX numrange_large_decimal_idx ON numrange_large_decimal_test USING bm25 (
+CREATE INDEX numrange_large_decimal_idx ON numrange_large_decimal_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -704,7 +704,7 @@ INSERT INTO numeric64_max_precision_test (val) VALUES
     (123456789.123456790),   -- id=3: differs in last digit
     (999999999.999999999);   -- id=4: max value
 
-CREATE INDEX numeric64_max_idx ON numeric64_max_precision_test USING bm25 (
+CREATE INDEX numeric64_max_idx ON numeric64_max_precision_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -743,7 +743,7 @@ INSERT INTO numeric64_decimal_compare_test (val) VALUES
     (123.40),  -- id=4: stored as 12340
     (1.23);    -- id=5: stored as 123
 
-CREATE INDEX numeric64_decimal_compare_idx ON numeric64_decimal_compare_test USING bm25 (
+CREATE INDEX numeric64_decimal_compare_idx ON numeric64_decimal_compare_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -800,7 +800,7 @@ INSERT INTO numeric_large_precision_test (val) VALUES
     (1.0),                                     -- id=6: simple value
     (0.5);                                     -- id=7: half
 
-CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING bm25 (
+CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -854,7 +854,7 @@ INSERT INTO numeric_very_large_test (val) VALUES
     (0.0000000001),                              -- id=4: smallest decimal
     (42.1234567890);                             -- id=5: normal value
 
-CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING bm25 (
+CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -894,7 +894,7 @@ INSERT INTO numeric_unbounded_test (val) VALUES
     (-1),                                                                    -- id=7: negative one
     (3.14159265358979323846264338327950288419716939937510);                 -- id=8: pi with many digits
 
-CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING bm25 (
+CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -948,7 +948,7 @@ INSERT INTO numeric_high_scale_test (val) VALUES
     (-1.12345678901234567890123456789012345),   -- id=4: negative
     (9999.9);                                    -- id=5: larger integer part
 
-CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING bm25 (
+CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -985,7 +985,7 @@ INSERT INTO numeric_unbounded_agg_test (category, amount) VALUES
     ('B', 75.222222222222222222222222222222),
     ('B', 25.333333333333333333333333333333);
 
-CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING bm25 (
+CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING paradedb (
     id, category, amount
 ) WITH (key_field = 'id');
 
@@ -1024,7 +1024,7 @@ INSERT INTO numeric_mixed_precision_test (bounded_high, unbounded) VALUES
     (100.0, 100.0),
     (-50.123456789012345, -75.987654321);
 
-CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING bm25 (
+CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING paradedb (
     id, bounded_high, unbounded
 ) WITH (key_field = 'id');
 
@@ -1111,7 +1111,7 @@ INSERT INTO float8_test (value) VALUES
     (400.25),
     (500.99);
 
-CREATE INDEX float8_idx ON float8_test USING bm25 (
+CREATE INDEX float8_idx ON float8_test USING paradedb (
     id, value
 ) WITH (key_field = 'id');
 
@@ -1162,7 +1162,7 @@ INSERT INTO sci_notation_test (val) VALUES
     (1e6),       -- 1000000.00
     (2.5e3);     -- 2500.00
 
-CREATE INDEX sci_notation_idx ON sci_notation_test USING bm25 (
+CREATE INDEX sci_notation_idx ON sci_notation_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1208,7 +1208,7 @@ INSERT INTO small_decimal_test (val) VALUES
     (0.0000000000000100),  -- 1e-14
     (0.1234567890123456);  -- 16 decimal places
 
-CREATE INDEX small_decimal_idx ON small_decimal_test USING bm25 (
+CREATE INDEX small_decimal_idx ON small_decimal_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1254,7 +1254,7 @@ INSERT INTO max_scale_test (val) VALUES
     (-0.500000000000000000), -- negative
     (0.0);                   -- zero
 
-CREATE INDEX max_scale_idx ON max_scale_test USING bm25 (
+CREATE INDEX max_scale_idx ON max_scale_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1316,7 +1316,7 @@ INSERT INTO negative_scale_test (val) VALUES
     (-12000),  -- negative
     (0);       -- zero
 
-CREATE INDEX negative_scale_idx ON negative_scale_test USING bm25 (
+CREATE INDEX negative_scale_idx ON negative_scale_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1401,7 +1401,7 @@ INSERT INTO nan_numeric64_test (val) VALUES
     (300.00);
 
 -- If insert succeeded, create index and test queries
-CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING bm25 (
+CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1499,7 +1499,7 @@ INSERT INTO nan_numeric_bytes_test (val) VALUES
     (300.0000000000);
 
 -- If insert succeeded, create index and test queries
-CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING bm25 (
+CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1578,7 +1578,7 @@ INSERT INTO special_values_test (val) VALUES
     (-100),
     (0);
 
-CREATE INDEX special_values_idx ON special_values_test USING bm25 (
+CREATE INDEX special_values_idx ON special_values_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1774,7 +1774,7 @@ INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
 INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
     (100, 12346);  -- Pre-rounded values
 
-CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING bm25 (
+CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING paradedb (
     id, val_small, val_large
 ) WITH (key_field = 'id');
 
@@ -1840,7 +1840,7 @@ INSERT INTO numeric_explicit_scale_zero (implicit_scale, explicit_scale) VALUES
     (-11111, -11111),
     (0, 0);
 
-CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING bm25 (
+CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING paradedb (
     id, implicit_scale, explicit_scale
 ) WITH (key_field = 'id');
 
@@ -1879,7 +1879,7 @@ INSERT INTO empty_range_test (val) VALUES
     (200.00),
     (-50.25);
 
-CREATE INDEX empty_range_idx ON empty_range_test USING bm25 (
+CREATE INDEX empty_range_idx ON empty_range_test USING paradedb (
     id, val
 ) WITH (key_field = 'id');
 
@@ -1926,7 +1926,7 @@ INSERT INTO window_agg_numeric64_test (category, price) VALUES
     ('clothing', 75.50),
     ('books', 25.99);
 
-CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING bm25 (
+CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING paradedb (
     id, category, price
 ) WITH (key_field = 'id');
 
@@ -1982,7 +1982,7 @@ INSERT INTO window_agg_numericbytes_test (category, amount) VALUES
     ('a', 200.75),
     ('b', 50.00);
 
-CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING bm25 (
+CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING paradedb (
     id, category, amount
 ) WITH (key_field = 'id');
 
@@ -2013,7 +2013,7 @@ INSERT INTO window_agg_highprec_test (category, value) VALUES
     ('x', 98765432109876543210.9876543210),
     ('y', 11111111111111111111.1111111111);
 
-CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING bm25 (
+CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING paradedb (
     id, category, value
 ) WITH (key_field = 'id');
 

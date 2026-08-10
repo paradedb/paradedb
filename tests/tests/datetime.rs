@@ -24,7 +24,7 @@ use tests::fixtures::*;
 fn datetime_microsecond(mut conn: PgConnection) {
     r#"
     CREATE TABLE ts (id SERIAL, t TIMESTAMP);
-    CREATE INDEX ts_idx on ts using bm25 (id, t) with (key_field = 'id');
+    CREATE INDEX ts_idx on ts using paradedb (id, t) with (key_field = 'id');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079776Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079777Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079778Z');
@@ -55,7 +55,7 @@ fn datetime_microsecond(mut conn: PgConnection) {
 fn datetime_term_millisecond(mut conn: PgConnection) {
     r#"
     CREATE TABLE ts (id SERIAL, t TIMESTAMP(3));
-    CREATE INDEX ts_idx on ts using bm25 (id, t) with (key_field = 'id');
+    CREATE INDEX ts_idx on ts using paradedb (id, t) with (key_field = 'id');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.078Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.08Z');
@@ -106,7 +106,7 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
 fn datetime_term_second(mut conn: PgConnection) {
     r#"
     CREATE TABLE ts (id SERIAL, t TIMESTAMP(0));
-    CREATE INDEX ts_idx on ts using bm25 (id, t) with (key_field = 'id');
+    CREATE INDEX ts_idx on ts using paradedb (id, t) with (key_field = 'id');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.1Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:15Z');
@@ -169,7 +169,7 @@ fn datetime_wide_range(
         INSERT INTO wide_range (v) VALUES ({val_future});
         INSERT INTO wide_range (v) VALUES ({val_past});
         INSERT INTO wide_range (v) VALUES ({val_mid});
-        CREATE INDEX wide_range_idx ON wide_range USING bm25 (id, v) WITH (key_field = 'id');
+        CREATE INDEX wide_range_idx ON wide_range USING paradedb (id, v) WITH (key_field = 'id');
         "#
     )
     .execute(&mut conn);

@@ -36,11 +36,11 @@ FROM generate_series(1, 20000) i;
 
 -- Create BM25 indexes
 CREATE INDEX idx_parade_core ON core
-USING bm25 (dwf_doid, author)
+USING paradedb (dwf_doid, author)
 WITH (key_field='dwf_doid');
 
 CREATE INDEX idx_parade_document_text ON document_text
-USING bm25 (dwf_doid, full_text)
+USING paradedb (dwf_doid, full_text)
 WITH (key_field='dwf_doid');
 
 -- Enable parallel workers

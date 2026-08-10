@@ -7,7 +7,7 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating, (category::pdb.literal), metadata) WITH (key_field='id');
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description, rating, (category::pdb.literal), metadata) WITH (key_field='id');
 
 DROP TABLE IF EXISTS allowed_categories;
 CREATE TABLE allowed_categories (

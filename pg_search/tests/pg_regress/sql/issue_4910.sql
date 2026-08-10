@@ -46,13 +46,13 @@ INSERT INTO csa_not_exists (company_id, speciality)
 -- text column uses pdb.literal (raw tokenizer + fast field) for equality
 -- matching without a text_fields JSON.
 CREATE INDEX cccf_idx ON cccf
-  USING bm25 (contact_id, company_id, revenue_rank)
+  USING paradedb (contact_id, company_id, revenue_rank)
   WITH (key_field = contact_id);
 CREATE INDEX csa_exists_idx ON csa_exists
-  USING bm25 (unique_id, company_id)
+  USING paradedb (unique_id, company_id)
   WITH (key_field = unique_id);
 CREATE INDEX csa_not_exists_idx ON csa_not_exists
-  USING bm25 (unique_id, company_id, (speciality::pdb.literal))
+  USING paradedb (unique_id, company_id, (speciality::pdb.literal))
   WITH (key_field = unique_id);
 
 ANALYZE cccf;

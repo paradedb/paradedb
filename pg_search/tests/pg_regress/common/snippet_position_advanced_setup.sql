@@ -49,20 +49,20 @@ INSERT INTO reviews (book_id, review) VALUES
 (2, 'test review of the snippet snippet function with repeated snippet words'),
 (1, 'test review of the function function function');
 
-CREATE INDEX ON authors USING bm25 (
+CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
 ) WITH (key_field = 'id');
 
-CREATE INDEX ON books USING bm25 (
+CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,
     titles
 ) WITH (key_field = 'id');
 
-CREATE INDEX ON reviews USING bm25 (
+CREATE INDEX ON reviews USING paradedb (
     id,
     book_id,
     review

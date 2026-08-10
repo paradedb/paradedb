@@ -69,7 +69,7 @@ VALUES ('apple', 'apple', 'apple', 10),
         50
     );
 
-CREATE INDEX collation_test_idx ON collation_test USING bm25 (
+CREATE INDEX collation_test_idx ON collation_test USING paradedb (
     id,
     name_c,
     name_icu,
@@ -181,7 +181,7 @@ VALUES ('berlin', 3600000),
     ('Delhi', 32000000),
     ('edmonton', 1000000);
 
-CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING bm25 (id, city, population)
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, city, population)
 WITH (
         key_field = 'id',
         text_fields = '{"city": {"indexed": true, "fast": true}}',
@@ -291,7 +291,7 @@ VALUES (1, 1, 'TechCorp'),
     (4, 4, 'FurniPro'),
     (5, 5, 'TechCorp');
 
-CREATE INDEX collation_join_products_idx ON collation_join_products USING bm25 (
+CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (
     id,
     name_c,
     name_icu,
@@ -302,7 +302,7 @@ WITH (
         text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
     );
 
-CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING bm25 (id, product_id, supplier_name)
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, supplier_name)
 WITH (
         key_field = 'id',
         text_fields = '{"supplier_name": {"fast": true}}',

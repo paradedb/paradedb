@@ -52,7 +52,7 @@ INSERT INTO issue_4719_companies (id, body) VALUES
 
 CREATE INDEX issue_4719_people_idx
     ON issue_4719_people
-    USING bm25 (id, company_id, body)
+    USING paradedb (id, company_id, body)
     WITH (
         key_field = 'id',
         numeric_fields = '{"company_id": {"fast": true}}',
@@ -61,7 +61,7 @@ CREATE INDEX issue_4719_people_idx
 
 CREATE INDEX issue_4719_experiences_idx
     ON issue_4719_experiences
-    USING bm25 (id, person_id, company_id, body)
+    USING paradedb (id, person_id, company_id, body)
     WITH (
         key_field = 'id',
         numeric_fields = '{"person_id": {"fast": true}, "company_id": {"fast": true}}',
@@ -70,7 +70,7 @@ CREATE INDEX issue_4719_experiences_idx
 
 CREATE INDEX issue_4719_companies_idx
     ON issue_4719_companies
-    USING bm25 (id, body)
+    USING paradedb (id, body)
     WITH (
         key_field = 'id',
         text_fields = '{"body": {"fast": true}}'

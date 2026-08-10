@@ -27,7 +27,7 @@ fn plans_numeric_fast_field(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
     key_field='id',
     text_fields='{
@@ -54,7 +54,7 @@ fn plans_many_numeric_fast_fields(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
     key_field='id',
     text_fields='{
@@ -81,7 +81,7 @@ fn plans_many_numeric_fast_fields_with_score(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
     key_field='id',
     text_fields='{
@@ -109,7 +109,7 @@ fn plans_string_fast_field(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
     key_field='id',
     text_fields='{
@@ -137,7 +137,7 @@ fn does_plan_string_fast_field(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
     key_field='id',
     text_fields='{
@@ -163,7 +163,7 @@ fn numeric_fast_field_in_window_func(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
     key_field='id',
     text_fields='{
@@ -222,7 +222,7 @@ fn numeric_bytes_fast_field_parallel(mut conn: PgConnection) {
     FROM generate_series(1, 10000) i;
 
     CREATE INDEX numeric_bytes_idx ON numeric_bytes_test
-    USING bm25 (id, description, amount, precise_value)
+    USING paradedb (id, description, amount, precise_value)
     WITH (
         key_field = 'id',
         text_fields = '{"description": {}}',
@@ -319,7 +319,7 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     FROM generate_series(1, 5000) i;
 
     CREATE INDEX orders_idx ON orders
-    USING bm25 (id, product_name, total_amount)
+    USING paradedb (id, product_name, total_amount)
     WITH (
         key_field = 'id',
         text_fields = '{"product_name": {}}',
@@ -327,7 +327,7 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     );
 
     CREATE INDEX order_items_idx ON order_items
-    USING bm25 (id, item_name, item_price)
+    USING paradedb (id, item_name, item_price)
     WITH (
         key_field = 'id',
         text_fields = '{"item_name": {}}',

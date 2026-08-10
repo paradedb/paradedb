@@ -21,7 +21,7 @@ VALUES
     (gen_random_uuid(), gen_random_uuid(), 'cloe'),
     (gen_random_uuid(), gen_random_uuid(), 'sally');
 
-CREATE INDEX idxproducts ON products USING bm25 (uuid_key, uuid, name)
+CREATE INDEX idxproducts ON products USING paradedb (uuid_key, uuid, name)
 WITH (
     key_field = 'uuid_key',
     text_fields = '{

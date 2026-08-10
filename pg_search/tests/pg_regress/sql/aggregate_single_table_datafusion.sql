@@ -35,7 +35,7 @@ INSERT INTO df_fallback_products (description, category, price, rating) VALUES
     ('Lamp bright light', 'Lighting', 59.99, 4);
 
 CREATE INDEX df_fallback_products_idx ON df_fallback_products
-USING bm25 (id, description, category, price, rating)
+USING paradedb (id, description, category, price, rating)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',

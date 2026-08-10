@@ -970,7 +970,7 @@ mod tests {
 
         // This should panic with a "maintenance_work_mem is not high enough" error
         Spi::run(
-            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id', target_segment_count = 16);",
+            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (key_field = 'id', target_segment_count = 16);",
         ).unwrap();
     }
 
@@ -1002,7 +1002,7 @@ mod tests {
 
                         // Create index
                         Spi::run(&format!(
-                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id', target_segment_count = {});",
+                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (key_field = 'id', target_segment_count = {});",
                             ts
                         ))
                         .unwrap_or_else(|e| {

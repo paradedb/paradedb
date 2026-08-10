@@ -25,9 +25,9 @@ fn multiple_index_changes_in_same_xact(mut conn: PgConnection) {
         CREATE TABLE a (id int, value text);
         CREATE TABLE b (id int, value text);
         CREATE TABLE c (id int, value text);
-        CREATE INDEX idxa ON a USING bm25(id, value) WITH (key_field='id');
-        CREATE INDEX idxb ON b USING bm25(id, value) WITH (key_field='id');
-        CREATE INDEX idxc ON c USING bm25(id, value) WITH (key_field='id');
+        CREATE INDEX idxa ON a USING paradedb (id, value) WITH (key_field='id');
+        CREATE INDEX idxb ON b USING paradedb (id, value) WITH (key_field='id');
+        CREATE INDEX idxc ON c USING paradedb (id, value) WITH (key_field='id');
         INSERT INTO a (id, value) VALUES (1, 'a');
         INSERT INTO b (id, value) VALUES (1, 'b');
         INSERT INTO c (id, value) VALUES (1, 'c');
@@ -103,7 +103,7 @@ fn issue2187_executor_hooks(mut conn: PgConnection) {
 
                         EXECUTE format(
                                 'CREATE INDEX %I ON %I
-                                 USING bm25 (id, is_processed)
+                                 USING paradedb (id, is_processed)
                                  WITH (
                                      key_field = ''id'',
                                      boolean_fields = ''{

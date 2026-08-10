@@ -17,7 +17,7 @@ be applied to any tokenizer.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{
@@ -40,7 +40,7 @@ The `remove_long` filter removes all tokens longer than a fixed number of bytes.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{
@@ -55,7 +55,7 @@ The `lowercase` filter lowercases all tokens. If not specified, `lowercase` defa
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{
@@ -72,7 +72,7 @@ WITH (
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{
@@ -95,7 +95,7 @@ WITH (
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{
@@ -110,7 +110,7 @@ The ASCII folding filter strips away diacritical marks (accents, umlauts, tildes
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{

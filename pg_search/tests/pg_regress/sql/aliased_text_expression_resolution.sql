@@ -6,7 +6,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
@@ -20,7 +20,7 @@ WHERE description ||| 'sleek running shoes';
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   description,
   (description::pdb.simple('alias=simple_description')),
@@ -38,7 +38,7 @@ DROP INDEX search_idx;
 
 -- A tokenized column without an alias should be selected over the aliased version
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (description::pdb.simple),
   (description::pdb.literal('alias=literal_description')),
@@ -54,7 +54,7 @@ WHERE description ||| 'sleek running shoes';
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (description::pdb.simple('alias=simple_description')),
   (lower(description)::pdb.literal('alias=literal_description')),
@@ -86,7 +86,7 @@ CREATE TYPE aliased_description_fields AS (
 
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (
     ROW(
@@ -121,7 +121,7 @@ CREATE TYPE partially_aliased_description_fields AS (
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (
     ROW(

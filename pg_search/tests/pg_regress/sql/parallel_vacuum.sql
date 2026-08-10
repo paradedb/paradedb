@@ -57,7 +57,7 @@ SELECT
   )
 FROM generate_series(1, 100000) s(id);
 
-CREATE INDEX benchmark_logs_idx ON benchmark_logs USING bm25 (id, message, country, severity, timestamp, metadata) WITH (key_field = 'id', text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true} }}', json_fields = '{"metadata": { "fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+CREATE INDEX benchmark_logs_idx ON benchmark_logs USING paradedb (id, message, country, severity, timestamp, metadata) WITH (key_field = 'id', text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true} }}', json_fields = '{"metadata": { "fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
 CREATE INDEX ON benchmark_logs USING btree (severity);
 CREATE INDEX ON benchmark_logs USING btree (timestamp);
 

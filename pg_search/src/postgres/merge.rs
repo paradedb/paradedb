@@ -697,7 +697,7 @@ mod tests {
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run(
             format!(
-                "CREATE INDEX t_idx ON t USING paradedb(id, data) WITH (key_field = 'id'{})",
+                "CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id'{})",
                 layer_sizes.config_str()
             )
             .as_str(),

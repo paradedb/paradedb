@@ -13,7 +13,7 @@ CREATE TABLE comments (
 	text TEXT DEFAULT ''
 );
 -- add search index
-CREATE INDEX comments_search ON comments USING paradedb(
+CREATE INDEX comments_search ON comments USING paradedb (
 	id, customer_id, text
 )
 WITH (

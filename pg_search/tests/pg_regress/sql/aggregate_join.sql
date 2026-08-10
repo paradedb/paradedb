@@ -364,8 +364,8 @@ CREATE TABLE comp_a (id SERIAL PRIMARY KEY, description TEXT, x INT, y INT);
 CREATE TABLE comp_b (id SERIAL PRIMARY KEY, name TEXT, x INT, y INT);
 INSERT INTO comp_a VALUES (1,'laptop fast',10,20),(2,'shoes nice',30,40),(3,'laptop pro',10,20);
 INSERT INTO comp_b VALUES (1,'B1',10,20),(2,'B2',30,40);
-CREATE INDEX idx_comp_a ON comp_a USING paradedb(id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
-CREATE INDEX idx_comp_b ON comp_b USING paradedb(id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_a ON comp_a USING paradedb (id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_b ON comp_b USING paradedb (id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
 
 -- Test 8.1: Composite ON with two equi-join keys — should use DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

@@ -20,7 +20,7 @@
 //! The natural-shape MPP path is the same flow for every customscan that opts in: read the
 //! leader's dispatch blob from DSM, decode this proc's per-stage physical subplans (the leader
 //! built and sliced the plan once, so workers don't re-plan), and run each fragment via
-//! [`datafusion_distributed::shm::setup::run_worker_fragment`] + `FuturesUnordered`. The only
+//! [`datafusion_distributed::shm::run_worker_fragment`] + `FuturesUnordered`. The only
 //! customscan-specific pieces are the seed `SessionContext` (different `SessionContextProfile`)
 //! and where the inputs come from in per-scan state.
 //!
@@ -38,7 +38,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
     DistributedConfig, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
 };
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
@@ -49,8 +49,10 @@ use datafusion_distributed::PartitionSink;
 use datafusion_distributed::shm::{
     CooperativeDrainSet, InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh,
     MppPartitionSink, ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task,
+    run_execute_task_loop, run_worker_fragment,
 };
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
+use tokio_util::sync::CancellationToken;
 
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
@@ -184,6 +186,88 @@ async fn take_set_plan_draining(
     }
 }
 
+/// All fragment futures share this type. The alias keeps `Vec<FragmentFuture>` legible and silences
+/// clippy::type_complexity.
+type FragmentFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>> + Send>,
+>;
+
+/// Extract an error message string from a `pgrx`-raised panic payload (`ErrorReportWithLevel` or
+/// `CaughtError`), returning `None` if the payload is not a known `pgrx` type.
+fn downcast_pgrx_panic_payload(payload: &(dyn std::any::Any + Send)) -> Option<String> {
+    use pgrx::pg_sys::panic::{CaughtError, ErrorReportWithLevel};
+
+    if let Some(report) = payload.downcast_ref::<ErrorReportWithLevel>() {
+        return Some(report.message().to_string());
+    }
+    if let Some(caught) = payload.downcast_ref::<CaughtError>() {
+        return Some(match caught {
+            CaughtError::RustPanic { ereport, .. } => ereport.message().to_string(),
+            CaughtError::PostgresError(report) | CaughtError::ErrorReport(report) => {
+                report.message().to_string()
+            }
+        });
+    }
+    None
+}
+
+/// Spawns the execution task loop for a worker fragment over `run_execute_task_loop`.
+fn spawn_fragment_execution_task(
+    mesh: Arc<MppMesh>,
+    stage_id: u32,
+    task_idx: u32,
+    per_partition_sinks: Vec<Box<dyn PartitionSink>>,
+    plan: Arc<dyn ExecutionPlan>,
+    task_ctx: Arc<TaskContext>,
+) -> FragmentFuture {
+    Box::pin(async move {
+        let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
+        let n_partitions = sinks_opt.len();
+
+        // The cancellation token is never cancelled on this path; worker interrupts bail via
+        // the cooperative drain pass.
+        let token = CancellationToken::new();
+
+        run_execute_task_loop(
+            &mesh,
+            stage_id,
+            task_idx,
+            n_partitions,
+            token,
+            move |_request, _headers, range| {
+                let len = range.end - range.start;
+                let mut task_sinks = Vec::with_capacity(len);
+                for sink in sinks_opt.iter_mut().take(range.end).skip(range.start) {
+                    task_sinks.push(
+                        sink.take()
+                            .expect("mpp worker: partition sink already claimed"),
+                    );
+                }
+                let plan = Arc::clone(&plan);
+                let task_ctx = Arc::clone(&task_ctx);
+                async move {
+                    let fut = std::panic::AssertUnwindSafe(run_worker_fragment(
+                        plan, task_sinks, task_ctx, range,
+                    ));
+                    // `df-d`'s panic handler downcasts `&str` and `String` panics, but doesn't
+                    // know about `pgrx` error types. Intercept `pgrx` panic types here to format
+                    // them to a `DataFusionError::Execution`, and resume unwinding for everything else.
+                    match fut.catch_unwind().await {
+                        Ok(res) => res,
+                        Err(payload) => {
+                            if let Some(msg) = downcast_pgrx_panic_payload(&*payload) {
+                                Err(datafusion::common::DataFusionError::Execution(msg))
+                            } else {
+                                std::panic::resume_unwind(payload);
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        .await
+    })
+}
 
 /// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
 /// pgrx::error!s on fatal failures, returns normally on EOF (the customscan's
@@ -302,15 +386,6 @@ pub(crate) fn run_mpp_worker(
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
-
-    // All fragment futures share this vector. The alias keeps the `Vec<_>` declaration legible and silences
-    // clippy::type_complexity.
-    type FragmentFuture = std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>>
-                + Send,
-        >,
-    >;
     // Hold cancel/die off for the duration so neither our drain/send loops nor a subroutine
     // (the scanner's own `CHECK_FOR_INTERRUPTS`, a buffer wait) can `proc_exit` out of the
     // live runtime. The loops poll cooperatively to bail promptly; see `mpp::interrupt`.
@@ -412,44 +487,20 @@ pub(crate) fn run_mpp_worker(
             // already `Remote`, so its boundary leaves read the mesh through the session's
             // `ShmChannelResolver`.
             let plan = Arc::clone(frag_plan);
-            // Kept for the post-run metrics frame: the executed nodes (and their metrics)
-            // live in this plan.
             executed_fragments.push((
                 fragment.stage_id,
                 fragment.task_idx,
                 fragment.task_count,
                 Arc::clone(&plan),
-            ));            let stage_id = fragment.stage_id;
-            let task_idx = fragment.task_idx;
-            let mesh_for_block = Arc::clone(&mesh_for_block);
-
-            futures.push(Box::pin(async move {
-                let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
-                let n_partitions = sinks_opt.len();
-
-                let token = tokio_util::sync::CancellationToken::new();
-
-                datafusion_distributed::shm::run_execute_task_loop(
-                    &mesh_for_block,
-                    stage_id,
-                    task_idx,
-                    n_partitions,
-                    token,
-                    move |_request, _headers, range| {
-                        let len = range.end - range.start;
-                        let mut task_sinks = Vec::with_capacity(len);
-                        for sink in sinks_opt.iter_mut().take(range.end).skip(range.start) {
-                            task_sinks.push(sink.take().unwrap());
-                        }
-                        datafusion_distributed::shm::run_worker_fragment(
-                            Arc::clone(&plan),
-                            task_sinks,
-                            Arc::clone(&task_ctx),
-                            range,
-                        )
-                    }
-                ).await
-            }));
+            ));
+            futures.push(spawn_fragment_execution_task(
+                Arc::clone(&mesh_for_block),
+                fragment.stage_id,
+                fragment.task_idx,
+                per_partition_sinks,
+                plan,
+                task_ctx,
+            ));
         }
         // The metrics frames go to the leader after the fragments finish.
         let metrics_sender_base = worker_session

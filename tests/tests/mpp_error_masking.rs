@@ -58,6 +58,19 @@ WHERE le.id @@@ paradedb.term('u', 'u1')
 async fn mpp_error_masking(database: Db) -> Result<()> {
     let mut setup = database.connection().await;
     setup.execute(SETUP_SQL).await?;
+    let guc_exists: Option<(String,)> = sqlx::query_as(
+        "SELECT name FROM pg_settings WHERE name = 'paradedb.mpp_test_panic_in_worker'",
+    )
+    .fetch_optional(&mut setup)
+    .await?;
+
+    if guc_exists.is_none() {
+        println!(
+            "Skipping mpp_error_masking: paradedb.mpp_test_panic_in_worker GUC is not present (non-debug build)"
+        );
+        return Ok(());
+    }
+
     setup.execute(MPP_GUCS).await?;
 
     let iterations = 10;
@@ -69,13 +82,16 @@ async fn mpp_error_masking(database: Db) -> Result<()> {
             .fetch_all(&mut setup)
             .await
             .unwrap();
-    println!(
-        "EXPLAIN output:\n{}",
-        explain_rows
-            .into_iter()
-            .map(|(r,)| r)
-            .collect::<Vec<_>>()
-            .join("\n")
+    let explain_str = explain_rows
+        .into_iter()
+        .map(|(r,)| r)
+        .collect::<Vec<_>>()
+        .join("\n");
+    println!("EXPLAIN output:\n{explain_str}");
+
+    assert!(
+        explain_str.contains("DistributedExec") && explain_str.contains("PgSearchScan"),
+        "Expected EXPLAIN plan to use MPP (DistributedExec & PgSearchScan), got:\n{explain_str}"
     );
 
     for i in 0..iterations {

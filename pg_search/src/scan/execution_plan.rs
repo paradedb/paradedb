@@ -883,7 +883,7 @@ impl ExecutionPlan for PgSearchScanPlan {
     ) -> Result<SendableRecordBatchStream> {
         #[cfg(debug_assertions)]
         if crate::gucs::mpp_test_panic_in_worker() {
-            panic!("artificial panic to test worker error propagation");
+            pgrx::error!("artificial panic to test worker error propagation");
         }
 
         // Under DataFusion Distributed execution, upstream stage operators (such as `RepartitionExec`)

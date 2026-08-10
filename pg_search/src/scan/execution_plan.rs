@@ -881,6 +881,11 @@ impl ExecutionPlan for PgSearchScanPlan {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
+        #[cfg(debug_assertions)]
+        if crate::gucs::mpp_test_panic_in_worker() {
+            pgrx::error!("artificial panic to test worker error propagation");
+        }
+
         // Under DataFusion Distributed execution, upstream stage operators (such as `RepartitionExec`)
         // call `execute(p)` for all partition indices `p` in the stage's requested partition range.
         // For partitions where `p != assigned`, we return an empty stream so multi-partition

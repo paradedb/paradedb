@@ -19,7 +19,7 @@ INSERT INTO issue_2585_test (content, titles, metadata, is_null) VALUES
     ('All fields present', NULL, NULL, false),
     (NULL, NULL, NULL, true);
 
-CREATE INDEX ON issue_2585_test USING bm25 (
+CREATE INDEX ON issue_2585_test USING paradedb (
     id,
     content,
     titles,

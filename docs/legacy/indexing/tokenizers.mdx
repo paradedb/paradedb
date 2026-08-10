@@ -20,7 +20,7 @@ Both `text_fields` or `json_fields` JSON configs accept a `tokenizer` key.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{
@@ -45,7 +45,7 @@ Tokenizes the text by splitting on whitespace and punctuation, filters out token
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -62,7 +62,7 @@ Like `default`, but splits based on whitespace only. Filters out tokens that are
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -79,7 +79,7 @@ Treats the entire text as a single token. Filters out tokens larger than 255 byt
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -98,7 +98,7 @@ The `keyword` tokenizer is supported for both `TEXT` and `VARCHAR` fields.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -116,7 +116,7 @@ For instance, `\\W+` splits on non-word characters.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -142,7 +142,7 @@ those of `cheese`.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -174,7 +174,7 @@ Tokenizes the text by splitting based on casing conventions commonly used in cod
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -191,7 +191,7 @@ The `chinese_compatible` tokenizer performs simple character splitting by treati
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -211,7 +211,7 @@ individual characters.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -228,7 +228,7 @@ WITH (
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -246,7 +246,7 @@ and recognizes the nuances in word boundaries across different languages.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -279,7 +279,7 @@ Here's an example of how to create a BM25 index with multiple tokenizers for the
 
 ```sql
 CREATE INDEX search_idx ON public.mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (
     key_field='id',
     text_fields='{

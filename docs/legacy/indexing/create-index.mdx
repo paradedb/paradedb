@@ -21,7 +21,7 @@ All columns that are relevant to the search query, including columns used for so
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
 
@@ -31,7 +31,7 @@ Note that the index's column list contains fields of type text, JSON, numeric, t
 
 ```sql
 CREATE INDEX <index_name> ON <schema_name>.<table_name>
-USING bm25 (<columns_or_expressions>)
+USING paradedb (<columns_or_expressions>)
 WITH (key_field='<key_field>');
 ```
 
@@ -69,12 +69,12 @@ Finally, the key field must be the first column in the target list.
 ```sql
 -- Recommended: key_field is the first column in the list
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (key_field = 'id');
 
 -- NOT recommended: key_field is not the first column
 CREATE INDEX search_idx ON mock_items
-USING bm25 (description, id)
+USING paradedb (description, id)
 WITH (key_field = 'id');
 ```
 
@@ -99,7 +99,7 @@ indexes are useful for reducing index size on disk and improving update speeds o
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (key_field='id')
 WHERE category = 'Electronics' AND rating > 2;
 ```
@@ -113,7 +113,7 @@ A BM25 index can also be created over an expression, as shown below:
 ```sql
 CREATE INDEX search_idx ON mock_items
 -- index a single field converting a text field to lowercase
-USING bm25 (id, description, lower(description))
+USING paradedb (id, description, lower(description))
 WITH (key_field='id');
 ```
 
@@ -124,7 +124,7 @@ of the `description` field will be referred to as `_pg_search_2`.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, lower(description))
+USING paradedb (id, description, lower(description))
 WITH (
   key_field='id',
   text_fields='{
@@ -150,7 +150,7 @@ To create a new index without blocking writes to your table, use the `CONCURRENT
 
 ```sql
 CREATE INDEX CONCURRENTLY search_idx_v2 ON mock_items
-USING bm25 (id, description, category, rating, in_stock)
+USING paradedb (id, description, category, rating, in_stock)
 WITH (key_field='id');
 ```
 

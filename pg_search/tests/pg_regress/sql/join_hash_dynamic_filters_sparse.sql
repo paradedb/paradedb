@@ -112,7 +112,7 @@ FROM generate_series(800, 1899) AS i;
 -- linear-scan TermSetDocSet path (with smart-seek for forward-cursor
 -- advancement).
 CREATE INDEX t1_idx ON t1
-USING bm25 (id, body, fk_a, fk_b, fk_c)
+USING paradedb (id, body, fk_a, fk_b, fk_c)
 WITH (
     key_field = 'id',
     text_fields = '{"body": {"fast": true}}',
@@ -120,13 +120,13 @@ WITH (
     sort_by = 'fk_a ASC NULLS FIRST'
 );
 
-CREATE INDEX t2_a_idx ON t2_a USING bm25 (id, fk, body)
+CREATE INDEX t2_a_idx ON t2_a USING paradedb (id, fk, body)
 WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
 
-CREATE INDEX t2_b_idx ON t2_b USING bm25 (id, fk, body)
+CREATE INDEX t2_b_idx ON t2_b USING paradedb (id, fk, body)
 WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
 
-CREATE INDEX t2_c_idx ON t2_c USING bm25 (id, fk, body)
+CREATE INDEX t2_c_idx ON t2_c USING paradedb (id, fk, body)
 WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
 
 ANALYZE t1;

@@ -6,7 +6,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (lower(description)::pdb.literal),
   rating
@@ -29,7 +29,7 @@ LIMIT 5;
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
@@ -65,7 +65,7 @@ LIMIT 5;
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (
+USING paradedb (
   id,
   (description::pdb.simple('alias=simple_description')),
   (lower(description)::pdb.literal('alias=literal_description')),

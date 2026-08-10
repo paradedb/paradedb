@@ -12,12 +12,12 @@ CREATE TABLE use_alias (
 INSERT INTO use_alias (t) VALUES ('This is a TEST');
 
 -- generates an error
-CREATE INDEX idxuse_alias ON use_alias USING bm25 (
+CREATE INDEX idxuse_alias ON use_alias USING paradedb (
     id,
     (t::pdb.alias(nope))
 ) WITH (key_field = 'id');
 
-CREATE INDEX idxuse_alias ON use_alias USING bm25 (
+CREATE INDEX idxuse_alias ON use_alias USING paradedb (
     id,
     t,
     (t::pdb.literal('alias=literal')),

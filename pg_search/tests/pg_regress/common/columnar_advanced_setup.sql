@@ -28,7 +28,7 @@ CREATE TABLE mixed_numeric_string_test (
     content TEXT
 );
 
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
     id,
     numeric_field1,
     numeric_field2,
@@ -108,7 +108,7 @@ CREATE TABLE pages (
 );
 
 -- Create BM25 indexes
-CREATE INDEX documents_search ON documents USING bm25 (
+CREATE INDEX documents_search ON documents USING paradedb (
     id,
     title,
     parents,
@@ -118,7 +118,7 @@ CREATE INDEX documents_search ON documents USING bm25 (
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
-CREATE INDEX files_search ON files USING bm25 (
+CREATE INDEX files_search ON files USING paradedb (
     id,
     documentId,
     title,
@@ -128,7 +128,7 @@ CREATE INDEX files_search ON files USING bm25 (
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
-CREATE INDEX pages_search ON pages USING bm25 (
+CREATE INDEX pages_search ON pages USING paradedb (
     id,
     fileId,
     content,
@@ -167,7 +167,7 @@ CREATE TABLE categories (
     parent_id INTEGER REFERENCES categories(id)
 );
 
-CREATE INDEX category_search ON categories USING bm25 (
+CREATE INDEX category_search ON categories USING paradedb (
     id,
     name,
     description
@@ -195,7 +195,7 @@ CREATE TABLE products (
     price FLOAT NOT NULL
 );
 
-CREATE INDEX product_search ON products USING bm25 (
+CREATE INDEX product_search ON products USING paradedb (
     id,
     name,
     category_id,
@@ -228,7 +228,7 @@ CREATE TABLE conversion_test (
     content TEXT
 );
 
-CREATE INDEX conversion_search ON conversion_test USING bm25 (
+CREATE INDEX conversion_search ON conversion_test USING paradedb (
     id, 
     smallint_field, 
     integer_field, 
@@ -312,7 +312,7 @@ DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 
 CREATE INDEX union_test_a_idx ON union_test_a
-USING bm25 (id, title, author, rating, year, price, is_published)
+USING paradedb (id, title, author, rating, year, price, is_published)
 WITH (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
@@ -321,7 +321,7 @@ WITH (
 );
 
 CREATE INDEX union_test_b_idx ON union_test_b
-USING bm25 (id, title, author, rating, year, price, is_published)
+USING paradedb (id, title, author, rating, year, price, is_published)
 WITH (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',

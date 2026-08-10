@@ -18,7 +18,7 @@ INSERT INTO products SELECT i, i % 10, '2024-01-01 00:00:00'::timestamp FROM gen
 
 -- Create index with deleted_at as an indexed field
 CREATE INDEX idx_products_bm25 ON products
-USING bm25 (id, category_id, deleted_at)
+USING paradedb (id, category_id, deleted_at)
 WITH (key_field='id');
 
 -- IS NOT NULL works (pushes to index via PushdownIsNotNull)
@@ -61,7 +61,7 @@ DROP INDEX idx_products_bm25;
 -- ============================================================
 
 CREATE INDEX idx_products_bm25_partial ON products
-USING bm25 (id, category_id)
+USING paradedb (id, category_id)
 WITH (key_field='id')
 WHERE deleted_at IS NULL;
 

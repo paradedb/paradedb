@@ -6,7 +6,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (lower(description)::pdb.literal), rating)
+USING paradedb (id, (lower(description)::pdb.literal), rating)
 WITH (key_field='id');
 
 -- This gets a Top K scan

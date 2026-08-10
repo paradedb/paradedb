@@ -70,7 +70,7 @@ fn bulk_insert_segments_behavior(mut conn: PgConnection) {
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
 
         CREATE INDEX idxtest_table ON public.test_table
-        USING bm25 (id, value)
+        USING paradedb (id, value)
         WITH (
             key_field = 'id',
             mutable_segment_rows = {mutable_segment_rows}

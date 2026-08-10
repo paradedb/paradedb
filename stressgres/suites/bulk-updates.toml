@@ -31,7 +31,7 @@ BEGIN
    EXECUTE format('ALTER DATABASE %I SET paradedb.max_mergeable_segment_size = %L', dbname, '5MB');
 END $$;
 
-CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
+CREATE INDEX idxtest ON test USING paradedb(id, message, severity) WITH (key_field = 'id');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;

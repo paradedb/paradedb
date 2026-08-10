@@ -137,7 +137,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.into_pg_boxed()
 }
 
-/// Finds and returns the `USING bm25` index on the specified relation with the highest OID,
+/// Finds and returns the `USING paradedb` index on the specified relation with the highest OID,
 /// along with the heap relation. Returns [`None`] if there isn't one.
 ///
 /// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`

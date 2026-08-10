@@ -58,7 +58,7 @@ VALUES
 
 CREATE INDEX issue_4906_ltree_idx
 ON issue_4906_ltree
-USING bm25 (id, category, title)
+USING paradedb (id, category, title)
 WITH (key_field = 'id');
 
 ANALYZE issue_4906_ltree;
@@ -336,7 +336,7 @@ VALUES
 
 CREATE INDEX issue_4906_ltree_partial_idx
 ON issue_4906_ltree_partial
-USING bm25 (id, category, title)
+USING paradedb (id, category, title)
 WITH (key_field = 'id')
 WHERE is_indexed;
 

@@ -46,7 +46,7 @@ fn ltree_basic_index_and_search(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -80,7 +80,7 @@ fn ltree_returns_correct_value(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -114,7 +114,7 @@ fn ltree_multiple_matches(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, category) WITH (key_field='id');
+    USING paradedb (id, category) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -147,7 +147,7 @@ fn ltree_with_parse_query(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path, description) WITH (key_field='id');
+    USING paradedb (id, path, description) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -181,7 +181,7 @@ fn ltree_combined_with_text_search(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path, title) WITH (key_field='id');
+    USING paradedb (id, path, title) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -219,7 +219,7 @@ fn ltree_columnar_exec_reads(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -263,7 +263,7 @@ fn ltree_triple_ampersand_operator(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -302,7 +302,7 @@ fn ltree_ordering(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -342,7 +342,7 @@ fn ltree_null_handling(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -386,7 +386,7 @@ fn ltree_aggregate_groupby(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_ltree_idx ON test_ltree
-    USING bm25 (id, path) WITH (key_field='id');
+    USING paradedb (id, path) WITH (key_field='id');
     "#
     .execute(&mut conn);
 

@@ -50,16 +50,16 @@ INSERT INTO products VALUES
     (300, 3, 'A boring thing');
 
 CREATE INDEX regions_idx ON regions
-USING bm25 (id, name) WITH (key_field = 'id');
+USING paradedb (id, name) WITH (key_field = 'id');
 
 CREATE INDEX companies_idx ON companies
-USING bm25 (id, region_id, name) WITH (key_field = 'id');
+USING paradedb (id, region_id, name) WITH (key_field = 'id');
 
 CREATE INDEX departments_idx ON departments
-USING bm25 (id, company_id, name) WITH (key_field = 'id');
+USING paradedb (id, company_id, name) WITH (key_field = 'id');
 
 CREATE INDEX products_idx ON products
-USING bm25 (id, company_id, description) WITH (key_field = 'id');
+USING paradedb (id, company_id, description) WITH (key_field = 'id');
 
 SET paradedb.enable_join_custom_scan = on;
 

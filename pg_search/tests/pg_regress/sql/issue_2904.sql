@@ -9,7 +9,7 @@ CREATE TABLE test_p2 PARTITION OF test FOR VALUES FROM (5) TO (10);
 INSERT INTO test(description)
 VALUES ('hello');
 
-CREATE INDEX test_idx ON test USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX test_idx ON test USING paradedb (id, description) WITH (key_field = 'id');
 
 SELECT * FROM test WHERE description @@@ 'hello';
 DROP TABLE test;

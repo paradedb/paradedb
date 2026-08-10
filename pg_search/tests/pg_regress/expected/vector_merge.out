@@ -30,7 +30,7 @@ CREATE TABLE remerge (
 -- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
 -- merge target is written IVF (clustered), with every vector in 3 cells.
 CREATE INDEX remerge_idx ON remerge
-    USING bm25 (id, vec vector_l2_ops)
+    USING paradedb (id, vec vector_l2_ops)
     WITH (
         key_field = id,
         cluster_replication = 3,

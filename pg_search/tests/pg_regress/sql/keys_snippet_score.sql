@@ -26,7 +26,7 @@ INSERT INTO bigint_test (id, value) VALUES (8, 'great white');
 INSERT INTO bigint_test (id, value) VALUES (9, 'blue skies');
 INSERT INTO bigint_test (id, value) VALUES (10, 'rainbow');
 
-CREATE INDEX bigint_test_idx ON bigint_test USING bm25 (id, value)
+CREATE INDEX bigint_test_idx ON bigint_test USING paradedb (id, value)
 WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
 
 -- Test stable sort (sorted by score)
@@ -64,7 +64,7 @@ INSERT INTO uuid_test (id, value) VALUES ('88345d21-7b89-4fd6-87e4-83a4f68dbc3c'
 INSERT INTO uuid_test (id, value) VALUES ('40bc9216-66d0-4ae8-87ee-ddb02e3e1b33', 'blue skies');
 INSERT INTO uuid_test (id, value) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'rainbow');
 
-CREATE INDEX uuid_test_idx ON uuid_test USING bm25 (id, value)
+CREATE INDEX uuid_test_idx ON uuid_test USING paradedb (id, value)
 WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
 
 -- Test stable sort (sorted by score)
@@ -102,7 +102,7 @@ INSERT INTO timestamp_test (id, value) VALUES ('2023-05-10 15:16:17 CST', 'great
 INSERT INTO timestamp_test (id, value) VALUES ('2023-05-11 16:17:18 EST', 'blue skies');
 INSERT INTO timestamp_test (id, value) VALUES ('2023-05-12 17:18:19 PST', 'rainbow');
 
-CREATE INDEX timestamp_test_idx ON timestamp_test USING bm25 (id, value)
+CREATE INDEX timestamp_test_idx ON timestamp_test USING paradedb (id, value)
 WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
 
 -- Test stable sort (sorted by score)

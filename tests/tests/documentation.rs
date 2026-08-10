@@ -51,7 +51,7 @@ fn quickstart(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -110,7 +110,7 @@ fn quickstart(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING bm25 (order_id, customer_name)
+    USING paradedb (order_id, customer_name)
     WITH (key_field='order_id');
     "#
     .execute(&mut conn);
@@ -236,7 +236,7 @@ fn full_text_search(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -423,7 +423,7 @@ fn full_text_search(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING bm25 (order_id, customer_name)
+    USING paradedb (order_id, customer_name)
     WITH (key_field='order_id');
     "#
     .execute(&mut conn);
@@ -552,7 +552,7 @@ fn match_query(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -662,7 +662,7 @@ fn term_level_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1077,7 +1077,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1189,7 +1189,7 @@ fn json_queries(mut conn: PgConnection) {
 
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
     "#
     .execute(&mut conn);
@@ -1267,7 +1267,7 @@ fn json_arrays(mut conn: PgConnection) {
     //
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, metadata)
+    USING paradedb (id, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1326,7 +1326,7 @@ fn custom_enum(mut conn: PgConnection) {
     INSERT INTO mock_items (color) VALUES ('red'), ('green'), ('blue');
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, color, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, color, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1386,7 +1386,7 @@ fn compound_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1803,7 +1803,7 @@ fn specialized_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1873,7 +1873,7 @@ fn autocomplete(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -1935,7 +1935,7 @@ fn autocomplete(mut conn: PgConnection) {
     r#"
     DROP INDEX search_idx;
     CREATE INDEX ngrams_idx ON public.mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}}}'
@@ -1974,7 +1974,7 @@ fn hybrid_search(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
 
     CREATE EXTENSION IF NOT EXISTS vector;
@@ -2106,14 +2106,14 @@ fn concurrent_indexing(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating)
+    USING paradedb (id, description, category, rating)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX CONCURRENTLY search_idx_v2 ON mock_items
-    USING bm25 (id, description, category, rating, in_stock)
+    USING paradedb (id, description, category, rating, in_stock)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -2143,7 +2143,7 @@ fn schema(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -2174,7 +2174,7 @@ fn index_size(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
@@ -2198,7 +2198,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2213,7 +2213,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, category)
+    USING paradedb (id, description, category)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2231,7 +2231,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2247,7 +2247,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, metadata)
+    USING paradedb (id, metadata)
     WITH (
     key_field = 'id',
     json_fields = '{
@@ -2262,7 +2262,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, rating)
+    USING paradedb (id, rating)
     WITH (
         key_field = 'id',
         numeric_fields = '{
@@ -2275,7 +2275,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, in_stock)
+    USING paradedb (id, in_stock)
     WITH (
     key_field = 'id',
     boolean_fields = '{
@@ -2288,7 +2288,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, created_at)
+    USING paradedb (id, created_at)
     WITH (
     key_field = 'id'
     );
@@ -2298,7 +2298,7 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, weight_range)
+    USING paradedb (id, weight_range)
     WITH (key_field='id');
     DROP INDEX search_idx;
     "#
@@ -2317,7 +2317,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -2330,7 +2330,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2345,7 +2345,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2360,7 +2360,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2375,7 +2375,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2390,7 +2390,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2405,7 +2405,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2420,7 +2420,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2435,7 +2435,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2450,7 +2450,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field = 'id',
         text_fields = '{
@@ -2479,7 +2479,7 @@ fn available_tokenizers(mut conn: PgConnection) {
     // Test multiple tokenizers for the same field
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -2528,7 +2528,7 @@ fn token_filters(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -2541,7 +2541,7 @@ fn token_filters(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -2554,7 +2554,7 @@ fn token_filters(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -2578,7 +2578,7 @@ fn fast_fields(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, rating)
+    USING paradedb (id, description, rating)
     WITH (
         key_field = 'id',
         text_fields ='{
@@ -2591,7 +2591,7 @@ fn fast_fields(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, category)
+    USING paradedb (id, category)
     WITH (
         key_field='id',
         text_fields='{
@@ -2615,7 +2615,7 @@ fn record(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING paradedb (id, description)
     WITH (
         key_field='id',
         text_fields='{

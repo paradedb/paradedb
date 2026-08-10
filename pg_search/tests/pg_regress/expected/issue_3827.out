@@ -18,7 +18,7 @@ INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
     ('foo', 2, 20),
     ('foo', 3, 30);
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
-USING bm25 (id, txt, n)
+USING paradedb (id, txt, n)
 WITH (
     key_field = 'id',
     text_fields = '{"txt": {}}',

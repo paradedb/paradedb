@@ -29,9 +29,9 @@ INSERT INTO test_companies (id, name) VALUES
 INSERT INTO test_people (id, company_id) VALUES
 (201, 101), (202, 101), (203, 102), (204, 104);
 
-CREATE INDEX test_companies_bm25 ON test_companies USING bm25 (id, name)
+CREATE INDEX test_companies_bm25 ON test_companies USING paradedb (id, name)
     WITH (key_field = 'id', text_fields = '{"name": {"fast": true}}');
-CREATE INDEX test_people_bm25 ON test_people USING bm25 (id, company_id)
+CREATE INDEX test_people_bm25 ON test_people USING paradedb (id, company_id)
     WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}');
 
 ANALYZE test_companies;

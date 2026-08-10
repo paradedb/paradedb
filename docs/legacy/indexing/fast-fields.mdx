@@ -19,7 +19,7 @@ are indexed as fast. The following code block demonstrates how to specify other 
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, rating)
+USING paradedb (id, rating)
 WITH (
     key_field = 'id',
     text_fields ='{
@@ -35,7 +35,7 @@ queries that [sort by the text field](/legacy/full-text/sorting#fast-ordering).
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, category)
+USING paradedb (id, category)
 WITH (
     key_field='id',
     text_fields='{

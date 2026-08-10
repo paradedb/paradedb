@@ -29,7 +29,7 @@ SELECT (ARRAY['alice','bob','cloe']::text[])[((i % 3) + 1)],
        ((i % 100) + 1),
        md5(i::text)::uuid
 FROM generate_series(1, 100) AS i;
-CREATE INDEX idxusers ON users USING bm25 (id, name, age, uuid)
+CREATE INDEX idxusers ON users USING paradedb (id, name, age, uuid)
   WITH (key_field = 'id',
         text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true},
                         "uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
@@ -40,7 +40,7 @@ ANALYZE users;
 
 CREATE TABLE products (id BIGSERIAL PRIMARY KEY, name TEXT, age INTEGER, uuid UUID);
 INSERT INTO products (name, age, uuid) SELECT name, age, uuid FROM users;
-CREATE INDEX idxproducts ON products USING bm25 (id, name, age, uuid)
+CREATE INDEX idxproducts ON products USING paradedb (id, name, age, uuid)
   WITH (key_field = 'id',
         text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true},
                         "uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
@@ -51,7 +51,7 @@ ANALYZE products;
 
 CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, name TEXT, age INTEGER, uuid UUID);
 INSERT INTO orders (name, age, uuid) SELECT name, age, uuid FROM users;
-CREATE INDEX idxorders ON orders USING bm25 (id, name, age, uuid)
+CREATE INDEX idxorders ON orders USING paradedb (id, name, age, uuid)
   WITH (key_field = 'id',
         text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true},
                         "uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',

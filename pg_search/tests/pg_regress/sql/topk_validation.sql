@@ -13,7 +13,7 @@ CALL paradedb.create_paradedb_test_table(
 -- Scenario 1: Index WITHOUT lower() but query uses lower() in ORDER BY
 -- This should trigger a warning when check_topk_scan is enabled
 CREATE INDEX products_base_idx ON test_products
-USING bm25 (id, description, category, rating)
+USING paradedb (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
@@ -49,7 +49,7 @@ LIMIT 5;
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;
 CREATE INDEX products_multi_idx ON test_products
-USING bm25 (id, description, category, rating, created_at, last_updated_date)
+USING paradedb (id, description, category, rating, created_at, last_updated_date)
 WITH (
     key_field='id',
     text_fields='{
@@ -68,7 +68,7 @@ LIMIT 10;
 -- Test 5: Query with lower() mismatch
 DROP INDEX products_multi_idx;
 CREATE INDEX products_lower_idx ON test_products
-USING bm25 (id, description, (lower(category)::pdb.literal), rating)
+USING paradedb (id, description, (lower(category)::pdb.literal), rating)
 WITH (
     key_field='id'
 );

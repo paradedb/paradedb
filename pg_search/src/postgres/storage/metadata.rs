@@ -410,7 +410,8 @@ mod tests {
     fn created_by_version_is_stamped_at_index_build() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb(id, data) WITH (key_field = 'id');")
+            .unwrap();
 
         let index_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
@@ -446,7 +447,8 @@ mod tests {
 
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb(id, data) WITH (key_field = 'id');")
+            .unwrap();
 
         let after: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
             .expect("spi should succeed")

@@ -34,7 +34,7 @@ fn reltuples_are_set(mut conn: PgConnection) {
         panic!("expected reltuples to be <= 0.0.")
     }
 
-    "CREATE INDEX idxreltuptest ON reltuptest USING bm25 (x, md5) WITH (key_field='x')"
+    "CREATE INDEX idxreltuptest ON reltuptest USING paradedb (x, md5) WITH (key_field='x')"
         .execute(&mut conn);
     let (reltuples,) = "SELECT reltuples FROM pg_class WHERE oid = 'reltuptest'::regclass::oid"
         .fetch_one::<(f32,)>(&mut conn);

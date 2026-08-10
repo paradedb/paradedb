@@ -295,7 +295,7 @@ SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
 DROP TABLE IF EXISTS edge_ngram_e2e;
 CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
 INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
-CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING bm25 (id, (name::pdb.edge_ngram(2, 10))) WITH (key_field = 'id');
+CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING paradedb (id, (name::pdb.edge_ngram(2, 10))) WITH (key_field = 'id');
 SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
    name    
 -----------
@@ -504,7 +504,7 @@ CREATE TABLE tokenizer_typmod_display (
     id serial8 NOT NULL PRIMARY KEY,
     description text
 );
-CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
+CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING paradedb
     (
         id,
         description,
@@ -526,7 +526,7 @@ CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
 SELECT indexdef from pg_indexes where indexname = 'idxtokenizer_typmod_display';
                                                                                                                                                                                                                                                                                                                                                                                                                                                     indexdef                                                                                                                                                                                                                                                                                                                                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- CREATE INDEX idxtokenizer_typmod_display ON public.tokenizer_typmod_display USING bm25 (id, description, ((description)::pdb.chinese_compatible('alias=chinese_compatible')), ((description)::pdb.literal('alias=literal')), ((description)::pdb.jieba('alias=jieba')), ((description)::pdb.lindera('chinese', 'alias=lindera_chinese')), ((description)::pdb.lindera('japanese', 'alias=lindera_japanese')), ((description)::pdb.lindera('korean', 'alias=lindera_korean')), ((description)::pdb.ngram('3', '5', 'alias=ngram')), ((description)::pdb.edge_ngram('2', '5', 'alias=edge_ngram')), ((description)::pdb.regex_pattern('is|a', 'alias=regex')), ((description)::pdb.simple('alias=simple')), ((description)::pdb.whitespace('alias=whitespace')), ((description)::pdb.source_code('alias=source_code')), ((description)::pdb.literal_normalized('alias=literal_normalized'))) WITH (key_field=id)
+ CREATE INDEX idxtokenizer_typmod_display ON public.tokenizer_typmod_display USING paradedb (id, description, ((description)::pdb.chinese_compatible('alias=chinese_compatible')), ((description)::pdb.literal('alias=literal')), ((description)::pdb.jieba('alias=jieba')), ((description)::pdb.lindera('chinese', 'alias=lindera_chinese')), ((description)::pdb.lindera('japanese', 'alias=lindera_japanese')), ((description)::pdb.lindera('korean', 'alias=lindera_korean')), ((description)::pdb.ngram('3', '5', 'alias=ngram')), ((description)::pdb.edge_ngram('2', '5', 'alias=edge_ngram')), ((description)::pdb.regex_pattern('is|a', 'alias=regex')), ((description)::pdb.simple('alias=simple')), ((description)::pdb.whitespace('alias=whitespace')), ((description)::pdb.source_code('alias=source_code')), ((description)::pdb.literal_normalized('alias=literal_normalized'))) WITH (key_field=id)
 (1 row)
 
 DROP TABLE tokenizer_typmod_display;

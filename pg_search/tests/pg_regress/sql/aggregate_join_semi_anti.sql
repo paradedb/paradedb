@@ -56,14 +56,14 @@ INSERT INTO asa_contact_list (list_id, ldf_id)
 SELECT 'list-B', s FROM generate_series(40, 60) s;
 
 CREATE INDEX asa_cccf_idx ON asa_cccf
-USING bm25 (contact_id, job_title)
+USING paradedb (contact_id, job_title)
 WITH (
     key_field='contact_id',
     text_fields='{"job_title":{"fast":true}}'
 );
 
 CREATE INDEX asa_contact_list_idx ON asa_contact_list
-USING bm25 (id, (list_id::pdb.literal), ldf_id)
+USING paradedb (id, (list_id::pdb.literal), ldf_id)
 WITH (key_field='id');
 
 ANALYZE asa_cccf;
@@ -192,14 +192,14 @@ INSERT INTO asa_pair_include
 SELECT s FROM generate_series(1, 15) s;
 
 CREATE INDEX asa_pair_outer_idx ON asa_pair_outer
-USING bm25 (id, label)
+USING paradedb (id, label)
 WITH (key_field='id', text_fields='{"label":{"fast":true}}');
 
 CREATE INDEX asa_pair_include_idx ON asa_pair_include
-USING bm25 (id) WITH (key_field='id');
+USING paradedb (id) WITH (key_field='id');
 
 CREATE INDEX asa_pair_inner_idx ON asa_pair_inner
-USING bm25 (pid, x, y) WITH (key_field='pid');
+USING paradedb (pid, x, y) WITH (key_field='pid');
 
 ANALYZE asa_pair_outer;
 ANALYZE asa_pair_inner;
@@ -291,14 +291,14 @@ SELECT s FROM generate_series(1, 20) s;
 INSERT INTO asa_excl_inner (iid, eid) VALUES (1, 7), (2, NULL);
 
 CREATE INDEX asa_excl_outer_idx ON asa_excl_outer
-USING bm25 (id, label)
+USING paradedb (id, label)
 WITH (key_field='id', text_fields='{"label":{"fast":true}}');
 
 CREATE INDEX asa_excl_include_idx ON asa_excl_include
-USING bm25 (id) WITH (key_field='id');
+USING paradedb (id) WITH (key_field='id');
 
 CREATE INDEX asa_excl_inner_idx ON asa_excl_inner
-USING bm25 (iid, eid) WITH (key_field='iid');
+USING paradedb (iid, eid) WITH (key_field='iid');
 
 ANALYZE asa_excl_outer;
 ANALYZE asa_excl_include;
@@ -382,20 +382,20 @@ INSERT INTO asa_adv_right (id, body) VALUES
     (4, 'doc four');
 INSERT INTO asa_adv_third VALUES (1), (3);
 CREATE INDEX asa_adv_left_idx ON asa_adv_left
-USING bm25 (id, fk, label) WITH (
+USING paradedb (id, fk, label) WITH (
     key_field = id,
     text_fields = '{"label": {"fast": true, "tokenizer": {"type": "raw"}}}',
     numeric_fields = '{"fk": {"fast": true}}'
 );
 CREATE INDEX asa_adv_right_idx ON asa_adv_right
-USING bm25 (id, body) WITH (
+USING paradedb (id, body) WITH (
     key_field = id,
     text_fields = '{"body": {"fast": true}}'
 );
 -- BM25 index on the third table so the IN sublink in 7c reaches the
 -- agg-on-join lift logic instead of declining earlier on "no BM25 index".
 CREATE INDEX asa_adv_third_idx ON asa_adv_third
-USING bm25 (id) WITH (key_field = id);
+USING paradedb (id) WITH (key_field = id);
 
 -- 7a: NOT EXISTS with volatile correlation (`random()*0` blocks pull-up).
 --     SubPlan stays correlated; `parParam` guard declines.
@@ -484,13 +484,13 @@ INSERT INTO asa_rti_outer_b VALUES (1, 1, 60), (2, 2, 10), (3, 3, 70);
 INSERT INTO asa_rti_inner_x VALUES (1, 1, 1), (2, 2, 2);
 INSERT INTO asa_rti_inner_y VALUES (1, 'match', 1), (2, 'block', 100);
 
-CREATE INDEX asa_rti_outer_a_idx ON asa_rti_outer_a USING bm25 (id, body, threshold)
+CREATE INDEX asa_rti_outer_a_idx ON asa_rti_outer_a USING paradedb (id, body, threshold)
 WITH (key_field='id', text_fields='{"body":{}}', numeric_fields='{"threshold":{"fast":true}}');
-CREATE INDEX asa_rti_outer_b_idx ON asa_rti_outer_b USING bm25 (id, a_id, val)
+CREATE INDEX asa_rti_outer_b_idx ON asa_rti_outer_b USING paradedb (id, a_id, val)
 WITH (key_field='id', numeric_fields='{"a_id":{"fast":true}, "val":{"fast":true}}');
-CREATE INDEX asa_rti_inner_x_idx ON asa_rti_inner_x USING bm25 (id, aid, y_id)
+CREATE INDEX asa_rti_inner_x_idx ON asa_rti_inner_x USING paradedb (id, aid, y_id)
 WITH (key_field='id', numeric_fields='{"aid":{"fast":true}, "y_id":{"fast":true}}');
-CREATE INDEX asa_rti_inner_y_idx ON asa_rti_inner_y USING bm25 (id, body, val)
+CREATE INDEX asa_rti_inner_y_idx ON asa_rti_inner_y USING paradedb (id, body, val)
 WITH (key_field='id', text_fields='{"body":{}}', numeric_fields='{"val":{"fast":true}}');
 
 ANALYZE asa_rti_outer_a; ANALYZE asa_rti_outer_b;
@@ -542,10 +542,10 @@ INSERT INTO asa_n9_outer VALUES (1, 'A'), (2, 'A'), (3, 'B'), (4, 'B');
 INSERT INTO asa_n9_mid VALUES (1), (2), (3);
 INSERT INTO asa_n9_inner VALUES (2);
 
-CREATE INDEX asa_n9_outer_idx ON asa_n9_outer USING bm25 (id, label)
+CREATE INDEX asa_n9_outer_idx ON asa_n9_outer USING paradedb (id, label)
 WITH (key_field='id', text_fields='{"label":{"fast":true, "tokenizer":{"type":"raw"}}}');
-CREATE INDEX asa_n9_mid_idx ON asa_n9_mid USING bm25 (id) WITH (key_field='id');
-CREATE INDEX asa_n9_inner_idx ON asa_n9_inner USING bm25 (id) WITH (key_field='id');
+CREATE INDEX asa_n9_mid_idx ON asa_n9_mid USING paradedb (id) WITH (key_field='id');
+CREATE INDEX asa_n9_inner_idx ON asa_n9_inner USING paradedb (id) WITH (key_field='id');
 
 ANALYZE asa_n9_outer; ANALYZE asa_n9_mid; ANALYZE asa_n9_inner;
 
@@ -586,11 +586,11 @@ INSERT INTO asa_n10_in1 VALUES (1), (2), (3), (4), (5);
 INSERT INTO asa_n10_in2 VALUES (4);
 INSERT INTO asa_n10_in3 VALUES (5);
 
-CREATE INDEX asa_n10_outer_idx ON asa_n10_outer USING bm25 (id, label)
+CREATE INDEX asa_n10_outer_idx ON asa_n10_outer USING paradedb (id, label)
 WITH (key_field='id', text_fields='{"label":{"fast":true, "tokenizer":{"type":"raw"}}}');
-CREATE INDEX asa_n10_in1_idx ON asa_n10_in1 USING bm25 (id) WITH (key_field='id');
-CREATE INDEX asa_n10_in2_idx ON asa_n10_in2 USING bm25 (id) WITH (key_field='id');
-CREATE INDEX asa_n10_in3_idx ON asa_n10_in3 USING bm25 (id) WITH (key_field='id');
+CREATE INDEX asa_n10_in1_idx ON asa_n10_in1 USING paradedb (id) WITH (key_field='id');
+CREATE INDEX asa_n10_in2_idx ON asa_n10_in2 USING paradedb (id) WITH (key_field='id');
+CREATE INDEX asa_n10_in3_idx ON asa_n10_in3 USING paradedb (id) WITH (key_field='id');
 
 ANALYZE asa_n10_outer; ANALYZE asa_n10_in1;
 ANALYZE asa_n10_in2; ANALYZE asa_n10_in3;

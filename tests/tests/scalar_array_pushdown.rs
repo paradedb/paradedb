@@ -193,7 +193,7 @@ INSERT INTO scalar_array_test (text_col, int_col, bool_col, ts_col, uuid_col) VA
 
 -- Create BM25 index with configurable tokenizer
 CREATE INDEX idx_scalar_array_test ON scalar_array_test
-USING bm25 (id, text_col, int_col, bool_col, ts_col, uuid_col)
+USING paradedb (id, text_col, int_col, bool_col, ts_col, uuid_col)
 WITH (
     key_field = 'id',
     text_fields = '{{

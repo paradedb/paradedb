@@ -45,7 +45,7 @@ INSERT INTO test_multi_stopwords (content) VALUES
 
 -- Create index with multiple stopwords languages (English and French)
 CREATE INDEX idx_multi_stopwords_bm25 ON test_multi_stopwords
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
     key_field = 'id',
     text_fields ='{
@@ -105,7 +105,7 @@ INSERT INTO test_single_stopwords (content) VALUES
 
 -- Single language as string (backwards compatible)
 CREATE INDEX idx_single_stopwords_bm25 ON test_single_stopwords
-    USING bm25 (id, content)
+    USING paradedb (id, content)
     WITH (
     key_field = 'id',
     text_fields ='{

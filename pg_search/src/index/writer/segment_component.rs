@@ -226,7 +226,7 @@ mod tests {
         Spi::run("CREATE TABLE segment_component_drop_guard (id SERIAL PRIMARY KEY, body TEXT);")
             .unwrap();
         Spi::run(
-            "CREATE INDEX segment_component_drop_guard_idx ON segment_component_drop_guard USING bm25(id, body) WITH (key_field = 'id');",
+            "CREATE INDEX segment_component_drop_guard_idx ON segment_component_drop_guard USING paradedb(id, body) WITH (key_field = 'id');",
         )
         .unwrap();
 
@@ -277,7 +277,7 @@ mod tests {
         Spi::run("DROP TABLE IF EXISTS scw_unwind_guard;").unwrap();
         Spi::run("CREATE TABLE scw_unwind_guard (id SERIAL PRIMARY KEY, body TEXT);").unwrap();
         Spi::run(
-            "CREATE INDEX scw_unwind_guard_idx ON scw_unwind_guard USING bm25(id, body) WITH (key_field = 'id');",
+            "CREATE INDEX scw_unwind_guard_idx ON scw_unwind_guard USING paradedb(id, body) WITH (key_field = 'id');",
         )
         .unwrap();
 

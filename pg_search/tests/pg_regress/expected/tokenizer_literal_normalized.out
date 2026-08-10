@@ -11,7 +11,7 @@ CREATE TABLE test_table (
 INSERT INTO test_table (text) VALUES
     ('Hello, world!'),
     ('Hello, world!');
-CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.unicode_words('ascii_folding=true'))) WITH (key_field='id');
+CREATE INDEX idx_test_table ON test_table USING paradedb (id, (text::pdb.unicode_words('ascii_folding=true'))) WITH (key_field='id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
 WARNING:  Aggregate Scan not used: grouping column text exists, but is not a fast field (table: test_table)
@@ -47,7 +47,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 DROP INDEX idx_test_table;
-CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.literal_normalized('ascii_folding=true'))) WITH (key_field='id');
+CREATE INDEX idx_test_table ON test_table USING paradedb (id, (text::pdb.literal_normalized('ascii_folding=true'))) WITH (key_field='id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
                                                                                          QUERY PLAN                                                                                         
@@ -78,7 +78,7 @@ SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
 (9 rows)
 
 DROP INDEX idx_test_table;
-CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.literal)) WITH (key_field='id');
+CREATE INDEX idx_test_table ON test_table USING paradedb (id, (text::pdb.literal)) WITH (key_field='id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
                                                                                          QUERY PLAN                                                                                         

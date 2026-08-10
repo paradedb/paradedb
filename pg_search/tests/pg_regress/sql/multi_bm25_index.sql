@@ -1,4 +1,4 @@
--- A relation may only have a single `USING bm25` index, but the check is
+-- A relation may only have a single `USING paradedb` index, but the check is
 -- bypassed when CREATE INDEX CONCURRENTLY is used (for the build-new/swap/drop-old
 -- workflow). When two bm25 indexes coexist `rel_get_bm25_index` should pick the
 -- highest-OID bm25 index, so a query referencing a field that only exists in the
@@ -19,12 +19,12 @@ INSERT INTO multi_bm25 (description, custom_identifiers) VALUES
 
 -- Older index lacks `custom_identifiers` -- represents a previous schema.
 CREATE INDEX CONCURRENTLY multi_bm25_old ON multi_bm25
-USING bm25 (id, description) WITH (key_field = 'id');
+USING paradedb (id, description) WITH (key_field = 'id');
 
 -- Newer index adds `custom_identifiers`. CONCURRENTLY bypasses the
 -- single-bm25-index restriction.
 CREATE INDEX CONCURRENTLY multi_bm25_new ON multi_bm25
-USING bm25 (id, description, (custom_identifiers::pdb.literal_normalized))
+USING paradedb (id, description, (custom_identifiers::pdb.literal_normalized))
 WITH (key_field = 'id');
 
 -- A query against the field that only `multi_bm25_new` knows about should

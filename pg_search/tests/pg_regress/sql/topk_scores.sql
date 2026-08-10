@@ -6,7 +6,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx on mock_items
-USING bm25 (id, description, rating, category, metadata)
+USING paradedb (id, description, rating, category, metadata)
 WITH (key_field='id', text_fields = '{"category": {"tokenizer": {"type": "keyword"}, "fast": true}}', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

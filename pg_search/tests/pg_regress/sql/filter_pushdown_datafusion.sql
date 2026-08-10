@@ -58,10 +58,10 @@ INSERT INTO suppliers (id, name, description, country, rating) VALUES
 (5, 'PowerTech', 'Power and charging solutions', 'USA', 4);
 
 -- Create BM25 indexes
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price, stock)
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock)
 WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, description, country, rating)
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating)
 WITH (key_field = 'id', numeric_fields = '{"rating": {"fast": true}}');
 
 -- Enable JoinScan

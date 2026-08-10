@@ -688,3 +688,69 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
     "DEALLOCATE agg_g".execute(&mut conn);
     "RESET plan_cache_mode".execute(&mut conn);
 }
+
+/// Regression for #5727. Base Scan below a Gather with a heap filter that
+/// references an InitPlan (uncorrelated scalar subquery) output silently
+/// returned wrong results because the basescan left `CustomScan.custom_exprs`
+/// empty, so `finalize_plan` never saw the Param reference and
+/// `SerializeParamExecParams` never shipped the InitPlan value to workers.
+#[rstest]
+fn parallel_with_initplan_param_in_heap_filter(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS bsp_pages;
+    DROP TABLE IF EXISTS bsp_files;
+
+    CREATE TABLE bsp_files (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        content TEXT
+    );
+
+    CREATE TABLE bsp_pages (
+        id SERIAL PRIMARY KEY,
+        file_id INTEGER,
+        page_text TEXT,
+        size_bytes INTEGER
+    );
+
+    INSERT INTO bsp_files (title, content)
+    SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+    FROM generate_series(1, 200) AS g;
+
+    INSERT INTO bsp_pages (file_id, page_text, size_bytes)
+    SELECT (g % 200) + 1, 'Page text for page ' || g, (g * 17) % 4096
+    FROM generate_series(1, 1000) AS g;
+
+    CREATE INDEX bsp_files_idx ON bsp_files USING bm25 (id, title, content)
+    WITH (key_field = 'id', text_fields = '{"title": {"fast": true}, "content": {}}');
+
+    ANALYZE bsp_files;
+    ANALYZE bsp_pages;
+    "#
+    .execute(&mut conn);
+
+    "SET paradedb.enable_join_custom_scan TO off".execute(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    "SET parallel_setup_cost TO 0".execute(&mut conn);
+    "SET parallel_tuple_cost TO 0".execute(&mut conn);
+    "SET min_parallel_table_scan_size TO 0".execute(&mut conn);
+    "SET max_parallel_workers_per_gather TO 4".execute(&mut conn);
+
+    let query = "SELECT count(*) FROM bsp_files f JOIN bsp_pages p ON f.id = p.file_id \
+                 WHERE f.content @@@ 'Section' \
+                   AND length(f.title) > (SELECT min(length(title)) + 1 FROM bsp_files)";
+
+    "SET parallel_leader_participation TO on".execute(&mut conn);
+    let (leader_on,) = query.fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(
+        leader_on, 505,
+        "parallel_leader_participation=on: expected 505, got {leader_on}"
+    );
+
+    "SET parallel_leader_participation TO off".execute(&mut conn);
+    let (leader_off,) = query.fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(
+        leader_off, 505,
+        "parallel_leader_participation=off: expected 505, got {leader_off}"
+    );
+}

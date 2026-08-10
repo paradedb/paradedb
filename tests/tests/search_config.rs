@@ -236,7 +236,7 @@ fn with_limit_and_offset(mut conn: PgConnection) {
 
 #[rstest]
 fn default_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
@@ -254,7 +254,7 @@ fn default_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn ngram_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
@@ -274,7 +274,7 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
@@ -295,7 +295,7 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn whitespace_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
@@ -312,7 +312,7 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn raw_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
@@ -341,7 +341,7 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn regex_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX bm25_search_idx ON paradedb.bm25_search
@@ -427,7 +427,7 @@ fn language_stem_filter(mut conn: PgConnection) {
 #[rstest]
 fn default_config_is_stored_false(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
@@ -445,7 +445,7 @@ fn default_config_is_stored_false(mut conn: PgConnection) {
 #[rstest]
 fn stopwords_language_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
@@ -469,7 +469,7 @@ fn stopwords_language_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn stopwords_tokenizer_config(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)

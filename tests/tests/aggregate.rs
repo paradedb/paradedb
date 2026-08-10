@@ -23,7 +23,7 @@ use tests::fixtures::*;
 #[rstest]
 fn test_aggregate_with_mvcc(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
     CREATE INDEX idxbm25_search ON paradedb.bm25_search
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (
@@ -72,7 +72,7 @@ fn test_aggregate_with_mvcc(mut conn: PgConnection) {
 #[rstest]
 fn test_aggregate_without_mvcc(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
     CREATE INDEX idxbm25_search ON paradedb.bm25_search
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (

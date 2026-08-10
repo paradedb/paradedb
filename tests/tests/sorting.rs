@@ -25,7 +25,7 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;
-        CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+        CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
@@ -164,7 +164,7 @@ fn sort_by_raw(mut conn: PgConnection) {
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;
-        CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+        CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)

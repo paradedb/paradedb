@@ -445,7 +445,7 @@ fn snippet_text_array(mut conn: PgConnection) {
 #[rstest]
 fn hybrid_with_single_result(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -516,7 +516,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     // drop the embedding column (and rewrite the heap to reclaim its space) to keep the tuple
     // layout free of the vector column.
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+    CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
     ALTER TABLE mock_items DROP COLUMN embedding;
     "#
     .execute(&mut conn);
@@ -670,7 +670,7 @@ async fn json_nested_arrays(mut conn: PgConnection) {
 fn bm25_partial_index_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
@@ -769,7 +769,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -884,7 +884,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
 fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     // Ensure report error when predicate is invalid
     // unknown column
@@ -939,7 +939,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
 fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
     r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
@@ -1140,7 +1140,7 @@ fn json_match(mut conn: PgConnection) {
 
 #[rstest]
 fn json_range(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+    "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
     "CREATE INDEX bm25_search_idx ON paradedb.bm25_search
     USING bm25 (id, metadata)
@@ -1188,7 +1188,7 @@ fn json_range(mut conn: PgConnection) {
 
 #[rstest]
 fn test_customers_table(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(
+    "CALL paradedb.create_paradedb_test_table(
         table_name => 'customers',
         schema_name => 'public',
         table_type => 'Customers'

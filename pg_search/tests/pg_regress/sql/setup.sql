@@ -13,7 +13,7 @@ $$;
 SET max_parallel_workers_per_gather = 2;
 
 DROP TABLE IF EXISTS mock_items_issue_2528;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items_issue_2528'
 );
@@ -27,7 +27,7 @@ CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, desc
 -- we add a new column, "sku", to the table, and populate it with a unique UUID per row
 --
 CREATE SCHEMA IF NOT EXISTS regress;
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
         schema_name => 'regress',
         table_name => 'mock_items'
      );

@@ -27,7 +27,7 @@ use tests::fixtures::*;
 #[rstest]
 fn quickstart(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     )
@@ -98,7 +98,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].0, "White jogging shoes");
 
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'orders',
         table_type => 'Orders'
@@ -230,7 +230,7 @@ fn quickstart(mut conn: PgConnection) {
 #[rstest]
 fn full_text_search(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -411,7 +411,7 @@ fn full_text_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'orders',
         table_type => 'Orders'
@@ -546,7 +546,7 @@ fn full_text_search(mut conn: PgConnection) {
 #[rstest]
 fn match_query(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -656,7 +656,7 @@ fn match_query(mut conn: PgConnection) {
 #[rstest]
 fn term_level_queries(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1071,7 +1071,7 @@ fn term_level_queries(mut conn: PgConnection) {
 #[rstest]
 fn phrase_level_queries(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1174,7 +1174,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
 #[rstest]
 fn json_queries(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1239,7 +1239,7 @@ fn json_arrays(mut conn: PgConnection) {
     // 1) Create the mock_items test table with ParadeDB helper
     //
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1316,7 +1316,7 @@ fn json_arrays(mut conn: PgConnection) {
 #[rstest]
 fn custom_enum(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1380,7 +1380,7 @@ fn custom_enum(mut conn: PgConnection) {
 #[rstest]
 fn compound_queries(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1797,7 +1797,7 @@ fn compound_queries(mut conn: PgConnection) {
 #[rstest]
 fn specialized_queries(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1867,7 +1867,7 @@ fn specialized_queries(mut conn: PgConnection) {
 #[rstest]
 fn autocomplete(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -1968,7 +1968,7 @@ fn autocomplete(mut conn: PgConnection) {
 #[rstest]
 fn hybrid_search(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2066,15 +2066,15 @@ fn hybrid_search(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn create_bm25_test_tables(mut conn: PgConnection) {
+fn create_paradedb_test_tables(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'orders',
         table_type => 'Orders'
     );
 
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
         schema_name => 'public',
         table_name => 'parts',
         table_type => 'Parts'
@@ -2100,7 +2100,7 @@ fn create_bm25_test_tables(mut conn: PgConnection) {
 #[rstest]
 fn concurrent_indexing(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2137,7 +2137,7 @@ fn concurrent_indexing(mut conn: PgConnection) {
 #[rstest]
 fn schema(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2168,7 +2168,7 @@ fn schema(mut conn: PgConnection) {
 #[rstest]
 fn index_size(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2189,7 +2189,7 @@ fn index_size(mut conn: PgConnection) {
 #[rstest]
 fn field_configuration(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2308,7 +2308,7 @@ fn field_configuration(mut conn: PgConnection) {
 #[rstest]
 fn available_tokenizers(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2519,7 +2519,7 @@ fn available_tokenizers(mut conn: PgConnection) {
 #[rstest]
 fn token_filters(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2569,7 +2569,7 @@ fn token_filters(mut conn: PgConnection) {
 #[rstest]
 fn fast_fields(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );
@@ -2606,7 +2606,7 @@ fn fast_fields(mut conn: PgConnection) {
 #[rstest]
 fn record(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
       table_name => 'mock_items'
     );

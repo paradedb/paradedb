@@ -23,7 +23,7 @@ use tests::fixtures::*;
 #[rstest]
 fn expression_paradedb_func(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
         USING bm25 (id, (lower(description)::pdb.simple)) WITH (key_field='id');
@@ -45,7 +45,7 @@ fn expression_paradedb_func(mut conn: PgConnection) {
 #[rstest]
 fn expression_paradedb_op(mut conn: PgConnection) {
     r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
+    CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
         USING bm25 (id, ((description || ' with cats')::pdb.simple)) WITH (key_field='id');

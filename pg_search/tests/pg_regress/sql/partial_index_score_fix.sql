@@ -84,7 +84,7 @@ DROP TABLE partial_test;
 -- ============================================================
 
 -- Setup test table
-CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');
+CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');
 
 -- Create partial index with predicate WHERE category = 'Electronics'
 CREATE INDEX partial_idx ON paradedb.test_partial_index

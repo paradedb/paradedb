@@ -3,12 +3,12 @@
 \i common/common_setup.sql
 
 -- Create test tables
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items_rrf',
   table_type => 'Items'
 );
-CALL paradedb.create_bm25_test_table(
+CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'orders_rrf',
   table_type => 'Orders'

@@ -1047,7 +1047,7 @@ mod tests {
 
     fn init_bm25_index() -> pg_sys::Oid {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING paradedb(id, data) WITH (key_field = 'id')")
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id')")
             .unwrap();
         Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
             .expect("spi should succeed")

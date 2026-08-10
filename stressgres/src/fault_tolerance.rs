@@ -228,10 +228,19 @@ pub(crate) fn tolerate_transient<T>(
     let mut backoff = INITIAL_RECONNECT_BACKOFF;
     let mut down_since: Option<Instant> = None;
     let mut last_grace: Option<Duration> = None;
+    let mut rode_out_fault = false;
     loop {
         let mut progress = TransientProgress::default();
         match op(&mut progress) {
-            Ok(value) => return Ok(Some(value)),
+            Ok(value) => {
+                dst::assert_reachable!("stressgres: completed a database operation");
+                if rode_out_fault {
+                    dst::assert_reachable!(
+                        "stressgres: made forward progress after riding out a transient database fault"
+                    );
+                }
+                return Ok(Some(value));
+            }
             Err(e) if !is_transient_error(&e) => return Err(e),
             Err(e) => {
                 let grace = grace.current();
@@ -274,6 +283,7 @@ pub(crate) fn tolerate_transient<T>(
                     )));
                 }
                 dst::assert_reachable!("stressgres retried a transient database fault");
+                rode_out_fault = true;
                 eprintln!("stressgres: transient database fault, retrying: {e:#}");
                 interruptible_sleep(alive, backoff);
                 backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);

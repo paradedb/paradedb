@@ -290,7 +290,7 @@ CREATE TABLE anon_test (
 -- This should fail: anonymous ROW without type cast
 \set ON_ERROR_STOP off
 CREATE INDEX idx_anon_test ON anon_test USING paradedb (id, ROW(a, b)) WITH (key_field='id');
-ERROR:  syntax error at or near "(" at character 60
+ERROR:  syntax error at or near "(" at character 64
 \set ON_ERROR_STOP on
 DROP TABLE anon_test;
 ------------------------------------------------------------

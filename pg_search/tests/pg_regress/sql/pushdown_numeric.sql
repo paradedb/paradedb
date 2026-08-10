@@ -20,7 +20,7 @@ SELECT
     (i % 5)::integer
 FROM generate_series(1, 100) i;
 
-CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING bm25 (
+CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING paradedb (
     id, text_col, numeric_col, float_col, int_col
 ) WITH (key_field = 'id');
 
@@ -132,7 +132,7 @@ INSERT INTO json_numeric_types (data) VALUES
     ('{"num": 200}'::jsonb);
 
 CREATE INDEX json_numeric_idx ON json_numeric_types
-    USING bm25 (id, data)
+    USING paradedb (id, data)
     WITH (key_field = 'id');
 
 -- ============================================================================
@@ -636,7 +636,7 @@ INSERT INTO json_fast_field_test (data) VALUES
     ('{"value": 9007199254740994}');    -- 2^53 + 2
 
 CREATE INDEX json_fast_idx ON json_fast_field_test
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
 
 -- ============================================================================
@@ -743,7 +743,7 @@ INSERT INTO json_scientific_test (data) VALUES
     ('{"value": 9.99e2}');        -- 999 (float)
 
 CREATE INDEX json_sci_idx ON json_scientific_test
-USING bm25 (id, data)
+USING paradedb (id, data)
 WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
 
 -- Test M1a: Query using scientific notation constant (integer result)
@@ -833,7 +833,7 @@ INSERT INTO numeric_scientific_test (value) VALUES
     (9.99e2);        -- 999
 
 CREATE INDEX numeric_sci_idx ON numeric_scientific_test
-USING bm25 (id, value)
+USING paradedb (id, value)
 WITH (key_field = 'id');
 
 -- Test N1: Exact match with scientific notation constant

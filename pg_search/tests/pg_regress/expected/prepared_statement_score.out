@@ -12,7 +12,7 @@ CALL paradedb.create_bm25_test_table(
 -- This test verifies that scores work correctly in both custom and generic plans
 -- Create the BM25 index
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (key_field='id');
 -- Test 1: Basic prepared statement with score and parameter
 PREPARE search_desc(text, int) AS

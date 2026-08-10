@@ -26,7 +26,7 @@ async fn test_copy_to_table(mut conn: PgConnection) {
     r#"
         DROP TABLE IF EXISTS test_copy_to_table;
         CREATE TABLE test_copy_to_table (id SERIAL PRIMARY KEY, name TEXT);
-        CREATE INDEX idx_test_copy_to_table ON test_copy_to_table USING bm25(id, name) WITH (key_field = 'id');
+        CREATE INDEX idx_test_copy_to_table ON test_copy_to_table USING paradedb(id, name) WITH (key_field = 'id');
     "#.execute(&mut conn);
 
     let mut copyin = conn

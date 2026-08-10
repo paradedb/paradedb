@@ -17,7 +17,7 @@ CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items_issue_2528'
 );
-CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING bm25 (id, description, category) WITH (key_field='id');
+CREATE INDEX search_idx_issue_2528 ON mock_items_issue_2528 USING paradedb (id, description, category) WITH (key_field='id');
 
 
 --
@@ -40,7 +40,7 @@ ALTER TABLE regress.mock_items DROP COLUMN embedding;
 VACUUM FULL regress.mock_items;
 CREATE INDEX idxregress_mock_items
     ON regress.mock_items
-        USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
+        USING paradedb (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
     WITH (key_field='id');
 
 

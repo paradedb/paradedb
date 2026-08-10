@@ -14,7 +14,7 @@ CREATE TABLE nonfinite_vec (
     vec vector(3)
 );
 CREATE INDEX nonfinite_vec_idx ON nonfinite_vec
-    USING bm25 (id, vec vector_cosine_ops)
+    USING paradedb (id, vec vector_cosine_ops)
     WITH (key_field = id);
 
 -- vector_in: the text parser rejects NaN before a datum exists.

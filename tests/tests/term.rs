@@ -34,7 +34,7 @@ fn boolean_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value) WITH (key_field='id', boolean_fields='{"value": {}}');
+    USING paradedb (id, value) WITH (key_field='id', boolean_fields='{"value": {}}');
     "#
     .execute(&mut conn);
 
@@ -67,7 +67,7 @@ fn integer_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value_int2, value_int4, value_int8) WITH (key_field='id', numeric_fields='{"value_int2": {}, "value_int4": {}, "value_int8": {}}');
+    USING paradedb (id, value_int2, value_int4, value_int8) WITH (key_field='id', numeric_fields='{"value_int2": {}, "value_int4": {}, "value_int8": {}}');
     "#
     .execute(&mut conn);
 
@@ -119,7 +119,7 @@ fn float_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value_float4, value_float8, value_numeric) WITH (key_field='id', numeric_fields='{"value_float4": {}, "value_float8": {}, "value_numeric": {}}');
+    USING paradedb (id, value_float4, value_float8, value_numeric) WITH (key_field='id', numeric_fields='{"value_float4": {}, "value_float8": {}, "value_numeric": {}}');
     "#
     .execute(&mut conn);
 
@@ -171,7 +171,7 @@ fn text_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value_text, value_varchar, value_uuid) WITH (key_field='id', text_fields='{
+    USING paradedb (id, value_text, value_varchar, value_uuid) WITH (key_field='id', text_fields='{
         "value_text": {}, 
         "value_varchar": {}, 
         "value_uuid": {"tokenizer": {"type": "raw"}, "normalizer": "raw", "record": "basic", "fieldnorms": false}
@@ -220,7 +220,7 @@ fn datetime_shaped_string_term(mut conn: PgConnection) {
         ('2019-08-02 07:52:43.123');
 
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, (value::pdb.literal)) WITH (key_field='id');
+    USING paradedb (id, (value::pdb.literal)) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -254,7 +254,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value_date, value_timestamp, value_timestamptz, value_time, value_timetz) WITH (key_field='id');
+    USING paradedb (id, value_date, value_timestamp, value_timestamptz, value_time, value_timetz) WITH (key_field='id');
     "#
     .execute(&mut conn);
 

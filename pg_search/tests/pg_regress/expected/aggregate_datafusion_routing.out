@@ -18,7 +18,7 @@ SELECT g,
        'sub_' || (g % 2)::text
 FROM generate_series(1, 100000) g;
 CREATE INDEX routing_test_idx ON routing_test
-USING bm25 (id, (cat::pdb.literal), (sub::pdb.literal)) WITH (key_field='id');
+USING paradedb (id, (cat::pdb.literal), (sub::pdb.literal)) WITH (key_field='id');
 ANALYZE routing_test;
 SET paradedb.max_term_agg_buckets = 10;
 -- 50 groups > cap: unbounded GROUP BY routes to DataFusion.

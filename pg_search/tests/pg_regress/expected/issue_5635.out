@@ -39,12 +39,12 @@ SELECT
     'File Title ' || LPAD(i::TEXT, 3, '0')
 FROM generate_series(1, 50) AS i;
 CREATE INDEX issue5635_documents_bm25_idx ON issue5635_documents
-USING bm25 (
+USING paradedb (
     id,
     (category::pdb.unicode_words('columnar=true'))
 ) WITH (key_field = 'id');
 CREATE INDEX issue5635_files_bm25_idx ON issue5635_files
-USING bm25 (
+USING paradedb (
     id,
     (document_id::pdb.literal),
     (title::pdb.unicode_words('columnar=true'))

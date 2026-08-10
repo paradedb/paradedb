@@ -13,16 +13,16 @@ DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
 CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
-CREATE INDEX idxusers ON users USING bm25 (id, name)
+CREATE INDEX idxusers ON users USING paradedb (id, name)
   WITH (key_field = 'id',
         text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-CREATE INDEX idxproducts ON products USING bm25 (id, name, age)
+CREATE INDEX idxproducts ON products USING paradedb (id, name, age)
   WITH (key_field = 'id',
         text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
         numeric_fields = '{"age": {"fast": true}}');
 CREATE TABLE orders (id INTEGER PRIMARY KEY, age INTEGER);
-CREATE INDEX idxorders ON orders USING bm25 (id, age)
+CREATE INDEX idxorders ON orders USING paradedb (id, age)
   WITH (key_field = 'id', numeric_fields = '{"age": {"fast": true}}');
 -- Joinable on users.id = products.id and products.age = orders.age.
 -- For each (u, p, o) triple, only some satisfy `u.name='bob' OR p.name='bob'`.

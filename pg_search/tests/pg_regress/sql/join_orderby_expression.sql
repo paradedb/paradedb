@@ -47,14 +47,14 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 ALTER TABLE companies ADD COLUMN big_id BIGINT;
 UPDATE companies SET big_id = id;
 
-CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description, big_id)
+CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id)
 WITH (
     key_field = 'id',
     numeric_fields = '{"big_id": {"fast": true}}'
 );
 
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
-USING bm25 (id, company_id, amount, (round_type::pdb.literal))
+USING paradedb (id, company_id, amount, (round_type::pdb.literal))
 WITH (
     key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
@@ -457,7 +457,7 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 (204, 3, 'completed', 8000),
 (205, 4, 'completed', 2000);
 
-CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, company_id, (status::pdb.literal), total)
+CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total)
 WITH (
     key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'

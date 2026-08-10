@@ -343,7 +343,7 @@ CREATE TABLE {tname} (
     {column_definitions}
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
+CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
     numeric_fields = '{{ {numeric_fields} }}',

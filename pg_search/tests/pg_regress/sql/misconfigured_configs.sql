@@ -6,7 +6,7 @@ CALL paradedb.create_bm25_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id', text_fields='{"description": {"unknown": "value", "tokenizer": {"type": "keyword"}}}');
 
 SELECT description, rating, category

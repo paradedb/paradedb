@@ -6,7 +6,7 @@ CALL paradedb.create_bm25_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (key_field='id');
 
 SET plan_cache_mode = force_generic_plan;

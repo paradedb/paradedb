@@ -9,7 +9,7 @@ INSERT INTO test_unlogged (description) VALUES
     ('keyboard'), ('mouse'), ('monitor');
 
 CREATE INDEX ON test_unlogged
-USING bm25 (id, description)
+USING paradedb (id, description)
 WITH (key_field='id');
 
 -- Test: search on unlogged table

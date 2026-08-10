@@ -48,14 +48,14 @@ fn setup_join_tables(conn: &mut PgConnection) {
         (4, 'outdoor'),
         (5, 'tech'), (5, 'kids');
     CREATE INDEX products_idx ON products
-    USING bm25 (id, description, category, price, rating)
+    USING paradedb (id, description, category, price, rating)
     WITH (
         key_field='id',
         text_fields='{"description": {}, "category": {"fast": true}}',
         numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
     );
     CREATE INDEX tags_idx ON tags
-    USING bm25 (id, product_id, tag_name)
+    USING paradedb (id, product_id, tag_name)
     WITH (
         key_field='id',
         numeric_fields='{"product_id": {"fast": true}}',
@@ -307,9 +307,9 @@ fn test_join_aggregate_cross_table_not_predicate(mut conn: PgConnection) {
         SELECT (ARRAY['apple','banana','cherry','date','elderberry','fig','grape','honeydew','kiwi'])
                [floor(random()*9+1)::int]
         FROM generate_series(1, 10);
-    CREATE INDEX users_idx ON users USING bm25 (id, name)
+    CREATE INDEX users_idx ON users USING paradedb (id, name)
     WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-    CREATE INDEX items_idx ON items USING bm25 (id, name)
+    CREATE INDEX items_idx ON items USING paradedb (id, name)
     WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
     "#
     .execute(&mut conn);
@@ -467,7 +467,7 @@ fn setup_reviews_table(conn: &mut PgConnection) {
     );
     INSERT INTO reviews (product_id, score) VALUES (1, 5), (1, 4), (2, 3), (3, 4), (4, 3);
     CREATE INDEX reviews_idx ON reviews
-    USING bm25 (id, product_id, score)
+    USING paradedb (id, product_id, score)
     WITH (
         key_field='id',
         numeric_fields='{"product_id": {"fast": true}, "score": {"fast": true}}'
@@ -603,7 +603,7 @@ fn test_join_aggregate_4table(mut conn: PgConnection) {
     INSERT INTO suppliers (product_id, supplier_name) VALUES
         (1, 'TechCorp'), (2, 'GameInc'), (3, 'SportCo');
     CREATE INDEX suppliers_idx ON suppliers
-    USING bm25 (id, product_id, supplier_name)
+    USING paradedb (id, product_id, supplier_name)
     WITH (
         key_field='id',
         numeric_fields='{"product_id": {"fast": true}}',

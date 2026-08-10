@@ -14,7 +14,7 @@ INSERT INTO mlt (text_field_a, text_field_b, json_field, numeric_field) VALUES
     ('ddd eee fff', 'foo foo foo', '{"color": "ddd eee fff"}', 2),
     ('aaa aaa', 'baz baz', '{"color": "aaa aaa"}', 3);
 
-CREATE INDEX ON mlt USING bm25 (id, text_field_a, text_field_b, json_field, numeric_field) WITH (key_field = 'id');
+CREATE INDEX ON mlt USING paradedb (id, text_field_a, text_field_b, json_field, numeric_field) WITH (key_field = 'id');
 
 SELECT * from mlt where id @@@ pdb.more_like_this(1);
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a']);
@@ -64,7 +64,7 @@ INSERT INTO mlt_vec (description, embedding) VALUES
     ('aaa aaa', '[4,5,6]'),
     ('ddd eee fff', '[7,8,9]');
 
-CREATE INDEX ON mlt_vec USING bm25 (id, description, embedding) WITH (key_field = 'id');
+CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding) WITH (key_field = 'id');
 
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1);
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['description']);

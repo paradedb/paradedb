@@ -15,7 +15,7 @@ INSERT INTO mock_items (description, metadata) VALUES
 
 -- CASE 1: fast, default tokenizer
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
 
 -- basic FTS query

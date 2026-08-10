@@ -30,7 +30,7 @@ SELECT
 FROM generate_series(1, 2000) as i;
 
 CREATE INDEX table_a_idx ON table_a
-USING bm25 (id, category)
+USING paradedb (id, category)
 WITH (
     key_field = id,
     text_fields = '{
@@ -42,7 +42,7 @@ CREATE INDEX table_b_group_id_idx ON table_b USING btree (group_id);
 CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
 
 CREATE INDEX table_b_idx ON table_b
-USING bm25 (id, group_id, a_id, category)
+USING paradedb (id, group_id, a_id, category)
 WITH (
     key_field = id,
     text_fields = '{

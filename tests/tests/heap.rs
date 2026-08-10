@@ -25,7 +25,7 @@ fn mvcc_heap_filter(mut conn: PgConnection) {
         CALL paradedb.create_bm25_test_table(table_name => 'heap_and_clauses_table', schema_name => 'public');
 
         CREATE INDEX heap_and_clauses_idx ON heap_and_clauses_table
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field = 'id');
     "#.execute(&mut conn);
 
@@ -56,7 +56,7 @@ fn mvcc_snippet(mut conn: PgConnection) {
         CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
         
         CREATE INDEX mock_items_idx ON mock_items
-        USING bm25 (id, description)
+        USING paradedb (id, description)
         WITH (key_field = 'id');
     "#
     .execute(&mut conn);

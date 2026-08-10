@@ -6,7 +6,7 @@ CREATE TABLE invalid_lhs (
 
 INSERT INTO invalid_lhs (t) VALUES ('This is a TEST');
 
-CREATE INDEX idxinvalid_lhs ON invalid_lhs USING bm25 (
+CREATE INDEX idxinvalid_lhs ON invalid_lhs USING paradedb (
    id,
    t,
    (t::pdb.literal('alias=literal')),

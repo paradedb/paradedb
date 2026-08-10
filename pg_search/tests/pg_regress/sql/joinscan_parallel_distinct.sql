@@ -45,7 +45,7 @@ CREATE TABLE js_parallel_distinct_orders (
 
 CREATE INDEX js_parallel_distinct_users_idx
 ON js_parallel_distinct_users
-USING bm25 (id, uuid, name, age)
+USING paradedb (id, uuid, name, age)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -58,7 +58,7 @@ WITH (
 
 CREATE INDEX js_parallel_distinct_products_idx
 ON js_parallel_distinct_products
-USING bm25 (id, uuid, name, age)
+USING paradedb (id, uuid, name, age)
 WITH (
     key_field = 'id',
     text_fields = '{
@@ -71,7 +71,7 @@ WITH (
 
 CREATE INDEX js_parallel_distinct_orders_idx
 ON js_parallel_distinct_orders
-USING bm25 (id, uuid, name, age)
+USING paradedb (id, uuid, name, age)
 WITH (
     key_field = 'id',
     text_fields = '{

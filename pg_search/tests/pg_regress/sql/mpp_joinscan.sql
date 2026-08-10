@@ -38,7 +38,7 @@ CREATE TABLE mpp_join_pages (
 );
 
 CREATE INDEX mpp_join_files_idx ON mpp_join_files
-USING bm25 (id, title, content)
+USING paradedb (id, title, content)
 WITH (
     key_field='id',
     partition_by='id',
@@ -46,7 +46,7 @@ WITH (
 );
 
 CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
-USING bm25 (id, file_id, page_text, size_bytes)
+USING paradedb (id, file_id, page_text, size_bytes)
 WITH (
     key_field='id',
     partition_by='file_id',

@@ -19,7 +19,7 @@ INSERT INTO jsonb_exists_test (description, data) VALUES ('CEO', NULL);
 INSERT INTO jsonb_exists_test (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
 INSERT INTO jsonb_exists_test (description, data) VALUES ('Intern', '{"address": {"city": "New York", "zip": "10001"}}');
 
-CREATE INDEX idx_jsonb_exists_test ON jsonb_exists_test USING bm25 (id, description, (data::pdb.literal))
+CREATE INDEX idx_jsonb_exists_test ON jsonb_exists_test USING paradedb (id, description, (data::pdb.literal))
 WITH (key_field = 'id');
 
 -- Test 1: Basic JSONB ? operator - should return rows where data has 'first_name' key

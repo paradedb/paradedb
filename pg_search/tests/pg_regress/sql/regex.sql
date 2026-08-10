@@ -1,6 +1,6 @@
 CREATE INDEX IF NOT EXISTS idxregress_mock_items
 ON regress.mock_items
-    USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
+    USING paradedb (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
 WITH (key_field='id');
 
 -- ensure a cast to `::pdb.regex` works to tokenize using a regular expression

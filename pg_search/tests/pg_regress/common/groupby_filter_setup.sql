@@ -47,7 +47,7 @@ INSERT INTO filter_agg_test (id, title, description, category, brand, status, pr
 
 -- Create BM25 index with fast fields for all aggregation scenarios
 CREATE INDEX filter_agg_idx ON filter_agg_test
-USING bm25(id, title, description, category, brand, status, price, rating, in_stock, views)
+USING paradedb(id, title, description, category, brand, status, price, rating, in_stock, views)
 WITH (
     key_field='id',
     text_fields='{

@@ -54,7 +54,7 @@ UPDATE documents
 SET org_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
 WHERE title = 'sheriff cross org incident report';
 CREATE INDEX documents_bm25 ON documents
-    USING bm25 (id, title) WITH (key_field=id);
+    USING paradedb (id, title) WITH (key_field=id);
 GRANT SELECT ON documents TO authenticated;
 GRANT SELECT ON access_tags TO authenticated;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;

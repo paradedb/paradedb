@@ -1,5 +1,5 @@
 CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts
-USING bm25 (
+USING paradedb (
     id,
     (title::pdb.unicode_words('columnar=true')),
     (body::pdb.unicode_words('columnar=true')),
@@ -17,7 +17,7 @@ USING bm25 (
 );
 
 CREATE INDEX badges_idx ON badges
-USING bm25 (
+USING paradedb (
     id,
     (name::pdb.unicode_words('columnar=true')),
     date,
@@ -29,7 +29,7 @@ USING bm25 (
  );
 
 CREATE INDEX comments_idx ON comments
-USING bm25 (
+USING paradedb (
     id,
     post_id,
     score,
@@ -41,7 +41,7 @@ USING bm25 (
 );
 
 CREATE INDEX users_idx ON users
-USING bm25 (
+USING paradedb (
     id,
     (about_me::pdb.unicode_words('columnar=true')),
     (display_name::pdb.unicode_words('columnar=true')),

@@ -50,7 +50,7 @@ ANALYZE nonprofits_test;
 
 -- Create BM25 index with partial index predicate
 CREATE INDEX nonprofits_test_idx ON nonprofits_test
-USING bm25 (
+USING paradedb (
     id,
     legal_name, mission, keywords,
     (city::pdb.literal), (state::pdb.literal),

@@ -55,7 +55,7 @@ BEGIN;
 
     CREATE INDEX bm25_search_bm25_index
     ON paradedb.bm25_search
-    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (key_field='id');
 COMMIT;
 "#;

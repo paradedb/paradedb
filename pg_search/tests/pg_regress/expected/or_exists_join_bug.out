@@ -57,11 +57,11 @@ INSERT INTO details (content, metadata) VALUES
 ('test content 2', '{"processed": false}'),
 ('test content 3', NULL);
 -- Create BM25 indexes
-CREATE INDEX ON users USING bm25 (id, org_id, name) WITH (key_field = 'id');
-CREATE INDEX ON tasks USING bm25 (id, user_id, status, priority) WITH (key_field = 'id');
-CREATE INDEX ON task_items USING bm25 (id, task_id, item_type) WITH (key_field = 'id');
-CREATE INDEX ON item_details USING bm25 (id, task_item_id, detail_id) WITH (key_field = 'id');
-CREATE INDEX ON details USING bm25 (id, content, metadata) WITH (key_field = 'id', json_fields = '{"metadata": {"fast": true}}');
+CREATE INDEX ON users USING paradedb (id, org_id, name) WITH (key_field = 'id');
+CREATE INDEX ON tasks USING paradedb (id, user_id, status, priority) WITH (key_field = 'id');
+CREATE INDEX ON task_items USING paradedb (id, task_id, item_type) WITH (key_field = 'id');
+CREATE INDEX ON item_details USING paradedb (id, task_item_id, detail_id) WITH (key_field = 'id');
+CREATE INDEX ON details USING paradedb (id, content, metadata) WITH (key_field = 'id', json_fields = '{"metadata": {"fast": true}}');
 -- Test 1: Simple query without EXISTS - should work
 SELECT u.id, u.name
 FROM users u

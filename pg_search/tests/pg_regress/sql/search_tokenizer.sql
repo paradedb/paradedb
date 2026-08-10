@@ -22,7 +22,7 @@ INSERT INTO autocomplete (title) VALUES
     ('socks');
 
 -- Edge ngram (prefix_only=true) at index time, unicode_words at search time
-CREATE INDEX idx_autocomplete ON autocomplete USING bm25
+CREATE INDEX idx_autocomplete ON autocomplete USING paradedb
     (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
     WITH (key_field = 'id', search_tokenizer = 'unicode_words');
 
@@ -52,7 +52,7 @@ INSERT INTO autocomplete_plain (title) VALUES
     ('shoelaces'),
     ('socks');
 
-CREATE INDEX idx_autocomplete_plain ON autocomplete_plain USING bm25
+CREATE INDEX idx_autocomplete_plain ON autocomplete_plain USING paradedb
     (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
     WITH (key_field = 'id');
 
@@ -79,7 +79,7 @@ INSERT INTO case_test (description) VALUES
     ('running fast'),
     ('RUNNING LATE');
 
-CREATE INDEX idx_case_test ON case_test USING bm25
+CREATE INDEX idx_case_test ON case_test USING paradedb
     (id, description)
     WITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)');
 
@@ -103,7 +103,7 @@ INSERT INTO combined_test (content) VALUES
     ('hello there'),
     ('HELLO AGAIN');
 
-CREATE INDEX idx_combined ON combined_test USING bm25
+CREATE INDEX idx_combined ON combined_test USING paradedb
     (id, (content::pdb.ngram(1, 10, 'prefix_only=true')))
     WITH (key_field = 'id', search_tokenizer = 'unicode_words(lowercase=false)');
 

@@ -18,7 +18,7 @@ INSERT INTO snippets_test (id, content) VALUES
 (6, 'A sentence with no matching words.'),
 (7, 'A test sentence for testing. Another test sentence.');
 
-CREATE INDEX idx_snippets_test ON snippets_test USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX idx_snippets_test ON snippets_test USING paradedb (id, content) WITH (key_field = 'id');
 
 -- =====================================================================
 -- Basic tests for pdb.snippets

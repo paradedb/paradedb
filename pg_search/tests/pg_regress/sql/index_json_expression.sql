@@ -8,7 +8,7 @@ CALL paradedb.create_bm25_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, ((metadata->>'color')::pdb.ngram(2, 3)))
+USING paradedb (id, ((metadata->>'color')::pdb.ngram(2, 3)))
 WITH (key_field='id');
 
 SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
@@ -24,7 +24,7 @@ CREATE TABLE json_topk_test (id SERIAL PRIMARY KEY, metadata JSONB, name TEXT);
 INSERT INTO json_topk_test (metadata, name) VALUES ('{"rating": 10}', 'foo'), ('{"rating": 20}', 'foo'), ('{"rating": 30}', 'bar');
 
 CREATE INDEX json_topk_idx ON json_topk_test
-USING bm25 (id, name, (((metadata->>'rating')::int)::pdb.alias('rating')))
+USING paradedb (id, name, (((metadata->>'rating')::int)::pdb.alias('rating')))
 WITH (key_field='id', sort_by='rating DESC NULLS LAST');
 
 -- EXPLAIN to check if TopKScanExecState is used

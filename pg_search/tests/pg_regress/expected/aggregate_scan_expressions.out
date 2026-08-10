@@ -10,7 +10,7 @@ CREATE TABLE documents.core
 );
 CREATE UNIQUE INDEX idx_core_dwf_doid
     ON documents.core (dwf_doid);
-CREATE INDEX idx_parade_core ON documents.core USING bm25 (
+CREATE INDEX idx_parade_core ON documents.core USING paradedb (
     id,
     dwf_doid,
     (lower(record_type)::pdb.literal),

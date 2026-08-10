@@ -373,7 +373,7 @@ mod tests {
         Spi::run("DROP TABLE IF EXISTS merge_list_pid_test CASCADE")?;
         Spi::run("CREATE TABLE merge_list_pid_test (id SERIAL, data TEXT)")?;
         Spi::run(
-            "CREATE INDEX merge_list_pid_test_idx ON merge_list_pid_test USING bm25(id, data) WITH (key_field = 'id')",
+            "CREATE INDEX merge_list_pid_test_idx ON merge_list_pid_test USING paradedb(id, data) WITH (key_field = 'id')",
         )?;
 
         let index_oid =

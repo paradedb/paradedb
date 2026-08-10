@@ -616,7 +616,7 @@ fn top_k_matches(mut conn: PgConnection) {
 
         -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
 
-        CREATE INDEX idxtest ON test USING paradedb(id, message, severity) WITH (key_field = 'id');
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id');
         CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
         DECLARE
             current_txid bigint;
@@ -772,7 +772,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING paradedb(id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
@@ -1150,7 +1150,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
 
     CREATE TABLE t (id bigint);
     INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;
-    CREATE INDEX t_idx ON t USING paradedb(id) WITH (key_field='id');
+    CREATE INDEX t_idx ON t USING paradedb (id) WITH (key_field='id');
     "#
     .execute(&mut conn);
 

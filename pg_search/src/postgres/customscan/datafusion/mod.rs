@@ -29,4 +29,5 @@
 pub mod explain;
 mod expr_translators;
 pub mod memory;
+mod spill;
 pub mod translator;

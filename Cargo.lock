@@ -2205,7 +2205,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "2.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-08-100736#91667bfc003a3118abdec2b2c4358f93ca564b08"
+source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-10-030937#fe1a153fc0c2d46002c6cc3dd8b51a3588b5b7f9"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5653,6 +5653,7 @@ dependencies = [
  "time",
  "tokenizers",
  "tokio",
+ "tokio-util",
  "typetag",
  "uuid",
 ]

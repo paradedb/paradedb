@@ -166,7 +166,9 @@ const SEGMENT_ID_SIZE: usize = 16;
 const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 
 /// Max JSON bytes stored per primary segment for EXPLAIN info in DSM.
-const SEGMENT_INFO_MAX_PER_SEG: usize = 1024;
+/// Sized for the diagnostic per-cluster arrays (`cluster_bound_audit`,
+/// `probed_cluster_ranks`): a deep probe emits tens of KB per segment.
+const SEGMENT_INFO_MAX_PER_SEG: usize = 64 * 1024;
 
 #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C)]

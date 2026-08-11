@@ -157,8 +157,8 @@ FROM mpp_explain_analyze_output
 WHERE line LIKE '%output_rows%';
 
 -- Assigned range variants expose one local partition, satisfying DataFusion's
--- dynamic-filter routing condition. Positive pruning is worker-runtime proof
--- that a populated join filter reached the Tantivy scan after dispatch.
+-- dynamic-filter routing condition. A worker may apply the resulting filter
+-- either in the batch pre-filter or by pushing it directly into Tantivy.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -177,8 +177,9 @@ BEGIN
     SELECT 1
     FROM mpp_explain_analyze_output
     WHERE line ~ 'rows_pruned=\{[^}]*:[1-9][0-9]*'
+       OR line LIKE '%dynamic_filter_pushdown=%'
   ) THEN
-    RAISE EXCEPTION 'expected an MPP range-join worker to prune rows with a dynamic filter';
+    RAISE EXCEPTION 'expected an MPP range-join worker to apply a dynamic filter';
   END IF;
 END $$;
 

@@ -161,9 +161,9 @@ pub struct PgSearchScanPlan {
     /// from ParallelScanState or the reader, and kept around for EXPLAIN after
     /// the state is consumed.
     segment_count: usize,
-    /// Number of partitions in the scan before task specialization. Assigned variants expose
-    /// one local partition to DataFusion, but dispatch still needs this global count to rebuild
-    /// the same range boundaries on the receiving worker.
+    /// Number of partitions in the scan before task specialization. A specialized variant's
+    /// `output_partitioning` is always one, so this count is serialized separately and used to
+    /// rebuild the original range boundaries when the variant is decoded on its worker.
     global_partition_count: usize,
     properties: Arc<PlanProperties>,
     resolved_query: SearchQueryInput,
@@ -272,7 +272,7 @@ impl PgSearchScanPlan {
         // If state is None, execute() will return an EmptyStream for this single partition.
         let range_boundaries = range_sample.as_ref().map(|s| s.build(partition_count));
         let partitioning =
-            declared_partitioning(&schema, partition_count, range_boundaries.as_ref(), None);
+            declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
@@ -397,7 +397,6 @@ impl PgSearchScanPlan {
             self.properties.eq_properties.schema(),
             target_partitions,
             range_boundaries,
-            self.assigned_partition,
         );
         let new_properties = Arc::new(
             PlanProperties::clone(self.properties.as_ref()).with_partitioning(partitioning),
@@ -418,16 +417,6 @@ impl PgSearchScanPlan {
         dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
         global_partition_count: usize,
     ) -> Arc<Self> {
-        let properties = if self.assigned_partition.is_some()
-            && properties.output_partitioning().partition_count() != 1
-        {
-            Arc::new(
-                PlanProperties::clone(properties.as_ref())
-                    .with_partitioning(Partitioning::UnknownPartitioning(1)),
-            )
-        } else {
-            properties
-        };
         Arc::new(Self {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
@@ -458,17 +447,17 @@ impl PgSearchScanPlan {
     /// The variant declares `Partitioning::UnknownPartitioning(1)` so DataFusion treats
     /// it as a single-partition plan, while `assigned_partition` records which partition's
     /// workload (range bounds or parallel state assignment) this variant executes.
-    pub(crate) fn with_assigned_partition(self: &Arc<Self>, assigned: usize) -> Arc<Self> {
-        debug_assert!(
+    pub(crate) fn with_assigned_partition(&self, assigned: usize) -> Arc<Self> {
+        assert!(
             self.assigned_partition.is_none(),
             "PgSearchScanPlan is already task-specialized"
         );
-        debug_assert!(
+        assert!(
             assigned < self.global_partition_count,
             "assigned partition {assigned} is outside global partition count {}",
             self.global_partition_count
         );
-        let mut variant = self.as_ref().clone();
+        let mut variant = self.clone();
         variant.assigned_partition = Some(assigned);
         let new_properties = Arc::new(
             PlanProperties::clone(variant.properties.as_ref())
@@ -705,11 +694,10 @@ impl PgSearchScanPlan {
             descriptor.range_sample,
         );
         plan.dynamic_filters = dynamic_filters;
-        let plan_arc = Arc::new(plan);
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
-            plan_arc.with_assigned_partition(assigned)
+            plan.with_assigned_partition(assigned)
         } else {
-            plan_arc
+            Arc::new(plan)
         };
         Ok(final_plan)
     }
@@ -757,11 +745,7 @@ fn declared_partitioning(
     schema: &SchemaRef,
     partition_count: usize,
     range_boundaries: Option<&RangePartitioning>,
-    assigned_partition: Option<usize>,
 ) -> Partitioning {
-    if assigned_partition.is_some() {
-        return Partitioning::UnknownPartitioning(1);
-    }
     if partition_count > 1
         && let Some(boundaries) = range_boundaries
         && boundaries.split_points.len() + 1 == partition_count
@@ -827,13 +811,7 @@ impl DisplayAs for PgSearchScanPlan {
         write!(f, "PgSearchScan: segments={}", self.segment_count)?;
         if let Some(range_sample) = &self.range_sample {
             if let Some(assigned) = self.assigned_partition {
-                let state_guard = self.state.lock().ok();
-                let partitioning = match state_guard.as_deref() {
-                    Some(ExecutionState::RangePartitioned {
-                        range_boundaries, ..
-                    }) => range_boundaries.clone(),
-                    _ => range_sample.build(self.global_partition_count),
-                };
+                let partitioning = range_sample.build(self.global_partition_count);
 
                 let lower = if assigned > 0 && assigned - 1 < partitioning.split_points.len() {
                     let val = &partitioning.split_points[assigned - 1];
@@ -895,19 +873,37 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
-        let partition_count = self.properties.output_partitioning().partition_count();
-        let num_rows = match partition {
+        let local_partition_count = self.properties.output_partitioning().partition_count();
+        if let Some(partition) = partition
+            && partition >= local_partition_count
+        {
+            return Err(DataFusionError::Internal(format!(
+                "Partition {} out of range (have {} partitions)",
+                partition, local_partition_count
+            )));
+        }
+
+        // `None` means the whole visible plan. For a specialized variant, that whole plan is its
+        // one assigned global partition; for the original plan it is all global partitions.
+        let global_partition = self.assigned_partition.or(partition);
+        let num_rows = match global_partition {
             None => Precision::Inexact(self.planner_estimated_rows as usize),
-            Some(p) if p < partition_count => {
-                let rows_per_partition =
-                    self.planner_estimated_rows as usize / partition_count.max(1);
-                Precision::Inexact(rows_per_partition)
-            }
-            Some(p) => {
-                return Err(DataFusionError::Internal(format!(
-                    "Partition {} out of range (have {} partitions)",
-                    p, partition_count
-                )));
+            Some(global_partition) => {
+                // A short range sample leaves surplus global partitions intentionally empty.
+                let populated_partition_count = self
+                    .range_sample
+                    .as_ref()
+                    .map(|sample| {
+                        self.global_partition_count
+                            .min(sample.sample_points.len().saturating_add(1))
+                    })
+                    .unwrap_or(self.global_partition_count);
+                let rows = if global_partition < populated_partition_count {
+                    self.planner_estimated_rows as usize / populated_partition_count.max(1)
+                } else {
+                    0
+                };
+                Precision::Inexact(rows)
             }
         };
 
@@ -1315,9 +1311,8 @@ pub(crate) fn pg_search_scan_scale_up_leaf_node(
 
         // Assign each task its explicit execution partition to ensure it is the only one
         // executing it.
-        let final_scan_plan_arc = Arc::new(final_scan_plan.clone());
         let variants = (0..ev.task_count)
-            .map(|i| final_scan_plan_arc.with_assigned_partition(i) as Arc<dyn ExecutionPlan>)
+            .map(|i| final_scan_plan.with_assigned_partition(i) as Arc<dyn ExecutionPlan>)
             .collect::<Vec<_>>();
 
         Ok(ScaleUpLeafNodeEventResponse::new(Arc::new(

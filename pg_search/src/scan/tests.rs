@@ -26,6 +26,7 @@ mod tests {
     use crate::query::SearchQueryInput;
     use crate::scan::execution_plan::PgSearchScanPlan;
     use crate::schema::SearchFieldType;
+    use datafusion::common::stats::Precision;
     use datafusion::execution::TaskContext;
     use datafusion::physical_plan::ExecutionPlan;
     use futures::StreamExt;
@@ -639,6 +640,7 @@ mod tests {
     }
 
     #[pg_test]
+    #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioning_repartition() {
         let (heap_oid, index_oid) = get_relation_oids();
         let heap_rel = PgSearchRelation::open(heap_oid);
@@ -668,7 +670,7 @@ mod tests {
 
         let partition = crate::scan::execution_plan::ScanState {
             source_idx: None,
-            planner_estimated_rows: 0,
+            planner_estimated_rows: 100,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),
@@ -736,6 +738,30 @@ mod tests {
             plan_10.properties().output_partitioning(),
             Partitioning::UnknownPartitioning(_)
         ));
+        assert_eq!(
+            plan_10.partition_statistics(Some(0)).unwrap().num_rows,
+            Precision::Inexact(20)
+        );
+        assert_eq!(
+            plan_10.partition_statistics(Some(9)).unwrap().num_rows,
+            Precision::Inexact(0)
+        );
+
+        let empty_variant = plan_10
+            .downcast_ref::<PgSearchScanPlan>()
+            .unwrap()
+            .with_assigned_partition(9);
+        assert_eq!(
+            empty_variant.partition_statistics(None).unwrap().num_rows,
+            Precision::Inexact(0)
+        );
+        assert_eq!(
+            empty_variant
+                .partition_statistics(Some(0))
+                .unwrap()
+                .num_rows,
+            Precision::Inexact(0)
+        );
     }
 
     #[pg_test]
@@ -815,6 +841,7 @@ mod tests {
     }
 
     #[pg_test]
+    #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {
         use arrow_array::Int64Array;
         use datafusion::physical_plan::Partitioning;
@@ -848,7 +875,7 @@ mod tests {
 
         let scan_state = crate::scan::execution_plan::ScanState {
             source_idx: None,
-            planner_estimated_rows: 0,
+            planner_estimated_rows: 100,
             scanner_config: crate::scan::execution_plan::ScannerConfig {
                 which_fast_fields: fields.clone(),
                 heap_relid: heap_oid.into(),
@@ -884,8 +911,25 @@ mod tests {
             None,
             Some(sample),
         );
+
+        // The planner-facing original retains all four global ranges. Only the variant sent to
+        // one distributed task advertises a single local partition.
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 4);
+        assert!(matches!(
+            plan.properties().output_partitioning(),
+            Partitioning::Range(_)
+        ));
+        assert_eq!(
+            plan.partition_statistics(None).unwrap().num_rows,
+            Precision::Inexact(100)
+        );
+        assert_eq!(
+            plan.partition_statistics(Some(1)).unwrap().num_rows,
+            Precision::Inexact(25)
+        );
+
         // As one of four task variants: this one owns partition 1 alone.
-        let plan = Arc::new(plan).with_assigned_partition(1);
+        let plan = plan.with_assigned_partition(1);
 
         assert!(plan.repartition(2).is_err());
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
@@ -893,6 +937,15 @@ mod tests {
             plan.properties().output_partitioning(),
             Partitioning::UnknownPartitioning(1)
         ));
+        assert_eq!(
+            plan.partition_statistics(None).unwrap().num_rows,
+            Precision::Inexact(25)
+        );
+        assert_eq!(
+            plan.partition_statistics(Some(0)).unwrap().num_rows,
+            Precision::Inexact(25)
+        );
+        assert!(plan.partition_statistics(Some(1)).is_err());
 
         // Dispatch must preserve the four global ranges even though this task-specialized
         // variant advertises one local partition to DataFusion.
@@ -913,6 +966,10 @@ mod tests {
             plan.properties().output_partitioning(),
             Partitioning::UnknownPartitioning(1)
         ));
+
+        // The specialized plan exposes only local partition 0. Rejecting another local
+        // partition must not consume the assigned global partition's execution state.
+        assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()

@@ -187,10 +187,6 @@ jobs:
         if: steps.release_gate.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          # `-v ON_ERROR_STOP=1` is what makes this step an actual gate: psql exits 0
-          # on a SQL error in `-c`, so without it a failed `CREATE EXTENSION` would
-          # print the error and still pass. The log scan above runs before these
-          # commands, so it does not cover them either.
           docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "SELECT 1;"
           docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec paradedb psql -v ON_ERROR_STOP=1 -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"

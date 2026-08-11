@@ -22,7 +22,7 @@ use crate::aggregate::{AggregateRequest, execute_aggregate, scrub_missing_sentin
 use crate::api::HashMap;
 use crate::api::version::VersionInfo;
 use crate::customscan::aggregatescan::build::{
-    AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
+    AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey, MissingKey,
 };
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateScan, AggregateType};
@@ -36,9 +36,27 @@ use pgrx::{IntoDatum, JsonB, check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_result::{
     AggregationResult as TantivyAggregationResult, AggregationResults as TantivyAggregationResults,
-    BucketResult, MetricResult as TantivyMetricResult,
+    BucketEntries, BucketEntry, BucketResult, MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
+
+/// Extract the bucket entries from a grouped aggregation result. Grouping columns
+/// produce a `terms` aggregation, except for date-bucketed columns (`GROUP BY DATE(ts)`)
+/// which produce a `histogram`. Returns `None` for any other result type.
+fn extract_grouped_buckets(agg_result: &TantivyAggregationResult) -> Option<Vec<&BucketEntry>> {
+    match agg_result {
+        TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. }) => {
+            Some(buckets.iter().collect())
+        }
+        TantivyAggregationResult::BucketResult(BucketResult::Histogram { buckets, .. }) => {
+            Some(match buckets {
+                BucketEntries::Vec(buckets) => buckets.iter().collect(),
+                BucketEntries::HashMap(buckets) => buckets.values().collect(),
+            })
+        }
+        _ => None,
+    }
+}
 
 /// Unified result type for aggregates
 /// Can hold either a standard metric (f64) or a custom aggregate (JSON)
@@ -383,11 +401,8 @@ impl AggregationResults {
         key_accumulator: Vec<TantivyValue>,
         out: &mut Vec<AggregationResultsRow>,
     ) {
-        // look only at the "grouped" terms bucket at this level
-        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-            buckets, ..
-        })) = map.get(GroupedKey::NAME)
-        {
+        // look only at the "grouped" bucket at this level
+        if let Some(buckets) = map.get(GroupedKey::NAME).and_then(extract_grouped_buckets) {
             for bucket_entry in buckets {
                 check_for_interrupts!();
                 // extend the key path with this bucket's key
@@ -400,14 +415,13 @@ impl AggregationResults {
                 };
                 new_keys.push(key_val);
 
-                // check if this bucket has a child "grouped" terms bucket
-                let has_child_grouped = match bucket_entry.sub_aggregation.0.get(GroupedKey::NAME) {
-                    Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                        buckets,
-                        ..
-                    })) => !buckets.is_empty(),
-                    _ => false,
-                };
+                // check if this bucket has a child "grouped" bucket
+                let has_child_grouped = bucket_entry
+                    .sub_aggregation
+                    .0
+                    .get(GroupedKey::NAME)
+                    .and_then(extract_grouped_buckets)
+                    .is_some_and(|buckets| !buckets.is_empty());
 
                 if has_child_grouped {
                     // not a leaf yet; keep descending
@@ -420,6 +434,23 @@ impl AggregationResults {
                         doc_count: Some(bucket_entry.doc_count),
                     });
                 }
+            }
+        }
+
+        // A histogram only produces buckets for documents that have a value, so rows whose
+        // grouping column is NULL land in no bucket at all. The `MissingKey` filter counts
+        // them separately; emit them as one group keyed by the NULL sentinel.
+        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Filter(missing))) =
+            map.get(MissingKey::NAME)
+        {
+            if missing.doc_count > 0 {
+                let mut new_keys = key_accumulator;
+                new_keys.push(TantivyValue(PdbOwnedValue::F64(f64::MAX)));
+                out.push(AggregationResultsRow {
+                    group_keys: new_keys,
+                    aggregates: Vec::new(),
+                    doc_count: Some(missing.doc_count),
+                });
             }
         }
     }
@@ -440,10 +471,9 @@ impl AggregationResults {
 
             // traverse down into nested "grouped" buckets following group_keys
             for key in &row.group_keys {
-                if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                    buckets,
-                    ..
-                })) = current.get(GroupedKey::NAME)
+                if let Some(buckets) = current
+                    .get(GroupedKey::NAME)
+                    .and_then(extract_grouped_buckets)
                 {
                     // find the bucket whose key matches this level
                     let maybe_bucket = buckets.iter().find(|b| match (&b.key, &key.0) {
@@ -457,6 +487,14 @@ impl AggregationResults {
                     if let Some(bucket) = maybe_bucket {
                         // descend into this bucket’s sub-aggregations
                         current = &bucket.sub_aggregation.0;
+                    } else if let Some(TantivyAggregationResult::BucketResult(
+                        BucketResult::Filter(missing),
+                    )) = current.get(MissingKey::NAME)
+                    {
+                        // A histogram emits no bucket for rows whose grouping column is
+                        // NULL; their metrics are computed by the sibling `missing` filter
+                        // aggregation instead (see `CollectNested::collect` in build.rs).
+                        current = &missing.sub_aggregations.0;
                     } else {
                         // no matching bucket found — bail out early
                         found = false;
@@ -616,10 +654,9 @@ impl AggregationResults {
                     let mut matched = true;
 
                     for key in &row.group_keys {
-                        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                            buckets,
-                            ..
-                        })) = current.get(GroupedKey::NAME)
+                        if let Some(buckets) = current
+                            .get(GroupedKey::NAME)
+                            .and_then(extract_grouped_buckets)
                         {
                             if let Some(bucket) = buckets.iter().find(|b| match (&b.key, &key.0) {
                                 (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
